@@ -391,7 +391,7 @@ TUS CAPACIDADES REALES - NUNCA LAS OLVIDES
 ==================================================
 
 INFORMACION DEL NEGOCIO:
-{json.dumps(memoria.get('negocio', {{}}), ensure_ascii=False)}
+{json.dumps(memoria.get('negocio', dict()), ensure_ascii=False)}
 
 PRECIOS GUARDADOS EN MEMORIA:
 {precios}
