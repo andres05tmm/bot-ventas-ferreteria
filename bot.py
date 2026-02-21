@@ -371,8 +371,11 @@ async def procesar_con_claude(mensaje_usuario, nombre_usuario, historial_chat):
     resumen_texto = f"${resumen['total']:,.0f} en {resumen['num_ventas']} ventas este mes" if resumen else "Sin ventas este mes"
 
     # Pasar datos historicos para analisis
-    todos_los_datos = obtener_todos_los_datos()
-    datos_texto = json.dumps(todos_los_datos[-100:], ensure_ascii=False, default=str) if todos_los_datos else "Sin datos aun"
+    try:
+        todos_los_datos = obtener_todos_los_datos()
+        datos_texto = json.dumps(todos_los_datos[-100:], ensure_ascii=False, default=str) if todos_los_datos else "Sin datos aun"
+    except Exception:
+        datos_texto = "Sin datos aun"
 
     system_prompt = f"""Eres FerreBot, asistente inteligente de una ferreteria.
 
@@ -576,7 +579,8 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.remove(archivo)
 
     except Exception as e:
-        print(f"Error: {e}")
+        import traceback
+        print(f"Error completo: {traceback.format_exc()}")
         await update.message.reply_text("Tuve un problema. Intenta de nuevo.")
 
 async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -638,4 +642,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
