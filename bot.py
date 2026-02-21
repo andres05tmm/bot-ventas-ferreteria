@@ -413,8 +413,12 @@ INSTRUCCIONES DE FORMATO:
 7. Para borrar ventas indica: /borrar numero
 8. Usuario: {nombre_usuario}"""
 
-    messages = list(historial_chat[-10:])
-    messages.append({"role": "user", "content": mensaje_usuario})
+    # Asegurar que el historial solo tenga dicts validos con strings
+    messages = []
+    for msg in historial_chat[-10:]:
+        if isinstance(msg, dict) and "role" in msg and "content" in msg:
+            messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
+    messages.append({"role": "user", "content": str(mensaje_usuario)})
 
     respuesta = claude_client.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -634,3 +638,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
