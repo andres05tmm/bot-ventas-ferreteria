@@ -48,7 +48,7 @@ if claves_faltantes:
     exit(1)
 
 EXCEL_FILE = "ventas.xlsx"
-VERSION = "v3.0-fixed"  # Marcador de version
+VERSION = "v3.2-excel-editor"  # Marcador de version
 MEMORIA_FILE = "memoria.json"
 
 claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -559,6 +559,39 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mensaje.startswith("/"):
         return
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+    # Si el usuario tiene un Excel cargado, procesarlo con esa instruccion
+    excel_temp = context.user_data.get("excel_temp")
+    excel_nombre = context.user_data.get("excel_nombre")
+    if excel_temp and os.path.exists(excel_temp):
+        try:
+            await update.message.reply_text("⚙️ Procesando tu Excel...")
+            codigo = await editar_excel_con_claude(mensaje, excel_temp, excel_nombre, vendedor, chat_id)
+            
+            if codigo.strip() == "IMPOSIBLE":
+                await update.message.reply_text("No pude hacer eso con el Excel. Intenta con otra instruccion.")
+                return
+
+            # Ejecutar el codigo generado por Claude
+            exec(compile(codigo, "<string>", "exec"), {"openpyxl": openpyxl, "json": json, "os": os})
+            
+            # Enviar el Excel modificado
+            await update.message.reply_text("✅ Excel modificado. Aqui esta el resultado:")
+            with open(excel_temp, "rb") as f:
+                await update.message.reply_document(document=f, filename=f"modificado_{excel_nombre}")
+            
+            # Limpiar referencia
+            context.user_data.pop("excel_temp", None)
+            context.user_data.pop("excel_nombre", None)
+            if os.path.exists(excel_temp):
+                os.remove(excel_temp)
+            return
+        except Exception as e:
+            import traceback
+            print(f"Error editando Excel: {traceback.format_exc()}")
+            await update.message.reply_text("Tuve un problema editando el Excel. Intenta con una instruccion diferente.")
+            return
+
     try:
         historial = historiales.get(chat_id, [])
         agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
@@ -623,12 +656,127 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Problema con el audio. Intenta de nuevo.")
 
 
+async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja archivos Excel que le mandan al bot — los lee, edita y devuelve."""
+    vendedor = update.message.from_user.first_name or "Desconocido"
+    chat_id = update.message.chat_id
+    doc = update.message.document
+
+    if not doc:
+        return
+
+    nombre = doc.file_name or "archivo"
+    extension = nombre.split(".")[-1].lower() if "." in nombre else ""
+
+    if extension not in ["xlsx", "xls"]:
+        await update.message.reply_text(f"Recibí '{nombre}'. Solo puedo procesar archivos Excel (.xlsx). ¿Necesitas algo más?")
+        return
+
+    await update.message.reply_text(f"📂 Recibí tu archivo '{nombre}'. Leyendo contenido...")
+
+    try:
+        # Descargar el archivo
+        archivo = await doc.get_file()
+        ruta_temp = f"temp_{chat_id}_{nombre}"
+        await archivo.download_to_drive(ruta_temp)
+
+        # Leer el contenido del Excel
+        wb = openpyxl.load_workbook(ruta_temp)
+        resumen_hojas = []
+        for hoja_nombre in wb.sheetnames:
+            ws = wb[hoja_nombre]
+            filas = ws.max_row - 1
+            cols = ws.max_column
+            encabezados = [ws.cell(row=1, column=c).value for c in range(1, cols+1) if ws.cell(row=1, column=c).value]
+            resumen_hojas.append(f"Hoja '{hoja_nombre}': {filas} filas, columnas: {', '.join(str(e) for e in encabezados)}")
+
+        resumen = "
+".join(resumen_hojas)
+
+        # Guardar referencia del archivo en contexto
+        context.user_data["excel_temp"] = ruta_temp
+        context.user_data["excel_nombre"] = nombre
+
+        await update.message.reply_text(
+            f"✅ Excel cargado correctamente.
+
+{resumen}
+
+"
+            f"Ahora dime qué quieres hacer con él. Por ejemplo:
+"
+            f"- 'Agrega una columna de IVA del 19%'
+"
+            f"- 'Ordena de mayor a menor por total'
+"
+            f"- 'Cambia los encabezados a color rojo'
+"
+            f"- 'Calcula el total de todas las ventas'"
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"Error leyendo Excel: {traceback.format_exc()}")
+        await update.message.reply_text("Tuve un problema leyendo el archivo. Asegúrate de que sea un Excel válido.")
+
+
+async def editar_excel_con_claude(instruccion, ruta_excel, nombre_excel, vendedor, chat_id):
+    """Usa Claude para generar código Python que edite el Excel según la instrucción."""
+    
+    # Leer estructura del Excel
+    wb = openpyxl.load_workbook(ruta_excel)
+    info_hojas = []
+    for hoja_nombre in wb.sheetnames:
+        ws = wb[hoja_nombre]
+        encabezados = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column+1)]
+        filas_ejemplo = []
+        for fila in ws.iter_rows(min_row=2, max_row=min(4, ws.max_row), values_only=True):
+            filas_ejemplo.append(list(fila))
+        info_hojas.append({
+            "hoja": hoja_nombre,
+            "encabezados": encabezados,
+            "ejemplo_filas": filas_ejemplo,
+            "total_filas": ws.max_row - 1
+        })
+
+    prompt = f"""Eres un experto en Python y openpyxl. El usuario tiene un archivo Excel llamado '{nombre_excel}' con esta estructura:
+
+{json.dumps(info_hojas, ensure_ascii=False, default=str)}
+
+El usuario quiere: {instruccion}
+
+Genera SOLO el codigo Python necesario para modificar el archivo usando openpyxl.
+- El archivo ya esta cargado, usa: wb = openpyxl.load_workbook('{ruta_excel}')
+- Al final guarda con: wb.save('{ruta_excel}')
+- Usa colores en formato hex sin # (ej: 'FF0000' para rojo)
+- No importes nada, openpyxl ya esta disponible
+- Solo el codigo, sin explicaciones ni comentarios
+- Si la instruccion no tiene sentido para un Excel, devuelve solo: IMPOSIBLE"""
+
+    respuesta = claude_client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1000,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    
+    codigo = respuesta.content[0].text.strip()
+    
+    # Limpiar markdown si viene
+    if "```python" in codigo:
+        codigo = codigo.split("```python")[1].split("```")[0].strip()
+    elif "```" in codigo:
+        codigo = codigo.split("```")[1].split("```")[0].strip()
+    
+    return codigo
+
+
+
 # ============================================================
 # INICIO
 # ============================================================
 
 def main():
-    print("🚀 Iniciando bot inteligente de la ferreteria... VERSION v3.0-fixed")
+    print("🚀 Iniciando bot inteligente de la ferreteria... VERSION v3.2-excel-editor")
     sincronizar_archivos()
     inicializar_excel()
     app = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -640,6 +788,7 @@ def main():
     app.add_handler(CommandHandler("precios", comando_precios))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))
     app.add_handler(MessageHandler(filters.VOICE, manejar_audio))
+    app.add_handler(MessageHandler(filters.Document.ALL, manejar_documento))
     print("✅ Bot funcionando. Esperando mensajes...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
