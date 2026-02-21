@@ -48,6 +48,7 @@ if claves_faltantes:
     exit(1)
 
 EXCEL_FILE = "ventas.xlsx"
+VERSION = "v3.0-fixed"  # Marcador de version
 MEMORIA_FILE = "memoria.json"
 
 claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -580,6 +581,8 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         import traceback
+        import sys
+        print(f"Error completo: {traceback.format_exc()}", file=sys.stderr)
         print(f"Error completo: {traceback.format_exc()}")
         await update.message.reply_text("Tuve un problema. Intenta de nuevo.")
 
@@ -625,7 +628,7 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================
 
 def main():
-    print("🚀 Iniciando bot inteligente de la ferreteria...")
+    print("🚀 Iniciando bot inteligente de la ferreteria... VERSION v3.0-fixed")
     sincronizar_archivos()
     inicializar_excel()
     app = Application.builder().token(TELEGRAM_TOKEN).build()
