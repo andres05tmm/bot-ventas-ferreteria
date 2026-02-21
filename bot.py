@@ -9,19 +9,12 @@ import os
 import json
 import tempfile
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import anthropic
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 import openai
-
-# ============================================================
-# CARGAR VARIABLES DEL ARCHIVO .env
-# ============================================================
-load_dotenv(override=False)
-
 # ============================================================
 # CONFIGURACIÓN — Aquí van tus claves (las conseguirás más adelante)
 # ============================================================
