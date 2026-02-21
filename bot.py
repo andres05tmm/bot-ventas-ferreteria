@@ -690,27 +690,18 @@ async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
             encabezados = [ws.cell(row=1, column=c).value for c in range(1, cols+1) if ws.cell(row=1, column=c).value]
             resumen_hojas.append(f"Hoja '{hoja_nombre}': {filas} filas, columnas: {', '.join(str(e) for e in encabezados)}")
 
-        resumen = "
-".join(resumen_hojas)
+        resumen = "\n".join(resumen_hojas)
 
         # Guardar referencia del archivo en contexto
         context.user_data["excel_temp"] = ruta_temp
         context.user_data["excel_nombre"] = nombre
 
         await update.message.reply_text(
-            f"✅ Excel cargado correctamente.
-
-{resumen}
-
-"
-            f"Ahora dime qué quieres hacer con él. Por ejemplo:
-"
-            f"- 'Agrega una columna de IVA del 19%'
-"
-            f"- 'Ordena de mayor a menor por total'
-"
-            f"- 'Cambia los encabezados a color rojo'
-"
+            f"✅ Excel cargado correctamente.\n\n{resumen}\n\n"
+            f"Ahora dime que quieres hacer con el. Por ejemplo:\n"
+            f"- Agrega una columna de IVA del 19%\n"
+            f"- Ordena de mayor a menor por total\n"
+            f"- Cambia los encabezados a color rojo\n"
             f"- 'Calcula el total de todas las ventas'"
         )
 
