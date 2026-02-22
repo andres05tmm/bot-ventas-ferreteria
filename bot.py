@@ -14,10 +14,13 @@ Bot Inteligente de Ventas para Telegram con Claude AI
 - Modo offline/fallback
 - Webhook (Railway)
 
-CORRECCIONES v6.5:
-- [FIX] El bot ya no dice "no tengo ese producto" cuando si esta en el catalogo.
-        Ahora busca candidatos en tiempo real y se los pasa a Claude en el contexto,
-        para que los muestre aunque el nombre no sea exacto o haya variantes.
+CORRECCIONES v6.6:
+- [FIX] Bot adaptado completamente a la estructura real del Excel:
+        Fila 1=titulo, Fila 2=vacia, Fila 3=encabezados, Fila 4+=datos.
+        Columnas reales: FECHA, HORA, PRODUCTO, CANTIDAD, VALOR UNITARIO,
+        SUBTOTAL, ALIAS, VENDEDOR, METODO DE PAGO.
+- [FIX] /ventas, /borrar y todas las funciones de Excel usan los nombres
+        de columna reales en vez de indices hardcodeados.
 """
 
 import os
@@ -73,8 +76,28 @@ if claves_faltantes:
     exit(1)
 
 EXCEL_FILE = "ventas.xlsx"
-VERSION = "v6.5-sheets"
+VERSION = "v6.6-sheets"
 MEMORIA_FILE = "memoria.json"
+
+# Estructura real del Excel (ventas.xlsx)
+# Fila 1: Titulo "FERRETERIA PUNTO ROJO - VENTAS"
+# Fila 2: vacía
+# Fila 3: Encabezados
+# Fila 4+: Datos
+EXCEL_FILA_TITULO     = 1
+EXCEL_FILA_HEADERS    = 3
+EXCEL_FILA_DATOS      = 4   # primera fila de datos
+
+# Nombres exactos de columnas en el Excel real
+COL_FECHA    = "fecha"
+COL_HORA     = "hora"
+COL_PRODUCTO = "producto"
+COL_CANTIDAD = "cantidad"
+COL_PRECIO   = "valor unitario"
+COL_TOTAL    = "subtotal"
+COL_ALIAS    = "alias"
+COL_VENDEDOR = "vendedor"
+COL_METODO   = "metodo de pago"
 
 claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -413,7 +436,7 @@ def sheets_detectar_ediciones_vs_excel():
         col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
         col_prod  = next((v for k, v in cols.items() if "producto" in k), None)
         col_total = next((v for k, v in cols.items() if "total" in k), None)
-        for fila in ws_xl.iter_rows(min_row=2, values_only=True):
+        for fila in ws_xl.iter_rows(min_row=EXCEL_FILA_DATOS, values_only=True):
             if not any(fila):
                 continue
             if col_fecha and str(fila[col_fecha-1])[:10] == hoy:
@@ -648,18 +671,30 @@ def obtener_nombre_hoja():
     meses = {1:"Enero",2:"Febrero",3:"Marzo",4:"Abril",5:"Mayo",6:"Junio",
              7:"Julio",8:"Agosto",9:"Septiembre",10:"Octubre",11:"Noviembre",12:"Diciembre"}
     ahora = datetime.now(COLOMBIA_TZ)
-    return f"{meses[ahora.month]} {ahora.year}"
+    return f"{meses[ahora.month]} {ahora.year}"  # ej: "Febrero 2026"
 
 def inicializar_hoja(ws):
-    if ws.max_row > 1:
-        return
-    encabezados = ["#","Fecha","Hora","Producto","Cantidad","Precio Unitario","Total","Vendedor","Observaciones"]
+    """Crea la estructura real del Excel: titulo en fila 1, encabezados en fila 3."""
+    if ws.max_row > EXCEL_FILA_HEADERS:
+        return  # Ya tiene datos, no reinicializar
+
+    # Fila 1: titulo
+    ws.merge_cells(f"A1:{openpyxl.utils.get_column_letter(9)}1")
+    celda_titulo = ws.cell(row=EXCEL_FILA_TITULO, column=1, value="FERRETERIA PUNTO ROJO - VENTAS")
+    celda_titulo.font = Font(bold=True, color="FFFFFF", size=13)
+    celda_titulo.fill = PatternFill("solid", fgColor="1A56DB")
+    celda_titulo.alignment = Alignment(horizontal="center")
+
+    # Fila 2: vacia (separador visual)
+    # Fila 3: encabezados
+    encabezados = ["FECHA","HORA","PRODUCTO","CANTIDAD","VALOR UNITARIO","SUBTOTAL","ALIAS","VENDEDOR","METODO DE PAGO"]
     for col, titulo in enumerate(encabezados, 1):
-        celda = ws.cell(row=1, column=col, value=titulo)
+        celda = ws.cell(row=EXCEL_FILA_HEADERS, column=col, value=titulo)
         celda.font = Font(bold=True, color="FFFFFF", size=11)
         celda.fill = PatternFill("solid", fgColor="1A56DB")
         celda.alignment = Alignment(horizontal="center")
-    anchos = [6,12,10,25,12,18,14,20,30]
+
+    anchos = [12, 8, 28, 10, 15, 14, 15, 15, 16]
     for col, ancho in enumerate(anchos, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = ancho
 
@@ -682,13 +717,12 @@ def inicializar_excel():
 
 def detectar_columnas(ws):
     """
-    Retorna un dict {nombre_encabezado_lower: numero_columna}.
-    Matching exacto para evitar asignaciones incorrectas
-    (p.ej. '#' no debe coincidir con 'precio #').
+    Lee los encabezados del Excel real desde la fila EXCEL_FILA_HEADERS (fila 3).
+    Retorna dict {nombre_lower: numero_columna}.
     """
     encabezados = {}
     for col in range(1, ws.max_column + 1):
-        valor = ws.cell(row=1, column=col).value
+        valor = ws.cell(row=EXCEL_FILA_HEADERS, column=col).value
         if valor:
             encabezados[str(valor).lower().strip()] = col
     return encabezados
@@ -717,40 +751,36 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor, ob
     nombre_hoja = obtener_nombre_hoja()
     ws = obtener_o_crear_hoja(wb, nombre_hoja)
     cols = detectar_columnas(ws)
-    fila = ws.max_row + 1
-    fecha_hoy = datetime.now(COLOMBIA_TZ).strftime("%Y-%m-%d")
+
+    # La primera fila de datos es EXCEL_FILA_DATOS (4), o la siguiente despues del ultimo dato
+    fila = max(ws.max_row + 1, EXCEL_FILA_DATOS)
+    # Si la fila actual es un encabezado o titulo, avanzar
+    while fila < EXCEL_FILA_DATOS:
+        fila += 1
+
+    fecha_hoy  = datetime.now(COLOMBIA_TZ).strftime("%Y-%m-%d")
     hora_ahora = datetime.now(COLOMBIA_TZ).strftime("%H:%M")
-    num_venta = fila - 1
+    num_venta  = fila - EXCEL_FILA_DATOS + 1  # numero secuencial de venta del dia
 
-    # Mapa seguro: clave canonica -> columna (coincidencia exacta primero)
-    mapa = {
-        "#":               _col_para(cols, "#", "num", "numero"),
-        "fecha":           _col_para(cols, "fecha"),
-        "hora":            _col_para(cols, "hora"),
-        "producto":        _col_para(cols, "producto"),
-        "cantidad":        _col_para(cols, "cantidad"),
-        "precio unitario": _col_para(cols, "precio unitario", "precio_unitario", "precio"),
-        "total":           _col_para(cols, "total"),
-        "vendedor":        _col_para(cols, "vendedor"),
-        "observaciones":   _col_para(cols, "observaciones", "metodo", "metodo pago"),
-    }
+    # Mapa columna real -> valor
     datos = {
-        "#": num_venta, "fecha": fecha_hoy, "hora": hora_ahora,
-        "producto": producto, "cantidad": cantidad,
-        "precio unitario": precio_unitario,
-        "total": total, "vendedor": vendedor, "observaciones": observaciones,
+        COL_FECHA:    fecha_hoy,
+        COL_HORA:     hora_ahora,
+        COL_PRODUCTO: str(producto),
+        COL_CANTIDAD: cantidad,
+        COL_PRECIO:   float(precio_unitario),
+        COL_TOTAL:    float(total),
+        COL_ALIAS:    str(num_venta),
+        COL_VENDEDOR: str(vendedor),
+        COL_METODO:   str(observaciones),
     }
 
-    if any(mapa.values()):
-        for clave, num_col in mapa.items():
-            if num_col and clave in datos:
-                ws.cell(row=fila, column=num_col, value=datos[clave])
-    else:
-        valores = [num_venta, fecha_hoy, hora_ahora, producto, cantidad, precio_unitario, total, vendedor, observaciones]
-        for col, valor in enumerate(valores, 1):
-            ws.cell(row=fila, column=col, value=valor)
+    for nombre_col, num_col in cols.items():
+        if nombre_col in datos:
+            ws.cell(row=fila, column=num_col, value=datos[nombre_col])
 
-    if fila % 2 == 0:
+    # Alternar color de fila
+    if (fila - EXCEL_FILA_DATOS) % 2 == 1:
         for col in range(1, ws.max_column + 1):
             ws.cell(row=fila, column=col).fill = PatternFill("solid", fgColor="EFF6FF")
 
@@ -769,20 +799,23 @@ def borrar_venta_excel(numero_venta):
     if nombre_hoja not in wb.sheetnames:
         return False, "No hay ventas este mes."
     ws = wb[nombre_hoja]
+    cols = detectar_columnas(ws)
+    col_alias = cols.get(COL_ALIAS)
     fila_borrar = None
-    for fila in range(2, ws.max_row + 1):
-        if ws.cell(row=fila, column=1).value == numero_venta:
-            fila_borrar = fila
-            break
+    for fila in range(EXCEL_FILA_DATOS, ws.max_row + 1):
+        val = ws.cell(row=fila, column=col_alias).value if col_alias else None
+        try:
+            if val is not None and int(float(str(val))) == int(numero_venta):
+                fila_borrar = fila
+                break
+        except (ValueError, TypeError):
+            pass
     if not fila_borrar:
         return False, f"No encontre la venta #{numero_venta}."
     ws.delete_rows(fila_borrar)
     wb.save(EXCEL_FILE)
     subir_a_drive(EXCEL_FILE)
-
-    # Borrar tambien del Sheets si la venta es de hoy
     sheets_borrar_fila(numero_venta)
-
     return True, f"✅ Venta #{numero_venta} borrada del Excel y del Sheets."
 
 def obtener_venta_por_numero(numero_venta):
@@ -794,12 +827,17 @@ def obtener_venta_por_numero(numero_venta):
         return None
     ws = wb[nombre_hoja]
     cols = detectar_columnas(ws)
-    for fila in range(2, ws.max_row + 1):
-        if ws.cell(row=fila, column=1).value == numero_venta:
-            fila_dict = {}
-            for nombre_col, num_col in cols.items():
-                fila_dict[nombre_col] = ws.cell(row=fila, column=num_col).value
-            return fila_dict
+    col_alias = cols.get(COL_ALIAS)
+    for fila in range(EXCEL_FILA_DATOS, ws.max_row + 1):
+        val = ws.cell(row=fila, column=col_alias).value if col_alias else None
+        try:
+            if val is not None and int(float(str(val))) == int(numero_venta):
+                fila_dict = {}
+                for nombre_col, num_col in cols.items():
+                    fila_dict[nombre_col] = ws.cell(row=fila, column=num_col).value
+                return fila_dict
+        except (ValueError, TypeError):
+            pass
     return None
 
 def obtener_ventas_recientes(limite=10):
@@ -811,7 +849,7 @@ def obtener_ventas_recientes(limite=10):
     ws = wb[nombre_hoja]
     cols = detectar_columnas(ws)
     ventas = []
-    for fila in ws.iter_rows(min_row=2, values_only=True):
+    for fila in ws.iter_rows(min_row=EXCEL_FILA_DATOS, values_only=True):
         if not any(fila):
             continue
         fila_dict = {}
@@ -832,7 +870,7 @@ def buscar_ventas(termino):
     for nombre_hoja in wb.sheetnames:
         ws = wb[nombre_hoja]
         cols = detectar_columnas(ws)
-        for fila in ws.iter_rows(min_row=2, values_only=True):
+        for fila in ws.iter_rows(min_row=EXCEL_FILA_DATOS, values_only=True):
             if not any(fila):
                 continue
             fila_texto = " ".join(str(v).lower() for v in fila if v is not None)
@@ -851,7 +889,7 @@ def obtener_todos_los_datos():
     for nombre_hoja in wb.sheetnames:
         ws = wb[nombre_hoja]
         cols = detectar_columnas(ws)
-        for fila in ws.iter_rows(min_row=2, values_only=True):
+        for fila in ws.iter_rows(min_row=EXCEL_FILA_DATOS, values_only=True):
             if any(fila):
                 fila_dict = {"hoja": nombre_hoja}
                 for nombre_col, num_col in cols.items():
@@ -870,7 +908,7 @@ def obtener_resumen_ventas():
     col_total = next((v for k, v in cols.items() if "total" in k), None)
     total_general = 0
     num_ventas = 0
-    for fila in ws.iter_rows(min_row=2, values_only=True):
+    for fila in ws.iter_rows(min_row=EXCEL_FILA_DATOS, values_only=True):
         if not any(fila):
             continue
         num_ventas += 1
@@ -941,7 +979,7 @@ def generar_grafica_ventas_por_dia():
         return None
 
     ventas_por_dia = {}
-    for fila in ws.iter_rows(min_row=2, values_only=True):
+    for fila in ws.iter_rows(min_row=EXCEL_FILA_DATOS, values_only=True):
         if not any(fila):
             continue
         fecha = fila[col_fecha - 1]
@@ -1004,7 +1042,7 @@ def generar_grafica_productos():
         return None
 
     ventas_por_producto = {}
-    for fila in ws.iter_rows(min_row=2, values_only=True):
+    for fila in ws.iter_rows(min_row=EXCEL_FILA_DATOS, values_only=True):
         if not any(fila):
             continue
         producto = fila[col_producto - 1]
@@ -1073,7 +1111,7 @@ def generar_grafica_metodos_pago():
         return None
 
     metodos = {"efectivo": 0, "transferencia": 0, "datafono": 0, "otro": 0}
-    for fila in ws.iter_rows(min_row=2, values_only=True):
+    for fila in ws.iter_rows(min_row=EXCEL_FILA_DATOS, values_only=True):
         if not any(fila):
             continue
         obs = str(fila[col_obs - 1] or "").lower()
@@ -1806,11 +1844,10 @@ async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     texto = "📋 Ultimas ventas:\n\n"
     for v in ventas:
-        # Buscar por nombre de columna de forma flexible
-        num      = v.get("#") or v.get("num") or "?"
-        producto = v.get("producto") or "?"
-        vendedor = v.get("vendedor") or "?"
-        total_raw = v.get("total")
+        num      = v.get(COL_ALIAS) or "?"
+        producto = v.get(COL_PRODUCTO) or "?"
+        vendedor = v.get(COL_VENDEDOR) or "?"
+        total_raw = v.get(COL_TOTAL)
         try:
             total = f"${float(total_raw):,.0f}" if total_raw else "?"
         except (ValueError, TypeError):
@@ -1883,10 +1920,10 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with _estado_lock:
         borrados_pendientes[chat_id] = numero
 
-    producto = venta.get("producto", "?")
-    fecha = venta.get("fecha", "?")
-    total = venta.get("total", "?")
-    vendedor = venta.get("vendedor", "?")
+    producto = venta.get(COL_PRODUCTO, "?")
+    fecha    = venta.get(COL_FECHA, "?")
+    total    = venta.get(COL_TOTAL, "?")
+    vendedor = venta.get(COL_VENDEDOR, "?")
     try:
         total_fmt = f"${float(total):,.0f}"
     except Exception:
@@ -2252,7 +2289,7 @@ async def editar_excel_con_claude(instruccion, ruta_excel, nombre_excel, vendedo
         ws = wb[hoja_nombre]
         encabezados = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column+1)]
         filas_ejemplo = []
-        for fila in ws.iter_rows(min_row=2, max_row=min(4, ws.max_row), values_only=True):
+        for fila in ws.iter_rows(min_row=EXCEL_FILA_DATOS, max_row=min(EXCEL_FILA_DATOS+2, ws.max_row), values_only=True):
             filas_ejemplo.append(list(fila))
         info_hojas.append({
             "hoja": hoja_nombre,
@@ -2376,7 +2413,7 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Borrar todas las filas de hoy del Excel (seran reemplazadas por lo del Sheets)
         filas_a_borrar = []
         if col_fecha:
-            for fila in range(2, ws.max_row + 1):
+            for fila in range(EXCEL_FILA_DATOS, ws.max_row + 1):
                 val_fecha = ws.cell(row=fila, column=col_fecha).value
                 if val_fecha and str(val_fecha)[:10] == fecha_str:
                     filas_a_borrar.append(fila)
@@ -2524,4 +2561,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()       
