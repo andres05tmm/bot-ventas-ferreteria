@@ -14,13 +14,10 @@ Bot Inteligente de Ventas para Telegram con Claude AI
 - Modo offline/fallback
 - Webhook (Railway)
 
-CORRECCIONES v6.3:
-- [FIX] Precios de fraccion: el bot ya NO calcula proporcional (precio * fraccion).
-        Si no conoce el precio de una fraccion, PREGUNTA al vendedor antes de registrar.
-- [NEW] Nuevo tag [PRECIO_FRACCION] para guardar precios de fraccion en memoria.
-        El bot los aprende cuando el vendedor los menciona y los reutiliza en ventas futuras.
-- [FIX] System prompt actualizado con las nuevas reglas de fracciones.
-- [FIX] Precios de fraccion conocidos se incluyen en el contexto de Claude.
+CORRECCIONES v6.4:
+- [FIX] Si el usuario dice el metodo de pago en el mismo mensaje ("el pago fue
+        por datafono"), el bot registra la venta directo sin volver a preguntar.
+        Solo muestra botones cuando el metodo NO fue mencionado.
 """
 
 import os
@@ -76,7 +73,7 @@ if claves_faltantes:
     exit(1)
 
 EXCEL_FILE = "ventas.xlsx"
-VERSION = "v6.3-sheets"
+VERSION = "v6.4-sheets"
 MEMORIA_FILE = "memoria.json"
 
 claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -1474,8 +1471,12 @@ INSTRUCCIONES DE FORMATO:
 1. Responde en español, natural y amigable. Sin markdown con ** ni #.
 2. Venta detectada — incluye al FINAL uno por producto, SIN repetir:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000}}[/VENTA]
-   CRITICO: NUNCA pongas metodo_pago en el JSON. NUNCA repitas [VENTA] para el mismo producto.
-   El sistema pregunta el metodo de pago con botones automaticamente.
+   - Si el usuario YA dijo el metodo de pago en su mensaje, incluyelo en el JSON:
+   [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000, "metodo_pago": "efectivo"}}[/VENTA]
+   - Los valores validos de metodo_pago son: "efectivo", "transferencia", "datafono"
+   - Palabras que indican metodo: "efectivo"/"cash"/"billetes" -> efectivo | "transferencia"/"nequi"/"daviplata"/"bancolombia" -> transferencia | "datafono"/"tarjeta"/"credito"/"debito" -> datafono
+   - Si el usuario NO menciono el metodo: NO pongas metodo_pago en el JSON (el sistema preguntara con botones)
+   CRITICO: NUNCA repitas [VENTA] para el mismo producto.
 3. Precio nuevo (unidad completa): [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
 3b. Precio de fraccion aprendido: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
 4. Info del negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
@@ -1513,18 +1514,34 @@ def procesar_acciones(texto_respuesta, vendedor, chat_id):
 
     # Ventas
     ventas_detectadas = []
+    ventas_con_metodo = []   # ventas que ya traen metodo_pago
+    ventas_sin_metodo = []   # ventas que necesitan que se les pregunte
+
     for venta_json in re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL):
         try:
             venta = json.loads(venta_json.strip())
             ventas_detectadas.append(venta)
+            if venta.get("metodo_pago"):
+                ventas_con_metodo.append(venta)
+            else:
+                ventas_sin_metodo.append(venta)
         except Exception as e:
             print(f"Error parseando venta: {e}")
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
 
-    if ventas_detectadas:
-        # SIEMPRE pedir metodo de pago con botones — nunca asumir
+    # Ventas con metodo ya conocido: registrar directo sin preguntar
+    if ventas_con_metodo:
+        for venta in ventas_con_metodo:
+            metodo = venta.get("metodo_pago", "efectivo").lower()
+            confirmaciones = _registrar_ventas_con_metodo([venta], metodo, vendedor, chat_id)
+            metodo_emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}
+            emoji = metodo_emoji.get(metodo, "✅")
+            acciones.append(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n" + "\n".join(confirmaciones))
+
+    # Ventas sin metodo: pedir con botones
+    if ventas_sin_metodo:
         with _estado_lock:
-            ventas_pendientes[chat_id] = ventas_detectadas
+            ventas_pendientes[chat_id] = ventas_sin_metodo
         acciones.append("PEDIR_METODO_PAGO")
 
     # Precios de fraccion aprendidos
@@ -2443,3 +2460,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
