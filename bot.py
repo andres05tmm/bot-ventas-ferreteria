@@ -2244,7 +2244,8 @@ def main():
         app.run_webhook(
             listen="0.0.0.0",
             port=WEBHOOK_PORT,
-            webhook_url=WEBHOOK_URL,
+            url_path=TELEGRAM_TOKEN,
+            webhook_url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}",
         )
     else:
         print("⚙️ WEBHOOK_URL no configurada. Iniciando en modo polling (desarrollo local).")
@@ -2253,3 +2254,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
