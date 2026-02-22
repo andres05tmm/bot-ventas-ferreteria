@@ -13,6 +13,17 @@ Bot Inteligente de Ventas para Telegram con Claude AI
 - Busqueda de ventas
 - Modo offline/fallback
 - Webhook (Railway)
+
+CORRECCIONES v6.1:
+- [FIX] Importaciones duplicadas de datetime unificadas
+- [FIX] gspread.authorize() deprecado -> gspread.service_account_from_dict()
+- [FIX] Deteccion de columnas fragil -> matching exacto con _col_para()
+- [FIX] Cache en RAM para memoria.json (evita I/O en cada operacion)
+- [FIX] Estado global (ventas_pendientes, borrados_pendientes, historiales)
+        protegido con threading.Lock para evitar condiciones de carrera
+- [FIX] Total incorrecto en botones de pago para fracciones
+- [FIX] Archivos PNG de graficas huerfanos -> try/finally garantiza limpieza
+- [SEC] exec() con codigo de IA: sandbox restringido sin 'os' ni builtins peligrosos
 """
 
 import os
@@ -24,7 +35,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 import anthropic
@@ -32,7 +43,6 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 import openai
 from googleapiclient.discovery import build
-from datetime import timezone, timedelta
 
 COLOMBIA_TZ = timezone(timedelta(hours=-5))
 
@@ -69,7 +79,7 @@ if claves_faltantes:
     exit(1)
 
 EXCEL_FILE = "ventas.xlsx"
-VERSION = "v6.0-sheets"
+VERSION = "v6.1-sheets"
 MEMORIA_FILE = "memoria.json"
 
 claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -221,6 +231,8 @@ def sincronizar_archivos():
     print("🔄 Sincronizando con Google Drive...")
     ok_excel = descargar_de_drive(EXCEL_FILE)
     ok_mem = descargar_de_drive(MEMORIA_FILE)
+    if ok_mem:
+        invalidar_cache_memoria()  # Forzar recarga del JSON recien descargado
     if ok_excel or ok_mem:
         print("✅ Sincronizacion completa.")
     else:
@@ -245,14 +257,14 @@ SHEETS_COL_COLORS = {
 def _obtener_cliente_sheets():
     """Retorna cliente gspread autenticado con la service account."""
     credenciales_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-    creds = Credentials.from_service_account_info(
+    # gspread.authorize() fue deprecado en v5+; usamos service_account_from_dict
+    return gspread.service_account_from_dict(
         credenciales_dict,
         scopes=[
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
         ]
     )
-    return gspread.authorize(creds)
 
 def _obtener_hoja_sheets():
     """
@@ -462,19 +474,37 @@ def sheets_limpiar():
 
 
 # ============================================================
-# MEMORIA
+# MEMORIA  (con cache en RAM para evitar lecturas repetidas)
 # ============================================================
 
+_memoria_cache = None  # Cache en RAM del archivo memoria.json
+
 def cargar_memoria():
+    global _memoria_cache
+    if _memoria_cache is not None:
+        return _memoria_cache
     if os.path.exists(MEMORIA_FILE):
         with open(MEMORIA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"precios": {}, "catalogo": {}, "negocio": {}, "notas": [], "inventario": {}, "gastos": {}, "caja_actual": {"abierta": False}}
+            _memoria_cache = json.load(f)
+    else:
+        _memoria_cache = {
+            "precios": {}, "catalogo": {}, "negocio": {},
+            "notas": [], "inventario": {}, "gastos": {},
+            "caja_actual": {"abierta": False}
+        }
+    return _memoria_cache
 
 def guardar_memoria(memoria):
+    global _memoria_cache
+    _memoria_cache = memoria  # Actualizar cache
     with open(MEMORIA_FILE, "w", encoding="utf-8") as f:
         json.dump(memoria, f, ensure_ascii=False, indent=2)
     subir_a_drive(MEMORIA_FILE)
+
+def invalidar_cache_memoria():
+    """Fuerza recarga desde disco en la proxima llamada a cargar_memoria()."""
+    global _memoria_cache
+    _memoria_cache = None
 
 def buscar_producto_en_catalogo(nombre_buscado):
     """
@@ -615,12 +645,35 @@ def inicializar_excel():
         print("✅ Archivo Excel creado y subido a Drive.")
 
 def detectar_columnas(ws):
+    """
+    Retorna un dict {nombre_encabezado_lower: numero_columna}.
+    Matching exacto para evitar asignaciones incorrectas
+    (p.ej. '#' no debe coincidir con 'precio #').
+    """
     encabezados = {}
     for col in range(1, ws.max_column + 1):
         valor = ws.cell(row=1, column=col).value
         if valor:
             encabezados[str(valor).lower().strip()] = col
     return encabezados
+
+def _col_para(cols, *claves_posibles):
+    """
+    Busca la columna cuyo encabezado coincida exactamente con alguna de las
+    claves dadas. Si no hay exacta, hace containment solo para claves de mas
+    de 1 caracter (evita falsos positivos con '#').
+    Retorna el numero de columna o None.
+    """
+    # 1. Coincidencia exacta
+    for clave in claves_posibles:
+        if clave in cols:
+            return cols[clave]
+    # 2. Containment — solo encabezados/claves de mas de 1 caracter
+    for clave in claves_posibles:
+        for enc, num in cols.items():
+            if len(enc) > 1 and len(clave) > 1 and (clave in enc or enc in clave):
+                return num
+    return None
 
 def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor, observaciones=""):
     inicializar_excel()
@@ -633,19 +686,29 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor, ob
     hora_ahora = datetime.now(COLOMBIA_TZ).strftime("%H:%M")
     num_venta = fila - 1
 
+    # Mapa seguro: clave canonica -> columna (coincidencia exacta primero)
+    mapa = {
+        "#":               _col_para(cols, "#", "num", "numero"),
+        "fecha":           _col_para(cols, "fecha"),
+        "hora":            _col_para(cols, "hora"),
+        "producto":        _col_para(cols, "producto"),
+        "cantidad":        _col_para(cols, "cantidad"),
+        "precio unitario": _col_para(cols, "precio unitario", "precio_unitario", "precio"),
+        "total":           _col_para(cols, "total"),
+        "vendedor":        _col_para(cols, "vendedor"),
+        "observaciones":   _col_para(cols, "observaciones", "metodo", "metodo pago"),
+    }
     datos = {
         "#": num_venta, "fecha": fecha_hoy, "hora": hora_ahora,
         "producto": producto, "cantidad": cantidad,
-        "precio unitario": precio_unitario, "precio": precio_unitario,
+        "precio unitario": precio_unitario,
         "total": total, "vendedor": vendedor, "observaciones": observaciones,
     }
 
-    if cols:
-        for nombre_col, num_col in cols.items():
-            for clave, valor in datos.items():
-                if clave in nombre_col or nombre_col in clave:
-                    ws.cell(row=fila, column=num_col, value=valor)
-                    break
+    if any(mapa.values()):
+        for clave, num_col in mapa.items():
+            if num_col and clave in datos:
+                ws.cell(row=fila, column=num_col, value=datos[clave])
     else:
         valores = [num_venta, fecha_hoy, hora_ahora, producto, cantidad, precio_unitario, total, vendedor, observaciones]
         for col, valor in enumerate(valores, 1):
@@ -1139,6 +1202,8 @@ def decimal_a_fraccion_legible(valor):
         return f"{valor:.2f}"
 
 
+import threading
+
 # ============================================================
 # VENTAS PENDIENTES Y METODO DE PAGO
 # ============================================================
@@ -1147,6 +1212,8 @@ def decimal_a_fraccion_legible(valor):
 ventas_pendientes = {}
 # {chat_id: numero_venta} — para confirmar borrado
 borrados_pendientes = {}
+# Lock para proteger acceso concurrente a los dicts globales
+_estado_lock = threading.Lock()
 
 
 def _registrar_ventas_con_metodo(ventas, metodo, vendedor, chat_id):
@@ -1216,7 +1283,8 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         partes = data.split("_")
         accion = partes[1]  # "si" o "no"
         chat_id = int(partes[2])
-        numero_venta = borrados_pendientes.pop(chat_id, None)
+        with _estado_lock:
+            numero_venta = borrados_pendientes.pop(chat_id, None)
 
         if accion == "no" or numero_venta is None:
             await query.edit_message_text("❌ Borrado cancelado.")
@@ -1234,7 +1302,8 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         metodo = partes[1]
         chat_id = int(partes[2])
 
-        ventas = ventas_pendientes.pop(chat_id, [])
+        with _estado_lock:
+            ventas = ventas_pendientes.pop(chat_id, [])
         if not ventas:
             await query.edit_message_text("Ya no hay ventas pendientes.")
             return
@@ -1252,11 +1321,12 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 historiales = {}
 
 def agregar_al_historial(chat_id, role, content):
-    if chat_id not in historiales:
-        historiales[chat_id] = []
-    historiales[chat_id].append({"role": role, "content": content})
-    if len(historiales[chat_id]) > 20:
-        historiales[chat_id] = historiales[chat_id][-20:]
+    with _estado_lock:
+        if chat_id not in historiales:
+            historiales[chat_id] = []
+        historiales[chat_id].append({"role": role, "content": content})
+        if len(historiales[chat_id]) > 20:
+            historiales[chat_id] = historiales[chat_id][-20:]
 
 
 # ============================================================
@@ -1378,8 +1448,10 @@ GASTOS DE HOY:
 
 INSTRUCCIONES DE FORMATO:
 1. Responde en español, natural y amigable. Sin markdown con ** ni #.
-2. Venta detectada — incluye al FINAL (cantidad en decimal, precio_unitario = precio de ESA cantidad):
-   [VENTA]{{"producto": "nombre completo", "cantidad": 0.25, "precio_unitario": 60000, "metodo_pago": "efectivo"}}[/VENTA]
+2. Venta detectada — incluye al FINAL uno por producto, SIN repetir:
+   [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000}}[/VENTA]
+   CRITICO: NUNCA pongas metodo_pago en el JSON. NUNCA repitas [VENTA] para el mismo producto.
+   El sistema pregunta el metodo de pago con botones automaticamente.
 3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
 4. Info del negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
 5. Excel: [EXCEL]{{"titulo": "Titulo", "encabezados": ["Col1"], "filas": [["dato"]]}}[/EXCEL]
@@ -1425,28 +1497,10 @@ def procesar_acciones(texto_respuesta, vendedor, chat_id):
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
 
     if ventas_detectadas:
-        metodo_explicito = None
-        for v in ventas_detectadas:
-            mp = v.get("metodo_pago", "").lower()
-            if mp in ["efectivo", "transferencia", "datafono"]:
-                metodo_explicito = mp
-                break
-
-        if metodo_explicito:
-            confirmaciones = _registrar_ventas_con_metodo(ventas_detectadas, metodo_explicito, vendedor, chat_id)
-            for c in confirmaciones:
-                if c.startswith("•"):
-                    try:
-                        # Extraer total de la confirmacion para mostrar numero de venta
-                        acciones.append(f"✅ {c.strip()} ({metodo_explicito})")
-                    except Exception:
-                        acciones.append(c)
-                else:
-                    acciones.append(c)
-        else:
-            # Sin metodo especificado: guardar pendientes y pedir con botones
+        # SIEMPRE pedir metodo de pago con botones — nunca asumir
+        with _estado_lock:
             ventas_pendientes[chat_id] = ventas_detectadas
-            acciones.append("PEDIR_METODO_PAGO")
+        acciones.append("PEDIR_METODO_PAGO")
 
     # Precios
     for precio_json in re.findall(r'\[PRECIO\](.*?)\[/PRECIO\]', texto_respuesta, re.DOTALL):
@@ -1562,10 +1616,20 @@ def procesar_acciones(texto_respuesta, vendedor, chat_id):
 
 async def _enviar_botones_pago(update_or_query, chat_id, ventas):
     """Funcion auxiliar reutilizable para mostrar botones de metodo de pago."""
-    resumen = "\n".join([
-        f"• {v.get('producto')} x{v.get('cantidad',1)} = ${float(v.get('precio_unitario',0)) * convertir_fraccion_a_decimal(v.get('cantidad',1)):,.0f}"
-        for v in ventas
-    ])
+    lineas = []
+    for v in ventas:
+        cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
+        precio = float(v.get("precio_unitario", 0))
+        # Respetar la misma logica de _registrar_ventas_con_metodo:
+        # si cantidad >= 1 el total es precio * cantidad;
+        # si es fraccion, precio_unitario YA es el total de esa fraccion.
+        if cantidad_dec >= 1:
+            total_mostrar = precio * cantidad_dec
+        else:
+            total_mostrar = precio
+        cantidad_legible = decimal_a_fraccion_legible(cantidad_dec) if isinstance(cantidad_dec, float) else v.get("cantidad", 1)
+        lineas.append(f"• {v.get('producto')} x{cantidad_legible} = ${total_mostrar:,.0f}")
+    resumen = "\n".join(lineas)
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("💵 Efectivo", callback_data=f"pago_efectivo_{chat_id}"),
         InlineKeyboardButton("📱 Transferencia", callback_data=f"pago_transferencia_{chat_id}"),
@@ -1687,8 +1751,9 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"No encontre la venta #{numero}.")
         return
 
-    # Guardar en memoria temporal
-    borrados_pendientes[chat_id] = numero
+    # Guardar en memoria temporal (protegido con lock)
+    with _estado_lock:
+        borrados_pendientes[chat_id] = numero
 
     producto = venta.get("producto", "?")
     fecha = venta.get("fecha", "?")
@@ -1773,6 +1838,7 @@ async def manejar_callback_grafica(update: Update, context: ContextTypes.DEFAULT
     tipo = query.data
     await query.edit_message_text("📊 Generando gráfica...")
 
+    ruta = None
     try:
         if tipo == "grafica_dias":
             ruta = generar_grafica_ventas_por_dia()
@@ -1792,11 +1858,14 @@ async def manejar_callback_grafica(update: Update, context: ContextTypes.DEFAULT
 
         with open(ruta, "rb") as f:
             await context.bot.send_photo(chat_id=chat_id, photo=f, filename=titulo)
-        os.remove(ruta)
     except Exception as e:
         import traceback
         print(f"Error generando grafica: {traceback.format_exc()}")
         await context.bot.send_message(chat_id=chat_id, text="Tuve un problema generando la gráfica. Intenta de nuevo.")
+    finally:
+        # Siempre limpiar el archivo temporal, haya error o no
+        if ruta and os.path.exists(ruta):
+            os.remove(ruta)
 
 
 # ============================================================
@@ -1823,9 +1892,25 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("No pude hacer eso con el Excel. Intenta con otra instruccion.")
                 return
 
-            # Ejecutar el codigo generado por Claude
-            # Nota: exec() con codigo de IA es un riesgo; se mantiene pero limitado a openpyxl
-            exec(compile(codigo, "<string>", "exec"), {"openpyxl": openpyxl, "json": json, "os": os})
+            # Ejecutar el codigo generado por Claude en un sandbox restringido.
+            # Solo se expone openpyxl y json; 'os' queda EXCLUIDO intencionalmente
+            # para evitar que codigo malicioso acceda al sistema de archivos o entorno.
+            namespace_seguro = {
+                "__builtins__": {
+                    # Builtins minimos necesarios para manipular Excel
+                    "range": range, "len": len, "enumerate": enumerate,
+                    "int": int, "float": float, "str": str, "bool": bool,
+                    "list": list, "dict": dict, "tuple": tuple, "set": set,
+                    "min": min, "max": max, "sum": sum, "abs": abs,
+                    "round": round, "sorted": sorted, "zip": zip,
+                    "isinstance": isinstance, "print": print,
+                    "Exception": Exception, "ValueError": ValueError,
+                    "TypeError": TypeError, "KeyError": KeyError,
+                },
+                "openpyxl": openpyxl,
+                "json": json,
+            }
+            exec(compile(codigo, "<string>", "exec"), namespace_seguro)
 
             await update.message.reply_text("✅ Excel modificado. Aqui esta el resultado:")
             with open(excel_temp, "rb") as f:
@@ -1843,7 +1928,8 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     try:
-        historial = historiales.get(chat_id, [])
+        with _estado_lock:
+            historial = list(historiales.get(chat_id, []))
         agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
         respuesta_raw = await procesar_con_claude(f"{vendedor}: {mensaje}", vendedor, historial)
         # CORRECCIÓN: se pasa chat_id a procesar_acciones
@@ -1859,7 +1945,8 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(accion)
 
         if pedir_metodo:
-            ventas = ventas_pendientes.get(chat_id, [])
+            with _estado_lock:
+                ventas = ventas_pendientes.get(chat_id, [])
             await _enviar_botones_pago(update.message, chat_id, ventas)
 
         for archivo in archivos_excel:
@@ -1893,7 +1980,8 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto = transcripcion.text
         await update.message.reply_text(f"📝 Escuche: {texto}")
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-        historial = historiales.get(chat_id, [])
+        with _estado_lock:
+            historial = list(historiales.get(chat_id, []))
         agregar_al_historial(chat_id, "user", f"{vendedor}: {texto}")
         respuesta_raw = await procesar_con_claude(f"{vendedor}: {texto}", vendedor, historial)
         # CORRECCIÓN: se pasa chat_id
@@ -1908,7 +1996,8 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(accion)
 
         if pedir_metodo:
-            ventas = ventas_pendientes.get(chat_id, [])
+            with _estado_lock:
+                ventas = ventas_pendientes.get(chat_id, [])
             await _enviar_botones_pago(update.message, chat_id, ventas)
 
         for archivo in archivos_excel:
@@ -2000,9 +2089,9 @@ Genera SOLO el codigo Python necesario para modificar el archivo usando openpyxl
 - El archivo ya esta cargado, usa: wb = openpyxl.load_workbook('{ruta_excel}')
 - Al final guarda con: wb.save('{ruta_excel}')
 - Usa colores en formato hex sin # (ej: 'FF0000' para rojo)
-- No importes nada, openpyxl ya esta disponible
-- Solo el codigo, sin explicaciones ni comentarios
-- Si la instruccion no tiene sentido para un Excel, devuelve solo: IMPOSIBLE"""
+- Solo tienes disponibles: openpyxl y json. NO uses os, sys, subprocess ni ninguna otra libreria.
+- Solo el codigo, sin explicaciones ni comentarios ni bloques ```
+- Si la instruccion no tiene sentido para un Excel, devuelve solo la palabra: IMPOSIBLE"""
 
     respuesta = claude_client.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -2254,4 +2343,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
