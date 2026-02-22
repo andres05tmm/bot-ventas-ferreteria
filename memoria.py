@@ -118,7 +118,9 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
 def obtener_precio_para_cantidad(nombre_producto: str, cantidad_decimal: float) -> tuple[int, float]:
     """
     Dado un producto y una cantidad decimal, retorna (precio_total, precio_unidad).
-    Usa precios de fraccion si existen; si no, proporcional.
+    - Pinturas: usa precios_fraccion por fraccion de galon (1/4, 1/2, etc.)
+    - Tornilleria: si cantidad >= 100 usa precio mayorista, si no precio unitario normal.
+    - Resto: proporcional al precio_unidad.
     """
     prod = buscar_producto_en_catalogo(nombre_producto)
     if not prod:
@@ -128,8 +130,20 @@ def obtener_precio_para_cantidad(nombre_producto: str, cantidad_decimal: float) 
 
     precio_u   = prod.get("precio_unidad", 0)
     fracciones = prod.get("precios_fraccion", {})
+
+    # ── Tornilleria: precio por umbral de cantidad ──
+    precio_x_cantidad = prod.get("precio_por_cantidad")
+    if precio_x_cantidad:
+        umbral = precio_x_cantidad.get("umbral", 100)
+        if cantidad_decimal >= umbral:
+            precio_u_aplicado = precio_x_cantidad.get("precio_sobre_umbral", precio_u)
+        else:
+            precio_u_aplicado = precio_x_cantidad.get("precio_bajo_umbral", precio_u)
+        return round(precio_u_aplicado * cantidad_decimal), precio_u_aplicado
+
+    # ── Pinturas: precio por fraccion de galon ──
     for frac_data in fracciones.values():
-        if abs(frac_data.get("decimal", 0) - cantidad_decimal) < 0.01:
+        if isinstance(frac_data, dict) and abs(frac_data.get("decimal", 0) - cantidad_decimal) < 0.01:
             return frac_data.get("precio", round(precio_u * cantidad_decimal)), precio_u
 
     return round(precio_u * cantidad_decimal), precio_u
@@ -153,17 +167,35 @@ def obtener_precios_como_texto() -> str:
 
 
 def obtener_info_fraccion_producto(nombre_producto: str) -> str | None:
-    """Retorna texto con los precios por fraccion de un producto."""
+    """Retorna texto con los precios por fraccion o por cantidad de un producto."""
     prod = buscar_producto_en_catalogo(nombre_producto)
     if not prod:
         return None
+
+    nombre = prod['nombre']
+    precio_u = prod['precio_unidad']
+
+    # Tornilleria: precio por umbral de cantidad
+    pxc = prod.get("precio_por_cantidad")
+    if pxc:
+        umbral     = pxc.get("umbral", 100)
+        p_bajo     = pxc.get("precio_bajo_umbral", precio_u)
+        p_sobre    = pxc.get("precio_sobre_umbral", precio_u)
+        return (
+            f"{nombre}: "
+            f"c/u (menos de {umbral}) = ${p_bajo:,} | "
+            f"c/u (x{umbral} o más) = ${p_sobre:,}"
+        )
+
+    # Pinturas: precio por fraccion de galon
     fracs = prod.get("precios_fraccion", {})
     if not fracs:
-        return f"{prod['nombre']}: unidad=${prod['precio_unidad']:,} (no fraccionable)"
-    partes = [f"unidad=${prod['precio_unidad']:,}"]
+        return f"{nombre}: unidad=${precio_u:,} (no fraccionable)"
+    partes = []
     for frac_texto, fd in fracs.items():
-        partes.append(f"{frac_texto}=${fd['precio']:,}")
-    return f"{prod['nombre']}: " + " | ".join(partes)
+        if isinstance(fd, dict):
+            partes.append(f"{frac_texto}=${fd['precio']:,}")
+    return f"{nombre}: " + " | ".join(partes)
 
 
 # ─────────────────────────────────────────────
