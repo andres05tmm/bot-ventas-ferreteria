@@ -14,10 +14,10 @@ Bot Inteligente de Ventas para Telegram con Claude AI
 - Modo offline/fallback
 - Webhook (Railway)
 
-CORRECCIONES v6.4:
-- [FIX] Si el usuario dice el metodo de pago en el mismo mensaje ("el pago fue
-        por datafono"), el bot registra la venta directo sin volver a preguntar.
-        Solo muestra botones cuando el metodo NO fue mencionado.
+CORRECCIONES v6.5:
+- [FIX] El bot ya no dice "no tengo ese producto" cuando si esta en el catalogo.
+        Ahora busca candidatos en tiempo real y se los pasa a Claude en el contexto,
+        para que los muestre aunque el nombre no sea exacto o haya variantes.
 """
 
 import os
@@ -73,7 +73,7 @@ if claves_faltantes:
     exit(1)
 
 EXCEL_FILE = "ventas.xlsx"
-VERSION = "v6.4-sheets"
+VERSION = "v6.5-sheets"
 MEMORIA_FILE = "memoria.json"
 
 claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -549,7 +549,37 @@ def buscar_producto_en_catalogo(nombre_buscado):
 
     return None
 
-def obtener_precio_para_cantidad(nombre_producto, cantidad_decimal):
+def buscar_multiples_en_catalogo(nombre_buscado, limite=8):
+    """
+    Similar a buscar_producto_en_catalogo pero retorna TODOS los candidatos
+    que coincidan con el termino, ordenados por relevancia.
+    Util para mostrar opciones cuando hay ambiguedad (ej: 'esmalte 3 en 1').
+    """
+    memoria = cargar_memoria()
+    catalogo = memoria.get("catalogo", {})
+    if not catalogo:
+        return []
+
+    nombre_lower = nombre_buscado.strip().lower()
+    palabras = [p for p in nombre_lower.split() if len(p) > 2]
+    if not palabras:
+        return []
+
+    candidatos = []
+    for cod, prod in catalogo.items():
+        nl = prod.get("nombre_lower", "")
+        coincidencias = sum(1 for p in palabras if p in nl)
+        if coincidencias == len(palabras):
+            candidatos.append((3, coincidencias, len(nl), prod))
+        elif len(palabras) > 1 and coincidencias >= len(palabras) - 1:
+            candidatos.append((2, coincidencias, len(nl), prod))
+        elif coincidencias >= 1:
+            candidatos.append((1, coincidencias, len(nl), prod))
+
+    candidatos.sort(key=lambda x: (-x[0], -x[1], x[2]))
+    return [c[3] for c in candidatos[:limite]]
+
+
     """
     Dado un producto y una cantidad decimal (ej: 0.25 para 1/4),
     retorna el precio correcto segun el catalogo de fracciones.
@@ -1356,9 +1386,7 @@ async def procesar_con_claude(mensaje_usuario, nombre_usuario, historial_chat):
     info_fracciones_extra = ""
     palabras_frac = ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"]
     if any(p in mensaje_usuario.lower() for p in palabras_frac):
-        # Intentar detectar el producto mencionado y mostrar sus precios de fraccion
         palabras_msg = mensaje_usuario.lower().split()
-        # Buscar hasta 3 palabras consecutivas como posible nombre de producto
         for largo in [4, 3, 2]:
             encontrado = False
             for i in range(len(palabras_msg) - largo + 1):
@@ -1372,6 +1400,26 @@ async def procesar_con_claude(mensaje_usuario, nombre_usuario, historial_chat):
                     break
             if encontrado:
                 break
+
+    # Buscar candidatos del catalogo para el mensaje actual, para ayudar a Claude
+    # cuando el usuario pregunta por un producto que puede tener variantes
+    info_candidatos_extra = ""
+    # No filtrar por longitud para conservar numeros como "3" (ej: "esmalte 3 en 1")
+    palabras_msg = mensaje_usuario.lower().split()
+    # Ignorar articulos, preposiciones y palabras de consulta que no son parte del producto
+    stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
+                 "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en"}
+    palabras_clave = [p for p in palabras_msg if p not in stopwords]
+    if palabras_clave:
+        termino_busqueda = " ".join(palabras_clave[:5])
+        candidatos = buscar_multiples_en_catalogo(termino_busqueda, limite=8)
+        if len(candidatos) > 1:
+            # Hay multiples opciones — mostrarlas para que Claude las ofrezca al usuario
+            lineas = [f"  - {p['nombre']}: ${p['precio_unidad']:,}" for p in candidatos]
+            info_candidatos_extra = f"\nPRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE:\n" + "\n".join(lineas)
+        elif len(candidatos) == 1:
+            p = candidatos[0]
+            info_candidatos_extra = f"\nPRODUCTO ENCONTRADO EN CATALOGO: {p['nombre']} — ${p['precio_unidad']:,}"
 
     # Aviso de modo offline
     aviso_drive = ""
@@ -1442,6 +1490,7 @@ REGLAS CRITICAS DE FRACCIONES Y PRECIOS:
 - En el campo "cantidad" del [VENTA] pon el decimal: 1/4=0.25, 1/2=0.5, 3/4=0.75, 1/8=0.125
 - En el campo "precio_unitario" pon el precio TOTAL de esa fraccion (lo que pago el cliente)
 {info_fracciones_extra}
+{info_candidatos_extra}
 
 INFORMACION DEL NEGOCIO:
 {json.dumps(memoria.get('negocio', dict()), ensure_ascii=False)}
@@ -1469,6 +1518,9 @@ GASTOS DE HOY:
 
 INSTRUCCIONES DE FORMATO:
 1. Responde en español, natural y amigable. Sin markdown con ** ni #.
+   CRITICO: Si el mensaje incluye una seccion "PRODUCTOS DEL CATALOGO QUE COINCIDEN" o
+   "PRODUCTO ENCONTRADO EN CATALOGO", SIEMPRE usa esa informacion para responder precios.
+   NUNCA digas que no tienes un producto si aparece en esas secciones.
 2. Venta detectada — incluye al FINAL uno por producto, SIN repetir:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000}}[/VENTA]
    - Si el usuario YA dijo el metodo de pago en su mensaje, incluyelo en el JSON:
@@ -2460,4 +2512,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
