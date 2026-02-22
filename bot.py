@@ -14,13 +14,10 @@ Bot Inteligente de Ventas para Telegram con Claude AI
 - Modo offline/fallback
 - Webhook (Railway)
 
-CORRECCIONES v6.6:
-- [FIX] Bot adaptado completamente a la estructura real del Excel:
-        Fila 1=titulo, Fila 2=vacia, Fila 3=encabezados, Fila 4+=datos.
-        Columnas reales: FECHA, HORA, PRODUCTO, CANTIDAD, VALOR UNITARIO,
-        SUBTOTAL, ALIAS, VENDEDOR, METODO DE PAGO.
-- [FIX] /ventas, /borrar y todas las funciones de Excel usan los nombres
-        de columna reales en vez de indices hardcodeados.
+CORRECCIONES v6.7:
+- [FIX] /ventas ahora lee del Google Sheets primero (siempre actualizado
+        en tiempo real) y solo usa el Excel local como fallback.
+        Esto elimina la discrepancia entre lo que muestra Sheets y /ventas.
 """
 
 import os
@@ -76,7 +73,7 @@ if claves_faltantes:
     exit(1)
 
 EXCEL_FILE = "ventas.xlsx"
-VERSION = "v6.6-sheets"
+VERSION = "v6.7-sheets"
 MEMORIA_FILE = "memoria.json"
 
 # Estructura real del Excel (ventas.xlsx)
@@ -1838,6 +1835,30 @@ async def comando_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(document=archivo, filename="ventas.xlsx")
 
 async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Leer del Sheets primero (siempre actualizado), con fallback al Excel local
+    if SHEETS_ID and SHEETS_DISPONIBLE:
+        ventas_raw = sheets_leer_ventas_del_dia()
+        if ventas_raw:
+            texto = f"📋 Ventas de hoy ({len(ventas_raw)}):\n\n"
+            for v in ventas_raw:
+                num      = v.get("num", "?")
+                producto = v.get("producto", "?")
+                vendedor = v.get("vendedor", "?")
+                total_raw = v.get("total")
+                try:
+                    total = f"${float(total_raw):,.0f}" if total_raw else "?"
+                except (ValueError, TypeError):
+                    total = str(total_raw) if total_raw else "?"
+                metodo = v.get("metodo", "")
+                texto += f"#{num} — {producto} — {total} — {vendedor}"
+                if metodo:
+                    texto += f" ({metodo})"
+                texto += "\n"
+            texto += "\nUsa /borrar [numero] para eliminar una venta."
+            await update.message.reply_text(texto)
+            return
+
+    # Fallback: leer del Excel local
     ventas = obtener_ventas_recientes(10)
     if not ventas:
         await update.message.reply_text("No hay ventas registradas este mes.")
@@ -2561,4 +2582,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()       
+    main()
