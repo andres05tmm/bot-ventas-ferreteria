@@ -15,8 +15,9 @@ import config
 from ai import procesar_con_claude, procesar_acciones, editar_excel_con_claude
 from ventas_state import (
     agregar_al_historial, get_historial,
-    ventas_pendientes, _estado_lock,
+    ventas_pendientes, clientes_en_proceso, _estado_lock,
 )
+from excel import guardar_cliente_nuevo
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
 
@@ -41,6 +42,50 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
     await message.reply_text(f"¿Cómo fue el pago?\n\n" + "\n".join(lineas), reply_markup=keyboard)
 
 
+async def _enviar_pregunta_cliente(message, chat_id: int):
+    """
+    Lee el paso actual del flujo de creacion de cliente y envia
+    la pregunta correspondiente, con botones cuando aplica.
+    """
+    with _estado_lock:
+        datos = clientes_en_proceso.get(chat_id)
+    if not datos:
+        return
+
+    paso = datos.get("paso")
+
+    if paso == "nombre":
+        await message.reply_text("👤 Vamos a crear el cliente. ¿Cuál es el nombre completo?")
+
+    elif paso == "tipo_id":
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🪪 CC",  callback_data=f"cli_tipoid_CC_{chat_id}"),
+            InlineKeyboardButton("🏢 NIT", callback_data=f"cli_tipoid_NIT_{chat_id}"),
+            InlineKeyboardButton("🌍 CE",  callback_data=f"cli_tipoid_CE_{chat_id}"),
+        ]])
+        await message.reply_text(
+            f"Perfecto. ¿Qué tipo de documento tiene {datos.get('nombre', 'el cliente')}?",
+            reply_markup=keyboard,
+        )
+
+    elif paso == "identificacion":
+        await message.reply_text(
+            f"¿Cuál es el número de {datos.get('tipo_id', 'identificación')}?"
+        )
+
+    elif paso == "tipo_persona":
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("👤 Persona Natural",   callback_data=f"cli_persona_Natural_{chat_id}"),
+            InlineKeyboardButton("🏢 Persona Jurídica",  callback_data=f"cli_persona_Juridica_{chat_id}"),
+        ]])
+        await message.reply_text("¿Es Persona Natural o Persona Jurídica?", reply_markup=keyboard)
+
+    elif paso == "correo":
+        await message.reply_text(
+            "¿Cuál es el correo electrónico? (escribe 'no tiene' si no aplica)"
+        )
+
+
 async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje  = update.message.text
     chat_id  = update.message.chat_id
@@ -51,7 +96,60 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    # Si el usuario tiene un Excel cargado, procesarlo
+    # ── Flujo paso a paso de creacion de cliente ──
+    with _estado_lock:
+        en_proceso = clientes_en_proceso.get(chat_id)
+    if en_proceso:
+        paso = en_proceso.get("paso")
+        texto_lower = mensaje.strip().lower()
+
+        if paso == "nombre":
+            en_proceso["nombre"] = mensaje.strip().upper()
+            en_proceso["paso"]   = "tipo_id"
+            with _estado_lock:
+                clientes_en_proceso[chat_id] = en_proceso
+            await _enviar_pregunta_cliente(update.message, chat_id)
+            return
+
+        elif paso == "identificacion":
+            en_proceso["identificacion"] = mensaje.strip()
+            en_proceso["paso"]           = "tipo_persona"
+            with _estado_lock:
+                clientes_en_proceso[chat_id] = en_proceso
+            await _enviar_pregunta_cliente(update.message, chat_id)
+            return
+
+        elif paso == "correo":
+            correo = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
+            en_proceso["correo"] = correo
+            # ── Todos los datos recopilados — guardar cliente ──
+            with _estado_lock:
+                clientes_en_proceso.pop(chat_id, None)
+            ok = await asyncio.to_thread(
+                guardar_cliente_nuevo,
+                en_proceso["nombre"],
+                en_proceso["tipo_id"],
+                en_proceso["identificacion"],
+                en_proceso["tipo_persona"],
+                correo,
+            )
+            if ok:
+                tipo_map = {"CC": "Cédula de ciudadanía", "NIT": "NIT", "CE": "Cédula de extranjería"}
+                tipo_legible = tipo_map.get(en_proceso["tipo_id"], en_proceso["tipo_id"])
+                await update.message.reply_text(
+                    f"✅ Cliente creado exitosamente:\n\n"
+                    f"👤 {en_proceso['nombre']}\n"
+                    f"📄 {tipo_legible}: {en_proceso['identificacion']}\n"
+                    f"🏷️ {en_proceso['tipo_persona']}\n"
+                    f"📧 {correo or 'Sin correo'}"
+                )
+            else:
+                await update.message.reply_text("⚠️ No pude guardar el cliente. Intenta de nuevo.")
+            return
+
+    # Si el usuario esta en flujo de cliente pero llega aqui, continuar normal
+
+    # ── Excel cargado por el usuario ──
     excel_temp   = context.user_data.get("excel_temp")
     excel_nombre = context.user_data.get("excel_nombre")
     if excel_temp and os.path.exists(excel_temp):
@@ -63,7 +161,6 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("No pude hacer eso con el Excel. Intenta con otra instruccion.")
                 return
 
-            # Sandbox restringido: solo expone openpyxl y json
             namespace_seguro = {
                 "__builtins__": {
                     "range": range, "len": len, "enumerate": enumerate,
@@ -94,6 +191,7 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Tuve un problema editando el Excel. Intenta con una instruccion diferente.")
             return
 
+    # ── Flujo normal con Claude ──
     try:
         historial    = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
@@ -104,15 +202,20 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if texto_respuesta:
             await update.message.reply_text(texto_respuesta)
 
-        pedir_metodo = "PEDIR_METODO_PAGO" in acciones
+        pedir_metodo   = "PEDIR_METODO_PAGO"    in acciones
+        iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
+
         for accion in acciones:
-            if accion != "PEDIR_METODO_PAGO":
+            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE"):
                 await update.message.reply_text(accion)
 
         if pedir_metodo:
             with _estado_lock:
                 ventas = ventas_pendientes.get(chat_id, [])
             await _enviar_botones_pago(update.message, chat_id, ventas)
+
+        if iniciar_cliente:
+            await _enviar_pregunta_cliente(update.message, chat_id)
 
         for archivo in archivos_excel:
             if os.path.exists(archivo):
