@@ -24,6 +24,10 @@ ventas_pendientes: dict[int, list] = {}
 borrados_pendientes: dict[int, int] = {}
 # {chat_id: [historial de mensajes]}
 historiales: dict[int, list] = {}
+# {chat_id: dict} datos parciales del cliente que se esta creando paso a paso
+# Estructura: {"nombre": str, "tipo_id": str|None, "identificacion": str|None,
+#              "tipo_persona": str|None, "correo": str|None, "paso": str}
+clientes_en_proceso: dict[int, dict] = {}
 
 
 def agregar_al_historial(chat_id: int, role: str, content: str):
