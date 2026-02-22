@@ -2052,134 +2052,148 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """
     Cierre del dia:
     1. Lee las ventas del Google Sheets (respetando ediciones manuales)
-    2. Detecta si hubo correcciones y las informa
-    3. Genera el Excel del dia con esos datos
-    4. Sube el Excel a Drive
-    5. Manda el Excel al chat de Telegram
+    2. Detecta y reporta correcciones manuales
+    3. Actualiza ventas.xlsx — reemplaza las filas de hoy con los datos del Sheets
+       (una sola pestana por mes, historial acumulado, sin archivos extra)
+    4. Sube ventas.xlsx a Drive
+    5. Manda ventas.xlsx al chat de Telegram
     6. Limpia el Sheets para el dia siguiente
     """
     chat_id = update.message.chat_id
     await update.message.reply_text("🔒 Iniciando cierre del dia...")
 
-    # Paso 1: leer ventas del Sheets
     if not SHEETS_ID:
         await update.message.reply_text(
-            "⚠️ Google Sheets no configurado. No puedo hacer el cierre desde el Sheets.\n"
+            "⚠️ Google Sheets no configurado.\n"
             "Usa /excel para descargar el archivo acumulado."
         )
         return
 
+    # Paso 1: leer ventas del Sheets
     ventas_sheets = sheets_leer_ventas_del_dia()
     if not ventas_sheets:
         await update.message.reply_text(
-            "📭 El Sheets no tiene ventas hoy. Si las hay en el Excel local, usa /excel."
+            "📭 El Sheets no tiene ventas hoy. Si las hay en el Excel, usa /excel."
         )
         return
 
-    await update.message.reply_text(f"📋 Leyendo {len(ventas_sheets)} ventas del Sheets...")
+    await update.message.reply_text(f"📋 {len(ventas_sheets)} ventas encontradas en el Sheets...")
 
-    # Paso 2: detectar ediciones manuales vs Excel local
+    # Paso 2: detectar ediciones manuales
     diferencias = sheets_detectar_ediciones_vs_excel()
     if diferencias:
-        aviso = "✏️ Se detectaron ediciones manuales en el Sheets que se respetaran en el Excel:\n\n"
+        aviso = "✏️ Correcciones manuales detectadas (se aplicaran al Excel):\n\n"
         aviso += "\n".join(diferencias)
         await update.message.reply_text(aviso)
 
-    # Paso 3: generar Excel del dia con los datos del Sheets
+    # Paso 3: actualizar ventas.xlsx con los datos del Sheets
     hoy = datetime.now(COLOMBIA_TZ)
+    fecha_str = hoy.strftime("%Y-%m-%d")
     meses = {1:"Enero",2:"Febrero",3:"Marzo",4:"Abril",5:"Mayo",6:"Junio",
              7:"Julio",8:"Agosto",9:"Septiembre",10:"Octubre",11:"Noviembre",12:"Diciembre"}
-    fecha_str = hoy.strftime("%Y-%m-%d")
-    nombre_excel_dia = f"ventas_{fecha_str}.xlsx"
 
     try:
-        wb_dia = openpyxl.Workbook()
-        ws_dia = wb_dia.active
-        ws_dia.title = f"{meses[hoy.month]} {hoy.day}"
+        inicializar_excel()
+        wb = openpyxl.load_workbook(EXCEL_FILE)
+        nombre_hoja = obtener_nombre_hoja()
+        ws = obtener_o_crear_hoja(wb, nombre_hoja)
+        cols = detectar_columnas(ws)
 
-        # Fila de titulo fusionada
-        ws_dia.merge_cells("A1:I1")
-        celda_titulo = ws_dia.cell(row=1, column=1, value=f"Ventas del {fecha_str}")
-        celda_titulo.font = Font(bold=True, color="FFFFFF", size=13)
-        celda_titulo.fill = PatternFill("solid", fgColor="1A56DB")
-        celda_titulo.alignment = Alignment(horizontal="center")
+        # Encontrar columna de fecha para identificar filas de hoy
+        col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
 
-        # Encabezados
-        encabezados = ["#", "Fecha", "Hora", "Producto", "Cantidad", "Precio Unitario", "Total", "Vendedor", "Método Pago"]
-        for col, enc in enumerate(encabezados, 1):
-            c = ws_dia.cell(row=2, column=col, value=enc)
-            c.font = Font(bold=True, color="FFFFFF", size=11)
-            c.fill = PatternFill("solid", fgColor="374151")
-            c.alignment = Alignment(horizontal="center")
+        # Borrar todas las filas de hoy del Excel (seran reemplazadas por lo del Sheets)
+        filas_a_borrar = []
+        if col_fecha:
+            for fila in range(2, ws.max_row + 1):
+                val_fecha = ws.cell(row=fila, column=col_fecha).value
+                if val_fecha and str(val_fecha)[:10] == fecha_str:
+                    filas_a_borrar.append(fila)
+            # Borrar de abajo hacia arriba para no desplazar indices
+            for fila in reversed(filas_a_borrar):
+                ws.delete_rows(fila)
 
-        anchos = [6, 12, 8, 30, 12, 18, 14, 18, 16]
-        for col, ancho in enumerate(anchos, 1):
-            ws_dia.column_dimensions[openpyxl.utils.get_column_letter(col)].width = ancho
-
-        # Datos desde el Sheets
+        # Insertar las ventas del Sheets (ya con ediciones manuales)
         total_general = 0
-        for i, v in enumerate(ventas_sheets, 3):
-            fila_vals = [
-                v.get("num", i - 2),
-                v.get("fecha", fecha_str),
-                v.get("hora", ""),
-                v.get("producto", ""),
-                v.get("cantidad", ""),
-                v.get("precio_unitario", 0),
-                v.get("total", 0),
-                v.get("vendedor", ""),
-                v.get("metodo", ""),
-            ]
-            for col, val in enumerate(fila_vals, 1):
-                c = ws_dia.cell(row=i, column=col, value=val)
-                if i % 2 == 0:
-                    c.fill = PatternFill("solid", fgColor="EFF6FF")
+        for v in ventas_sheets:
+            fila_nueva = ws.max_row + 1
+            try:
+                cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
+            except Exception:
+                cantidad_dec = v.get("cantidad", 1)
+
+            datos = {
+                "#":              v.get("num", fila_nueva - 1),
+                "fecha":          v.get("fecha", fecha_str),
+                "hora":           v.get("hora", ""),
+                "producto":       v.get("producto", ""),
+                "cantidad":       v.get("cantidad", ""),
+                "precio unitario":v.get("precio_unitario", 0),
+                "precio":         v.get("precio_unitario", 0),
+                "total":          v.get("total", 0),
+                "vendedor":       v.get("vendedor", ""),
+                "observaciones":  v.get("metodo", ""),
+            }
+
+            if cols:
+                for nombre_col, num_col in cols.items():
+                    for clave, valor in datos.items():
+                        if clave in nombre_col or nombre_col in clave:
+                            ws.cell(row=fila_nueva, column=num_col, value=valor)
+                            break
+            else:
+                vals = [datos["#"], datos["fecha"], datos["hora"], datos["producto"],
+                        datos["cantidad"], datos["precio unitario"], datos["total"],
+                        datos["vendedor"], datos["observaciones"]]
+                for col, val in enumerate(vals, 1):
+                    ws.cell(row=fila_nueva, column=col, value=val)
+
+            # Alternar color de fila
+            if fila_nueva % 2 == 0:
+                for col in range(1, ws.max_column + 1):
+                    ws.cell(row=fila_nueva, column=col).fill = PatternFill("solid", fgColor="EFF6FF")
+
             try:
                 total_general += float(v.get("total", 0) or 0)
             except (ValueError, TypeError):
                 pass
 
-        # Fila de total
-        fila_total = len(ventas_sheets) + 3
-        ws_dia.cell(row=fila_total, column=6, value="TOTAL DEL DIA:").font = Font(bold=True)
-        c_total = ws_dia.cell(row=fila_total, column=7, value=total_general)
-        c_total.font = Font(bold=True, color="1A56DB")
-        c_total.fill = PatternFill("solid", fgColor="DBEAFE")
+        wb.save(EXCEL_FILE)
 
-        wb_dia.save(nombre_excel_dia)
+        # Paso 4: subir a Drive
+        subir_a_drive(EXCEL_FILE)
+        await update.message.reply_text(
+            f"✅ ventas.xlsx actualizado — {len(ventas_sheets)} ventas de hoy\n"
+            f"Total del dia: ${total_general:,.0f}\n"
+            f"Pestana: {nombre_hoja}"
+        )
 
-        # Paso 4: subir el Excel del dia a Drive
-        subir_a_drive(nombre_excel_dia)
-        await update.message.reply_text(f"✅ Excel generado: {len(ventas_sheets)} ventas — Total: ${total_general:,.0f}")
-
-        # Paso 5: mandar el Excel al chat
-        await update.message.reply_text("📎 Aqui esta el Excel del dia:")
-        with open(nombre_excel_dia, "rb") as f:
-            await update.message.reply_document(document=f, filename=nombre_excel_dia)
-
-        # Limpiar archivo temporal
-        if os.path.exists(nombre_excel_dia):
-            os.remove(nombre_excel_dia)
+        # Paso 5: mandar ventas.xlsx al chat
+        await update.message.reply_text("📎 Aqui esta el archivo actualizado:")
+        with open(EXCEL_FILE, "rb") as f:
+            await update.message.reply_document(document=f, filename="ventas.xlsx")
 
     except Exception as e:
         import traceback
-        print(f"Error generando Excel de cierre: {traceback.format_exc()}")
-        await update.message.reply_text("❌ Hubo un error generando el Excel. Los datos siguen en el Sheets.")
+        print(f"Error en cierre: {traceback.format_exc()}")
+        await update.message.reply_text(
+            "❌ Hubo un error actualizando el Excel. Los datos siguen en el Sheets, no se perdio nada."
+        )
         return
 
     # Paso 6: limpiar el Sheets para manana
-    await update.message.reply_text("🧹 Limpiando el Sheets para el dia de manana...")
+    await update.message.reply_text("🧹 Limpiando el Sheets para manana...")
     ok = sheets_limpiar()
     if ok:
         await update.message.reply_text(
             "✅ Cierre completado.\n\n"
-            "El Sheets esta limpio y listo para manana.\n"
-            "El Excel del dia quedo guardado en Drive y en este chat."
+            "• ventas.xlsx actualizado en Drive\n"
+            "• Sheets limpio y listo para manana"
         )
     else:
         await update.message.reply_text(
-            "⚠️ El Excel se genero correctamente pero no se pudo limpiar el Sheets automaticamente.\n"
-            "Puedes limpiarlo a mano borrando las filas."
+            "⚠️ El Excel se actualizo correctamente pero no se pudo limpiar el Sheets.\n"
+            "Puedes borrarlo a mano, los datos ya quedaron en el Excel."
         )
 
 def main():
