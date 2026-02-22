@@ -146,6 +146,15 @@ REGLAS CRITICAS DE FRACCIONES Y PRECIOS:
   Si no lo tienes: pregunta antes de registrar.
 - En el campo "cantidad" pon el decimal: 1/4=0.25, 1/2=0.5, 3/4=0.75, 1/8=0.125
 - En el campo "precio_unitario" pon el precio TOTAL de esa fraccion (lo que pago el cliente)
+
+REGLAS DE TORNILLERIA (precio por volumen):
+- Los tornillos tienen DOS precios: precio normal (menos de 100 unidades) y precio mayorista (100 o mas).
+- Si venden MENOS de 100 tornillos: usa el precio_unidad normal del catalogo.
+- Si venden 100 O MAS tornillos: el sistema aplica automaticamente el precio mayorista (es mas barato por unidad).
+- En el campo "cantidad" pon el numero exacto de tornillos (ej: 200, 500, 1000).
+- En el campo "precio_unitario" pon el precio por unidad que corresponda segun la cantidad.
+- Ejemplo: 50 tornillos drywall 6x1 a $37 c/u → cantidad=50, precio_unitario=37
+- Ejemplo: 200 tornillos drywall 6x1 a $35 c/u → cantidad=200, precio_unitario=35
 {info_fracciones_extra}
 {info_candidatos_extra}
 
