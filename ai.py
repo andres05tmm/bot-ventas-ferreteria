@@ -183,7 +183,16 @@ INSTRUCCIONES DE FORMATO:
    - Si el usuario ya dijo el metodo: agrega "metodo_pago": "efectivo|transferencia|datafono"
    - Si NO dijo el metodo: NO pongas metodo_pago (el sistema preguntara con botones)
    CRITICO: NUNCA repitas [VENTA] para el mismo producto.
-2b. Cliente nuevo: [CLIENTE_NUEVO]{{"nombre":"X","tipo_id":"Cédula de ciudadanía","identificacion":"123","tipo_persona":"Natural"}}[/CLIENTE_NUEVO]
+2b. Cliente nuevo — REGLAS CRITICAS:
+   - Si el usuario pide crear un cliente y YA dio todos los datos en el mensaje
+     (nombre, tipo documento, numero, tipo persona, correo), usa el tag directamente:
+     [CLIENTE_NUEVO]{{"nombre":"NOMBRE COMPLETO","tipo_id":"Cédula de ciudadanía","identificacion":"123456","tipo_persona":"Natural","correo":"correo@ejemplo.com"}}[/CLIENTE_NUEVO]
+   - Si el usuario pide crear un cliente pero NO dio todos los datos, NO uses el tag.
+     En cambio responde con este tag especial para iniciar el flujo paso a paso:
+     [INICIAR_CLIENTE]{{"nombre":"nombre si ya lo dijo o vacio"}}[/INICIAR_CLIENTE]
+     El sistema se encargara de preguntar cada dato con botones.
+   - Los valores validos de tipo_id son: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
+   - Los valores validos de tipo_persona son: "Natural", "Juridica"
 3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
 3b. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
 4. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
@@ -265,7 +274,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             ventas_pendientes[chat_id] = ventas_sin_metodo
         acciones.append("PEDIR_METODO_PAGO")
 
-    # ── Cliente nuevo ──
+    # ── Cliente nuevo (datos completos dados de una vez) ──
     for cli_json in re.findall(r'\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]', texto_respuesta, re.DOTALL):
         try:
             datos  = json.loads(cli_json.strip())
@@ -286,6 +295,26 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             print(f"Error cliente nuevo: {e}")
         texto_limpio = texto_limpio.replace(f'[CLIENTE_NUEVO]{cli_json}[/CLIENTE_NUEVO]', '')
+
+    # ── Iniciar flujo paso a paso de cliente ──
+    for ini_json in re.findall(r'\[INICIAR_CLIENTE\](.*?)\[/INICIAR_CLIENTE\]', texto_respuesta, re.DOTALL):
+        try:
+            datos  = json.loads(ini_json.strip())
+            nombre = datos.get("nombre", "").strip()
+            from ventas_state import clientes_en_proceso, _estado_lock as _lock
+            with _lock:
+                clientes_en_proceso[chat_id] = {
+                    "nombre":       nombre,
+                    "tipo_id":      None,
+                    "identificacion": None,
+                    "tipo_persona": None,
+                    "correo":       None,
+                    "paso":         "nombre" if not nombre else "tipo_id",
+                }
+            acciones.append("INICIAR_FLUJO_CLIENTE")
+        except Exception as e:
+            print(f"Error iniciando flujo cliente: {e}")
+        texto_limpio = texto_limpio.replace(f'[INICIAR_CLIENTE]{ini_json}[/INICIAR_CLIENTE]', '')
 
     # ── Precio fraccion ──
     for pf_json in re.findall(r'\[PRECIO_FRACCION\](.*?)\[/PRECIO_FRACCION\]', texto_respuesta, re.DOTALL):
