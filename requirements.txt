@@ -6,3 +6,4 @@ httpx==0.25.2
 google-api-python-client==2.108.0
 google-auth==2.25.2
 gspread
+matplotlib
