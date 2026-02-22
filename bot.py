@@ -14,16 +14,13 @@ Bot Inteligente de Ventas para Telegram con Claude AI
 - Modo offline/fallback
 - Webhook (Railway)
 
-CORRECCIONES v6.1:
-- [FIX] Importaciones duplicadas de datetime unificadas
-- [FIX] gspread.authorize() deprecado -> gspread.service_account_from_dict()
-- [FIX] Deteccion de columnas fragil -> matching exacto con _col_para()
-- [FIX] Cache en RAM para memoria.json (evita I/O en cada operacion)
-- [FIX] Estado global (ventas_pendientes, borrados_pendientes, historiales)
-        protegido con threading.Lock para evitar condiciones de carrera
-- [FIX] Total incorrecto en botones de pago para fracciones
-- [FIX] Archivos PNG de graficas huerfanos -> try/finally garantiza limpieza
-- [SEC] exec() con codigo de IA: sandbox restringido sin 'os' ni builtins peligrosos
+CORRECCIONES v6.3:
+- [FIX] Precios de fraccion: el bot ya NO calcula proporcional (precio * fraccion).
+        Si no conoce el precio de una fraccion, PREGUNTA al vendedor antes de registrar.
+- [NEW] Nuevo tag [PRECIO_FRACCION] para guardar precios de fraccion en memoria.
+        El bot los aprende cuando el vendedor los menciona y los reutiliza en ventas futuras.
+- [FIX] System prompt actualizado con las nuevas reglas de fracciones.
+- [FIX] Precios de fraccion conocidos se incluyen en el contexto de Claude.
 """
 
 import os
@@ -79,7 +76,7 @@ if claves_faltantes:
     exit(1)
 
 EXCEL_FILE = "ventas.xlsx"
-VERSION = "v6.1-sheets"
+VERSION = "v6.3-sheets"
 MEMORIA_FILE = "memoria.json"
 
 claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -510,7 +507,12 @@ def buscar_producto_en_catalogo(nombre_buscado):
     """
     Busca un producto en el catalogo por nombre (busqueda flexible).
     Retorna el dict del producto o None.
-    Ejemplo: 'vinilo t1 amarillo vivo' -> encuentra 'Vinilo Davinci T1 Amarillo Vivo'
+    Niveles de busqueda (del mas exacto al mas flexible):
+      1. Coincidencia exacta en nombre_lower
+      2. Todas las palabras del termino aparecen en el nombre
+      3. Al menos todas menos una aparecen
+      4. Al menos UNA palabra del termino aparece en el nombre (busqueda parcial)
+         — util para terminos cortos como "sellador", "masilla", "brocha"
     """
     memoria = cargar_memoria()
     catalogo = memoria.get("catalogo", {})
@@ -524,22 +526,29 @@ def buscar_producto_en_catalogo(nombre_buscado):
         if prod.get("nombre_lower") == nombre_lower:
             return prod
 
-    # 2. Busqueda por contencion — el termino esta contenido en el nombre
+    palabras = [p for p in nombre_lower.split() if len(p) > 2]  # ignorar palabras muy cortas
+    if not palabras:
+        return None
+
     candidatos = []
-    palabras = nombre_lower.split()
     for cod, prod in catalogo.items():
         nl = prod.get("nombre_lower", "")
-        # Contar cuantas palabras del termino aparecen en el nombre
         coincidencias = sum(1 for p in palabras if p in nl)
+
         if coincidencias == len(palabras):
-            candidatos.append((coincidencias, len(nl), prod))
-        elif coincidencias >= max(1, len(palabras) - 1):
-            candidatos.append((coincidencias, len(nl), prod))
+            # Todas las palabras coinciden — prioridad maxima
+            candidatos.append((3, coincidencias, len(nl), prod))
+        elif len(palabras) > 1 and coincidencias >= len(palabras) - 1:
+            # Todas menos una — prioridad alta
+            candidatos.append((2, coincidencias, len(nl), prod))
+        elif coincidencias >= 1:
+            # Al menos una palabra coincide — prioridad baja (busqueda parcial)
+            candidatos.append((1, coincidencias, len(nl), prod))
 
     if candidatos:
-        # Preferir el que tiene mas coincidencias y nombre mas corto (mas especifico)
-        candidatos.sort(key=lambda x: (-x[0], x[1]))
-        return candidatos[0][2]
+        # Ordenar: prioridad desc, coincidencias desc, longitud nombre asc (mas especifico)
+        candidatos.sort(key=lambda x: (-x[0], -x[1], x[2]))
+        return candidatos[0][3]
 
     return None
 
@@ -1219,10 +1228,8 @@ _estado_lock = threading.Lock()
 def _registrar_ventas_con_metodo(ventas, metodo, vendedor, chat_id):
     """
     Registra una lista de ventas con el metodo de pago dado.
-    Respeta precios de fraccion del catalogo: el precio_unitario que viene de Claude
-    ya es el precio de esa fraccion especifica (no el de unidad completa).
-    El 'total' para el Excel es ese precio (ya que es lo que pago el cliente).
-    El inventario se descuenta en la cantidad decimal correspondiente.
+    Para fracciones: usa el precio que Claude ya determino (viene en precio_unitario).
+    Claude NUNCA envia una venta de fraccion sin precio — si no lo sabe, pregunta primero.
     """
     confirmaciones = []
     for venta in ventas:
@@ -1230,18 +1237,13 @@ def _registrar_ventas_con_metodo(ventas, metodo, vendedor, chat_id):
         cantidad = convertir_fraccion_a_decimal(venta.get("cantidad", 1))
         precio_cobrado = float(venta.get("precio_unitario", 0))
 
-        # Si Claude no puso precio, buscarlo en catalogo con la logica de fracciones
-        if precio_cobrado == 0:
-            precio_cobrado, _ = obtener_precio_para_cantidad(producto, cantidad)
-
-        # El total es el precio_cobrado (que ya es el precio de la cantidad vendida)
-        # Para cantidades >= 1, multiplicamos normalmente
-        # Para fracciones, precio_cobrado YA es el precio de esa fraccion
+        # Calcular total
+        # Para fracciones (cantidad < 1): precio_unitario YA es el total de esa fraccion
+        # Para unidades enteras (cantidad >= 1): total = precio * cantidad
         if cantidad >= 1:
-            total = precio_cobrado * cantidad
+            total = round(precio_cobrado * cantidad)
         else:
-            # Es una fraccion: precio_cobrado ya es el total de esa fraccion
-            total = precio_cobrado
+            total = round(precio_cobrado)
 
         cantidad_legible = decimal_a_fraccion_legible(cantidad)
         num = guardar_venta_excel(producto, cantidad, precio_cobrado, total, vendedor, metodo)
@@ -1267,6 +1269,8 @@ def _registrar_ventas_con_metodo(ventas, metodo, vendedor, chat_id):
             unidad = inv.get("unidad", "")
             if inv["cantidad"] <= inv.get("minimo", 0.5):
                 confirmaciones.append(f"⚠️ Stock bajo: {prod_key} — quedan {restante} {unidad}")
+
+    return confirmaciones
 
     return confirmaciones
 
@@ -1397,6 +1401,17 @@ async def procesar_con_claude(mensaje_usuario, nombre_usuario, historial_chat):
     else:
         precios_texto = obtener_precios_como_texto()
 
+    # Cargar precios de fraccion conocidos para el prompt
+    precios_fraccion_mem = memoria.get("precios_fraccion", {})
+    if precios_fraccion_mem:
+        lineas_frac = []
+        for prod_key, fracs in precios_fraccion_mem.items():
+            for frac, precio in fracs.items():
+                lineas_frac.append(f"  - {prod_key} {frac}: ${precio:,}")
+        precios_fraccion_texto = "PRECIOS DE FRACCION CONOCIDOS (usar estos exactamente):\n" + "\n".join(lineas_frac)
+    else:
+        precios_fraccion_texto = "PRECIOS DE FRACCION CONOCIDOS: ninguno guardado aun. Si el usuario menciona una fraccion sin precio, preguntale cuanto vale."
+
     system_prompt = f"""Eres FerreBot, asistente inteligente de una ferreteria colombiana.
 
 ==================================================
@@ -1413,15 +1428,22 @@ TUS CAPACIDADES - NUNCA LAS OLVIDES
 
 REGLAS CRITICAS DE FRACCIONES Y PRECIOS:
 - Muchos productos se venden en fracciones: 1/4, 1/2, 3/4, 1/8 de galon/unidad.
-- Los marcados como [fraccionable] tienen precios DIFERENTES segun la cantidad vendida.
-- NUNCA calcules el precio de una fraccion multiplicando el precio de unidad.
-  Ejemplo INCORRECTO: 1/4 de vinilo T1 = 50000 * 0.25 = 12500 (MAL)
-  Ejemplo CORRECTO: 1/4 de vinilo T1 = 60000 (precio especifico de fraccion)
-- Cuando alguien pida una fraccion de un producto fraccionable, usa el precio
-  especifico que aparece en PRECIOS POR FRACCION DEL PRODUCTO MENCIONADO si esta disponible.
+- Los precios de fraccion NO se calculan matematicamente. Son precios independientes
+  que el negocio define y que el bot aprende cuando se los dicen.
+- NUNCA calcules ni asumas el precio de una fraccion multiplicando el precio de unidad.
+  Ejemplo INCORRECTO: 1/4 de vinilo T1 = 50000 * 0.25 = 12500 (MAL, nunca hagas esto)
+- Si el usuario menciona una fraccion Y dice el precio: registra la venta normal con ese precio
+  y guardalo en memoria con [PRECIO_FRACCION].
+  Ejemplo: "vendi 1/4 de vinilo t1 azul a 15000"
+    -> [VENTA]{{"producto": "Vinilo Davinci T1 Azul Concentrado", "cantidad": 0.25, "precio_unitario": 15000}}[/VENTA]
+    -> [PRECIO_FRACCION]{{"producto": "Vinilo Davinci T1 Azul Concentrado", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
+- Si el usuario menciona una fraccion pero NO dice el precio:
+  1. Busca si ya tienes ese precio de fraccion guardado en PRECIOS DE FRACCION CONOCIDOS.
+  2. Si lo tienes: registra la venta con ese precio guardado.
+  3. Si NO lo tienes: NO registres la venta. Pregunta: "Cuanto vale el 1/4 de [producto]?"
+     Espera la respuesta antes de registrar.
 - En el campo "cantidad" del [VENTA] pon el decimal: 1/4=0.25, 1/2=0.5, 3/4=0.75, 1/8=0.125
-- En el campo "precio_unitario" pon el precio TOTAL de esa fraccion (no el de unidad completa)
-  Ejemplo: venta de 1/4 de vinilo a $60000 -> cantidad: 0.25, precio_unitario: 60000
+- En el campo "precio_unitario" pon el precio TOTAL de esa fraccion (lo que pago el cliente)
 {info_fracciones_extra}
 
 INFORMACION DEL NEGOCIO:
@@ -1429,6 +1451,8 @@ INFORMACION DEL NEGOCIO:
 
 CATALOGO DE PRODUCTOS (precio de unidad completa):
 {precios_texto}
+
+{precios_fraccion_texto}
 
 RESUMEN VENTAS DEL MES:
 {resumen_texto}
@@ -1452,7 +1476,8 @@ INSTRUCCIONES DE FORMATO:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000}}[/VENTA]
    CRITICO: NUNCA pongas metodo_pago en el JSON. NUNCA repitas [VENTA] para el mismo producto.
    El sistema pregunta el metodo de pago con botones automaticamente.
-3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
+3. Precio nuevo (unidad completa): [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
+3b. Precio de fraccion aprendido: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
 4. Info del negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
 5. Excel: [EXCEL]{{"titulo": "Titulo", "encabezados": ["Col1"], "filas": [["dato"]]}}[/EXCEL]
 6. Apertura caja: [CAJA]{{"accion": "apertura", "monto": 50000}}[/CAJA]
@@ -1501,6 +1526,27 @@ def procesar_acciones(texto_respuesta, vendedor, chat_id):
         with _estado_lock:
             ventas_pendientes[chat_id] = ventas_detectadas
         acciones.append("PEDIR_METODO_PAGO")
+
+    # Precios de fraccion aprendidos
+    for pf_json in re.findall(r'\[PRECIO_FRACCION\](.*?)\[/PRECIO_FRACCION\]', texto_respuesta, re.DOTALL):
+        try:
+            datos = json.loads(pf_json.strip())
+            producto = datos.get("producto", "").strip()
+            fraccion = datos.get("fraccion", "").strip()
+            precio   = float(datos.get("precio", 0))
+            if producto and fraccion and precio:
+                memoria = cargar_memoria()
+                if "precios_fraccion" not in memoria:
+                    memoria["precios_fraccion"] = {}
+                prod_key = producto.lower()
+                if prod_key not in memoria["precios_fraccion"]:
+                    memoria["precios_fraccion"][prod_key] = {}
+                memoria["precios_fraccion"][prod_key][fraccion] = round(precio)
+                guardar_memoria(memoria)
+                acciones.append(f"🧠 Precio de fraccion guardado: {producto} {fraccion} = ${precio:,.0f}")
+        except Exception as e:
+            print(f"Error precio fraccion: {e}")
+        texto_limpio = texto_limpio.replace(f'[PRECIO_FRACCION]{pf_json}[/PRECIO_FRACCION]', '')
 
     # Precios
     for precio_json in re.findall(r'\[PRECIO\](.*?)\[/PRECIO\]', texto_respuesta, re.DOTALL):
@@ -1779,7 +1825,61 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def comando_precios(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"🧠 Precios que recuerdo:\n\n{obtener_precios_como_texto()}")
+    """
+    Muestra el catalogo de precios agrupado por categoria.
+    Envia un mensaje por categoria para no superar el limite de Telegram (4096 chars).
+    """
+    memoria = cargar_memoria()
+    catalogo = memoria.get("catalogo", {})
+    precios  = memoria.get("precios", {})
+
+    if not catalogo and not precios:
+        await update.message.reply_text("No hay precios guardados aun.")
+        return
+
+    if catalogo:
+        # Agrupar por categoria
+        categorias = {}
+        for cod, prod in catalogo.items():
+            cat = prod.get("categoria", "Otros")
+            if cat not in categorias:
+                categorias[cat] = []
+            tiene_frac = bool(prod.get("precios_fraccion"))
+            sufijo = " *" if tiene_frac else ""
+            categorias[cat].append(f"  • {prod['nombre']}: ${prod['precio_unidad']:,}{sufijo}")
+
+        await update.message.reply_text(
+            f"🧠 Catalogo de precios ({len(catalogo)} productos)\n"
+            f"* = tiene precios por fraccion\n\n"
+            f"Te envio una categoria a la vez:"
+        )
+
+        for cat, items in sorted(categorias.items()):
+            # Dividir en bloques de max 4000 chars por si la categoria es muy grande
+            encabezado = f"📂 {cat} ({len(items)} productos):\n"
+            bloque = encabezado
+            for item in items:
+                linea = item + "\n"
+                if len(bloque) + len(linea) > 4000:
+                    await update.message.reply_text(bloque)
+                    bloque = f"📂 {cat} (continuacion):\n"
+                bloque += linea
+            if bloque.strip():
+                await update.message.reply_text(bloque)
+
+    else:
+        # Solo precios simples — paginar de 50 en 50
+        items = [f"  • {p}: ${v:,}" for p, v in sorted(precios.items())]
+        await update.message.reply_text(f"🧠 Precios guardados ({len(items)} productos):")
+        bloque = ""
+        for item in items:
+            linea = item + "\n"
+            if len(bloque) + len(linea) > 4000:
+                await update.message.reply_text(bloque)
+                bloque = ""
+            bloque += linea
+        if bloque.strip():
+            await update.message.reply_text(bloque)
 
 async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
     resumen = obtener_resumen_caja()
