@@ -1800,7 +1800,10 @@ async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for v in ventas:
         num = v[0] if v[0] else "?"
         producto = v[3] if len(v) > 3 else "?"
-        total = f"${v[6]:,.0f}" if len(v) > 6 and v[6] else "?"
+        try:
+            total = f"${float(v[6]):,.0f}" if len(v) > 6 and v[6] else "?"
+        except (ValueError, TypeError):
+            total = str(v[6]) if len(v) > 6 and v[6] else "?"
         vendedor = v[7] if len(v) > 7 else "?"
         texto += f"#{num} — {producto} — {total} — {vendedor}\n"
     texto += "\nUsa /borrar [numero] para eliminar una venta."
