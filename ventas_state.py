@@ -24,9 +24,7 @@ ventas_pendientes: dict[int, list] = {}
 borrados_pendientes: dict[int, int] = {}
 # {chat_id: [historial de mensajes]}
 historiales: dict[int, list] = {}
-# {chat_id: dict} datos parciales del cliente que se esta creando paso a paso
-# Estructura: {"nombre": str, "tipo_id": str|None, "identificacion": str|None,
-#              "tipo_persona": str|None, "correo": str|None, "paso": str}
+# {chat_id: dict con datos del cliente en proceso de creacion}
 clientes_en_proceso: dict[int, dict] = {}
 
 
