@@ -65,6 +65,8 @@ def main():
     # Callbacks (botones inline)
     app.add_handler(CallbackQueryHandler(manejar_metodo_pago,      pattern="^pago_"))
     app.add_handler(CallbackQueryHandler(manejar_metodo_pago,      pattern="^borrar_"))
+    app.add_handler(CallbackQueryHandler(manejar_metodo_pago,      pattern="^cli_tipoid_"))
+    app.add_handler(CallbackQueryHandler(manejar_metodo_pago,      pattern="^cli_persona_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_grafica, pattern="^grafica_"))
 
     if config.WEBHOOK_URL:
