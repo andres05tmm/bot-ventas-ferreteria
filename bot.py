@@ -809,7 +809,15 @@ def obtener_ventas_recientes(limite=10):
     if nombre_hoja not in wb.sheetnames:
         return []
     ws = wb[nombre_hoja]
-    ventas = [fila for fila in ws.iter_rows(min_row=2, values_only=True) if any(fila)]
+    cols = detectar_columnas(ws)
+    ventas = []
+    for fila in ws.iter_rows(min_row=2, values_only=True):
+        if not any(fila):
+            continue
+        fila_dict = {}
+        for nombre_col, num_col in cols.items():
+            fila_dict[nombre_col] = fila[num_col - 1]
+        ventas.append(fila_dict)
     return ventas[-limite:]
 
 def buscar_ventas(termino):
@@ -1798,13 +1806,15 @@ async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     texto = "📋 Ultimas ventas:\n\n"
     for v in ventas:
-        num = v[0] if v[0] else "?"
-        producto = v[3] if len(v) > 3 else "?"
+        # Buscar por nombre de columna de forma flexible
+        num      = v.get("#") or v.get("num") or "?"
+        producto = v.get("producto") or "?"
+        vendedor = v.get("vendedor") or "?"
+        total_raw = v.get("total")
         try:
-            total = f"${float(v[6]):,.0f}" if len(v) > 6 and v[6] else "?"
+            total = f"${float(total_raw):,.0f}" if total_raw else "?"
         except (ValueError, TypeError):
-            total = str(v[6]) if len(v) > 6 and v[6] else "?"
-        vendedor = v[7] if len(v) > 7 else "?"
+            total = str(total_raw) if total_raw else "?"
         texto += f"#{num} — {producto} — {total} — {vendedor}\n"
     texto += "\nUsa /borrar [numero] para eliminar una venta."
     await update.message.reply_text(texto)
