@@ -100,36 +100,69 @@ def _col_para(cols: dict, *claves_posibles) -> int | None:
 
 def obtener_siguiente_consecutivo() -> int:
     """
-    Lee el consecutivo mas alto del Excel y retorna el siguiente.
-    El Excel es la fuente de verdad; no se guarda nada aparte.
+    Retorna el siguiente consecutivo DEL DIA ACTUAL.
+    Se reinicia a 1 cada dia para saber cuantos clientes
+    se atendieron en cada jornada.
+
+    Logica:
+      1. Intenta leer el consecutivo mas alto de HOY desde el Sheets
+         (fuente de verdad en tiempo real durante el dia).
+      2. Si el Sheets no esta disponible, lee el Excel local filtrando
+         solo las filas de hoy.
+      3. Si no hay ventas hoy, retorna 1.
     """
+    hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+
+    # ── 1. Intentar desde Sheets ──
+    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+        try:
+            from sheets import sheets_leer_ventas_del_dia
+            ventas_hoy = sheets_leer_ventas_del_dia()
+            if ventas_hoy:
+                numeros = []
+                for v in ventas_hoy:
+                    try:
+                        numeros.append(int(float(str(v.get("num", 0)))))
+                    except (TypeError, ValueError):
+                        pass
+                if numeros:
+                    return max(numeros) + 1
+            return 1
+        except Exception:
+            pass  # Si falla el Sheets, caer al Excel local
+
+    # ── 2. Fallback: Excel local, solo filas de hoy ──
     if not os.path.exists(config.EXCEL_FILE):
         return 1
     try:
-        wb = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
-        max_consecutivo = 0
-        for nombre_hoja in wb.sheetnames:
-            if nombre_hoja == "Clientes":
-                continue
+        wb          = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
+        nombre_hoja = obtener_nombre_hoja()
+        max_hoy     = 0
+
+        if nombre_hoja in wb.sheetnames:
             ws   = wb[nombre_hoja]
             cols = {}
             for col in range(1, ws.max_column + 1):
                 valor = ws.cell(row=config.EXCEL_FILA_HEADERS, column=col).value
                 if valor:
                     cols[str(valor).lower().strip()] = col
+
+            col_fecha  = next((v for k, v in cols.items() if "fecha"       in k), None)
             col_consec = next((v for k, v in cols.items() if "consecutivo" in k), None)
-            if not col_consec:
-                continue
-            for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
-                val = fila[col_consec - 1]
-                try:
-                    num = int(float(str(val)))
-                    if num > max_consecutivo:
-                        max_consecutivo = num
-                except (TypeError, ValueError):
-                    pass
+
+            if col_fecha and col_consec:
+                for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
+                    if str(fila[col_fecha - 1] or "")[:10] != hoy:
+                        continue
+                    try:
+                        num = int(float(str(fila[col_consec - 1])))
+                        if num > max_hoy:
+                            max_hoy = num
+                    except (TypeError, ValueError):
+                        pass
+
         wb.close()
-        return max_consecutivo + 1
+        return max_hoy + 1
     except Exception as e:
         print(f"Error leyendo consecutivo del Excel: {e}")
         return 1
