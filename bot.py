@@ -73,7 +73,7 @@ if claves_faltantes:
     exit(1)
 
 EXCEL_FILE = "ventas.xlsx"
-VERSION = "v6.8-sheets"
+VERSION = "v6.9-optimizado"
 MEMORIA_FILE = "memoria.json"
 
 # Estructura real del Excel (ventas.xlsx)
@@ -268,52 +268,80 @@ SHEETS_COL_COLORS = {
     "row_par":   (239, 246, 255),  # Azul muy claro
 }
 
+# Cache global del cliente y hoja de Sheets (Punto 3)
+_sheets_cliente_cache = None
+_sheets_hoja_cache = None
+_sheets_cache_ts = 0  # timestamp del ultimo acceso exitoso
+
 def _obtener_cliente_sheets():
-    """Retorna cliente gspread autenticado con la service account."""
+    """Retorna cliente gspread autenticado — reutiliza la sesion si ya existe."""
+    global _sheets_cliente_cache, _sheets_cache_ts
+    import time
+    # Reusar cliente si fue creado hace menos de 30 minutos
+    if _sheets_cliente_cache and (time.time() - _sheets_cache_ts) < 1800:
+        return _sheets_cliente_cache
     credenciales_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-    # gspread.authorize() fue deprecado en v5+; usamos service_account_from_dict
-    return gspread.service_account_from_dict(
+    _sheets_cliente_cache = gspread.service_account_from_dict(
         credenciales_dict,
         scopes=[
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
         ]
     )
+    _sheets_cache_ts = time.time()
+    return _sheets_cliente_cache
+
+def _invalidar_cache_sheets():
+    """Invalida el cache de Sheets para forzar reconexion."""
+    global _sheets_cliente_cache, _sheets_hoja_cache, _sheets_cache_ts
+    _sheets_cliente_cache = None
+    _sheets_hoja_cache = None
+    _sheets_cache_ts = 0
 
 def _obtener_hoja_sheets():
     """
-    Retorna la worksheet 'Ventas del Dia' del Sheets configurado.
-    Si no existe la pestana la crea con encabezados.
+    Retorna la worksheet Ventas del Dia — reutiliza la conexion si ya existe.
+    Reconecta automaticamente si falla.
     """
-    global SHEETS_DISPONIBLE
+    global SHEETS_DISPONIBLE, _sheets_hoja_cache
     if not SHEETS_ID:
         return None
+    # Intentar reusar hoja cacheada
+    if _sheets_hoja_cache is not None:
+        try:
+            # Verificacion rapida: obtener el titulo (no descarga datos)
+            _ = _sheets_hoja_cache.title
+            SHEETS_DISPONIBLE = True
+            return _sheets_hoja_cache
+        except Exception:
+            # La sesion expiro — reconectar
+            _invalidar_cache_sheets()
     try:
         gc = _obtener_cliente_sheets()
         spreadsheet = gc.open_by_key(SHEETS_ID)
         try:
             ws = spreadsheet.worksheet("Ventas del Dia")
         except gspread.WorksheetNotFound:
-            ws = spreadsheet.add_worksheet("Ventas del Dia", rows=500, cols=len(SHEETS_HEADERS))
-            # Escribir encabezados
+            ws = spreadsheet.add_worksheet("Ventas del Dia", rows=2000, cols=len(SHEETS_HEADERS))
             ws.append_row(SHEETS_HEADERS)
-            # Formatear encabezado (negrita + color azul)
             ws.format("A1:I1", {
                 "backgroundColor": {"red": 0.102, "green": 0.337, "blue": 0.855},
                 "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
                 "horizontalAlignment": "CENTER"
             })
+        _sheets_hoja_cache = ws
         SHEETS_DISPONIBLE = True
         return ws
     except Exception as e:
         print(f"⚠️ Error accediendo a Sheets: {e}")
         SHEETS_DISPONIBLE = False
+        _invalidar_cache_sheets()
         return None
 
 def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vendedor, metodo):
     """
     Agrega una fila de venta al Google Sheets en tiempo real.
-    Retorna True si se agrego correctamente.
+    Usa batch update para hacer todo en una sola llamada a la API (Punto 1).
     """
     global SHEETS_DISPONIBLE
     if not SHEETS_ID:
@@ -326,30 +354,36 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
         hora  = datetime.now(COLOMBIA_TZ).strftime("%H:%M")
         cantidad_legible = decimal_a_fraccion_legible(float(cantidad)) if not isinstance(cantidad, str) else str(cantidad)
         fila = [
-            num,
-            fecha,
-            hora,
-            str(producto),
-            cantidad_legible,
-            float(precio_unitario),
-            float(total),
-            str(vendedor),
-            str(metodo),
+            num, fecha, hora, str(producto), cantidad_legible,
+            float(precio_unitario), float(total), str(vendedor), str(metodo),
         ]
+
+        # Obtener numero de filas actual ANTES de agregar (para calcular posicion)
+        num_filas_actual = ws.row_count
+        # Usar get para contar filas con datos (mas eficiente que get_all_values)
+        datos_actuales = ws.get("A1:A", value_render_option="UNFORMATTED_VALUE")
+        fila_nueva = len(datos_actuales) + 1  # siguiente fila disponible
+
+        # Batch: agregar fila + aplicar color en una sola transaccion
         ws.append_row(fila, value_input_option="USER_ENTERED")
 
-        # Alternar color de fila
-        num_filas = len(ws.get_all_values())
-        if num_filas % 2 == 0:
-            rango = f"A{num_filas}:I{num_filas}"
+        # Color alternado solo en filas pares (sin segunda llamada get_all_values)
+        if fila_nueva % 2 == 0:
+            rango = f"A{fila_nueva}:I{fila_nueva}"
             ws.format(rango, {
                 "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0}
             })
+
+        # Expandir hoja si queda menos de 100 filas libres
+        if ws.row_count - fila_nueva < 100:
+            ws.add_rows(500)
+
         SHEETS_DISPONIBLE = True
         return True
     except Exception as e:
         print(f"⚠️ Error agregando al Sheets: {e}")
         SHEETS_DISPONIBLE = False
+        _invalidar_cache_sheets()
         return False
 
 def sheets_borrar_fila(numero_venta):
@@ -1480,23 +1514,38 @@ async def procesar_con_claude(mensaje_usuario, nombre_usuario, historial_chat):
     if not DRIVE_DISPONIBLE:
         aviso_drive = "\n⚠️ AVISO: Google Drive no disponible. Los datos se guardan localmente."
 
-    # Catalogo resumido para el prompt (nombre + precio unidad + indicador fraccionable)
-    # Solo incluir si el catalogo no es gigante; si lo es, resumir por categoria
+    # Punto 2: Catalogo inteligente — solo incluir productos relevantes al mensaje
+    # Si ya encontramos candidatos especificos, esos son suficientes para Claude.
+    # El catalogo completo solo se incluye si el mensaje pide precios en general.
     catalogo = memoria.get("catalogo", {})
-    if catalogo:
-        # Agrupar por categoria para el prompt, mostrar primero los fraccionables
+    palabras_precio_general = ["precio", "cuanto vale", "cuanto cuesta", "cuanto es", "catalogo", "lista de precios", "todos los"]
+    necesita_catalogo_completo = any(p in mensaje_usuario.lower() for p in palabras_precio_general)
+
+    if info_candidatos_extra:
+        # Ya tenemos candidatos especificos — no necesitamos el catalogo completo
+        precios_texto = "(usar los PRODUCTOS DEL CATALOGO listados arriba)"
+    elif necesita_catalogo_completo and catalogo:
+        # El usuario pide precios en general — incluir catalogo agrupado por categoria
         lineas_cat = []
-        categorias = {}
+        cats = {}
         for cod, prod in catalogo.items():
             cat = prod.get("categoria", "Otros")
-            if cat not in categorias:
-                categorias[cat] = []
+            if cat not in cats:
+                cats[cat] = []
             tiene_frac = bool(prod.get("precios_fraccion"))
-            categorias[cat].append(f"  - {prod['nombre']}: ${prod['precio_unidad']:,}" + (" [fraccionable]" if tiene_frac else ""))
-        for cat, items in sorted(categorias.items()):
+            cats[cat].append(f"  - {prod['nombre']}: ${prod['precio_unidad']:,}" + (" [fraccionable]" if tiene_frac else ""))
+        for cat, items in sorted(cats.items()):
             lineas_cat.append(f"{cat}:")
-            lineas_cat.extend(items[:60])  # max 60 por categoria
+            lineas_cat.extend(items[:60])
         precios_texto = "\n".join(lineas_cat)
+    elif catalogo:
+        # Mensaje normal — solo incluir resumen por categoria (sin precios individuales)
+        resumen_cats = {}
+        for cod, prod in catalogo.items():
+            cat = prod.get("categoria", "Otros")
+            resumen_cats[cat] = resumen_cats.get(cat, 0) + 1
+        lineas = [f"  {cat}: {n} productos" for cat, n in sorted(resumen_cats.items())]
+        precios_texto = "Catalogo disponible (pregunta por producto especifico):\n" + "\n".join(lineas)
     else:
         precios_texto = obtener_precios_como_texto()
 
