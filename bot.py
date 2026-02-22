@@ -73,7 +73,7 @@ if claves_faltantes:
     exit(1)
 
 EXCEL_FILE = "ventas.xlsx"
-VERSION = "v6.7-sheets"
+VERSION = "v6.8-sheets"
 MEMORIA_FILE = "memoria.json"
 
 # Estructura real del Excel (ventas.xlsx)
@@ -1364,8 +1364,19 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.edit_message_text("❌ Borrado cancelado.")
             return
 
+        # Borrar del Sheets (fuente de verdad del dia)
+        sheets_ok = False
+        if SHEETS_ID and SHEETS_DISPONIBLE:
+            sheets_ok = sheets_borrar_fila(numero_venta)
+
+        # Borrar del Excel local tambien
         exito, mensaje = borrar_venta_excel(numero_venta)
-        await query.edit_message_text(mensaje)
+
+        if sheets_ok and not exito:
+            # Estaba en Sheets pero no en Excel local (normal si aun no se cerro el dia)
+            await query.edit_message_text(f"✅ Venta #{numero_venta} borrada del Sheets.")
+        else:
+            await query.edit_message_text(mensaje)
         return
 
     # ---- Metodo de pago ----
@@ -1919,19 +1930,42 @@ async def comando_buscar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Borrar venta con confirmacion previa.
-    Muestra los datos de la venta y pide confirmacion con botones.
+    Busca la venta en el Sheets primero (fuente de verdad del dia),
+    con fallback al Excel local.
     """
     if not context.args:
         await update.message.reply_text("Indica el numero de venta.\nEjemplo: /borrar 5")
         return
+    # Limpiar el argumento por si viene con # (ej: /borrar #3)
+    arg = context.args[0].lstrip("#")
     try:
-        numero = int(context.args[0])
+        numero = int(arg)
     except ValueError:
         await update.message.reply_text("El numero debe ser entero.\nEjemplo: /borrar 5")
         return
 
     chat_id = update.message.chat_id
-    venta = obtener_venta_por_numero(numero)
+
+    # Buscar en Sheets primero
+    venta = None
+    if SHEETS_ID and SHEETS_DISPONIBLE:
+        ventas_sheets = sheets_leer_ventas_del_dia()
+        for v in ventas_sheets:
+            try:
+                if int(float(str(v.get("num", "")))) == numero:
+                    venta = {
+                        COL_PRODUCTO: v.get("producto", "?"),
+                        COL_FECHA:    v.get("fecha", "?"),
+                        COL_TOTAL:    v.get("total", "?"),
+                        COL_VENDEDOR: v.get("vendedor", "?"),
+                    }
+                    break
+            except (ValueError, TypeError):
+                pass
+
+    # Fallback: buscar en Excel local
+    if not venta:
+        venta = obtener_venta_por_numero(numero)
 
     if not venta:
         await update.message.reply_text(f"No encontre la venta #{numero}.")
