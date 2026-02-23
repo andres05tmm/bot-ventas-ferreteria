@@ -39,29 +39,6 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
         if resumen else "Sin ventas este mes"
     )
 
-    # Cargar lista de clientes si el mensaje menciona un nombre de persona
-    from excel import cargar_clientes, buscar_clientes_multiples
-    clientes_texto = ""
-    palabras_msg   = mensaje_usuario.lower().split()
-    # Heuristica: si hay palabras capitalizadas o "nombre de" o "a nombre" busca clientes
-    indicadores_cliente = ["nombre", "cliente", "a nombre", "para"]
-    if any(p in mensaje_usuario.lower() for p in indicadores_cliente):
-        try:
-            # Buscar por las palabras del mensaje que no sean stopwords
-            stopwords_c = {"a", "de", "el", "la", "los", "las", "un", "una", "que",
-                           "en", "por", "para", "con", "del", "al", "nombre", "cliente"}
-            termino_c = " ".join([p for p in palabras_msg if p not in stopwords_c][:4])
-            candidatos_c = buscar_clientes_multiples(termino_c, limite=5)
-            if candidatos_c:
-                lineas_c = [f"  - {c.get('Nombre tercero','')} (ID: {c.get('Identificación','')})"
-                            for c in candidatos_c]
-                clientes_texto = "\nCLIENTES ENCONTRADOS EN EL SISTEMA:\n" + "\n".join(lineas_c)
-                clientes_texto += "\nSi el cliente de la venta aparece aqui, usalo directamente SIN crear uno nuevo."
-            else:
-                clientes_texto = "\nCLIENTES: No encontre coincidencias. Si el usuario menciona un cliente nuevo, inicia el flujo [INICIAR_CLIENTE]."
-        except Exception:
-            pass
-
     # Cargar datos historicos solo si el mensaje parece un analisis
     palabras_analisis = ["cuanto", "vendimos", "reporte", "analiz", "total",
                          "resumen", "estadistica", "top", "mas vendido"]
@@ -101,14 +78,30 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     if palabras_clave:
         termino    = " ".join(palabras_clave[:5])
         candidatos = buscar_multiples_en_catalogo(termino, limite=8)
+
+        def _linea_candidato(p: dict) -> str:
+            fracs = p.get("precios_fraccion", {})
+            pxc   = p.get("precio_por_cantidad")
+            if fracs:
+                precios_str = " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
+                return f"  - {p['nombre']}: {precios_str}"
+            elif pxc:
+                return (f"  - {p['nombre']}: "
+                        f"c/u=${pxc['precio_bajo_umbral']:,} | "
+                        f"x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
+            else:
+                return f"  - {p['nombre']}: ${p['precio_unidad']:,}"
+
         if len(candidatos) > 1:
-            lineas = [f"  - {p['nombre']}: ${p['precio_unidad']:,}" for p in candidatos]
+            lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = (
-                "\nPRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE:\n" + "\n".join(lineas)
+                "\nPRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE (con precios de fraccion):\n"
+                + "\n".join(lineas)
             )
         elif len(candidatos) == 1:
-            p = candidatos[0]
-            info_candidatos_extra = f"\nPRODUCTO ENCONTRADO EN CATALOGO: {p['nombre']} — ${p['precio_unidad']:,}"
+            info_candidatos_extra = (
+                "\nPRODUCTO ENCONTRADO EN CATALOGO:\n" + _linea_candidato(candidatos[0])
+            )
 
     aviso_drive = ""
     if not config.DRIVE_DISPONIBLE:
@@ -232,25 +225,31 @@ INSTRUCCIONES DE FORMATO:
    - "un dieciseisavo" o "1/16" → cantidad: 0.0625
    NUNCA registres un octavo como cantidad 1. NUNCA registres un cuarto como cantidad 1.
 
+   REGLA ESPECIAL — THINNER (conversion automatica precio a fraccion de galon):
+   Cuando el usuario diga "X pesos de thinner", "tiner por X" o "vendio thinner por X",
+   convierte automaticamente usando esta tabla:
+     3000=0.0833  4000=0.1    5000=0.125  6000=0.1667  7000=0.2
+     8000=0.25    9000=0.3    10000=0.3333  11000=0.3333  12000=0.4
+     13000=0.5    14000=0.5   15000=0.5   16000=0.5556  17000=0.6
+     18000=0.625  19000=0.6667  20000=0.75  21000=0.8   22000=0.8333
+     24000=0.9    25000=0.95  26000=1.0
+   El precio_unitario es el valor en pesos que pago el cliente.
+   Ejemplo: "15000 de tiner" → cantidad: 0.5, precio_unitario: 15000
+
    REGLA DE PRODUCTOS AMBIGUOS:
-   Cuando el usuario diga solo "esmalte negro", "esmalte blanco", "esmalte rojo" etc SIN
-   especificar tipo, asume SIEMPRE el esmalte corriente basico (el mas barato).
-   NO preguntes de que color es si ya lo dijo. NO preguntes que tipo si dijo solo "esmalte negro".
-   Solo pregunta el tipo si el usuario menciona expresamente "3 en 1" o "anticorrosivo".
+   Si dicen "esmalte negro", "esmalte blanco" etc SIN especificar tipo, asume el corriente basico.
+   NO preguntes el tipo ni el color si ya lo dijeron.
+   Solo pregunta si mencionan expresamente "3 en 1" o "anticorrosivo".
 
 2b. Cliente nuevo — REGLAS CRITICAS:
-   PRIMERO: Cuando el usuario mencione un nombre de cliente, SIEMPRE verifica si ya existe
-   buscando en la lista de clientes del sistema. SI EXISTE, usalo directamente en la venta.
-   SI NO EXISTE, inicia el flujo de creacion.
-   - Si el usuario pide crear un cliente y YA dio todos los datos en el mensaje
-     (nombre, tipo documento, numero, tipo persona, correo), usa el tag directamente:
-     [CLIENTE_NUEVO]{{"nombre":"NOMBRE COMPLETO","tipo_id":"Cédula de ciudadanía","identificacion":"123456","tipo_persona":"Natural","correo":"correo@ejemplo.com"}}[/CLIENTE_NUEVO]
-   - Si el usuario menciona un cliente que NO existe y no dio todos los datos,
-     usa este tag para iniciar el flujo paso a paso con botones:
+   PRIMERO verifica si el cliente ya existe en CLIENTES ENCONTRADOS EN EL SISTEMA.
+   SI EXISTE usalo directamente. SI NO EXISTE inicia el flujo de creacion.
+   - Si ya dio todos los datos usa:
+     [CLIENTE_NUEVO]{{"nombre":"NOMBRE","tipo_id":"Cédula de ciudadanía","identificacion":"123","tipo_persona":"Natural","correo":""}}[/CLIENTE_NUEVO]
+   - Si faltan datos usa (el sistema muestra botones, NO hagas preguntas manuales):
      [INICIAR_CLIENTE]{{"nombre":"nombre del cliente"}}[/INICIAR_CLIENTE]
-     El sistema mostrara botones para completar los datos. NO hagas preguntas manuales.
-   - Los valores validos de tipo_id son: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
-   - Los valores validos de tipo_persona son: "Natural", "Juridica"
+   - tipo_id validos: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
+   - tipo_persona validos: "Natural", "Juridica"
 
 3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
 3b. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
