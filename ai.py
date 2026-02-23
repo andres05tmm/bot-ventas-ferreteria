@@ -33,11 +33,36 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
 def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     memoria       = cargar_memoria()
-    resumen       = obtener_resumen_ventas()
-    resumen_texto = (
-        f"${resumen['total']:,.0f} en {resumen['num_ventas']} ventas este mes"
-        if resumen else "Sin ventas este mes"
-    )
+    resumen = obtener_resumen_ventas()
+    resumen_excel_total    = resumen["total"]     if resumen else 0
+    resumen_excel_cantidad = resumen["num_ventas"] if resumen else 0
+
+    # Sumar ventas del dia actual desde el Sheets (aun no pasadas al Excel)
+    resumen_sheets_total    = 0
+    resumen_sheets_cantidad = 0
+    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+        try:
+            from sheets import sheets_leer_ventas_del_dia
+            ventas_hoy = sheets_leer_ventas_del_dia()
+            for v in ventas_hoy:
+                try:
+                    resumen_sheets_total += float(v.get("total", 0) or 0)
+                    resumen_sheets_cantidad += 1
+                except (ValueError, TypeError):
+                    pass
+        except Exception:
+            pass
+
+    total_combinado    = resumen_excel_total + resumen_sheets_total
+    cantidad_combinada = resumen_excel_cantidad + resumen_sheets_cantidad
+
+    if cantidad_combinada > 0:
+        resumen_texto = (
+            f"${total_combinado:,.0f} en {cantidad_combinada} ventas este mes "
+            f"(hoy: ${resumen_sheets_total:,.0f} en {resumen_sheets_cantidad} ventas)"
+        )
+    else:
+        resumen_texto = "Sin ventas este mes"
 
     # Cargar datos historicos solo si el mensaje parece un analisis
     palabras_analisis = ["cuanto", "vendimos", "reporte", "analiz", "total",
