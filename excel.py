@@ -297,6 +297,21 @@ def buscar_cliente_con_resultado(termino: str) -> tuple[dict | None, list]:
     return None, candidatos
 
 
+def obtener_clientes_recientes(limite: int = 5) -> list:
+    """
+    Retorna los últimos N clientes registrados, ordenados por Fecha registro (más reciente primero).
+    Clientes sin fecha quedan al final.
+    """
+    clientes = cargar_clientes()
+    def _fecha(c):
+        f = c.get("Fecha registro") or ""
+        return str(f)
+    con_fecha    = [c for c in clientes if c.get("Fecha registro")]
+    sin_fecha    = [c for c in clientes if not c.get("Fecha registro")]
+    con_fecha.sort(key=_fecha, reverse=True)
+    return (con_fecha + sin_fecha)[:limite]
+
+
 def obtener_nombre_id_cliente(termino: str) -> tuple[str, str]:
     """
     Busca un cliente por nombre o identificación y retorna (identificacion, nombre).
@@ -319,7 +334,7 @@ def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural
             headers = [
                 "Nombre tercero", "Es Juridica o Persona", "Tipo de identificación",
                 "Identificación", "Digito verificación", "Correo electrónico",
-                "Dirección", "Teléfono.", "Nombres contacto",
+                "Dirección", "Teléfono.", "Nombres contacto", "Fecha registro",
             ]
             for col, h in enumerate(headers, 1):
                 celda      = ws_c.cell(row=1, column=col, value=h)
@@ -338,6 +353,8 @@ def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural
         ws_c.cell(row=fila, column=7, value=direccion or "No aplica")
         ws_c.cell(row=fila, column=8, value=telefono or "000-0000000-")
         ws_c.cell(row=fila, column=9, value=nombre.upper())
+        from datetime import datetime
+        ws_c.cell(row=fila, column=10, value=datetime.now().strftime("%Y-%m-%d %H:%M"))
         wb.save(config.EXCEL_FILE)
         from drive import subir_a_drive
         subir_a_drive(config.EXCEL_FILE)
