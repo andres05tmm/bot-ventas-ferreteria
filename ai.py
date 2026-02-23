@@ -22,7 +22,7 @@ from memoria import (
 from excel import (
     obtener_todos_los_datos, obtener_resumen_ventas,
     generar_excel_personalizado, guardar_cliente_nuevo,
-    inicializar_excel,
+    inicializar_excel, buscar_clientes_multiples,
 )
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
@@ -51,6 +51,10 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     else:
         datos_texto = "(no cargado)"
 
+    # Stopwords reutilizadas en varios bloques de busqueda
+    stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
+                 "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en"}
+
     # Info de fracciones si el mensaje las menciona
     info_fracciones_extra = ""
     palabras_frac = ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"]
@@ -72,8 +76,6 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 
     # Candidatos del catalogo para el mensaje actual
     info_candidatos_extra = ""
-    stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
-                 "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en"}
     palabras_clave = [p for p in mensaje_usuario.lower().split() if p not in stopwords]
     if palabras_clave:
         termino    = " ".join(palabras_clave[:5])
@@ -103,6 +105,26 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
                 "\nPRODUCTO ENCONTRADO EN CATALOGO:\n" + _linea_candidato(candidatos[0])
             )
 
+    # ── CLIENTES RELEVANTES PARA EL MENSAJE ──
+    # FIX: esta variable faltaba y causaba el NameError al arrancar
+    clientes_texto = ""
+    try:
+        palabras_cliente = [p for p in mensaje_usuario.lower().split()
+                            if len(p) > 3 and p not in stopwords]
+        if palabras_cliente:
+            termino_cliente      = " ".join(palabras_cliente[:3])
+            clientes_encontrados = buscar_clientes_multiples(termino_cliente, 5)
+            if clientes_encontrados:
+                lineas_cli = []
+                for c in clientes_encontrados:
+                    nombre = c.get("Nombre tercero", "")
+                    id_c   = c.get("Identificación", "")
+                    tipo   = c.get("Tipo de identificación", "")
+                    lineas_cli.append(f"  - {nombre} ({tipo}: {id_c})")
+                clientes_texto = "CLIENTES ENCONTRADOS EN EL SISTEMA:\n" + "\n".join(lineas_cli)
+    except Exception:
+        clientes_texto = ""
+
     aviso_drive = ""
     if not config.DRIVE_DISPONIBLE:
         aviso_drive = "\n⚠️ AVISO: Google Drive no disponible. Los datos se guardan localmente."
@@ -112,17 +134,15 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     if catalogo:
         categorias: dict = {}
         for prod in catalogo.values():
-            cat = prod.get("categoria", "Otros")
+            cat   = prod.get("categoria", "Otros")
             fracs = prod.get("precios_fraccion", {})
             pxc   = prod.get("precio_por_cantidad")
             if fracs:
-                # Mostrar precios de fraccion directamente para que Claude los vea sin buscar
                 precios_frac_str = " | ".join(
                     f"{k}=${v['precio']:,}" for k, v in fracs.items()
                 )
                 linea = f"  - {prod['nombre']}: {precios_frac_str}"
             elif pxc:
-                # Tornilleria: mostrar precio normal y mayorista
                 linea = (f"  - {prod['nombre']}: "
                          f"c/u=${pxc['precio_bajo_umbral']:,} | "
                          f"x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
@@ -300,7 +320,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     """
     from ventas_state import ventas_pendientes, registrar_ventas_con_metodo, _estado_lock
 
-    acciones:      list[str] = []
+    acciones:       list[str] = []
     archivos_excel: list[str] = []
     texto_limpio = texto_respuesta
 
@@ -320,8 +340,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
 
     if ventas_con_metodo:
-        # Agrupar por metodo de pago para que todas las ventas del mismo metodo
-        # compartan un solo consecutivo (misma transaccion)
         grupos: dict = {}
         for venta in ventas_con_metodo:
             metodo = venta.get("metodo_pago", "efectivo").lower()
@@ -333,12 +351,11 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             acciones.append(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n" + "\n".join(conf))
 
     if ventas_sin_metodo:
-        import threading
         with _estado_lock:
             ventas_pendientes[chat_id] = ventas_sin_metodo
         acciones.append("PEDIR_METODO_PAGO")
 
-    # ── Cliente nuevo (datos completos dados de una vez) ──
+    # ── Cliente nuevo (datos completos) ──
     for cli_json in re.findall(r'\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]', texto_respuesta, re.DOTALL):
         try:
             datos  = json.loads(cli_json.strip())
@@ -368,12 +385,12 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             from ventas_state import clientes_en_proceso, _estado_lock as _lock
             with _lock:
                 clientes_en_proceso[chat_id] = {
-                    "nombre":       nombre,
-                    "tipo_id":      None,
+                    "nombre":         nombre,
+                    "tipo_id":        None,
                     "identificacion": None,
-                    "tipo_persona": None,
-                    "correo":       None,
-                    "paso":         "nombre" if not nombre else "tipo_id",
+                    "tipo_persona":   None,
+                    "correo":         None,
+                    "paso":           "nombre" if not nombre else "tipo_id",
                 }
             acciones.append("INICIAR_FLUJO_CLIENTE")
         except Exception as e:
@@ -426,10 +443,12 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             caja  = cargar_caja()
             if datos.get("accion") == "apertura":
                 caja.update({
-                    "abierta": True,
-                    "fecha": datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
+                    "abierta":        True,
+                    "fecha":          datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
                     "monto_apertura": float(datos.get("monto", 0)),
-                    "efectivo": 0, "transferencias": 0, "datafono": 0,
+                    "efectivo":       0,
+                    "transferencias": 0,
+                    "datafono":       0,
                 })
                 from memoria import guardar_caja
                 guardar_caja(caja)
@@ -463,16 +482,18 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     # ── Inventario ──
     for inv_json in re.findall(r'\[INVENTARIO\](.*?)\[/INVENTARIO\]', texto_respuesta, re.DOTALL):
         try:
-            datos     = json.loads(inv_json.strip())
+            datos      = json.loads(inv_json.strip())
             inventario = cargar_inventario()
-            producto  = datos.get("producto", "").lower()
-            accion    = datos.get("accion", "actualizar")
+            producto   = datos.get("producto", "").lower()
+            accion     = datos.get("accion", "actualizar")
             if accion == "actualizar":
                 cantidad = convertir_fraccion_a_decimal(datos.get("cantidad", 0))
                 minimo   = convertir_fraccion_a_decimal(datos.get("minimo", 0.5))
                 unidad   = datos.get("unidad", "unidades")
                 inventario[producto] = {
-                    "cantidad": cantidad, "minimo": minimo, "unidad": unidad,
+                    "cantidad":        cantidad,
+                    "minimo":          minimo,
+                    "unidad":          unidad,
                     "nombre_original": datos.get("producto", producto),
                 }
                 from memoria import guardar_inventario as _guardar_inv
@@ -492,8 +513,8 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     # ── Excel personalizado ──
     for excel_json in re.findall(r'\[EXCEL\](.*?)\[/EXCEL\]', texto_respuesta, re.DOTALL):
         try:
-            datos    = json.loads(excel_json.strip())
-            nombre   = f"reporte_{datetime.now(config.COLOMBIA_TZ).strftime('%Y%m%d_%H%M%S')}.xlsx"
+            datos  = json.loads(excel_json.strip())
+            nombre = f"reporte_{datetime.now(config.COLOMBIA_TZ).strftime('%Y%m%d_%H%M%S')}.xlsx"
             generar_excel_personalizado(
                 datos.get("titulo", "Reporte"),
                 datos.get("encabezados", []),
@@ -528,8 +549,10 @@ async def editar_excel_con_claude(instruccion: str, ruta_excel: str, nombre_exce
         ):
             filas_ejemplo.append(list(fila))
         info_hojas.append({
-            "hoja": hoja_nombre, "encabezados": encabezados,
-            "ejemplo_filas": filas_ejemplo, "total_filas": ws.max_row - 1,
+            "hoja":          hoja_nombre,
+            "encabezados":   encabezados,
+            "ejemplo_filas": filas_ejemplo,
+            "total_filas":   ws.max_row - 1,
         })
 
     prompt = f"""Eres un experto en Python y openpyxl. El usuario tiene un archivo Excel llamado '{nombre_excel}' con esta estructura:
