@@ -18,14 +18,22 @@ from memoria import cargar_inventario, guardar_inventario, cargar_caja, guardar_
 
 _estado_lock = threading.Lock()
 
-# {chat_id: [lista de ventas pendientes de confirmar metodo]}
+# {chat_id: [lista de ventas pendientes de confirmar metodo de pago]}
 ventas_pendientes: dict[int, list] = {}
+
 # {chat_id: numero_venta} para confirmar borrado
 borrados_pendientes: dict[int, int] = {}
+
 # {chat_id: [historial de mensajes]}
 historiales: dict[int, list] = {}
+
 # {chat_id: dict con datos del cliente en proceso de creacion}
 clientes_en_proceso: dict[int, dict] = {}
+
+# {chat_id: {"ventas": [...], "metodo": "efectivo"|None}}
+# Ventas que quedaron en pausa esperando que se cree el cliente
+# Una vez creado el cliente, se registran automaticamente
+ventas_esperando_cliente: dict[int, dict] = {}
 
 
 def agregar_al_historial(chat_id: int, role: str, content: str):
