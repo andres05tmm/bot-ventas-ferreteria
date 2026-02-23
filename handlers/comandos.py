@@ -90,6 +90,7 @@ async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
         ventas_raw = await asyncio.to_thread(sheets_leer_ventas_del_dia)
         if ventas_raw:
+            total_dia = 0
             texto = f"📋 Ventas de hoy ({len(ventas_raw)}):\n\n"
             for v in ventas_raw:
                 num      = v.get("num", "?")
@@ -97,15 +98,18 @@ async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 vendedor = v.get("vendedor", "?")
                 total_raw = v.get("total")
                 try:
-                    total = f"${float(total_raw):,.0f}" if total_raw else "?"
+                    t = float(total_raw) if total_raw else 0
+                    total_dia += t
+                    total_fmt = f"${t:,.0f}"
                 except (ValueError, TypeError):
-                    total = str(total_raw) if total_raw else "?"
+                    total_fmt = str(total_raw) if total_raw else "?"
                 metodo = v.get("metodo", "")
-                texto += f"#{num} — {producto} — {total} — {vendedor}"
+                texto += f"#{num} — {producto} — {total_fmt} — {vendedor}"
                 if metodo:
                     texto += f" ({metodo})"
                 texto += "\n"
-            texto += "\nUsa /borrar [numero] para eliminar una venta."
+            texto += f"\n💰 Total del día: ${total_dia:,.0f}"
+            texto += "\n\nUsa /borrar [numero] para eliminar una venta."
             await update.message.reply_text(texto)
             return
 
