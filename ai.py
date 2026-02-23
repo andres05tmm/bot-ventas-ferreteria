@@ -306,14 +306,31 @@ INSTRUCCIONES DE FORMATO:
       → Ejemplo: "¿Te refieres a ALBERTO TRUJILLO (CC: 123) o ALBERTO TRUJILLO GOMEZ (CC: 456)?"
 
    C) Si NO aparece ningun cliente en el sistema (campo vacio):
-      → El usuario quiere crear uno nuevo.
-      → Si tiene todos los datos: usa [CLIENTE_NUEVO]{{"nombre":"NOMBRE","tipo_id":"Cédula de ciudadanía","identificacion":"123","tipo_persona":"Natural","correo":""}}[/CLIENTE_NUEVO]
-      → Si faltan datos: usa [INICIAR_CLIENTE]{{"nombre":"nombre del cliente"}}[/INICIAR_CLIENTE]
+      → El cliente no existe y hay que crearlo. USA SIEMPRE [INICIAR_CLIENTE].
+      → NUNCA uses [CLIENTE_NUEVO] a menos que el usuario haya dado EXPLICITAMENTE
+        en ese mismo mensaje: nombre completo + numero de cedula/NIT + tipo de documento.
+        Si falta CUALQUIERA de esos tres datos, usa [INICIAR_CLIENTE].
+      → En la practica casi siempre usaras [INICIAR_CLIENTE], porque los usuarios
+        raramente dan la cedula de una sola vez.
+      → [INICIAR_CLIENTE]{{"nombre":"nombre del cliente"}}[/INICIAR_CLIENTE]
+      → [CLIENTE_NUEVO] solo cuando tienes nombre+identificacion+tipo_id juntos:
+        [CLIENTE_NUEVO]{{"nombre":"NOMBRE","tipo_id":"Cédula de ciudadanía","identificacion":"123","tipo_persona":"Natural","correo":""}}[/CLIENTE_NUEVO]
       → tipo_id validos: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
       → tipo_persona validos: "Natural", "Juridica"
 
    NUNCA pidas identificacion si el cliente ya esta en el sistema.
    NUNCA uses [INICIAR_CLIENTE] si el cliente ya esta en el sistema.
+
+   METODO DE PAGO CUANDO HAY CLIENTE NUEVO — CRITICO:
+   Cuando emites [INICIAR_CLIENTE], el sistema pausa las ventas hasta completar
+   el registro del cliente. NO preguntes metodo de pago en ese mismo mensaje.
+   NO emitas "metodo_pago" en los [VENTA] cuando hay [INICIAR_CLIENTE].
+   El metodo de pago se pedira automaticamente DESPUES de crear el cliente.
+   Ejemplo correcto cuando hay cliente nuevo:
+     "Listo, registro a Alberto Trujillo con los 4 productos."
+     + [INICIAR_CLIENTE]{{"nombre":"Alberto Trujillo"}}[/INICIAR_CLIENTE]
+     + [VENTA]...[/VENTA] x4  (SIN metodo_pago)
+   Ejemplo INCORRECTO: pedir metodo de pago antes de crear el cliente.
 
    ORDEN FLEXIBLE — CRITICO:
    El usuario puede mencionar el cliente y los productos en CUALQUIER orden.
