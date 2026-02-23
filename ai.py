@@ -346,23 +346,29 @@ INSTRUCCIONES DE FORMATO:
    - Si NO dijo el metodo: NO pongas metodo_pago (el sistema preguntara con botones)
    CRITICO: NUNCA preguntes "a nombre de quien" si el usuario no menciono un cliente.
    CRITICO: NUNCA repitas [VENTA] para el mismo producto.
+   CRITICO: Si el usuario esta RESPONDIENDO una pregunta tuya (ej: te dice el precio que le faltaba,
+   o el metodo de pago, o confirma algo), NO emitas [VENTA] de nuevo. La venta ya fue registrada
+   o ya esta pendiente. Solo responde con la informacion solicitada.
 
-   REGLA DE PRECIO TOTAL VS UNITARIO — MUY IMPORTANTE:
-   El campo "precio_unitario" depende de como lo diga el usuario:
+   REGLA DE PRECIO TOTAL VS UNITARIO — CRITICA:
+   En una ferreteria colombiana, cuando el usuario dice "X producto PRECIO" sin palabras especiales,
+   el PRECIO es siempre el TOTAL cobrado, NO el precio por unidad.
+   precio_unitario = PRECIO / cantidad
 
-   PRECIO ES TOTAL (lo mas comun, dividir entre cantidad):
-   - "12 tornillos 2000" → total=2000, precio_unitario=2000/12=166.67
-   - "12 tornillos drywall 2000" → total=2000, precio_unitario=166.67
-   - "vendi 5 brochas 10000" → total=10000, precio_unitario=2000
-   Regla: si el usuario NO usa palabras como "a", "c/u", "cada uno", "por unidad", el numero es el TOTAL.
-   En ese caso: precio_unitario = precio_mencionado / cantidad
+   EJEMPLOS DE PRECIO TOTAL (sin palabras especiales → dividir):
+   - "12 tornillos drywall 2000" → precio_unitario=166.67, cantidad=12 (2000 es el total)
+   - "12 tornillos 2000" → precio_unitario=166.67, cantidad=12
+   - "5 brochas 10000" → precio_unitario=2000, cantidad=5
+   - "vendio 3 galones vinilo 120000" → precio_unitario=40000, cantidad=3
+   - "50 tornillos 5000" → precio_unitario=100, cantidad=50 (5000 es el total)
 
-   PRECIO ES UNITARIO (el usuario lo especifica):
+   EJEMPLOS DE PRECIO UNITARIO (con palabras especiales → multiplicar):
    - "12 tornillos a 2000" → precio_unitario=2000, total=24000
    - "12 tornillos a 2000 cada uno" → precio_unitario=2000, total=24000
    - "12 tornillos c/u 2000" → precio_unitario=2000, total=24000
-   - "12 brochas de 2 a 2000 cada una" → precio_unitario=2000, total=24000
-   Palabras clave que indican precio unitario: "a", "c/u", "cada uno", "cada una", "por unidad", "uno a".
+   - "5 brochas a 3000 cada una" → precio_unitario=3000, total=15000
+   Palabras que indican precio UNITARIO: "a X", "c/u", "cada uno", "cada una", "por unidad".
+   Si NO aparece ninguna de esas palabras: el precio es el TOTAL, divide entre cantidad.
 
    REGLA DE FRACCIONES EN VENTAS (MUY IMPORTANTE):
    Cuando el usuario diga "un cuarto", "un octavo", "medio", "un tercio" etc, convierte asi:
@@ -497,13 +503,21 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     ventas_con_metodo = []
     ventas_sin_metodo = []
 
+    # Si ya hay ventas pendientes de metodo de pago para este chat, NO procesar nuevas ventas
+    # (evita duplicados cuando el bot pregunta precio o info adicional)
+    with _estado_lock:
+        ya_hay_pendientes = bool(ventas_pendientes.get(chat_id))
+
     for venta_json in re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL):
         try:
-            venta = json.loads(venta_json.strip())
-            if venta.get("metodo_pago"):
-                ventas_con_metodo.append(venta)
+            if not ya_hay_pendientes:
+                venta = json.loads(venta_json.strip())
+                if venta.get("metodo_pago"):
+                    ventas_con_metodo.append(venta)
+                else:
+                    ventas_sin_metodo.append(venta)
             else:
-                ventas_sin_metodo.append(venta)
+                print(f"[VENTA] ignorado — ya hay ventas pendientes para chat {chat_id}")
         except Exception as e:
             print(f"Error parseando venta: {e}")
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
