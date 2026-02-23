@@ -5,6 +5,7 @@ El Excel es la fuente de verdad historica; el Sheets es la pizarra del dia.
 
 import asyncio
 import os
+import unicodedata
 from datetime import datetime
 
 import openpyxl
@@ -13,6 +14,18 @@ from openpyxl.utils import get_column_letter
 
 import config
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, obtener_nombre_hoja
+
+
+# ─────────────────────────────────────────────
+# UTILIDAD: normalizar texto para búsqueda
+# ─────────────────────────────────────────────
+
+def _normalizar(texto: str) -> str:
+    """
+    Convierte a minúsculas y elimina tildes/diacríticos.
+    Permite comparar 'Andrés' con 'andres', 'MÁLAGA' con 'malaga', etc.
+    """
+    return unicodedata.normalize("NFD", str(texto).lower()).encode("ascii", "ignore").decode()
 
 
 # ─────────────────────────────────────────────
@@ -99,21 +112,8 @@ def _col_para(cols: dict, *claves_posibles) -> int | None:
 # ─────────────────────────────────────────────
 
 def obtener_siguiente_consecutivo() -> int:
-    """
-    Retorna el siguiente consecutivo DEL DIA ACTUAL.
-    Se reinicia a 1 cada dia para saber cuantos clientes
-    se atendieron en cada jornada.
-
-    Logica:
-      1. Intenta leer el consecutivo mas alto de HOY desde el Sheets
-         (fuente de verdad en tiempo real durante el dia).
-      2. Si el Sheets no esta disponible, lee el Excel local filtrando
-         solo las filas de hoy.
-      3. Si no hay ventas hoy, retorna 1.
-    """
     hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
 
-    # ── 1. Intentar desde Sheets ──
     if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
         try:
             from sheets import sheets_leer_ventas_del_dia
@@ -129,9 +129,8 @@ def obtener_siguiente_consecutivo() -> int:
                     return max(numeros) + 1
             return 1
         except Exception:
-            pass  # Si falla el Sheets, caer al Excel local
+            pass
 
-    # ── 2. Fallback: Excel local, solo filas de hoy ──
     if not os.path.exists(config.EXCEL_FILE):
         return 1
     try:
@@ -200,31 +199,102 @@ def cargar_clientes() -> list:
         return []
 
 
-def buscar_cliente(termino: str) -> dict | None:
-    clientes      = cargar_clientes()
-    termino_lower = str(termino).lower().strip()
+def buscar_clientes_multiples(termino: str, limite: int = 5) -> list:
+    """
+    Busca clientes cuyo nombre contenga cualquiera de las palabras del termino.
+    - Insensible a tildes: 'andres' encuentra 'ANDRÉS'
+    - Busqueda por palabras sueltas: 'malo' encuentra 'ANDRÉS FELIPE MALO'
+    - Retorna hasta `limite` resultados ordenados por longitud de nombre (mas especifico primero)
+    """
+    clientes     = cargar_clientes()
+    termino_norm = _normalizar(termino)
+    # Palabras de mas de 2 letras (evita articulos como "de", "el")
+    palabras     = [p for p in termino_norm.split() if len(p) > 2]
 
+    if not palabras:
+        return []
+
+    resultado = []
     for c in clientes:
-        if str(c.get("Identificación", "") or "").strip() == termino_lower:
+        nombre_norm = _normalizar(c.get("Nombre tercero", "") or "")
+        # Matchea si AL MENOS UNA palabra del termino aparece en el nombre
+        if any(p in nombre_norm for p in palabras):
+            resultado.append(c)
+
+    # Ordenar: nombres mas cortos primero (mas especificos)
+    resultado.sort(key=lambda x: len(str(x.get("Nombre tercero", ""))))
+    return resultado[:limite]
+
+
+def buscar_cliente(termino: str) -> dict | None:
+    """
+    Busca UN cliente unico.
+    - Coincidencia exacta por numero de identificacion
+    - Luego busqueda flexible por nombre (sin tildes, palabras sueltas)
+    - Si hay exactamente 1 resultado: lo retorna
+    - Si hay varios: retorna None (el llamador debe manejar la ambiguedad)
+    """
+    clientes     = cargar_clientes()
+    termino_norm = _normalizar(termino)
+
+    # 1. Coincidencia exacta por identificacion
+    for c in clientes:
+        if _normalizar(c.get("Identificación", "") or "") == termino_norm:
             return c
+
+    # 2. Busqueda flexible por nombre
+    palabras = [p for p in termino_norm.split() if len(p) > 2]
+    if not palabras:
+        return None
 
     coincidencias = []
     for c in clientes:
-        nombre = str(c.get("Nombre tercero", "") or "").lower()
-        if termino_lower in nombre or nombre in termino_lower:
+        nombre_norm = _normalizar(c.get("Nombre tercero", "") or "")
+        if any(p in nombre_norm for p in palabras):
             coincidencias.append(c)
 
     if len(coincidencias) == 1:
         return coincidencias[0]
-    if coincidencias:
-        return min(coincidencias, key=lambda x: len(str(x.get("Nombre tercero", ""))))
+
+    # Multiples resultados — retornar None para que el bot pregunte
+    # (la desambiguacion se maneja en buscar_clientes_multiples + ai.py)
     return None
 
 
-def buscar_clientes_multiples(termino: str, limite: int = 5) -> list:
-    clientes      = cargar_clientes()
-    termino_lower = str(termino).lower().strip()
-    return [c for c in clientes if termino_lower in str(c.get("Nombre tercero", "") or "").lower()][:limite]
+def buscar_cliente_con_resultado(termino: str) -> tuple[dict | None, list]:
+    """
+    Version extendida de buscar_cliente que ademas retorna todos los candidatos.
+    Retorna: (cliente_unico_o_None, lista_de_candidatos)
+
+    Uso en ai.py para incluir en el system prompt:
+    - Si hay 1 candidato: cliente encontrado directamente
+    - Si hay varios: el bot pregunta al usuario cual es
+    - Si hay 0: no existe, ofrecer crear
+    """
+    clientes     = cargar_clientes()
+    termino_norm = _normalizar(termino)
+
+    # 1. Coincidencia exacta por identificacion
+    for c in clientes:
+        if _normalizar(c.get("Identificación", "") or "") == termino_norm:
+            return c, [c]
+
+    # 2. Busqueda flexible por nombre
+    palabras = [p for p in termino_norm.split() if len(p) > 2]
+    if not palabras:
+        return None, []
+
+    candidatos = []
+    for c in clientes:
+        nombre_norm = _normalizar(c.get("Nombre tercero", "") or "")
+        if any(p in nombre_norm for p in palabras):
+            candidatos.append(c)
+
+    candidatos.sort(key=lambda x: len(str(x.get("Nombre tercero", ""))))
+
+    if len(candidatos) == 1:
+        return candidatos[0], candidatos
+    return None, candidatos
 
 
 def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural", correo="", telefono="", direccion="") -> bool:
@@ -279,7 +349,6 @@ def obtener_nombre_id_cliente(nombre_mencionado: str) -> tuple[str, str]:
 # CRUD DE VENTAS
 # ─────────────────────────────────────────────
 
-# Mapeo explicito columna-dato (evita el containment ambiguo del codigo original)
 _DATOS_A_COLS = {
     "fecha":                "fecha",
     "hora":                 "hora",
@@ -320,10 +389,9 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
     id_cliente_final     = cliente_id    or "CF"
     nombre_cliente_final = cliente_nombre or "Consumidor Final"
 
-    # Buscar codigo del producto en catalogo
     cod_producto_final = codigo_producto or ""
     if not cod_producto_final:
-        catalogo  = cargar_memoria().get("catalogo", {})
+        catalogo   = cargar_memoria().get("catalogo", {})
         prod_lower = str(producto).lower()
         for cod, prod in catalogo.items():
             if prod.get("nombre_lower", "") == prod_lower or prod_lower in prod.get("nombre_lower", ""):
@@ -347,20 +415,16 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         "metodo de pago":         str(observaciones),
     }
 
-    # Mapeo explicito: buscar coincidencia exacta primero, luego containment
     for nombre_col, num_col in cols.items():
         clave = nombre_col.lower().strip()
-        # Exacto
         if clave in datos:
             ws.cell(row=fila, column=num_col, value=datos[clave])
             continue
-        # Containment solo para columnas largas (evita "total" matcheando "subtotal")
         for dato_key, dato_val in datos.items():
             if len(dato_key) > 5 and len(clave) > 5 and (dato_key in clave or clave in dato_key):
                 ws.cell(row=fila, column=num_col, value=dato_val)
                 break
 
-    # Color alternado por consecutivo
     if consecutivo_final % 2 == 0:
         for col in range(1, ws.max_column + 1):
             ws.cell(row=fila, column=col).fill = PatternFill("solid", fgColor="EFF6FF")
@@ -368,7 +432,6 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
     wb.save(config.EXCEL_FILE)
     subir_a_drive(config.EXCEL_FILE)
 
-    # Actualizar Sheets
     sheets_agregar_venta(
         consecutivo_final, producto, cantidad, precio_unitario, total, vendedor, observaciones
     )
@@ -386,8 +449,8 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
     if nombre_hoja not in wb.sheetnames:
         return False, "No hay ventas este mes."
 
-    ws       = wb[nombre_hoja]
-    cols     = detectar_columnas(ws)
+    ws        = wb[nombre_hoja]
+    cols      = detectar_columnas(ws)
     col_alias = cols.get(config.COL_ALIAS)
 
     for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
@@ -411,8 +474,8 @@ def obtener_venta_por_numero(numero_venta) -> dict | None:
     nombre_hoja = obtener_nombre_hoja()
     if nombre_hoja not in wb.sheetnames:
         return None
-    ws       = wb[nombre_hoja]
-    cols     = detectar_columnas(ws)
+    ws        = wb[nombre_hoja]
+    cols      = detectar_columnas(ws)
     col_alias = cols.get(config.COL_ALIAS)
     for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
         val = ws.cell(row=fila, column=col_alias).value if col_alias else None
@@ -461,7 +524,7 @@ def buscar_ventas(termino: str) -> list:
 
 def obtener_todos_los_datos() -> list:
     inicializar_excel()
-    wb   = openpyxl.load_workbook(config.EXCEL_FILE)
+    wb    = openpyxl.load_workbook(config.EXCEL_FILE)
     todos = []
     for nombre_hoja in wb.sheetnames:
         ws   = wb[nombre_hoja]
@@ -536,7 +599,6 @@ def generar_excel_personalizado(titulo: str, encabezados: list, filas: list, nom
 # ─────────────────────────────────────────────
 
 async def guardar_venta_excel_async(*args, **kwargs) -> int:
-    """Ejecuta guardar_venta_excel en un thread para no bloquear el event loop."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, lambda: guardar_venta_excel(*args, **kwargs))
 
