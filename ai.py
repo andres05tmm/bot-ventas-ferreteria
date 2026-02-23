@@ -105,6 +105,28 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
                 "\nPRODUCTO ENCONTRADO EN CATALOGO:\n" + _linea_candidato(candidatos[0])
             )
 
+    # ── CLIENTES RECIENTES: si el mensaje lo pide ──
+    clientes_recientes_texto = ""
+    palabras_recientes = ["ultimo", "ultimos", "reciente", "recientes", "nuevo", "nuevos", "anadido", "agregado"]
+    if any(p in mensaje_usuario.lower() for p in palabras_recientes) and "cliente" in mensaje_usuario.lower():
+        try:
+            from excel import obtener_clientes_recientes
+            recientes = obtener_clientes_recientes(5)
+            if recientes:
+                lineas = []
+                for c in recientes:
+                    nombre = c.get("Nombre tercero", "")
+                    id_c   = c.get("Identificacion", "") or c.get("Identificación", "")
+                    tipo   = c.get("Tipo de identificacion", "") or c.get("Tipo de identificación", "")
+                    fecha  = c.get("Fecha registro", "Sin fecha")
+                    lineas.append(f"  - {nombre} ({tipo}: {id_c}) — registrado: {fecha}")
+                clientes_recientes_texto = (
+                    "ULTIMOS 5 CLIENTES REGISTRADOS EN EL SISTEMA:\n" + "\n".join(lineas)
+                )
+        except Exception as e:
+            print(f"Error clientes recientes: {e}")
+            clientes_recientes_texto = ""
+
     # ── CLIENTES: buscar si el mensaje menciona alguno ──
     clientes_texto = ""
     try:
@@ -216,6 +238,7 @@ REGLAS CRITICAS DE FRACCIONES Y PRECIOS:
 
 INFORMACION DEL NEGOCIO:
 {json.dumps(memoria.get('negocio', {}), ensure_ascii=False)}
+{clientes_recientes_texto}
 {clientes_texto}
 
 CATALOGO DE PRODUCTOS (con precios por fraccion incluidos):
