@@ -97,10 +97,22 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
         categorias: dict = {}
         for prod in catalogo.values():
             cat = prod.get("categoria", "Otros")
-            tiene_frac = bool(prod.get("precios_fraccion"))
-            categorias.setdefault(cat, []).append(
-                f"  - {prod['nombre']}: ${prod['precio_unidad']:,}" + (" [fraccionable]" if tiene_frac else "")
-            )
+            fracs = prod.get("precios_fraccion", {})
+            pxc   = prod.get("precio_por_cantidad")
+            if fracs:
+                # Mostrar precios de fraccion directamente para que Claude los vea sin buscar
+                precios_frac_str = " | ".join(
+                    f"{k}=${v['precio']:,}" for k, v in fracs.items()
+                )
+                linea = f"  - {prod['nombre']}: {precios_frac_str}"
+            elif pxc:
+                # Tornilleria: mostrar precio normal y mayorista
+                linea = (f"  - {prod['nombre']}: "
+                         f"c/u=${pxc['precio_bajo_umbral']:,} | "
+                         f"x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
+            else:
+                linea = f"  - {prod['nombre']}: ${prod['precio_unidad']:,}"
+            categorias.setdefault(cat, []).append(linea)
         lineas_cat = []
         for cat, items in sorted(categorias.items()):
             lineas_cat.append(f"{cat}:")
@@ -152,7 +164,9 @@ REGLAS CRITICAS DE FRACCIONES Y PRECIOS:
 INFORMACION DEL NEGOCIO:
 {json.dumps(memoria.get('negocio', {}), ensure_ascii=False)}
 
-CATALOGO DE PRODUCTOS (precio de unidad completa):
+CATALOGO DE PRODUCTOS (con precios por fraccion incluidos):
+IMPORTANTE: Los precios de fraccion YA estan en el catalogo. Usaelos directamente.
+Formato: 1=galon completo | 3/4 | 1/2 | 1/4 | 1/8 | 1/16
 {precios_texto}
 
 {precios_fraccion_texto}
@@ -194,8 +208,7 @@ INSTRUCCIONES DE FORMATO:
    - Los valores validos de tipo_id son: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
    - Los valores validos de tipo_persona son: "Natural", "Juridica"
 3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
-3b. Precio fraccion (nuevo O correccion): [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
-   - Usa esto SIEMPRE que el usuario corrija o actualice el precio de una fraccion. El precio nuevo reemplaza al anterior de forma permanente en el catalogo.
+3b. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
 4. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
 5. Excel: [EXCEL]{{"titulo": "Titulo", "encabezados": ["Col1"], "filas": [["dato"]]}}[/EXCEL]
 6. Apertura caja: [CAJA]{{"accion": "apertura", "monto": 50000}}[/CAJA]
@@ -326,27 +339,9 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             precio   = float(datos.get("precio", 0))
             if producto and fraccion and precio:
                 mem = cargar_memoria()
-                # 1. Guardar en precios_fraccion (compatibilidad)
                 mem.setdefault("precios_fraccion", {}).setdefault(producto.lower(), {})[fraccion] = round(precio)
-                # 2. Actualizar directamente en el catalogo para que sea permanente
-                prod_catalogo = buscar_producto_en_catalogo(producto)
-                if prod_catalogo:
-                    # Buscar la clave del producto en el catalogo
-                    for clave, prod in mem.get("catalogo", {}).items():
-                        if prod.get("nombre_lower") == prod_catalogo.get("nombre_lower"):
-                            fracs = prod.setdefault("precios_fraccion", {})
-                            # Mapeo fraccion texto -> decimal
-                            dec_map = {"1": 1.0, "3/4": 0.75, "1/2": 0.5, "1/4": 0.25,
-                                       "1/8": 0.125, "1/16": 0.0625}
-                            decimal = dec_map.get(fraccion, 0)
-                            fracs[fraccion] = {"decimal": decimal, "precio": round(precio),
-                                               "etiqueta": f"{fraccion} galón"}
-                            # Si es la unidad completa, actualizar precio_unidad tambien
-                            if fraccion == "1":
-                                prod["precio_unidad"] = round(precio)
-                            break
                 guardar_memoria(mem)
-                acciones.append(f"🧠 Precio actualizado en catalogo: {producto} {fraccion} = ${precio:,.0f}")
+                acciones.append(f"🧠 Precio de fraccion guardado: {producto} {fraccion} = ${precio:,.0f}")
         except Exception as e:
             print(f"Error precio fraccion: {e}")
         texto_limpio = texto_limpio.replace(f'[PRECIO_FRACCION]{pf_json}[/PRECIO_FRACCION]', '')
