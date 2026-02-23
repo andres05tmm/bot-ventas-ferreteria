@@ -22,7 +22,7 @@ from memoria import (
 from excel import (
     obtener_todos_los_datos, obtener_resumen_ventas,
     generar_excel_personalizado, guardar_cliente_nuevo,
-    inicializar_excel, cargar_clientes,
+    inicializar_excel,
 )
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
@@ -150,22 +150,6 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             "PRECIOS DE FRACCION CONOCIDOS: ninguno guardado aun. "
             "Si el usuario menciona una fraccion sin precio, preguntale cuanto vale."
         )
-
-    # Construir texto de clientes para el prompt
-    try:
-        clientes = cargar_clientes()
-        if clientes:
-            lineas_cli = [
-                f"  - {c.get('Nombre tercero','')}: {c.get('Tipo de identificación','')} {c.get('Identificación','')}"
-                for c in clientes[:50]  # max 50 para no saturar el prompt
-            ]
-            clientes_texto = f"CLIENTES REGISTRADOS ({len(clientes)} total):\n" + "\n".join(lineas_cli)
-            if len(clientes) > 50:
-                clientes_texto += f"\n  ... y {len(clientes)-50} mas. Usa /clientes para buscar."
-        else:
-            clientes_texto = "CLIENTES: ninguno registrado aun."
-    except Exception:
-        clientes_texto = "CLIENTES: no disponible."
 
     return f"""Eres FerreBot, asistente inteligente de una ferreteria colombiana.
 
@@ -336,10 +320,16 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
 
     if ventas_con_metodo:
+        # Agrupar por metodo de pago para que todas las ventas del mismo metodo
+        # compartan un solo consecutivo (misma transaccion)
+        grupos: dict = {}
         for venta in ventas_con_metodo:
             metodo = venta.get("metodo_pago", "efectivo").lower()
-            conf   = registrar_ventas_con_metodo([venta], metodo, vendedor, chat_id)
-            emoji  = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
+            grupos.setdefault(metodo, []).append(venta)
+
+        for metodo, grupo in grupos.items():
+            conf  = registrar_ventas_con_metodo(grupo, metodo, vendedor, chat_id)
+            emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
             acciones.append(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n" + "\n".join(conf))
 
     if ventas_sin_metodo:
