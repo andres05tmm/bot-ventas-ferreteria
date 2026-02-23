@@ -78,31 +78,14 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     if palabras_clave:
         termino    = " ".join(palabras_clave[:5])
         candidatos = buscar_multiples_en_catalogo(termino, limite=8)
-
-        def _linea_candidato(p: dict) -> str:
-            """Genera la linea de presentacion de un candidato incluyendo fracciones si las tiene."""
-            fracs = p.get("precios_fraccion", {})
-            pxc   = p.get("precio_por_cantidad")
-            if fracs:
-                precios_str = " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
-                return f"  - {p['nombre']}: {precios_str}"
-            elif pxc:
-                return (f"  - {p['nombre']}: "
-                        f"c/u=${pxc['precio_bajo_umbral']:,} | "
-                        f"x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
-            else:
-                return f"  - {p['nombre']}: ${p['precio_unidad']:,}"
-
         if len(candidatos) > 1:
-            lineas = [_linea_candidato(p) for p in candidatos]
+            lineas = [f"  - {p['nombre']}: ${p['precio_unidad']:,}" for p in candidatos]
             info_candidatos_extra = (
-                "\nPRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE (con precios de fraccion):\n"
-                + "\n".join(lineas)
+                "\nPRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE:\n" + "\n".join(lineas)
             )
         elif len(candidatos) == 1:
-            info_candidatos_extra = (
-                "\nPRODUCTO ENCONTRADO EN CATALOGO:\n" + _linea_candidato(candidatos[0])
-            )
+            p = candidatos[0]
+            info_candidatos_extra = f"\nPRODUCTO ENCONTRADO EN CATALOGO: {p['nombre']} — ${p['precio_unidad']:,}"
 
     aviso_drive = ""
     if not config.DRIVE_DISPONIBLE:
@@ -175,6 +158,35 @@ REGLAS CRITICAS DE FRACCIONES Y PRECIOS:
   Si no lo tienes: pregunta antes de registrar.
 - En el campo "cantidad" pon el decimal: 1/4=0.25, 1/2=0.5, 3/4=0.75, 1/8=0.125
 - En el campo "precio_unitario" pon el precio TOTAL de esa fraccion (lo que pago el cliente)
+
+REGLA ESPECIAL — THINNER (conversion automatica precio → fraccion):
+Cuando el usuario diga "X pesos de thinner" o "vendí thinner por X", convierte automaticamente
+el valor en pesos a la fraccion de galon correspondiente usando esta tabla exacta:
+  3000  → cantidad: 1/12  (0.0833)
+  4000  → cantidad: 1/10  (0.1)
+  5000  → cantidad: 1/8   (0.125)
+  6000  → cantidad: 1/6   (0.1667)
+  7000  → cantidad: 1/5   (0.2)
+  8000  → cantidad: 1/4   (0.25)   ← equivale a 1 litro
+  9000  → cantidad: 3/10  (0.3)
+  10000 → cantidad: 1/3   (0.3333)
+  11000 → cantidad: 1/3   (0.3333) ← misma cantidad que 10000
+  12000 → cantidad: 2/5   (0.4)
+  13000 → cantidad: 1/2   (0.5)    ← medio galon
+  14000 → cantidad: 1/2   (0.5)    ← misma cantidad que 13000
+  15000 → cantidad: 1/2   (0.5)    ← misma cantidad que 13000
+  16000 → cantidad: 5/9   (0.5556)
+  17000 → cantidad: 3/5   (0.6)
+  18000 → cantidad: 5/8   (0.625)
+  19000 → cantidad: 2/3   (0.6667)
+  20000 → cantidad: 3/4   (0.75)
+  21000 → cantidad: 4/5   (0.8)
+  22000 → cantidad: 5/6   (0.8333)
+  24000 → cantidad: 9/10  (0.9)
+  25000 → cantidad: 19/20 (0.95)
+  26000 → cantidad: 1     (1.0)    ← galon completo
+El precio_unitario siempre es el valor que el cliente pago (lo que dijo en pesos).
+Ejemplo: "vendí 10,000 de thinner" → [VENTA]"producto":"Thinner","cantidad":0.3333,"precio_unitario":10000[/VENTA]
 {info_fracciones_extra}
 {info_candidatos_extra}
 
