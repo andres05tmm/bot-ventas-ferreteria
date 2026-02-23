@@ -553,34 +553,89 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Borra TODAS las ventas del Excel y del Sheets.
-    Requiere confirmacion: /resetventas CONFIRMAR
+    /resetventas CONFIRMAR        → limpia Sheets + memoria del día
+    /resetventas excel CONFIRMAR  → borra la hoja del mes actual en Excel
     """
-    if not context.args or context.args[0].upper() != "CONFIRMAR":
+    args = [a.upper() for a in (context.args or [])]
+
+    # ── Modo Excel: /resetventas excel CONFIRMAR ──
+    if args and args[0] == "EXCEL":
+        if len(args) < 2 or args[1] != "CONFIRMAR":
+            from utils import obtener_nombre_hoja
+            hoja_actual = obtener_nombre_hoja()
+            await update.message.reply_text(
+                f"⚠️ *Este comando borra todas las ventas de la hoja \"{hoja_actual}\" del Excel.*\n\n"
+                f"El Sheets no se toca.\n\n"
+                f"Para confirmar escribe:\n"
+                f"`/resetventas excel CONFIRMAR`",
+                parse_mode="Markdown"
+            )
+            return
+
+        await update.message.reply_text("🔄 Borrando ventas del Excel...")
+        errores = []
+        try:
+            import openpyxl
+            from utils import obtener_nombre_hoja
+            inicializar_excel()
+            hoja_actual = obtener_nombre_hoja()
+            wb = openpyxl.load_workbook(config.EXCEL_FILE)
+            if hoja_actual in wb.sheetnames:
+                del wb[hoja_actual]
+                wb.save(config.EXCEL_FILE)
+                await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
+                msg_excel = f"✅ Hoja \"{hoja_actual}\" borrada del Excel"
+            else:
+                msg_excel = f"⚠️ No existe la hoja \"{hoja_actual}\" en el Excel (puede que no haya cierres aún)"
+        except Exception as e:
+            msg_excel = f"❌ Error: {e}"
+            errores.append(str(e))
+
         await update.message.reply_text(
-            "⚠️ *Este comando borra TODAS las ventas del Excel y del Sheets.*\n\n"
-            "Se usará solo en periodo de prueba.\n\n"
+            f"🧹 *Reset Excel completado*\n\n"
+            f"{msg_excel}\n\n"
+            f"{'✅ Listo.' if not errores else '⚠️ Hubo errores, revisa arriba.'}",
+            parse_mode="Markdown"
+        )
+        return
+
+    # ── Modo normal: /resetventas CONFIRMAR → limpia Sheets + memoria ──
+    if not args or args[0] != "CONFIRMAR":
+        await update.message.reply_text(
+            "⚠️ *Este comando borra las ventas del día (Sheets).*\n\n"
             "Para confirmar escribe:\n"
-            "`/resetventas CONFIRMAR`",
+            "`/resetventas CONFIRMAR`\n\n"
+            "¿Quieres borrar las ventas del Excel también?\n"
+            "`/resetventas excel CONFIRMAR`",
             parse_mode="Markdown"
         )
         return
 
     await update.message.reply_text("🔄 Borrando las ventas del día...")
-
     errores = []
 
-    # 1. Limpiar Google Sheets (ventas del día, aún no pasadas al Excel)
+    # 1. Limpiar Google Sheets
     try:
         ok = await asyncio.to_thread(sheets_limpiar)
-        msg_sheets = "✅ Google Sheets limpiado" if ok else "⚠️ No se pudo limpiar el Sheets (puede que no esté configurado)"
+        msg_sheets = "✅ Google Sheets limpiado" if ok else "⚠️ No se pudo limpiar el Sheets"
         if not ok:
             errores.append("Sheets no limpiado")
     except Exception as e:
         msg_sheets = f"❌ Error limpiando Sheets: {e}"
         errores.append(str(e))
 
-    # 2. Resetear consecutivo del día en memoria
+    # 2. Limpiar historial en memoria (para que /ventas quede limpio)
+    try:
+        from ventas_state import ventas_pendientes, borrados_pendientes, historiales
+        with _estado_lock:
+            ventas_pendientes.clear()
+            borrados_pendientes.clear()
+            historiales.clear()
+        msg_memoria = "✅ Historial en memoria limpiado"
+    except Exception as e:
+        msg_memoria = f"⚠️ No se pudo limpiar memoria: {e}"
+
+    # 3. Resetear consecutivo
     try:
         from memoria import cargar_memoria, guardar_memoria
         mem = cargar_memoria()
@@ -593,8 +648,9 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(
         f"🧹 *Reset del día completado*\n\n"
         f"{msg_sheets}\n"
+        f"{msg_memoria}\n"
         f"{msg_consec}\n\n"
         f"El Excel histórico no fue modificado.\n"
-        f"{'✅ Listo para empezar el día de nuevo.' if not errores else '⚠️ Hubo algunos errores, revisa los mensajes arriba.'}",
+        f"{'✅ Listo para empezar de nuevo.' if not errores else '⚠️ Hubo errores, revisa arriba.'}",
         parse_mode="Markdown"
     )
