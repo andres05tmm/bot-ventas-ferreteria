@@ -22,7 +22,7 @@ from memoria import (
 from excel import (
     obtener_todos_los_datos, obtener_resumen_ventas,
     generar_excel_personalizado, guardar_cliente_nuevo,
-    inicializar_excel, buscar_clientes_multiples,
+    inicializar_excel, buscar_clientes_multiples, _normalizar,
 )
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
