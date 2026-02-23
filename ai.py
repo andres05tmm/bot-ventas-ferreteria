@@ -56,19 +56,25 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     palabras_frac = ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"]
     if any(p in mensaje_usuario.lower() for p in palabras_frac):
         palabras_msg = mensaje_usuario.lower().split()
-        for largo in [4, 3, 2]:
-            encontrado = False
-            for i in range(len(palabras_msg) - largo + 1):
-                fragmento = " ".join(palabras_msg[i:i + largo])
-                prod = buscar_producto_en_catalogo(fragmento)
-                if prod and prod.get("precios_fraccion"):
-                    info = obtener_info_fraccion_producto(prod["nombre_lower"])
-                    if info:
-                        info_fracciones_extra = f"\nPRECIOS POR FRACCION DEL PRODUCTO MENCIONADO:\n{info}"
-                    encontrado = True
-                    break
-            if encontrado:
+        # Filtrar fracciones y stopwords para buscar solo el nombre del producto
+        stopwords_busq = {"que", "cuesta", "vale", "precio", "cuanto", "de", "del",
+                          "la", "el", "un", "una", "por", "para", "hay", "tiene",
+                          "1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"}
+        palabras_producto = [p for p in palabras_msg if p not in stopwords_busq and len(p) > 1]
+        prod_encontrado = None
+        for largo in [4, 3, 2, 1]:
+            if prod_encontrado:
                 break
+            for i in range(len(palabras_producto) - largo + 1):
+                fragmento = " ".join(palabras_producto[i:i + largo])
+                candidato = buscar_producto_en_catalogo(fragmento)
+                if candidato and candidato.get("precios_fraccion"):
+                    prod_encontrado = candidato
+                    break
+        if prod_encontrado:
+            info = obtener_info_fraccion_producto(prod_encontrado["nombre_lower"])
+            if info:
+                info_fracciones_extra = f"\nPRECIOS POR FRACCION DEL PRODUCTO MENCIONADO:\n{info}" 
 
     # Candidatos del catalogo para el mensaje actual
     info_candidatos_extra = ""
@@ -146,15 +152,6 @@ REGLAS CRITICAS DE FRACCIONES Y PRECIOS:
   Si no lo tienes: pregunta antes de registrar.
 - En el campo "cantidad" pon el decimal: 1/4=0.25, 1/2=0.5, 3/4=0.75, 1/8=0.125
 - En el campo "precio_unitario" pon el precio TOTAL de esa fraccion (lo que pago el cliente)
-
-REGLAS DE TORNILLERIA (precio por volumen):
-- Los tornillos tienen DOS precios: precio normal (menos de 100 unidades) y precio mayorista (100 o mas).
-- Si venden MENOS de 100 tornillos: usa el precio_unidad normal del catalogo.
-- Si venden 100 O MAS tornillos: el sistema aplica automaticamente el precio mayorista (es mas barato por unidad).
-- En el campo "cantidad" pon el numero exacto de tornillos (ej: 200, 500, 1000).
-- En el campo "precio_unitario" pon el precio por unidad que corresponda segun la cantidad.
-- Ejemplo: 50 tornillos drywall 6x1 a $37 c/u → cantidad=50, precio_unitario=37
-- Ejemplo: 200 tornillos drywall 6x1 a $35 c/u → cantidad=200, precio_unitario=35
 {info_fracciones_extra}
 {info_candidatos_extra}
 
