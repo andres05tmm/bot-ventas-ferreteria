@@ -293,15 +293,44 @@ INSTRUCCIONES DE FORMATO:
    NO preguntes el tipo ni el color si ya lo dijeron.
    Solo pregunta si mencionan expresamente "3 en 1" o "anticorrosivo".
 
-2b. Cliente nuevo — REGLAS CRITICAS:
-   PRIMERO verifica si el cliente ya existe en CLIENTES ENCONTRADOS EN EL SISTEMA.
-   SI EXISTE usalo directamente. SI NO EXISTE inicia el flujo de creacion.
-   - Si ya dio todos los datos usa:
-     [CLIENTE_NUEVO]{{"nombre":"NOMBRE","tipo_id":"Cédula de ciudadanía","identificacion":"123","tipo_persona":"Natural","correo":""}}[/CLIENTE_NUEVO]
-   - Si faltan datos usa (el sistema muestra botones, NO hagas preguntas manuales):
-     [INICIAR_CLIENTE]{{"nombre":"nombre del cliente"}}[/INICIAR_CLIENTE]
-   - tipo_id validos: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
-   - tipo_persona validos: "Natural", "Juridica"
+2b. Cliente en una venta — REGLAS CRITICAS:
+   FLUJO SEGUN LO QUE APARECE EN EL SISTEMA:
+
+   A) Si aparece "CLIENTE ENCONTRADO EN EL SISTEMA":
+      → Usa ese cliente DIRECTAMENTE en el campo "cliente" del [VENTA].
+      → NO preguntes identificacion. NO uses [INICIAR_CLIENTE]. NO uses [CLIENTE_NUEVO].
+      → Ejemplo: [VENTA]{{"producto":"...", "cantidad":1, "precio_unitario":50000, "cliente":"ALBERTO TRUJILLO"}}[/VENTA]
+
+   B) Si aparece "MULTIPLES CLIENTES ENCONTRADOS":
+      → Pregunta al usuario cual es antes de registrar la venta.
+      → Ejemplo: "¿Te refieres a ALBERTO TRUJILLO (CC: 123) o ALBERTO TRUJILLO GOMEZ (CC: 456)?"
+
+   C) Si NO aparece ningun cliente en el sistema (campo vacio):
+      → El usuario quiere crear uno nuevo.
+      → Si tiene todos los datos: usa [CLIENTE_NUEVO]{{"nombre":"NOMBRE","tipo_id":"Cédula de ciudadanía","identificacion":"123","tipo_persona":"Natural","correo":""}}[/CLIENTE_NUEVO]
+      → Si faltan datos: usa [INICIAR_CLIENTE]{{"nombre":"nombre del cliente"}}[/INICIAR_CLIENTE]
+      → tipo_id validos: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
+      → tipo_persona validos: "Natural", "Juridica"
+
+   NUNCA pidas identificacion si el cliente ya esta en el sistema.
+   NUNCA uses [INICIAR_CLIENTE] si el cliente ya esta en el sistema.
+
+   ORDEN FLEXIBLE — CRITICO:
+   El usuario puede mencionar el cliente y los productos en CUALQUIER orden.
+   Debes detectar AMBAS cosas en el mismo mensaje y emitir TODAS las acciones juntas.
+   Ejemplos de ordenes validas:
+     "anota a Juan Mendoza (nuevo) 2 galones de vinilo y un cuarto de colbon"
+     → emite [INICIAR_CLIENTE] + [VENTA] + [VENTA] en el mismo mensaje
+     "vendi 2 galones de vinilo y un cuarto de colbon... a Juan Mendoza (nuevo)"
+     → emite [VENTA] + [VENTA] + [INICIAR_CLIENTE] en el mismo mensaje
+   El sistema se encarga de pausar las ventas hasta que se cree el cliente
+   y luego las registra automaticamente. Tu solo emite todo junto.
+
+   NOMBRES DE PRODUCTOS — REGLA CRITICA:
+   El nombre del producto NUNCA debe incluir la cantidad ni la fraccion.
+   Correcto: "producto":"Vinilo Davinci T1 Azul Concentrado", "cantidad":0.5
+   Incorrecto: "producto":"Vinilo Davinci T1 Azul Concentrado x1/2"
+   La cantidad va SOLO en el campo "cantidad", nunca en el nombre del producto.
 
 3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
 3b. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
@@ -414,7 +443,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         try:
             datos  = json.loads(ini_json.strip())
             nombre = datos.get("nombre", "").strip()
-            from ventas_state import clientes_en_proceso, _estado_lock as _lock
+            from ventas_state import clientes_en_proceso, ventas_esperando_cliente, _estado_lock as _lock
             with _lock:
                 clientes_en_proceso[chat_id] = {
                     "nombre":         nombre,
@@ -423,7 +452,24 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     "tipo_persona":   None,
                     "correo":         None,
                     "paso":           "nombre" if not nombre else "tipo_id",
+                    "vendedor":       vendedor,
                 }
+                # Si habia ventas sin metodo pendientes, guardarlas para
+                # registrarlas automaticamente cuando se cree el cliente
+                if chat_id in ventas_pendientes and ventas_pendientes[chat_id]:
+                    ventas_esperando_cliente[chat_id] = {
+                        "ventas":   ventas_pendientes.pop(chat_id),
+                        "metodo":   None,
+                        "vendedor": vendedor,
+                    }
+                # Si habia ventas con metodo ya confirmado, guardarlas tambien
+                elif ventas_sin_metodo:
+                    ventas_esperando_cliente[chat_id] = {
+                        "ventas":   list(ventas_sin_metodo),
+                        "metodo":   None,
+                        "vendedor": vendedor,
+                    }
+                    ventas_sin_metodo.clear()
             acciones.append("INICIAR_FLUJO_CLIENTE")
         except Exception as e:
             print(f"Error iniciando flujo cliente: {e}")
