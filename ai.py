@@ -39,6 +39,29 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
         if resumen else "Sin ventas este mes"
     )
 
+    # Cargar lista de clientes si el mensaje menciona un nombre de persona
+    from excel import cargar_clientes, buscar_clientes_multiples
+    clientes_texto = ""
+    palabras_msg   = mensaje_usuario.lower().split()
+    # Heuristica: si hay palabras capitalizadas o "nombre de" o "a nombre" busca clientes
+    indicadores_cliente = ["nombre", "cliente", "a nombre", "para"]
+    if any(p in mensaje_usuario.lower() for p in indicadores_cliente):
+        try:
+            # Buscar por las palabras del mensaje que no sean stopwords
+            stopwords_c = {"a", "de", "el", "la", "los", "las", "un", "una", "que",
+                           "en", "por", "para", "con", "del", "al", "nombre", "cliente"}
+            termino_c = " ".join([p for p in palabras_msg if p not in stopwords_c][:4])
+            candidatos_c = buscar_clientes_multiples(termino_c, limite=5)
+            if candidatos_c:
+                lineas_c = [f"  - {c.get('Nombre tercero','')} (ID: {c.get('Identificación','')})"
+                            for c in candidatos_c]
+                clientes_texto = "\nCLIENTES ENCONTRADOS EN EL SISTEMA:\n" + "\n".join(lineas_c)
+                clientes_texto += "\nSi el cliente de la venta aparece aqui, usalo directamente SIN crear uno nuevo."
+            else:
+                clientes_texto = "\nCLIENTES: No encontre coincidencias. Si el usuario menciona un cliente nuevo, inicia el flujo [INICIAR_CLIENTE]."
+        except Exception:
+            pass
+
     # Cargar datos historicos solo si el mensaje parece un analisis
     palabras_analisis = ["cuanto", "vendimos", "reporte", "analiz", "total",
                          "resumen", "estadistica", "top", "mas vendido"]
@@ -158,40 +181,12 @@ REGLAS CRITICAS DE FRACCIONES Y PRECIOS:
   Si no lo tienes: pregunta antes de registrar.
 - En el campo "cantidad" pon el decimal: 1/4=0.25, 1/2=0.5, 3/4=0.75, 1/8=0.125
 - En el campo "precio_unitario" pon el precio TOTAL de esa fraccion (lo que pago el cliente)
-
-REGLA ESPECIAL — THINNER (conversion automatica precio → fraccion):
-Cuando el usuario diga "X pesos de thinner" o "vendí thinner por X", convierte automaticamente
-el valor en pesos a la fraccion de galon correspondiente usando esta tabla exacta:
-  3000  → cantidad: 1/12  (0.0833)
-  4000  → cantidad: 1/10  (0.1)
-  5000  → cantidad: 1/8   (0.125)
-  6000  → cantidad: 1/6   (0.1667)
-  7000  → cantidad: 1/5   (0.2)
-  8000  → cantidad: 1/4   (0.25)   ← equivale a 1 litro
-  9000  → cantidad: 3/10  (0.3)
-  10000 → cantidad: 1/3   (0.3333)
-  11000 → cantidad: 1/3   (0.3333) ← misma cantidad que 10000
-  12000 → cantidad: 2/5   (0.4)
-  13000 → cantidad: 1/2   (0.5)    ← medio galon
-  14000 → cantidad: 1/2   (0.5)    ← misma cantidad que 13000
-  15000 → cantidad: 1/2   (0.5)    ← misma cantidad que 13000
-  16000 → cantidad: 5/9   (0.5556)
-  17000 → cantidad: 3/5   (0.6)
-  18000 → cantidad: 5/8   (0.625)
-  19000 → cantidad: 2/3   (0.6667)
-  20000 → cantidad: 3/4   (0.75)
-  21000 → cantidad: 4/5   (0.8)
-  22000 → cantidad: 5/6   (0.8333)
-  24000 → cantidad: 9/10  (0.9)
-  25000 → cantidad: 19/20 (0.95)
-  26000 → cantidad: 1     (1.0)    ← galon completo
-El precio_unitario siempre es el valor que el cliente pago (lo que dijo en pesos).
-Ejemplo: "vendí 10,000 de thinner" → [VENTA]"producto":"Thinner","cantidad":0.3333,"precio_unitario":10000[/VENTA]
 {info_fracciones_extra}
 {info_candidatos_extra}
 
 INFORMACION DEL NEGOCIO:
 {json.dumps(memoria.get('negocio', {}), ensure_ascii=False)}
+{clientes_texto}
 
 CATALOGO DE PRODUCTOS (con precios por fraccion incluidos):
 IMPORTANTE: Los precios de fraccion YA estan en el catalogo. Usaelos directamente.
@@ -220,22 +215,43 @@ INSTRUCCIONES DE FORMATO:
 1. Responde en español, natural y amigable. Sin markdown con ** ni #.
    CRITICO: Si el mensaje incluye "PRODUCTOS DEL CATALOGO QUE COINCIDEN" o
    "PRODUCTO ENCONTRADO EN CATALOGO", SIEMPRE usa esa informacion para responder precios.
+
 2. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000}}[/VENTA]
    - Si hay cliente: agrega "cliente": "nombre del cliente"
    - Si el usuario ya dijo el metodo: agrega "metodo_pago": "efectivo|transferencia|datafono"
    - Si NO dijo el metodo: NO pongas metodo_pago (el sistema preguntara con botones)
    CRITICO: NUNCA repitas [VENTA] para el mismo producto.
+
+   REGLA DE FRACCIONES EN VENTAS (MUY IMPORTANTE):
+   Cuando el usuario diga "un cuarto", "un octavo", "medio", "un tercio" etc, convierte asi:
+   - "un cuarto" o "1/4" → cantidad: 0.25
+   - "un octavo" o "1/8" → cantidad: 0.125
+   - "medio" o "media" o "1/2" → cantidad: 0.5
+   - "tres cuartos" o "3/4" → cantidad: 0.75
+   - "un dieciseisavo" o "1/16" → cantidad: 0.0625
+   NUNCA registres un octavo como cantidad 1. NUNCA registres un cuarto como cantidad 1.
+
+   REGLA DE PRODUCTOS AMBIGUOS:
+   Cuando el usuario diga solo "esmalte negro", "esmalte blanco", "esmalte rojo" etc SIN
+   especificar tipo, asume SIEMPRE el esmalte corriente basico (el mas barato).
+   NO preguntes de que color es si ya lo dijo. NO preguntes que tipo si dijo solo "esmalte negro".
+   Solo pregunta el tipo si el usuario menciona expresamente "3 en 1" o "anticorrosivo".
+
 2b. Cliente nuevo — REGLAS CRITICAS:
+   PRIMERO: Cuando el usuario mencione un nombre de cliente, SIEMPRE verifica si ya existe
+   buscando en la lista de clientes del sistema. SI EXISTE, usalo directamente en la venta.
+   SI NO EXISTE, inicia el flujo de creacion.
    - Si el usuario pide crear un cliente y YA dio todos los datos en el mensaje
      (nombre, tipo documento, numero, tipo persona, correo), usa el tag directamente:
      [CLIENTE_NUEVO]{{"nombre":"NOMBRE COMPLETO","tipo_id":"Cédula de ciudadanía","identificacion":"123456","tipo_persona":"Natural","correo":"correo@ejemplo.com"}}[/CLIENTE_NUEVO]
-   - Si el usuario pide crear un cliente pero NO dio todos los datos, NO uses el tag.
-     En cambio responde con este tag especial para iniciar el flujo paso a paso:
-     [INICIAR_CLIENTE]{{"nombre":"nombre si ya lo dijo o vacio"}}[/INICIAR_CLIENTE]
-     El sistema se encargara de preguntar cada dato con botones.
+   - Si el usuario menciona un cliente que NO existe y no dio todos los datos,
+     usa este tag para iniciar el flujo paso a paso con botones:
+     [INICIAR_CLIENTE]{{"nombre":"nombre del cliente"}}[/INICIAR_CLIENTE]
+     El sistema mostrara botones para completar los datos. NO hagas preguntas manuales.
    - Los valores validos de tipo_id son: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
    - Los valores validos de tipo_persona son: "Natural", "Juridica"
+
 3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
 3b. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
 4. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
