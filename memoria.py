@@ -10,6 +10,12 @@ from datetime import datetime
 import config
 
 _cache: dict | None = None
+_bloquear_subida_drive: bool = False  # True durante la sincronizacion inicial
+
+
+def bloquear_subida_drive(bloquear: bool):
+    """Bloquea o desbloquea la subida automatica a Drive."""    global _bloquear_subida_drive
+    _bloquear_subida_drive = bloquear
 
 
 def cargar_memoria() -> dict:
@@ -33,8 +39,9 @@ def guardar_memoria(memoria: dict):
     _cache = memoria
     with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
         json.dump(memoria, f, ensure_ascii=False, indent=2)
-    from drive import subir_a_drive
-    subir_a_drive(config.MEMORIA_FILE)
+    if not _bloquear_subida_drive:
+        from drive import subir_a_drive
+        subir_a_drive(config.MEMORIA_FILE)
 
 
 def invalidar_cache_memoria():
