@@ -168,6 +168,23 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     if not config.DRIVE_DISPONIBLE:
         aviso_drive = "\n⚠️ AVISO: Google Drive no disponible. Los datos se guardan localmente."
 
+    # Inventario: solo si el mensaje lo menciona
+    palabras_inv = ["inventario", "stock", "queda", "quedan", "hay", "cuanto hay", "existencia"]
+    if any(p in mensaje_usuario.lower() for p in palabras_inv):
+        inventario_texto = f"INVENTARIO ACTUAL:\n{json.dumps(cargar_inventario(), ensure_ascii=False)}"
+    else:
+        inventario_texto = ""
+
+    # Caja y gastos: solo si el mensaje los menciona
+    palabras_caja = ["caja", "gasto", "gastos", "apertura", "cierre", "efectivo", "cuanto hay en caja"]
+    if any(p in mensaje_usuario.lower() for p in palabras_caja):
+        caja_texto   = f"ESTADO CAJA:\n{obtener_resumen_caja()}"
+        gastos_texto = f"GASTOS DE HOY:\n{json.dumps(cargar_gastos_hoy(), ensure_ascii=False, default=str)}"
+    else:
+        caja_texto   = ""
+        gastos_texto = ""
+
+
     # Catalogo agrupado por categoria
     catalogo = memoria.get("catalogo", {})
     if catalogo:
@@ -212,18 +229,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 
     return f"""Eres FerreBot, asistente inteligente de una ferreteria colombiana.
 
-==================================================
-TUS CAPACIDADES - NUNCA LAS OLVIDES
-==================================================
-- SI PUEDES registrar ventas con [VENTA]...[/VENTA]
-- SI PUEDES crear Excel con [EXCEL]...[/EXCEL]
-- SI PUEDES guardar precios con [PRECIO]...[/PRECIO]
-- SI PUEDES controlar inventario con [INVENTARIO]...[/INVENTARIO]
-- SI PUEDES manejar caja con [CAJA]...[/CAJA]
-- SI PUEDES registrar gastos con [GASTO]...[/GASTO]
-- SI PUEDES borrar clientes con [BORRAR_CLIENTE]...[/BORRAR_CLIENTE]
-- TIENES memoria permanente de precios y productos
-==================================================
+CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] caja[CAJA] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE]. Memoria permanente de precios.
 
 REGLAS CRITICAS DE FRACCIONES Y PRECIOS:
 - Muchos productos se venden en fracciones: 1/4, 1/2, 3/4, 1/8 de galon/unidad.
@@ -255,14 +261,9 @@ RESUMEN VENTAS DEL MES:
 DATOS HISTORICOS (analisis):
 {datos_texto}
 
-INVENTARIO ACTUAL:
-{json.dumps(cargar_inventario(), ensure_ascii=False)}
-
-ESTADO CAJA:
-{obtener_resumen_caja()}
-
-GASTOS DE HOY:
-{json.dumps(cargar_gastos_hoy(), ensure_ascii=False, default=str)}
+{inventario_texto}
+{caja_texto}
+{gastos_texto}
 {aviso_drive}
 
 REGLA CRITICA — PREGUNTAS VS ORDENES:
@@ -304,16 +305,9 @@ INSTRUCCIONES DE FORMATO:
    - "un dieciseisavo" o "1/16" → cantidad: 0.0625
    NUNCA registres un octavo como cantidad 1. NUNCA registres un cuarto como cantidad 1.
 
-   REGLA ESPECIAL — THINNER (conversion automatica precio a fraccion de galon):
-   Cuando el usuario diga "X pesos de thinner", "tiner por X" o "vendio thinner por X",
-   convierte automaticamente usando esta tabla:
-     3000=0.0833  4000=0.1    5000=0.125  6000=0.1667  7000=0.2
-     8000=0.25    9000=0.3    10000=0.3333  11000=0.3333  12000=0.4
-     13000=0.5    14000=0.5   15000=0.5   16000=0.5556  17000=0.6
-     18000=0.625  19000=0.6667  20000=0.75  21000=0.8   22000=0.8333
-     24000=0.9    25000=0.95  26000=1.0
-   El precio_unitario es el valor en pesos que pago el cliente.
-   Ejemplo: "15000 de tiner" → cantidad: 0.5, precio_unitario: 15000
+   REGLA THINNER: "X pesos de thinner" → convierte precio a fraccion de galon.
+   Tabla: 5000=0.125 8000=0.25 10000=0.333 13000=0.5 18000=0.625 20000=0.75 26000=1.0
+   precio_unitario=lo que pago el cliente. Ej: "15000 de tiner"→cantidad:0.5,precio:15000
 
    REGLA DE PRODUCTOS AMBIGUOS:
    Si dicen "esmalte negro", "esmalte blanco" etc SIN especificar tipo, asume el corriente basico.
@@ -398,7 +392,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     system_prompt = _construir_system_prompt(mensaje_usuario, nombre_usuario)
 
     messages = []
-    for msg in historial_chat[-10:]:
+    for msg in historial_chat[-6:]:
         if isinstance(msg, dict) and "role" in msg and "content" in msg:
             messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
     messages.append({"role": "user", "content": str(mensaje_usuario)})
@@ -408,7 +402,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
         None,
         lambda: config.claude_client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=2000,
+            max_tokens=900,
             system=system_prompt,
             messages=messages,
         )
