@@ -89,11 +89,19 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
-        if texto_respuesta:
-            await update.message.reply_text(texto_respuesta)
-
         pedir_metodo    = "PEDIR_METODO_PAGO"    in acciones
         iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
+
+        # Seguro: si hay cliente nuevo, quitar cualquier pregunta de metodo de pago del texto
+        if iniciar_cliente and texto_respuesta:
+            import re as _re
+            texto_respuesta = _re.sub(
+                r'[.!,]?\s*[¿]?[Mm]é?todo de pago\??',
+                '', texto_respuesta
+            ).strip().rstrip(".")
+
+        if texto_respuesta:
+            await update.message.reply_text(texto_respuesta)
 
         for accion in acciones:
             if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE"):
@@ -200,11 +208,19 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
-        if texto_respuesta:
-            await update.message.reply_text(texto_respuesta)
-
         pedir_metodo    = "PEDIR_METODO_PAGO"    in acciones
         iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
+
+        # Seguro: si hay cliente nuevo, quitar cualquier pregunta de metodo de pago del texto
+        if iniciar_cliente and texto_respuesta:
+            import re as _re
+            texto_respuesta = _re.sub(
+                r'[.!,]?\s*[¿]?[Mm]é?todo de pago\??',
+                '', texto_respuesta
+            ).strip().rstrip(".")
+
+        if texto_respuesta:
+            await update.message.reply_text(texto_respuesta)
 
         for accion in acciones:
             if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE"):
