@@ -185,26 +185,42 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
         gastos_texto = ""
 
 
-    # Catalogo agrupado por categoria
+    # ── CATALOGO: carga inteligente segun el mensaje ──
     catalogo = memoria.get("catalogo", {})
-    if catalogo:
+
+    def _linea_producto(prod):
+        fracs = prod.get("precios_fraccion", {})
+        pxc   = prod.get("precio_por_cantidad")
+        if fracs:
+            return f"  - {prod['nombre']}: " + " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
+        elif pxc:
+            return (f"  - {prod['nombre']}: "
+                    f"c/u=${pxc['precio_bajo_umbral']:,} | x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
+        else:
+            return f"  - {prod['nombre']}: ${prod['precio_unidad']:,}"
+
+    palabras_precio = ["precio", "vale", "cuesta", "cuanto", "catalogo", "productos", "lista", "precios"]
+    palabras_no_catalogo = ["caja", "gasto", "gastos", "apertura", "cierre", "reporte", "excel",
+                            "cliente", "clientes", "inventario", "vendimos", "resumen", "analiz"]
+    msg_lower = mensaje_usuario.lower()
+
+    pide_catalogo_completo = any(p in msg_lower for p in palabras_precio)
+    no_necesita_catalogo   = any(p in msg_lower for p in palabras_no_catalogo) and not pide_catalogo_completo
+    # Si ya tenemos candidatos especificos y no pide el catalogo completo, no lo mandamos
+    tiene_candidatos = bool(info_candidatos_extra)
+
+    if no_necesita_catalogo:
+        # Mensaje de caja/gastos/reportes — no necesita catalogo
+        precios_texto = ""
+    elif tiene_candidatos and not pide_catalogo_completo:
+        # Mensaje de venta con producto especifico — los candidatos ya estan en info_candidatos_extra
+        precios_texto = ""
+    elif catalogo:
+        # Catalogo completo: cuando pide precios genericos o mensaje ambiguo
         categorias: dict = {}
         for prod in catalogo.values():
             cat = prod.get("categoria", "Otros")
-            fracs = prod.get("precios_fraccion", {})
-            pxc   = prod.get("precio_por_cantidad")
-            if fracs:
-                precios_frac_str = " | ".join(
-                    f"{k}=${v['precio']:,}" for k, v in fracs.items()
-                )
-                linea = f"  - {prod['nombre']}: {precios_frac_str}"
-            elif pxc:
-                linea = (f"  - {prod['nombre']}: "
-                         f"c/u=${pxc['precio_bajo_umbral']:,} | "
-                         f"x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
-            else:
-                linea = f"  - {prod['nombre']}: ${prod['precio_unidad']:,}"
-            categorias.setdefault(cat, []).append(linea)
+            categorias.setdefault(cat, []).append(_linea_producto(prod))
         lineas_cat = []
         for cat, items in sorted(categorias.items()):
             lineas_cat.append(f"{cat}:")
@@ -227,7 +243,20 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             "Si el usuario menciona una fraccion sin precio, preguntale cuanto vale."
         )
 
-    return f"""Eres FerreBot, asistente inteligente de una ferreteria colombiana.
+    # Construir seccion catalogo solo si hay contenido
+    if precios_texto:
+        catalogo_seccion = (
+            "CATALOGO DE PRODUCTOS (precios por fraccion incluidos):\n"
+            "Formato: 1=galon | 3/4 | 1/2 | 1/4 | 1/8 | 1/16\n"
+            + precios_texto
+            + "\n\n" + precios_fraccion_texto
+        )
+    elif precios_fraccion_texto and "ninguno" not in precios_fraccion_texto:
+        catalogo_seccion = precios_fraccion_texto
+    else:
+        catalogo_seccion = ""
+
+        return f"""Eres FerreBot, asistente inteligente de una ferreteria colombiana.
 
 CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] caja[CAJA] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE]. Memoria permanente de precios.
 
@@ -248,12 +277,7 @@ INFORMACION DEL NEGOCIO:
 {clientes_recientes_texto}
 {clientes_texto}
 
-CATALOGO DE PRODUCTOS (con precios por fraccion incluidos):
-IMPORTANTE: Los precios de fraccion YA estan en el catalogo. Usaelos directamente.
-Formato: 1=galon completo | 3/4 | 1/2 | 1/4 | 1/8 | 1/16
-{precios_texto}
-
-{precios_fraccion_texto}
+{catalogo_seccion}
 
 RESUMEN VENTAS DEL MES:
 {resumen_texto}
