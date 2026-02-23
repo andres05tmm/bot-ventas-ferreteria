@@ -107,8 +107,9 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 
     # ── CLIENTES RECIENTES: si el mensaje lo pide ──
     clientes_recientes_texto = ""
-    palabras_recientes = ["ultimo", "ultimos", "reciente", "recientes", "nuevo", "nuevos", "anadido", "agregado"]
-    if any(p in mensaje_usuario.lower() for p in palabras_recientes) and "cliente" in mensaje_usuario.lower():
+    palabras_recientes = ["ultimo", "ultimos", "reciente", "recientes", "nuevo", "nuevos", "anadido", "anadidos", "agregado", "agregados", "registrado", "registrados"]
+    _msg_norm = _normalizar(mensaje_usuario)
+    if any(p in _msg_norm for p in palabras_recientes) and "cliente" in _msg_norm:
         try:
             from excel import obtener_clientes_recientes
             recientes = obtener_clientes_recientes(5)
