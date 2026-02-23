@@ -316,8 +316,10 @@ INSTRUCCIONES DE FORMATO:
 2. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000}}[/VENTA]
    - Si hay cliente: agrega "cliente": "nombre del cliente"
+   - Si el usuario NO menciona cliente: NO preguntes, registra directo sin campo "cliente" (el sistema asume Consumidor Final automaticamente).
    - Si el usuario ya dijo el metodo: agrega "metodo_pago": "efectivo|transferencia|datafono"
    - Si NO dijo el metodo: NO pongas metodo_pago (el sistema preguntara con botones)
+   CRITICO: NUNCA preguntes "a nombre de quien" si el usuario no menciono un cliente.
    CRITICO: NUNCA repitas [VENTA] para el mismo producto.
 
    REGLA DE FRACCIONES EN VENTAS (MUY IMPORTANTE):
