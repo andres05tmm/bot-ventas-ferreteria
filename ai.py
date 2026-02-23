@@ -322,6 +322,23 @@ INSTRUCCIONES DE FORMATO:
    CRITICO: NUNCA preguntes "a nombre de quien" si el usuario no menciono un cliente.
    CRITICO: NUNCA repitas [VENTA] para el mismo producto.
 
+   REGLA DE PRECIO TOTAL VS UNITARIO — MUY IMPORTANTE:
+   El campo "precio_unitario" depende de como lo diga el usuario:
+
+   PRECIO ES TOTAL (lo mas comun, dividir entre cantidad):
+   - "12 tornillos 2000" → total=2000, precio_unitario=2000/12=166.67
+   - "12 tornillos drywall 2000" → total=2000, precio_unitario=166.67
+   - "vendi 5 brochas 10000" → total=10000, precio_unitario=2000
+   Regla: si el usuario NO usa palabras como "a", "c/u", "cada uno", "por unidad", el numero es el TOTAL.
+   En ese caso: precio_unitario = precio_mencionado / cantidad
+
+   PRECIO ES UNITARIO (el usuario lo especifica):
+   - "12 tornillos a 2000" → precio_unitario=2000, total=24000
+   - "12 tornillos a 2000 cada uno" → precio_unitario=2000, total=24000
+   - "12 tornillos c/u 2000" → precio_unitario=2000, total=24000
+   - "12 brochas de 2 a 2000 cada una" → precio_unitario=2000, total=24000
+   Palabras clave que indican precio unitario: "a", "c/u", "cada uno", "cada una", "por unidad", "uno a".
+
    REGLA DE FRACCIONES EN VENTAS (MUY IMPORTANTE):
    Cuando el usuario diga "un cuarto", "un octavo", "medio", "un tercio" etc, convierte asi:
    - "un cuarto" o "1/4" → cantidad: 0.25
