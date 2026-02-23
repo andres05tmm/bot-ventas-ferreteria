@@ -334,7 +334,43 @@ def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural
         return False
 
 
-def obtener_nombre_id_cliente(nombre_mencionado: str) -> tuple[str, str]:
+def borrar_cliente(termino: str) -> tuple[bool, str]:
+    """
+    Borra un cliente de la hoja Clientes por nombre o identificacion.
+    Retorna (exito, mensaje).
+    """
+    try:
+        inicializar_excel()
+        wb = openpyxl.load_workbook(config.EXCEL_FILE)
+        if "Clientes" not in wb.sheetnames:
+            return False, "No hay clientes registrados."
+        ws = wb["Clientes"]
+        termino_norm = _normalizar(termino)
+        fila_borrar = None
+        nombre_borrado = None
+        for fila in range(2, ws.max_row + 1):
+            nombre = str(ws.cell(row=fila, column=1).value or "")
+            id_val  = str(ws.cell(row=fila, column=4).value or "")
+            if _normalizar(nombre) == termino_norm or _normalizar(id_val) == termino_norm:
+                fila_borrar   = fila
+                nombre_borrado = nombre
+                break
+            # Busqueda flexible por palabras
+            palabras = [p for p in termino_norm.split() if len(p) > 2]
+            if palabras and all(p in _normalizar(nombre) for p in palabras):
+                fila_borrar   = fila
+                nombre_borrado = nombre
+                break
+        if not fila_borrar:
+            return False, f"No encontre un cliente que coincida con '{termino}'."
+        ws.delete_rows(fila_borrar)
+        wb.save(config.EXCEL_FILE)
+        from drive import subir_a_drive
+        subir_a_drive(config.EXCEL_FILE)
+        return True, f"✅ Cliente '{nombre_borrado}' borrado del sistema."
+    except Exception as e:
+        print(f"Error borrando cliente: {e}")
+        return False, "Hubo un error borrando el cliente."
     if not nombre_mencionado:
         return "CF", "Consumidor Final"
     cliente = buscar_cliente(nombre_mencionado)
