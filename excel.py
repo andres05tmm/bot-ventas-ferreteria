@@ -297,6 +297,19 @@ def buscar_cliente_con_resultado(termino: str) -> tuple[dict | None, list]:
     return None, candidatos
 
 
+def obtener_nombre_id_cliente(termino: str) -> tuple[str, str]:
+    """
+    Busca un cliente por nombre o identificación y retorna (identificacion, nombre).
+    Si no lo encuentra, retorna ("CF", "Consumidor Final").
+    """
+    cliente = buscar_cliente(termino)
+    if cliente:
+        id_c = cliente.get("Identificación") or "CF"
+        nombre_c = cliente.get("Nombre tercero") or "Consumidor Final"
+        return str(id_c), str(nombre_c)
+    return "CF", "Consumidor Final"
+
+
 def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural", correo="", telefono="", direccion="") -> bool:
     try:
         inicializar_excel()
