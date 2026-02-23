@@ -51,7 +51,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     else:
         datos_texto = "(no cargado)"
 
-    # Stopwords reutilizadas en varios bloques de busqueda
+    # Stopwords (se usa mas abajo en candidatos y clientes)
     stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
                  "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en"}
 
@@ -105,23 +105,39 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
                 "\nPRODUCTO ENCONTRADO EN CATALOGO:\n" + _linea_candidato(candidatos[0])
             )
 
-    # ── CLIENTES RELEVANTES PARA EL MENSAJE ──
-    # FIX: esta variable faltaba y causaba el NameError al arrancar
+    # ── CLIENTES: buscar si el mensaje menciona alguno ──
     clientes_texto = ""
     try:
+        from excel import buscar_cliente_con_resultado
         palabras_cliente = [p for p in mensaje_usuario.lower().split()
                             if len(p) > 3 and p not in stopwords]
         if palabras_cliente:
-            termino_cliente      = " ".join(palabras_cliente[:3])
-            clientes_encontrados = buscar_clientes_multiples(termino_cliente, 5)
-            if clientes_encontrados:
+            termino_cliente = " ".join(palabras_cliente[:4])
+            cliente_unico, candidatos = buscar_cliente_con_resultado(termino_cliente)
+
+            if len(candidatos) == 1:
+                # Un solo cliente encontrado — mostrarlo directamente
+                c      = candidatos[0]
+                nombre = c.get("Nombre tercero", "")
+                id_c   = c.get("Identificación", "")
+                tipo   = c.get("Tipo de identificación", "")
+                clientes_texto = (
+                    f"CLIENTE ENCONTRADO EN EL SISTEMA (usar este directamente):\n"
+                    f"  - {nombre} ({tipo}: {id_c})"
+                )
+            elif len(candidatos) > 1:
+                # Varios candidatos — el bot debe preguntar cual es
                 lineas_cli = []
-                for c in clientes_encontrados:
+                for c in candidatos:
                     nombre = c.get("Nombre tercero", "")
                     id_c   = c.get("Identificación", "")
                     tipo   = c.get("Tipo de identificación", "")
                     lineas_cli.append(f"  - {nombre} ({tipo}: {id_c})")
-                clientes_texto = "CLIENTES ENCONTRADOS EN EL SISTEMA:\n" + "\n".join(lineas_cli)
+                clientes_texto = (
+                    "MULTIPLES CLIENTES ENCONTRADOS — pregunta al usuario cual es:\n"
+                    + "\n".join(lineas_cli)
+                    + "\nEjemplo: '¿Te refieres a NOMBRE1 (CC: 123) o NOMBRE2 (CC: 456)?'"
+                )
     except Exception:
         clientes_texto = ""
 
@@ -134,7 +150,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     if catalogo:
         categorias: dict = {}
         for prod in catalogo.values():
-            cat   = prod.get("categoria", "Otros")
+            cat = prod.get("categoria", "Otros")
             fracs = prod.get("precios_fraccion", {})
             pxc   = prod.get("precio_por_cantidad")
             if fracs:
@@ -320,7 +336,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     """
     from ventas_state import ventas_pendientes, registrar_ventas_con_metodo, _estado_lock
 
-    acciones:       list[str] = []
+    acciones:      list[str] = []
     archivos_excel: list[str] = []
     texto_limpio = texto_respuesta
 
@@ -355,7 +371,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             ventas_pendientes[chat_id] = ventas_sin_metodo
         acciones.append("PEDIR_METODO_PAGO")
 
-    # ── Cliente nuevo (datos completos) ──
+    # ── Cliente nuevo (datos completos dados de una vez) ──
     for cli_json in re.findall(r'\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]', texto_respuesta, re.DOTALL):
         try:
             datos  = json.loads(cli_json.strip())
@@ -443,12 +459,10 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             caja  = cargar_caja()
             if datos.get("accion") == "apertura":
                 caja.update({
-                    "abierta":        True,
-                    "fecha":          datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
+                    "abierta": True,
+                    "fecha": datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
                     "monto_apertura": float(datos.get("monto", 0)),
-                    "efectivo":       0,
-                    "transferencias": 0,
-                    "datafono":       0,
+                    "efectivo": 0, "transferencias": 0, "datafono": 0,
                 })
                 from memoria import guardar_caja
                 guardar_caja(caja)
@@ -491,9 +505,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 minimo   = convertir_fraccion_a_decimal(datos.get("minimo", 0.5))
                 unidad   = datos.get("unidad", "unidades")
                 inventario[producto] = {
-                    "cantidad":        cantidad,
-                    "minimo":          minimo,
-                    "unidad":          unidad,
+                    "cantidad": cantidad, "minimo": minimo, "unidad": unidad,
                     "nombre_original": datos.get("producto", producto),
                 }
                 from memoria import guardar_inventario as _guardar_inv
@@ -513,8 +525,8 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     # ── Excel personalizado ──
     for excel_json in re.findall(r'\[EXCEL\](.*?)\[/EXCEL\]', texto_respuesta, re.DOTALL):
         try:
-            datos  = json.loads(excel_json.strip())
-            nombre = f"reporte_{datetime.now(config.COLOMBIA_TZ).strftime('%Y%m%d_%H%M%S')}.xlsx"
+            datos    = json.loads(excel_json.strip())
+            nombre   = f"reporte_{datetime.now(config.COLOMBIA_TZ).strftime('%Y%m%d_%H%M%S')}.xlsx"
             generar_excel_personalizado(
                 datos.get("titulo", "Reporte"),
                 datos.get("encabezados", []),
@@ -549,10 +561,8 @@ async def editar_excel_con_claude(instruccion: str, ruta_excel: str, nombre_exce
         ):
             filas_ejemplo.append(list(fila))
         info_hojas.append({
-            "hoja":          hoja_nombre,
-            "encabezados":   encabezados,
-            "ejemplo_filas": filas_ejemplo,
-            "total_filas":   ws.max_row - 1,
+            "hoja": hoja_nombre, "encabezados": encabezados,
+            "ejemplo_filas": filas_ejemplo, "total_filas": ws.max_row - 1,
         })
 
     prompt = f"""Eres un experto en Python y openpyxl. El usuario tiene un archivo Excel llamado '{nombre_excel}' con esta estructura:
