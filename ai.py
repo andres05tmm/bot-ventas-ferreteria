@@ -56,25 +56,19 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     palabras_frac = ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"]
     if any(p in mensaje_usuario.lower() for p in palabras_frac):
         palabras_msg = mensaje_usuario.lower().split()
-        # Filtrar fracciones y stopwords para buscar solo el nombre del producto
-        stopwords_busq = {"que", "cuesta", "vale", "precio", "cuanto", "de", "del",
-                          "la", "el", "un", "una", "por", "para", "hay", "tiene",
-                          "1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"}
-        palabras_producto = [p for p in palabras_msg if p not in stopwords_busq and len(p) > 1]
-        prod_encontrado = None
-        for largo in [4, 3, 2, 1]:
-            if prod_encontrado:
-                break
-            for i in range(len(palabras_producto) - largo + 1):
-                fragmento = " ".join(palabras_producto[i:i + largo])
-                candidato = buscar_producto_en_catalogo(fragmento)
-                if candidato and candidato.get("precios_fraccion"):
-                    prod_encontrado = candidato
+        for largo in [4, 3, 2]:
+            encontrado = False
+            for i in range(len(palabras_msg) - largo + 1):
+                fragmento = " ".join(palabras_msg[i:i + largo])
+                prod = buscar_producto_en_catalogo(fragmento)
+                if prod and prod.get("precios_fraccion"):
+                    info = obtener_info_fraccion_producto(prod["nombre_lower"])
+                    if info:
+                        info_fracciones_extra = f"\nPRECIOS POR FRACCION DEL PRODUCTO MENCIONADO:\n{info}"
+                    encontrado = True
                     break
-        if prod_encontrado:
-            info = obtener_info_fraccion_producto(prod_encontrado["nombre_lower"])
-            if info:
-                info_fracciones_extra = f"\nPRECIOS POR FRACCION DEL PRODUCTO MENCIONADO:\n{info}" 
+            if encontrado:
+                break
 
     # Candidatos del catalogo para el mensaje actual
     info_candidatos_extra = ""
@@ -200,7 +194,8 @@ INSTRUCCIONES DE FORMATO:
    - Los valores validos de tipo_id son: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
    - Los valores validos de tipo_persona son: "Natural", "Juridica"
 3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
-3b. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
+3b. Precio fraccion (nuevo O correccion): [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
+   - Usa esto SIEMPRE que el usuario corrija o actualice el precio de una fraccion. El precio nuevo reemplaza al anterior de forma permanente en el catalogo.
 4. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
 5. Excel: [EXCEL]{{"titulo": "Titulo", "encabezados": ["Col1"], "filas": [["dato"]]}}[/EXCEL]
 6. Apertura caja: [CAJA]{{"accion": "apertura", "monto": 50000}}[/CAJA]
@@ -331,9 +326,27 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             precio   = float(datos.get("precio", 0))
             if producto and fraccion and precio:
                 mem = cargar_memoria()
+                # 1. Guardar en precios_fraccion (compatibilidad)
                 mem.setdefault("precios_fraccion", {}).setdefault(producto.lower(), {})[fraccion] = round(precio)
+                # 2. Actualizar directamente en el catalogo para que sea permanente
+                prod_catalogo = buscar_producto_en_catalogo(producto)
+                if prod_catalogo:
+                    # Buscar la clave del producto en el catalogo
+                    for clave, prod in mem.get("catalogo", {}).items():
+                        if prod.get("nombre_lower") == prod_catalogo.get("nombre_lower"):
+                            fracs = prod.setdefault("precios_fraccion", {})
+                            # Mapeo fraccion texto -> decimal
+                            dec_map = {"1": 1.0, "3/4": 0.75, "1/2": 0.5, "1/4": 0.25,
+                                       "1/8": 0.125, "1/16": 0.0625}
+                            decimal = dec_map.get(fraccion, 0)
+                            fracs[fraccion] = {"decimal": decimal, "precio": round(precio),
+                                               "etiqueta": f"{fraccion} galón"}
+                            # Si es la unidad completa, actualizar precio_unidad tambien
+                            if fraccion == "1":
+                                prod["precio_unidad"] = round(precio)
+                            break
                 guardar_memoria(mem)
-                acciones.append(f"🧠 Precio de fraccion guardado: {producto} {fraccion} = ${precio:,.0f}")
+                acciones.append(f"🧠 Precio actualizado en catalogo: {producto} {fraccion} = ${precio:,.0f}")
         except Exception as e:
             print(f"Error precio fraccion: {e}")
         texto_limpio = texto_limpio.replace(f'[PRECIO_FRACCION]{pf_json}[/PRECIO_FRACCION]', '')
