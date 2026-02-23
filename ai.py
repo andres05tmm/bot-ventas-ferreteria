@@ -198,6 +198,7 @@ TUS CAPACIDADES - NUNCA LAS OLVIDES
 - SI PUEDES controlar inventario con [INVENTARIO]...[/INVENTARIO]
 - SI PUEDES manejar caja con [CAJA]...[/CAJA]
 - SI PUEDES registrar gastos con [GASTO]...[/GASTO]
+- SI PUEDES borrar clientes con [BORRAR_CLIENTE]...[/BORRAR_CLIENTE]
 - TIENES memoria permanente de precios y productos
 ==================================================
 
@@ -359,8 +360,10 @@ INSTRUCCIONES DE FORMATO:
 7. Cierre caja: [CAJA]{{"accion": "cierre"}}[/CAJA]
 8. Gasto: [GASTO]{{"concepto": "nombre", "monto": 50000, "categoria": "varios", "origen": "caja"}}[/GASTO]
 9. Inventario: [INVENTARIO]{{"producto": "nombre", "cantidad": 10, "minimo": 2, "unidad": "galones", "accion": "actualizar"}}[/INVENTARIO]
-10. Para borrar: /borrar numero
-11. Usuario actual: {nombre_usuario}"""
+10. Borrar cliente: [BORRAR_CLIENTE]{{"nombre": "nombre o identificacion del cliente"}}[/BORRAR_CLIENTE]
+    Usa esto cuando el usuario diga "borra ese cliente", "elimina a X", "quita al cliente X".
+11. Para borrar ventas: /borrar numero
+12. Usuario actual: {nombre_usuario}"""
 
 
 # ─────────────────────────────────────────────
@@ -493,6 +496,21 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             print(f"Error iniciando flujo cliente: {e}")
         texto_limpio = texto_limpio.replace(f'[INICIAR_CLIENTE]{ini_json}[/INICIAR_CLIENTE]', '')
+
+    # ── Borrar cliente ──
+    for bc_json in re.findall(r'\[BORRAR_CLIENTE\](.*?)\[/BORRAR_CLIENTE\]', texto_respuesta, re.DOTALL):
+        try:
+            datos  = json.loads(bc_json.strip())
+            nombre = datos.get("nombre", "").strip()
+            if nombre:
+                from excel import borrar_cliente
+                exito, msg = borrar_cliente(nombre)
+                acciones.append(msg)
+            else:
+                acciones.append("⚠️ No se especifico el cliente a borrar.")
+        except Exception as e:
+            print(f"Error borrando cliente: {e}")
+        texto_limpio = texto_limpio.replace(f'[BORRAR_CLIENTE]{bc_json}[/BORRAR_CLIENTE]', '')
 
     # ── Precio fraccion ──
     for pf_json in re.findall(r'\[PRECIO_FRACCION\](.*?)\[/PRECIO_FRACCION\]', texto_respuesta, re.DOTALL):
