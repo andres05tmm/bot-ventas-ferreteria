@@ -22,7 +22,7 @@ from memoria import (
 from excel import (
     obtener_todos_los_datos, obtener_resumen_ventas,
     generar_excel_personalizado, guardar_cliente_nuevo,
-    inicializar_excel,
+    inicializar_excel, cargar_clientes,
 )
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
@@ -150,6 +150,22 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             "PRECIOS DE FRACCION CONOCIDOS: ninguno guardado aun. "
             "Si el usuario menciona una fraccion sin precio, preguntale cuanto vale."
         )
+
+    # Construir texto de clientes para el prompt
+    try:
+        clientes = cargar_clientes()
+        if clientes:
+            lineas_cli = [
+                f"  - {c.get('Nombre tercero','')}: {c.get('Tipo de identificación','')} {c.get('Identificación','')}"
+                for c in clientes[:50]  # max 50 para no saturar el prompt
+            ]
+            clientes_texto = f"CLIENTES REGISTRADOS ({len(clientes)} total):\n" + "\n".join(lineas_cli)
+            if len(clientes) > 50:
+                clientes_texto += f"\n  ... y {len(clientes)-50} mas. Usa /clientes para buscar."
+        else:
+            clientes_texto = "CLIENTES: ninguno registrado aun."
+    except Exception:
+        clientes_texto = "CLIENTES: no disponible."
 
     return f"""Eres FerreBot, asistente inteligente de una ferreteria colombiana.
 
