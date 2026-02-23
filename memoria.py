@@ -14,7 +14,7 @@ _bloquear_subida_drive: bool = False  # True durante la sincronizacion inicial
 
 
 def bloquear_subida_drive(bloquear: bool):
-    """Bloquea o desbloquea la subida automatica a Drive."""    global _bloquear_subida_drive
+    global _bloquear_subida_drive
     _bloquear_subida_drive = bloquear
 
 
@@ -45,7 +45,6 @@ def guardar_memoria(memoria: dict):
 
 
 def invalidar_cache_memoria():
-    """Fuerza recarga desde disco en la proxima llamada a cargar_memoria()."""
     global _cache
     _cache = None
 
