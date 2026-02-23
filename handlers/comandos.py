@@ -545,3 +545,56 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "⚠️ El Excel se actualizo correctamente pero no se pudo limpiar el Sheets.\n"
             "Puedes borrarlo a mano, los datos ya quedaron en el Excel."
         )
+
+
+# ─────────────────────────────────────────────
+# /resetventas
+# ─────────────────────────────────────────────
+
+async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Borra TODAS las ventas del Excel y del Sheets.
+    Requiere confirmacion: /resetventas CONFIRMAR
+    """
+    if not context.args or context.args[0].upper() != "CONFIRMAR":
+        await update.message.reply_text(
+            "⚠️ *Este comando borra TODAS las ventas del Excel y del Sheets.*\n\n"
+            "Se usará solo en periodo de prueba.\n\n"
+            "Para confirmar escribe:\n"
+            "`/resetventas CONFIRMAR`",
+            parse_mode="Markdown"
+        )
+        return
+
+    await update.message.reply_text("🔄 Borrando las ventas del día...")
+
+    errores = []
+
+    # 1. Limpiar Google Sheets (ventas del día, aún no pasadas al Excel)
+    try:
+        ok = await asyncio.to_thread(sheets_limpiar)
+        msg_sheets = "✅ Google Sheets limpiado" if ok else "⚠️ No se pudo limpiar el Sheets (puede que no esté configurado)"
+        if not ok:
+            errores.append("Sheets no limpiado")
+    except Exception as e:
+        msg_sheets = f"❌ Error limpiando Sheets: {e}"
+        errores.append(str(e))
+
+    # 2. Resetear consecutivo del día en memoria
+    try:
+        from memoria import cargar_memoria, guardar_memoria
+        mem = cargar_memoria()
+        mem["ultimo_consecutivo"] = 0
+        guardar_memoria(mem)
+        msg_consec = "✅ Consecutivo reseteado a 0"
+    except Exception as e:
+        msg_consec = f"⚠️ No se pudo resetear el consecutivo: {e}"
+
+    await update.message.reply_text(
+        f"🧹 *Reset del día completado*\n\n"
+        f"{msg_sheets}\n"
+        f"{msg_consec}\n\n"
+        f"El Excel histórico no fue modificado.\n"
+        f"{'✅ Listo para empezar el día de nuevo.' if not errores else '⚠️ Hubo algunos errores, revisa los mensajes arriba.'}",
+        parse_mode="Markdown"
+    )
