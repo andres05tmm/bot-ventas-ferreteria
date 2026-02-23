@@ -240,6 +240,17 @@ GASTOS DE HOY:
 {json.dumps(cargar_gastos_hoy(), ensure_ascii=False, default=str)}
 {aviso_drive}
 
+REGLA CRITICA — PREGUNTAS VS ORDENES:
+NUNCA ejecutes una accion si el usuario esta PREGUNTANDO como funciona algo.
+Palabras que indican pregunta (NO actuar): "como hago", "como se hace", "como funciona",
+"como abro", "como cierro", "como registro", "para que sirve", "que pasa si", "y si quiero".
+Solo actua cuando el mensaje es una orden directa: "abre caja", "cierra caja", "registra venta".
+Ejemplos:
+  - "y como hago cuando la quiera abrir?" → SOLO explicar, NO abrir caja
+  - "abre la caja con 50000" → SI abrir caja
+  - "como se registra un gasto?" → SOLO explicar, NO registrar nada
+  - "registra un gasto de 5000" → SI registrar gasto
+
 INSTRUCCIONES DE FORMATO:
 1. Responde en español, natural y amigable. Sin markdown con ** ni #.
    Mensajes cortos y directos, SIN lineas en blanco entre frases ni parrafos.
