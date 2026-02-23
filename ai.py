@@ -78,14 +78,31 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     if palabras_clave:
         termino    = " ".join(palabras_clave[:5])
         candidatos = buscar_multiples_en_catalogo(termino, limite=8)
+
+        def _linea_candidato(p: dict) -> str:
+            """Genera la linea de presentacion de un candidato incluyendo fracciones si las tiene."""
+            fracs = p.get("precios_fraccion", {})
+            pxc   = p.get("precio_por_cantidad")
+            if fracs:
+                precios_str = " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
+                return f"  - {p['nombre']}: {precios_str}"
+            elif pxc:
+                return (f"  - {p['nombre']}: "
+                        f"c/u=${pxc['precio_bajo_umbral']:,} | "
+                        f"x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
+            else:
+                return f"  - {p['nombre']}: ${p['precio_unidad']:,}"
+
         if len(candidatos) > 1:
-            lineas = [f"  - {p['nombre']}: ${p['precio_unidad']:,}" for p in candidatos]
+            lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = (
-                "\nPRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE:\n" + "\n".join(lineas)
+                "\nPRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE (con precios de fraccion):\n"
+                + "\n".join(lineas)
             )
         elif len(candidatos) == 1:
-            p = candidatos[0]
-            info_candidatos_extra = f"\nPRODUCTO ENCONTRADO EN CATALOGO: {p['nombre']} — ${p['precio_unidad']:,}"
+            info_candidatos_extra = (
+                "\nPRODUCTO ENCONTRADO EN CATALOGO:\n" + _linea_candidato(candidatos[0])
+            )
 
     aviso_drive = ""
     if not config.DRIVE_DISPONIBLE:
