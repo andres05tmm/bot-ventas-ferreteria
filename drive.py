@@ -155,26 +155,34 @@ def sincronizar_archivos():
     """Al iniciar el bot, descarga los archivos de Drive si existen."""
     print("🔄 Sincronizando con Google Drive...")
 
-    # Invalidar cache ANTES de descargar para evitar que el JSON viejo
-    # en RAM se suba a Drive sobreescribiendo el correcto
-    from memoria import invalidar_cache_memoria
-    invalidar_cache_memoria()
+    from memoria import invalidar_cache_memoria, bloquear_subida_drive
 
-    # Eliminar memoria.json de la cola de pendientes para que no se suba
-    # el JSON local (posiblemente viejo) encima del correcto en Drive
-    cola = _leer_cola()
-    cola_limpia = [f for f in cola if f != config.MEMORIA_FILE]
-    if len(cola_limpia) != len(cola):
-        print("🧹 Removido memoria.json de cola pendiente para proteger el Drive.")
-        _escribir_cola(cola_limpia)
+    # Bloquear subidas a Drive durante la sincronizacion
+    # para que nada sobreescriba el JSON correcto mientras descargamos
+    bloquear_subida_drive(True)
 
-    ok_excel = descargar_de_drive(config.EXCEL_FILE)
-    ok_mem   = descargar_de_drive(config.MEMORIA_FILE)
+    try:
+        # Limpiar cache RAM
+        invalidar_cache_memoria()
 
-    # Invalidar cache de nuevo tras la descarga para forzar lectura del nuevo JSON
-    invalidar_cache_memoria()
+        # Sacar memoria.json de la cola pendiente para proteger el Drive
+        cola = _leer_cola()
+        cola_limpia = [f for f in cola if f != config.MEMORIA_FILE]
+        if len(cola_limpia) != len(cola):
+            print("🧹 Removido memoria.json de cola pendiente para proteger el Drive.")
+            _escribir_cola(cola_limpia)
 
-    if ok_excel or ok_mem:
-        print("✅ Sincronizacion completa.")
-    else:
-        print("⚠️ No se pudo sincronizar con Drive. Trabajando en modo local.")
+        ok_excel = descargar_de_drive(config.EXCEL_FILE)
+        ok_mem   = descargar_de_drive(config.MEMORIA_FILE)
+
+        # Forzar recarga del JSON recien descargado
+        invalidar_cache_memoria()
+
+        if ok_excel or ok_mem:
+            print("✅ Sincronizacion completa.")
+        else:
+            print("⚠️ No se pudo sincronizar con Drive. Trabajando en modo local.")
+    finally:
+        # Desbloquear subidas — a partir de aqui todo funciona normal
+        bloquear_subida_drive(False)
+        print("🔓 Subida a Drive desbloqueada.")
