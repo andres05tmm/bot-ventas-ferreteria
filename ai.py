@@ -242,6 +242,11 @@ GASTOS DE HOY:
 
 INSTRUCCIONES DE FORMATO:
 1. Responde en español, natural y amigable. Sin markdown con ** ni #.
+   Mensajes cortos y directos, SIN lineas en blanco entre frases ni parrafos.
+   Cuando confirmes una venta, usa UNA sola frase corta sin listar los productos
+   (el sistema ya los muestra automaticamente en la confirmacion de pago).
+   Ejemplo correcto: "Listo, registro a Patricia Hernandez. ¿Metodo de pago?"
+   Ejemplo incorrecto: frase + salto de linea + lista detallada de productos.
    CRITICO: Si el mensaje incluye "PRODUCTOS DEL CATALOGO QUE COINCIDEN" o
    "PRODUCTO ENCONTRADO EN CATALOGO", SIEMPRE usa esa informacion para responder precios.
 
