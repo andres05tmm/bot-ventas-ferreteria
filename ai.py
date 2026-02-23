@@ -256,7 +256,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     else:
         catalogo_seccion = ""
 
-        return f"""Eres FerreBot, asistente inteligente de una ferreteria colombiana.
+    return f"""Eres FerreBot, asistente inteligente de una ferreteria colombiana.
 
 CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] caja[CAJA] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE]. Memoria permanente de precios.
 
