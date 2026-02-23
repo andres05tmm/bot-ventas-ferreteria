@@ -109,24 +109,8 @@ async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(texto)
             return
 
-    # Fallback: Excel local
-    ventas = await asyncio.to_thread(obtener_ventas_recientes, 10)
-    if not ventas:
-        await update.message.reply_text("No hay ventas registradas este mes.")
-        return
-    texto = "📋 Ultimas ventas:\n\n"
-    for v in ventas:
-        num      = v.get(config.COL_ALIAS) or "?"
-        producto = v.get(config.COL_PRODUCTO) or "?"
-        vendedor = v.get(config.COL_VENDEDOR) or "?"
-        total_raw = v.get(config.COL_TOTAL)
-        try:
-            total = f"${float(total_raw):,.0f}" if total_raw else "?"
-        except (ValueError, TypeError):
-            total = str(total_raw) if total_raw else "?"
-        texto += f"#{num} — {producto} — {total} — {vendedor}\n"
-    texto += "\nUsa /borrar [numero] para eliminar una venta."
-    await update.message.reply_text(texto)
+    # Sin ventas en el día
+    await update.message.reply_text("No hay ventas registradas hoy.\nUsa el bot para registrar ventas durante el día.")
 
 
 # ─────────────────────────────────────────────
@@ -536,6 +520,17 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     await update.message.reply_text("🧹 Limpiando el Sheets para manana...")
     ok = await asyncio.to_thread(sheets_limpiar)
+
+    # Limpiar historial en memoria para que /ventas quede vacio
+    try:
+        from ventas_state import ventas_pendientes, borrados_pendientes, historiales
+        with _estado_lock:
+            ventas_pendientes.clear()
+            borrados_pendientes.clear()
+            historiales.clear()
+    except Exception as e:
+        print(f"Error limpiando memoria tras cierre: {e}")
+
     if ok:
         await update.message.reply_text(
             "✅ Cierre completado.\n\n• ventas.xlsx actualizado en Drive\n• Sheets limpio y listo para manana"
