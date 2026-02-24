@@ -41,3 +41,7 @@ _CLAVES_REQUERIDAS = {
 }
 _faltantes = [k for k, v in _CLAVES_REQUERIDAS.items() if not v]
 if _faltantes:
+    print("\n❌ Faltan claves en las variables de entorno:")
+    for c in _faltantes:
+        print(f"   • {c}")
+    raise SystemExit(1)
