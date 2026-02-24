@@ -9,7 +9,7 @@ import unicodedata
 from datetime import datetime
 
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 import config
@@ -33,17 +33,55 @@ def _normalizar(texto: str) -> str:
 # ─────────────────────────────────────────────
 
 def inicializar_hoja(ws):
-    """Crea la estructura real del Excel: titulo en fila 1, encabezados en fila 2."""
+    """Crea el formato exacto: logo fila 1, banner rojo fila 1, separador fila 2, encabezados fila 3."""
     if ws.max_row > 1:
         return
 
-    num_cols = 13
-    ws.merge_cells(f"A1:{get_column_letter(num_cols)}1")
-    celda = ws.cell(row=1, column=1, value="DETALLE DE VENTAS")
-    celda.font      = Font(bold=True, color="FFFFFF", size=13)
-    celda.fill      = PatternFill("solid", fgColor="1A56DB")
-    celda.alignment = Alignment(horizontal="center")
+    import os
+    from openpyxl.drawing.image import Image as XLImage
 
+    num_cols = 13
+
+    # Fila 1: logo en A1:D1 + banner rojo en E1:M1
+    ws.row_dimensions[1].height = 73.8
+    ws.merge_cells("A1:D1")
+    ws.merge_cells("E1:M1")
+
+    # Banner rojo con texto
+    celda_banner = ws.cell(row=1, column=5, value="DETALLE DE VENTAS")
+    celda_banner.font      = Font(bold=True, color="FF0000", size=18)
+    celda_banner.fill      = PatternFill("solid", fgColor="FF0000")
+    celda_banner.alignment = Alignment(horizontal="center", vertical="center")
+    celda_banner.font      = Font(bold=True, color="FFFFFF", size=18)
+
+    # Aplicar fondo rojo a todas las celdas del banner
+    for col in range(5, 14):
+        c = ws.cell(row=1, column=col)
+        c.fill = PatternFill("solid", fgColor="FF0000")
+
+    # Fila 2: separador delgado
+    ws.row_dimensions[2].height = 6.0
+
+    # Logo (si existe el archivo)
+    logo_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png"),
+        "/app/logo.png",
+        "logo.png",
+    ]
+    for logo_path in logo_paths:
+        if os.path.exists(logo_path):
+            try:
+                img = XLImage(logo_path)
+                img.width  = 220
+                img.height = 70
+                img.anchor = "A1"
+                ws.add_image(img)
+            except Exception as e:
+                print(f"No se pudo agregar logo: {e}")
+            break
+
+    # Fila 3: encabezados
+    ws.row_dimensions[3].height = 42.0
     encabezados = [
         "FECHA", "HORA", "ID CLIENTE", "CLIENTE",
         "Código del Producto", "PRODUCTO", "CANTIDAD",
@@ -51,12 +89,16 @@ def inicializar_hoja(ws):
         "ALIAS", "VENDEDOR", "METODO DE PAGO",
     ]
     for col, titulo in enumerate(encabezados, 1):
-        celda       = ws.cell(row=2, column=col, value=titulo)
-        celda.font  = Font(bold=True, color="FFFFFF", size=11)
-        celda.fill  = PatternFill("solid", fgColor="1A56DB")
-        celda.alignment = Alignment(horizontal="center")
+        celda = ws.cell(row=3, column=col, value=titulo)
+        celda.font      = Font(bold=True, color="FFFFFF", size=11)
+        celda.fill      = PatternFill("solid", fgColor="1A1A1A")
+        celda.alignment = Alignment(horizontal="center", vertical="center")
+        celda.border    = Border(
+            bottom=Side(style="thin", color="FFFFFF"),
+            right=Side(style="thin", color="444444"),
+        )
 
-    anchos = [12, 8, 14, 28, 18, 28, 10, 15, 14, 18, 10, 15, 16]
+    anchos = [10.0, 12.0, 13.0, 13.0, 20.0, 26.0, 25.0, 20.0, 18.0, 24.0, 26.0, 28.0, 30.0]
     for col, ancho in enumerate(anchos, 1):
         ws.column_dimensions[get_column_letter(col)].width = ancho
 
