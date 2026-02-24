@@ -118,8 +118,9 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
-        pedir_metodo    = "PEDIR_METODO_PAGO"    in acciones
-        iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
+        pedir_metodo      = "PEDIR_METODO_PAGO"    in acciones
+        iniciar_cliente   = "INICIAR_FLUJO_CLIENTE" in acciones
+        pago_pend_aviso   = "PAGO_PENDIENTE_AVISO"  in acciones
 
         # Seguro: si hay cliente nuevo, quitar cualquier pregunta de metodo de pago del texto
         if iniciar_cliente and texto_respuesta:
@@ -133,13 +134,19 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(texto_respuesta)
 
         for accion in acciones:
-            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE"):
+            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO"):
                 await update.message.reply_text(accion)
 
         # Si hay que iniciar cliente Y pedir metodo de pago en el mismo mensaje,
         # el cliente tiene prioridad — las ventas ya quedaron en ventas_esperando_cliente
         if iniciar_cliente:
             await _enviar_pregunta_cliente(update.message, chat_id)
+        elif pago_pend_aviso:
+            # Hay venta pendiente de pago — recordarle al usuario y re-mostrar botones
+            with _estado_lock:
+                ventas = ventas_pendientes.get(chat_id, [])
+            await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
+            await _enviar_botones_pago(update.message, chat_id, ventas)
         elif pedir_metodo:
             with _estado_lock:
                 ventas = ventas_pendientes.get(chat_id, [])
@@ -263,8 +270,9 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
-        pedir_metodo    = "PEDIR_METODO_PAGO"    in acciones
-        iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
+        pedir_metodo      = "PEDIR_METODO_PAGO"    in acciones
+        iniciar_cliente   = "INICIAR_FLUJO_CLIENTE" in acciones
+        pago_pend_aviso   = "PAGO_PENDIENTE_AVISO"  in acciones
 
         # Seguro: si hay cliente nuevo, quitar cualquier pregunta de metodo de pago del texto
         if iniciar_cliente and texto_respuesta:
@@ -278,11 +286,16 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(texto_respuesta)
 
         for accion in acciones:
-            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE"):
+            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO"):
                 await update.message.reply_text(accion)
 
         if iniciar_cliente:
             await _enviar_pregunta_cliente(update.message, chat_id)
+        elif pago_pend_aviso:
+            with _estado_lock:
+                ventas = ventas_pendientes.get(chat_id, [])
+            await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
+            await _enviar_botones_pago(update.message, chat_id, ventas)
         elif pedir_metodo:
             with _estado_lock:
                 ventas = ventas_pendientes.get(chat_id, [])
