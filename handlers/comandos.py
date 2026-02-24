@@ -523,9 +523,30 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("⚠️ Escribe `/resetventas CONFIRMAR` para limpiar el dia.", parse_mode="Markdown")
         return
 
+    # 1. Limpiar Google Sheets
     await asyncio.to_thread(sheets_limpiar)
+    
+    # 2. Resetear el consecutivo de ventas
     from memoria import cargar_memoria, guardar_memoria
     mem = cargar_memoria()
     mem["ultimo_consecutivo"] = 0
     guardar_memoria(mem)
-    await update.message.reply_text("✅ Reset del dia completado.")
+    
+    # 3. Limpiar TODO el estado en memoria (Standbys, ventas a medias, clientes en proceso)
+    try:
+        from ventas_state import (
+            ventas_pendientes, borrados_pendientes, historiales,
+            mensajes_standby, clientes_en_proceso, ventas_esperando_cliente,
+            _estado_lock
+        )
+        with _estado_lock:
+            ventas_pendientes.clear()
+            borrados_pendientes.clear()
+            historiales.clear()
+            mensajes_standby.clear()
+            clientes_en_proceso.clear()
+            ventas_esperando_cliente.clear()
+    except Exception as e:
+        print(f"Error limpiando memoria interna: {e}")
+
+    await update.message.reply_text("✅ Reset del dia completado. Todos los procesos en standby fueron cancelados.")
