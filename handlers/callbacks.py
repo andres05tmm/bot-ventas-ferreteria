@@ -65,12 +65,27 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
             sheets_ok = await asyncio.to_thread(sheets_borrar_fila, numero_venta)
 
-        exito, mensaje = await asyncio.to_thread(borrar_venta_excel, numero_venta)
+        exito, mensaje_excel = await asyncio.to_thread(borrar_venta_excel, numero_venta)
 
-        if sheets_ok and not exito:
-            await query.edit_message_text(f"✅ Venta #{numero_venta} borrada del Sheets.")
+        # Construir mensaje con estado real de ambos lados
+        if exito and sheets_ok:
+            await query.edit_message_text(
+                f"✅ Venta #{numero_venta} borrada del Sheets y del Excel."
+            )
+        elif sheets_ok and not exito:
+            await query.edit_message_text(
+                f"✅ Venta #{numero_venta} borrada del Sheets.\n"
+                f"⚠️ No se encontró en el Excel (puede que aún no se haya hecho cierre)."
+            )
+        elif exito and not sheets_ok:
+            await query.edit_message_text(
+                f"✅ Venta #{numero_venta} borrada del Excel.\n"
+                f"⚠️ No se encontró en el Sheets (puede que ya no esté en el día actual)."
+            )
         else:
-            await query.edit_message_text(mensaje)
+            await query.edit_message_text(
+                f"❌ No se encontró la venta #{numero_venta} en ningún lado."
+            )
         return
 
     # ── Metodo de pago ──
