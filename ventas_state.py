@@ -1,13 +1,13 @@
 """
 Estado en memoria para ventas pendientes de confirmacion y borrados pendientes.
-Protegido con threading.Lock para evitar race conditions.
+Protegido con threading.Lock para evitar race conditions en el event loop async.
 """
 
 import asyncio
 import threading
 
 import config
-from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, es_thinner
+from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 from excel import (
     obtener_siguiente_consecutivo,
     guardar_venta_excel,
@@ -17,12 +17,22 @@ from memoria import cargar_inventario, guardar_inventario, cargar_caja, guardar_
 
 _estado_lock = threading.Lock()
 
-# Estado global en memoria
+# {chat_id: [lista de ventas pendientes de confirmar metodo de pago]}
 ventas_pendientes: dict[int, list] = {}
+
+# {chat_id: [mensajes en standby esperando que se confirme el pago anterior]}
 mensajes_standby: dict[int, list[str]] = {}
+
+# {chat_id: numero_venta} para confirmar borrado
 borrados_pendientes: dict[int, int] = {}
+
+# {chat_id: [historial de mensajes]}
 historiales: dict[int, list] = {}
+
+# {chat_id: dict con datos del cliente en proceso de creacion}
 clientes_en_proceso: dict[int, dict] = {}
+
+# {chat_id: {"ventas": [...], "metodo": "efectivo"|None}}
 ventas_esperando_cliente: dict[int, dict] = {}
 
 _chat_locks: dict[int, asyncio.Lock] = {}
@@ -54,24 +64,25 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
     consecutivo    = obtener_siguiente_consecutivo()
 
     id_c, nombre_c = "CF", "Consumidor Final"
-    for v_temp in ventas:
-        if v_temp.get("cliente"):
-            id_c, nombre_c = obtener_nombre_id_cliente(v_temp["cliente"])
+    for venta in ventas:
+        if venta.get("cliente"):
+            id_c, nombre_c = obtener_nombre_id_cliente(venta["cliente"])
             break
 
     total_transaccion = 0
     for venta in ventas:
         producto       = venta.get("producto", "Sin nombre")
-        cantidad       = convertir_fraccion_a_decimal(venta.get("cantidad", 1))
+        cantidad_raw   = venta.get("cantidad", 1)
+        cantidad       = convertir_fraccion_a_decimal(cantidad_raw)
         precio_enviado = float(venta.get("precio_unitario", 0))
 
-        # Lógica de precios para fracciones vs enteros
-        if cantidad < 1 or es_thinner(producto):
-            # Si es fraccion, el precio enviado ya es el TOTAL
+        # ── REGLA MATEMÁTICA CORREGIDA ──
+        # Si es una fracción (< 1) o es Thinner, el precio es el TOTAL.
+        if cantidad < 1 or "thinner" in producto.lower():
             total = round(precio_enviado)
             precio_unitario_excel = total / cantidad if cantidad > 0 else total
         else:
-            # Si es 1 o mas, el precio enviado es UNITARIO
+            # Si es entero (1 o más), el precio es UNITARIO.
             total = round(precio_enviado * cantidad)
             precio_unitario_excel = precio_enviado
 
@@ -85,10 +96,11 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         )
 
         cliente_txt = f" | {nombre_c}" if nombre_c != "Consumidor Final" else ""
-        # Orden solicitado: Cantidad + Nombre + Valor
+        
+        # ── ORDEN VISUAL CORREGIDO ── (Cantidad + Producto + Valor)
         confirmaciones.append(f"• {cantidad_legible} {producto} ${total:,.0f}{cliente_txt}")
 
-        # Inventario
+        # Descontar inventario
         inventario = cargar_inventario()
         prod_lower = producto.lower()
         prod_key   = next((k for k in inventario if k in prod_lower or prod_lower in k), None)
@@ -97,7 +109,7 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
             inv["cantidad"] = max(0, round(inv.get("cantidad", 0) - cantidad, 4))
             guardar_inventario(inventario)
 
-    # Caja
+    # Actualizar caja
     caja = cargar_caja()
     if caja.get("abierta"):
         campo_map = {"efectivo": "efectivo", "transferencia": "transferencias", "datafono": "datafono"}
