@@ -340,18 +340,14 @@ INSTRUCCIONES DE FORMATO:
 
 2. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000}}[/VENTA]
-   - Si hay cliente: agrega "cliente": "nombre del cliente"
-   - Si el usuario NO menciona cliente: NO preguntes, registra directo sin campo "cliente" (el sistema asume Consumidor Final automaticamente).
-   - Si el usuario menciona el metodo DE PAGO EN ESTE MISMO MENSAJE: agrega "metodo_pago": "efectivo|transferencia|datafono"
-   - Si NO dijo el metodo EN ESTE MENSAJE: NO pongas metodo_pago (el sistema preguntara con botones)
+   - Si el usuario NO menciona cliente en ninguna parte del mensaje: NO preguntes, registra directo sin campo "cliente".
+   - Si el usuario menciona un cliente: agrega "cliente": "nombre del cliente".
+   - Si el usuario menciona el metodo DE PAGO EN ESTE MISMO MENSAJE: agrega "metodo_pago": "efectivo|transferencia|datafono".
+   - Si NO dijo el metodo EN ESTE MENSAJE: NO pongas metodo_pago (el sistema preguntara con botones).
+   CRITICO: NUNCA preguntes "a nombre de quien" si el usuario no menciono un cliente explícitamente.
    CRITICO: El metodo de pago solo se incluye si el usuario lo dijo EXPLICITAMENTE en el mensaje actual.
-   NUNCA asumas el metodo de pago por mensajes anteriores del historial.
-   Si el mensaje anterior dijo "efectivo" pero este mensaje no lo menciona: NO incluyas metodo_pago.
-   CRITICO: NUNCA preguntes "a nombre de quien" si el usuario no menciono un cliente.
    CRITICO: NUNCA repitas [VENTA] para el mismo producto.
-   CRITICO: Si el usuario esta RESPONDIENDO una pregunta tuya (ej: te dice el precio que le faltaba,
-   o el metodo de pago, o confirma algo), NO emitas [VENTA] de nuevo. La venta ya fue registrada
-   o ya esta pendiente. Solo responde con la informacion solicitada.
+   CRITICO: Si el usuario esta RESPONDIENDO una pregunta tuya, NO emitas [VENTA] de nuevo.
 
    REGLA DE PRECIO TOTAL VS UNITARIO — CRITICA:
    En una ferreteria colombiana, cuando el usuario dice "X producto PRECIO" sin palabras especiales,
@@ -380,100 +376,46 @@ INSTRUCCIONES DE FORMATO:
    - "medio" o "media" o "1/2" → cantidad: 0.5
    - "tres cuartos" o "3/4" → cantidad: 0.75
    - "un dieciseisavo" o "1/16" → cantidad: 0.0625
-   NUNCA registres un octavo como cantidad 1. NUNCA registres un cuarto como cantidad 1.
 
    REGLA THINNER — MUY IMPORTANTE:
    Cuando el usuario diga "X pesos de thinner/tiner/tinner" el precio es el TOTAL pagado.
    La cantidad (fraccion de galon) se determina SEGUN ESTA TABLA OFICIAL:
-   $3.000 → cantidad:0.083333 (1/12) | $4.000 → cantidad:0.1 (1/10)
-   $5.000 → cantidad:0.125 (1/8)     | $6.000 → cantidad:0.166667 (1/6)
-   $7.000 → cantidad:0.2 (1/5)       | $8.000 → cantidad:0.25 (1/4)
-   $9.000 → cantidad:0.3 (3/10)      | $10.000 → cantidad:0.333333 (1/3)
-   $11.000 → cantidad:0.333333 (1/3) | $12.000 → cantidad:0.4 (2/5)
-   $13.000 → cantidad:0.5 (1/2)      | $14.000 → cantidad:0.5 (1/2)
-   $15.000 → cantidad:0.5 (1/2)      | $16.000 → cantidad:0.555556 (5/9)
-   $17.000 → cantidad:0.6 (3/5)      | $18.000 → cantidad:0.625 (5/8)
-   $19.000 → cantidad:0.666667 (2/3) | $20.000 → cantidad:0.75 (3/4)
-   $21.000 → cantidad:0.8 (4/5)      | $22.000 → cantidad:0.833333 (5/6)
-   $24.000 → cantidad:0.9 (9/10)     | $25.000 → cantidad:0.95 (19/20)
-   $26.000 → cantidad:1.0 (galon)
-   CRITICO: precio_unitario = lo que pago el cliente (el total). NUNCA multipliques.
-   Ejemplo: "15000 de tiner" → cantidad:0.5, precio_unitario:15000 (total=15000, no 7500)
-   Ejemplo: "8000 de thinner" → cantidad:0.25, precio_unitario:8000 (total=8000, no 2000)
-
-   REGLA DE PRODUCTOS AMBIGUOS:
-   Si dicen "esmalte negro", "esmalte blanco" etc SIN especificar tipo, asume el corriente basico.
-   NO preguntes el tipo ni el color si ya lo dijeron.
-   Solo pregunta si mencionan expresamente "3 en 1" o "anticorrosivo".
+   $3.000 → cantidad:0.083333 | $10.000 → cantidad:0.333333
+   $15.000 → cantidad:0.5     | $20.000 → cantidad:0.75
 
    REGLA DE PINTURAS SIN COLOR (MUY IMPORTANTE):
-   Si el usuario dice "vinilo t1", "vinilo davinci", "esmalte", "pintura" etc SIN especificar color:
-   → NUNCA preguntes el precio — los precios de fraccion estan en el catalogo.
-   → SIEMPRE pregunta el color primero: "¿De qué color?"
-   → Una vez te digan el color, registra la venta con el precio del catalogo.
-   → NUNCA inventes ni pidas el precio de una pintura que esta en el catalogo.
-   Ejemplo: "vendi 1/2 galon vinilo t1" → responde "¿De qué color?" (NO preguntes el precio)
+   Si el usuario dice "vinilo t1", "esmalte", etc SIN especificar color:
+   → SIEMPRE pregunta el color primero: "¿De qué color?" y NO registres hasta saberlo.
 
 2b. Cliente en una venta — REGLAS CRITICAS:
    FLUJO SEGUN LO QUE APARECE EN EL SISTEMA:
 
-   A) Si aparece "CLIENTE ENCONTRADO EN EL SISTEMA":
+   A) Si el usuario NO MENCIONÓ a ningún cliente:
+      → NO uses [INICIAR_CLIENTE]. NUNCA preguntes el nombre.
+      → Registra la [VENTA] directamente sin el campo "cliente".
+      → El sistema usará "Consumidor Final" automáticamente.
+
+   B) Si aparece "CLIENTE ENCONTRADO EN EL SISTEMA":
       → Usa ese cliente DIRECTAMENTE en el campo "cliente" del [VENTA].
-      → NO preguntes identificacion. NO uses [INICIAR_CLIENTE]. NO uses [CLIENTE_NUEVO].
-      → Ejemplo: [VENTA]{{"producto":"...", "cantidad":1, "precio_unitario":50000, "cliente":"ALBERTO TRUJILLO"}}[/VENTA]
+      → NO preguntes identificacion. NO uses [INICIAR_CLIENTE].
 
-   B) Si aparece "MULTIPLES CLIENTES ENCONTRADOS":
+   C) Si aparece "MULTIPLES CLIENTES ENCONTRADOS":
       → Pregunta al usuario cual es antes de registrar la venta.
-      → Ejemplo: "¿Te refieres a ALBERTO TRUJILLO (CC: 123) o ALBERTO TRUJILLO GOMEZ (CC: 456)?"
 
-   C) Si NO aparece ningun cliente en el sistema (campo vacio):
+   D) Si el usuario MENCIONÓ un cliente explícitamente pero NO aparece en el sistema:
       → El cliente no existe y hay que crearlo. USA SIEMPRE [INICIAR_CLIENTE].
       → NUNCA uses [CLIENTE_NUEVO] a menos que el usuario haya dado EXPLICITAMENTE
         en ese mismo mensaje: nombre completo + numero de cedula/NIT + tipo de documento.
-        Si falta CUALQUIERA de esos tres datos, usa [INICIAR_CLIENTE].
-      → En la practica casi siempre usaras [INICIAR_CLIENTE], porque los usuarios
-        raramente dan la cedula de una sola vez.
-      → [INICIAR_CLIENTE]{{"nombre":"nombre del cliente"}}[/INICIAR_CLIENTE]
-      → [CLIENTE_NUEVO] solo cuando tienes nombre+identificacion+tipo_id juntos:
-        [CLIENTE_NUEVO]{{"nombre":"NOMBRE","tipo_id":"Cédula de ciudadanía","identificacion":"123","tipo_persona":"Natural","correo":""}}[/CLIENTE_NUEVO]
-      → tipo_id validos: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
-      → tipo_persona validos: "Natural", "Juridica"
-
-   NUNCA pidas identificacion si el cliente ya esta en el sistema.
-   NUNCA uses [INICIAR_CLIENTE] si el cliente ya esta en el sistema.
+      → Ejemplo normal: [INICIAR_CLIENTE]{{"nombre":"nombre del cliente"}}[/INICIAR_CLIENTE]
 
    METODO DE PAGO CUANDO HAY CLIENTE NUEVO — CRITICO:
-   Cuando emites [INICIAR_CLIENTE], el sistema pausa las ventas hasta completar
-   el registro del cliente. NO preguntes metodo de pago en ese mismo mensaje.
-   NO emitas "metodo_pago" en los [VENTA] cuando hay [INICIAR_CLIENTE].
-   El metodo de pago se pedira automaticamente DESPUES de crear el cliente.
-   Ejemplo correcto cuando hay cliente nuevo:
-     "Listo, registro a Alberto Trujillo con los 4 productos."
-     + [INICIAR_CLIENTE]{{"nombre":"Alberto Trujillo"}}[/INICIAR_CLIENTE]
-     + [VENTA]...[/VENTA] x4  (SIN metodo_pago)
-   Ejemplo INCORRECTO: pedir metodo de pago antes de crear el cliente.
-
-   ORDEN FLEXIBLE — CRITICO:
-   El usuario puede mencionar el cliente y los productos en CUALQUIER orden.
-   Debes detectar AMBAS cosas en el mismo mensaje y emitir TODAS las acciones juntas.
-   Ejemplos de ordenes validas:
-     "anota a Juan Mendoza (nuevo) 2 galones de vinilo y un cuarto de colbon"
-     → emite [INICIAR_CLIENTE] + [VENTA] + [VENTA] en el mismo mensaje
-     "vendi 2 galones de vinilo y un cuarto de colbon... a Juan Mendoza (nuevo)"
-     → emite [VENTA] + [VENTA] + [INICIAR_CLIENTE] en el mismo mensaje
-   El sistema se encarga de pausar las ventas hasta que se cree el cliente
-   y luego las registra automaticamente. Tu solo emite todo junto.
-
-   NOMBRES DE PRODUCTOS — REGLA CRITICA:
-   El nombre del producto NUNCA debe incluir la cantidad ni la fraccion.
-   Correcto: "producto":"Vinilo Davinci T1 Azul Concentrado", "cantidad":0.5
-   Incorrecto: "producto":"Vinilo Davinci T1 Azul Concentrado x1/2"
-   La cantidad va SOLO en el campo "cantidad", nunca en el nombre del producto.
+   Cuando emites [INICIAR_CLIENTE], el sistema pausa las ventas. NO preguntes metodo de pago.
+   Ejemplo correcto: "Detecto la venta y el cliente nuevo. Voy a registrar todo junto."
+   + [INICIAR_CLIENTE]{{"nombre":"Alberto Trujillo"}}[/INICIAR_CLIENTE]
+   + [VENTA]...[/VENTA]
 
 3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
 3c. Codigo producto: [CODIGO_PRODUCTO]{{"producto": "nombre exacto del producto", "codigo": "COD123"}}[/CODIGO_PRODUCTO]
-    Usa esto cuando el usuario diga el codigo de un producto, ej: "el vinilo T1 blanco tiene codigo VT1B".
-    El codigo se guarda en el catalogo y aparecera automaticamente en cada venta de ese producto.
 3b. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
 4. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
 5. Excel: [EXCEL]{{"titulo": "Titulo", "encabezados": ["Col1"], "filas": [["dato"]]}}[/EXCEL]
@@ -482,7 +424,6 @@ INSTRUCCIONES DE FORMATO:
 8. Gasto: [GASTO]{{"concepto": "nombre", "monto": 50000, "categoria": "varios", "origen": "caja"}}[/GASTO]
 9. Inventario: [INVENTARIO]{{"producto": "nombre", "cantidad": 10, "minimo": 2, "unidad": "galones", "accion": "actualizar"}}[/INVENTARIO]
 10. Borrar cliente: [BORRAR_CLIENTE]{{"nombre": "nombre o identificacion del cliente"}}[/BORRAR_CLIENTE]
-    Usa esto cuando el usuario diga "borra ese cliente", "elimina a X", "quita al cliente X".
 11. Para borrar ventas: /borrar numero
 12. Usuario actual: {nombre_usuario}"""
 
@@ -518,10 +459,6 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
 # ─────────────────────────────────────────────
 
 def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
-    """
-    Extrae y ejecuta todas las acciones del mensaje de Claude.
-    Retorna (texto_limpio, acciones, archivos_excel).
-    """
     from ventas_state import ventas_pendientes, registrar_ventas_con_metodo, _estado_lock
 
     acciones:      list[str] = []
@@ -532,10 +469,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     ventas_con_metodo = []
     ventas_sin_metodo = []
 
-    # Bloquear nuevas ventas SOLO si ya hay ventas esperando que el usuario
-    # elija metodo de pago (esos botones ya estan en pantalla).
-    # Esto evita duplicados sin bloquear flujos legitimos como cuando el bot
-    # pregunta el precio y el usuario responde.
     with _estado_lock:
         esperando_pago = bool(ventas_pendientes.get(chat_id))
 
@@ -544,8 +477,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     for venta_json in ventas_nuevas:
         try:
             if esperando_pago:
-                # Ya hay botones de pago en pantalla — ignorar TODA venta nueva para evitar
-                # duplicados, incluso si Claude mando metodo_pago incluido en el JSON.
                 print(f"[VENTA] ignorado — esperando seleccion de pago para chat {chat_id}")
             else:
                 venta = json.loads(venta_json.strip())
@@ -557,10 +488,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             print(f"Error parseando venta: {e}")
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
 
-    # Segunda defensa: si habia pago pendiente y Claude igual genero ventas_con_metodo,
-    # son duplicados — descartarlos.
     if esperando_pago and ventas_con_metodo:
-        print(f"[VENTA] {len(ventas_con_metodo)} venta(s) con metodo descartadas — pago pendiente para chat {chat_id}")
         ventas_con_metodo.clear()
 
     if ventas_con_metodo:
@@ -576,15 +504,13 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
 
     if ventas_sin_metodo:
         if esperando_pago:
-            # Ya hay una venta esperando metodo de pago — no acumular ni sobreescribir.
-            # Avisarle al usuario que primero confirme el pago pendiente.
             acciones.append("PAGO_PENDIENTE_AVISO")
         else:
             with _estado_lock:
                 ventas_pendientes[chat_id] = ventas_sin_metodo
             acciones.append("PEDIR_METODO_PAGO")
 
-    # ── Cliente nuevo (datos completos dados de una vez) ──
+    # ── Cliente nuevo ──
     for cli_json in re.findall(r'\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]', texto_respuesta, re.DOTALL):
         try:
             datos  = json.loads(cli_json.strip())
@@ -622,15 +548,12 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     "paso":           "nombre" if not nombre else "tipo_id",
                     "vendedor":       vendedor,
                 }
-                # Si habia ventas sin metodo pendientes, guardarlas para
-                # registrarlas automaticamente cuando se cree el cliente
                 if chat_id in ventas_pendientes and ventas_pendientes[chat_id]:
                     ventas_esperando_cliente[chat_id] = {
                         "ventas":   ventas_pendientes.pop(chat_id),
                         "metodo":   None,
                         "vendedor": vendedor,
                     }
-                # Si habia ventas con metodo ya confirmado, guardarlas tambien
                 elif ventas_sin_metodo:
                     ventas_esperando_cliente[chat_id] = {
                         "ventas":   list(ventas_sin_metodo),
@@ -698,7 +621,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 from memoria import buscar_producto_en_catalogo
                 prod = buscar_producto_en_catalogo(nombre)
                 if prod:
-                    # Encontrar la clave del producto y actualizar
                     for k, v in catalogo.items():
                         if v.get("nombre_lower") == prod.get("nombre_lower"):
                             catalogo[k]["codigo"] = codigo
