@@ -379,9 +379,24 @@ INSTRUCCIONES DE FORMATO:
    - "un dieciseisavo" o "1/16" → cantidad: 0.0625
    NUNCA registres un octavo como cantidad 1. NUNCA registres un cuarto como cantidad 1.
 
-   REGLA THINNER: "X pesos de thinner" → convierte precio a fraccion de galon.
-   Tabla: 5000=0.125 8000=0.25 10000=0.333 13000=0.5 18000=0.625 20000=0.75 26000=1.0
-   precio_unitario=lo que pago el cliente. Ej: "15000 de tiner"→cantidad:0.5,precio:15000
+   REGLA THINNER — MUY IMPORTANTE:
+   Cuando el usuario diga "X pesos de thinner/tiner/tinner" el precio es el TOTAL pagado.
+   La cantidad (fraccion de galon) se determina SEGUN ESTA TABLA OFICIAL:
+   $3.000 → cantidad:0.083333 (1/12) | $4.000 → cantidad:0.1 (1/10)
+   $5.000 → cantidad:0.125 (1/8)     | $6.000 → cantidad:0.166667 (1/6)
+   $7.000 → cantidad:0.2 (1/5)       | $8.000 → cantidad:0.25 (1/4)
+   $9.000 → cantidad:0.3 (3/10)      | $10.000 → cantidad:0.333333 (1/3)
+   $11.000 → cantidad:0.333333 (1/3) | $12.000 → cantidad:0.4 (2/5)
+   $13.000 → cantidad:0.5 (1/2)      | $14.000 → cantidad:0.5 (1/2)
+   $15.000 → cantidad:0.5 (1/2)      | $16.000 → cantidad:0.555556 (5/9)
+   $17.000 → cantidad:0.6 (3/5)      | $18.000 → cantidad:0.625 (5/8)
+   $19.000 → cantidad:0.666667 (2/3) | $20.000 → cantidad:0.75 (3/4)
+   $21.000 → cantidad:0.8 (4/5)      | $22.000 → cantidad:0.833333 (5/6)
+   $24.000 → cantidad:0.9 (9/10)     | $25.000 → cantidad:0.95 (19/20)
+   $26.000 → cantidad:1.0 (galon)
+   CRITICO: precio_unitario = lo que pago el cliente (el total). NUNCA multipliques.
+   Ejemplo: "15000 de tiner" → cantidad:0.5, precio_unitario:15000 (total=15000, no 7500)
+   Ejemplo: "8000 de thinner" → cantidad:0.25, precio_unitario:8000 (total=8000, no 2000)
 
    REGLA DE PRODUCTOS AMBIGUOS:
    Si dicen "esmalte negro", "esmalte blanco" etc SIN especificar tipo, asume el corriente basico.
