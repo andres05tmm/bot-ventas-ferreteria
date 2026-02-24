@@ -17,7 +17,8 @@ from ventas_state import (
     ventas_pendientes, borrados_pendientes, clientes_en_proceso,
     ventas_esperando_cliente, registrar_ventas_con_metodo, _estado_lock,
 )
-from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, es_thinner
+from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
+from ventas_state import _precio_es_total_fraccion
 
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
@@ -27,8 +28,8 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         precio       = float(v.get("precio_unitario", 0))
         producto     = v.get("producto", "")
-        # Thinner: el precio ya es el total — no multiplicar
-        if es_thinner(producto):
+        # Thinner y productos con precio de fraccion: el precio ya es el total — no multiplicar
+        if _precio_es_total_fraccion(producto, precio, cantidad_dec):
             total = round(precio)
         else:
             total = round(precio * cantidad_dec)
