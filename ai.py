@@ -406,6 +406,14 @@ INSTRUCCIONES DE FORMATO:
    NO preguntes el tipo ni el color si ya lo dijeron.
    Solo pregunta si mencionan expresamente "3 en 1" o "anticorrosivo".
 
+   REGLA DE PINTURAS SIN COLOR (MUY IMPORTANTE):
+   Si el usuario dice "vinilo t1", "vinilo davinci", "esmalte", "pintura" etc SIN especificar color:
+   → NUNCA preguntes el precio — los precios de fraccion estan en el catalogo.
+   → SIEMPRE pregunta el color primero: "¿De qué color?"
+   → Una vez te digan el color, registra la venta con el precio del catalogo.
+   → NUNCA inventes ni pidas el precio de una pintura que esta en el catalogo.
+   Ejemplo: "vendi 1/2 galon vinilo t1" → responde "¿De qué color?" (NO preguntes el precio)
+
 2b. Cliente en una venta — REGLAS CRITICAS:
    FLUJO SEGUN LO QUE APARECE EN EL SISTEMA:
 
