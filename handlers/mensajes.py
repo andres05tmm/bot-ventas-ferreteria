@@ -24,7 +24,7 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje  = update.message.text
     chat_id  = update.message.chat_id
-    vendedor = update.message.from_user.first_name or "Desconocido"
+    vendedor = update.message.fromuser.first_name or "Desconocido"
 
     if mensaje.startswith("/"):
         return
@@ -45,10 +45,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     if consumido:
         return
 
-    # ── Interceptar metodo de pago escrito como texto ──
-    # Si hay ventas pendientes esperando metodo de pago y el usuario
-    # escribe "efectivo", "nequi", etc. en lugar de presionar el boton,
-    # procesarlo directamente sin pasar a Claude para evitar duplicados.
+    # ── Interceptar metodo de pago escrito como texto o mandar a STANDBY ──
     with _estado_lock:
         _ventas_pend = list(ventas_pendientes.get(chat_id, []))
 
@@ -72,6 +69,30 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 await update.message.reply_text(
                     f"✅ Venta registrada — {emoji} {metodo_detectado.capitalize()}\n\n" + "\n".join(confirmaciones)
                 )
+
+                # --- Procesar standby tras pago por texto ---
+                from ventas_state import mensajes_standby
+                with _estado_lock:
+                    standby_msgs = mensajes_standby.pop(chat_id, [])
+                if standby_msgs:
+                    texto_standby = " ".join(standby_msgs)
+                    await update.message.reply_text(f"▶️ Procesando venta en standby:\n_{texto_standby}_", parse_mode="Markdown")
+                    await _procesar_mensaje(update, context, texto_standby, chat_id, vendedor)
+                # ----------------------------------------------------
+            return
+        else:
+            # --- Interceptar y mandar a standby ---
+            from ventas_state import mensajes_standby
+            with _estado_lock:
+                if chat_id not in mensajes_standby:
+                    mensajes_standby[chat_id] = []
+                mensajes_standby[chat_id].append(mensaje)
+
+            await update.message.reply_text(
+                "⏸️ Tienes una venta anterior esperando confirmación de pago.\n\n"
+                "He puesto esta nueva solicitud en *standby*. La procesaré automáticamente apenas confirmes el pago anterior.", 
+                parse_mode="Markdown"
+            )
             return
 
     # ── Excel cargado por el usuario ──
@@ -249,7 +270,7 @@ async def _procesar_audio(update, context, chat_id, vendedor):
         if consumido:
             return
 
-        # ── Interceptar metodo de pago hablado ──
+        # ── Interceptar metodo de pago hablado o mandar a STANDBY ──
         with _estado_lock:
             _ventas_pend_audio = list(ventas_pendientes.get(chat_id, []))
 
@@ -273,6 +294,30 @@ async def _procesar_audio(update, context, chat_id, vendedor):
                     await update.message.reply_text(
                         f"✅ Venta registrada — {emoji} {metodo_audio.capitalize()}\n\n" + "\n".join(confirmaciones)
                     )
+
+                    # --- Procesar standby tras pago por audio ---
+                    from ventas_state import mensajes_standby
+                    with _estado_lock:
+                        standby_msgs = mensajes_standby.pop(chat_id, [])
+                    if standby_msgs:
+                        texto_standby = " ".join(standby_msgs)
+                        await update.message.reply_text(f"▶️ Procesando venta en standby:\n_{texto_standby}_", parse_mode="Markdown")
+                        await _procesar_mensaje(update, context, texto_standby, chat_id, vendedor)
+                    # ----------------------------------------------------
+                return
+            else:
+                # --- Interceptar audio y mandar a standby ---
+                from ventas_state import mensajes_standby
+                with _estado_lock:
+                    if chat_id not in mensajes_standby:
+                        mensajes_standby[chat_id] = []
+                    mensajes_standby[chat_id].append(texto)
+
+                await update.message.reply_text(
+                    "⏸️ Tienes una venta anterior esperando confirmación de pago.\n\n"
+                    "He puesto este audio en *standby*. Lo procesaré automáticamente apenas confirmes el pago anterior.", 
+                    parse_mode="Markdown"
+                )
                 return
 
         historial = get_historial(chat_id)
