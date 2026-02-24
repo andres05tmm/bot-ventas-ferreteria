@@ -69,24 +69,31 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ─────────────────────────────────────────────
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
-    """Muestra botones de metodo de pago con resumen de ventas."""
+    """Muestra botones de metodo de pago con el orden: Cantidad + Producto + Valor."""
+    from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
     lineas = []
+    
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
-        precio       = float(v.get("precio_unitario", 0))
         producto     = v.get("producto", "")
         
-        # ── REGLA DE PRECIOS ──
-        if cantidad_dec < 1 or (producto and "thinner" in producto.lower()):
-            total = round(precio)
-        else:
-            total = round(precio * cantidad_dec)
-            
+        # Priorizamos el total enviado por la IA
+        total = float(v.get("total", 0))
+        
+        # Fallback por si manda unitario
+        if total == 0:
+            precio = float(v.get("precio_unitario", 0))
+            if cantidad_dec < 1 or (producto and "thinner" in producto.lower()):
+                total = round(precio)
+            else:
+                total = round(precio * cantidad_dec)
+                
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
         
-        # ── ORDEN VISUAL ── (Cantidad + Producto + Valor)
+        # NUEVO ORDEN: Cantidad + Producto + Precio
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
 
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("💵 Efectivo",      callback_data=f"pago_efectivo_{chat_id}"),
         InlineKeyboardButton("📱 Transferencia", callback_data=f"pago_transferencia_{chat_id}"),
