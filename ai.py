@@ -321,10 +321,11 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    - Ejemplo correcto: "• 12 Tornillo Drywall $6,000"
 
 3. Venta detectada — incluye al FINAL uno por producto:
-   [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}[/VENTA]
-   - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
-   - Si menciona cliente y está en la base: Usa el nombre directo en "cliente".
-   - Si menciona cliente y NO está en la base: Usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}. NUNCA preguntes el documento tú, usa la etiqueta.
+      [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}}[/VENTA]
+      - Usa SIEMPRE la llave "total" para enviar el valor final pagado en esa linea. NUNCA uses "precio_unitario".
+      - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
+      - Si menciona cliente y está en la base: Usa el nombre directo en "cliente".
+      - Si menciona cliente y NO está en la base: Usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}[/INICIAR_CLIENTE]. NUNCA preguntes el documento tú, usa la etiqueta.
 
 4. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
 5. Codigo producto: [CODIGO_PRODUCTO]{{"producto": "nombre exacto del producto", "codigo": "COD123"}}[/CODIGO_PRODUCTO]
