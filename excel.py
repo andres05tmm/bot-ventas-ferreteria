@@ -52,7 +52,6 @@ def inicializar_hoja(ws):
     celda_banner.font      = Font(bold=True, color="FF0000", size=18)
     celda_banner.fill      = PatternFill("solid", fgColor="FF0000")
     celda_banner.alignment = Alignment(horizontal="center", vertical="center")
-    celda_banner.font      = Font(bold=True, color="FFFFFF", size=18)
 
     # Aplicar fondo rojo a todas las celdas del banner
     for col in range(5, 14):
@@ -245,15 +244,8 @@ def cargar_clientes() -> list:
 
 
 def buscar_clientes_multiples(termino: str, limite: int = 5) -> list:
-    """
-    Busca clientes cuyo nombre contenga cualquiera de las palabras del termino.
-    - Insensible a tildes: 'andres' encuentra 'ANDRÉS'
-    - Busqueda por palabras sueltas: 'malo' encuentra 'ANDRÉS FELIPE MALO'
-    - Retorna hasta `limite` resultados ordenados por longitud de nombre (mas especifico primero)
-    """
     clientes     = cargar_clientes()
     termino_norm = _normalizar(termino)
-    # Palabras de mas de 2 letras (evita articulos como "de", "el")
     palabras     = [p for p in termino_norm.split() if len(p) > 2]
 
     if not palabras:
@@ -262,32 +254,21 @@ def buscar_clientes_multiples(termino: str, limite: int = 5) -> list:
     resultado = []
     for c in clientes:
         nombre_norm = _normalizar(c.get("Nombre tercero", "") or "")
-        # Matchea si AL MENOS UNA palabra del termino aparece en el nombre
         if any(p in nombre_norm for p in palabras):
             resultado.append(c)
 
-    # Ordenar: nombres mas cortos primero (mas especificos)
     resultado.sort(key=lambda x: len(str(x.get("Nombre tercero", ""))))
     return resultado[:limite]
 
 
 def buscar_cliente(termino: str) -> dict | None:
-    """
-    Busca UN cliente unico.
-    - Coincidencia exacta por numero de identificacion
-    - Luego busqueda flexible por nombre (sin tildes, palabras sueltas)
-    - Si hay exactamente 1 resultado: lo retorna
-    - Si hay varios: retorna None (el llamador debe manejar la ambiguedad)
-    """
     clientes     = cargar_clientes()
     termino_norm = _normalizar(termino)
 
-    # 1. Coincidencia exacta por identificacion
     for c in clientes:
         if _normalizar(c.get("Identificación", "") or "") == termino_norm:
             return c
 
-    # 2. Busqueda flexible por nombre
     palabras = [p for p in termino_norm.split() if len(p) > 2]
     if not palabras:
         return None
@@ -301,30 +282,17 @@ def buscar_cliente(termino: str) -> dict | None:
     if len(coincidencias) == 1:
         return coincidencias[0]
 
-    # Multiples resultados — retornar None para que el bot pregunte
-    # (la desambiguacion se maneja en buscar_clientes_multiples + ai.py)
     return None
 
 
 def buscar_cliente_con_resultado(termino: str) -> tuple[dict | None, list]:
-    """
-    Version extendida de buscar_cliente que ademas retorna todos los candidatos.
-    Retorna: (cliente_unico_o_None, lista_de_candidatos)
-
-    Uso en ai.py para incluir en el system prompt:
-    - Si hay 1 candidato: cliente encontrado directamente
-    - Si hay varios: el bot pregunta al usuario cual es
-    - Si hay 0: no existe, ofrecer crear
-    """
     clientes     = cargar_clientes()
     termino_norm = _normalizar(termino)
 
-    # 1. Coincidencia exacta por identificacion
     for c in clientes:
         if _normalizar(c.get("Identificación", "") or "") == termino_norm:
             return c, [c]
 
-    # 2. Busqueda flexible por nombre
     palabras = [p for p in termino_norm.split() if len(p) > 2]
     if not palabras:
         return None, []
@@ -343,10 +311,6 @@ def buscar_cliente_con_resultado(termino: str) -> tuple[dict | None, list]:
 
 
 def obtener_clientes_recientes(limite: int = 5) -> list:
-    """
-    Retorna los últimos N clientes registrados, ordenados por Fecha registro (más reciente primero).
-    Clientes sin fecha quedan al final.
-    """
     clientes = cargar_clientes()
     def _fecha(c):
         f = c.get("Fecha registro") or ""
@@ -358,10 +322,6 @@ def obtener_clientes_recientes(limite: int = 5) -> list:
 
 
 def obtener_nombre_id_cliente(termino: str) -> tuple[str, str]:
-    """
-    Busca un cliente por nombre o identificación y retorna (identificacion, nombre).
-    Si no lo encuentra, retorna ("CF", "Consumidor Final").
-    """
     cliente = buscar_cliente(termino)
     if cliente:
         id_c = cliente.get("Identificación") or "CF"
@@ -389,17 +349,19 @@ def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural
             ws_c = wb["Clientes"]
 
         fila = ws_c.max_row + 1
+        # Usamos las nuevas columnas mapeadas
         ws_c.cell(row=fila, column=1, value=nombre.upper())
         ws_c.cell(row=fila, column=2, value=tipo_persona)
         ws_c.cell(row=fila, column=3, value=tipo_id)
         ws_c.cell(row=fila, column=4, value=identificacion)
-        ws_c.cell(row=fila, column=5, value="0")
+        ws_c.cell(row=fila, column=5, value="0") # Dígito de verificación por defecto
         ws_c.cell(row=fila, column=6, value=correo)
         ws_c.cell(row=fila, column=7, value=direccion or "No aplica")
         ws_c.cell(row=fila, column=8, value=telefono or "000-0000000-")
-        ws_c.cell(row=fila, column=9, value=nombre.upper())
+        ws_c.cell(row=fila, column=9, value=nombre.upper()) # Nombres de contacto
         from datetime import datetime
-        ws_c.cell(row=fila, column=10, value=datetime.now().strftime("%Y-%m-%d %H:%M"))
+        ws_c.cell(row=fila, column=10, value=datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d %H:%M"))
+        
         wb.save(config.EXCEL_FILE)
         from drive import subir_a_drive
         subir_a_drive(config.EXCEL_FILE)
@@ -410,10 +372,6 @@ def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural
 
 
 def borrar_cliente(termino: str) -> tuple[bool, str]:
-    """
-    Borra un cliente de la hoja Clientes por nombre o identificacion.
-    Retorna (exito, mensaje).
-    """
     try:
         inicializar_excel()
         wb = openpyxl.load_workbook(config.EXCEL_FILE)
@@ -430,12 +388,13 @@ def borrar_cliente(termino: str) -> tuple[bool, str]:
                 fila_borrar   = fila
                 nombre_borrado = nombre
                 break
-            # Busqueda flexible por palabras
+            
             palabras = [p for p in termino_norm.split() if len(p) > 2]
             if palabras and all(p in _normalizar(nombre) for p in palabras):
                 fila_borrar   = fila
                 nombre_borrado = nombre
                 break
+        
         if not fila_borrar:
             return False, f"No encontre un cliente que coincida con '{termino}'."
         ws.delete_rows(fila_borrar)
@@ -446,37 +405,11 @@ def borrar_cliente(termino: str) -> tuple[bool, str]:
     except Exception as e:
         print(f"Error borrando cliente: {e}")
         return False, "Hubo un error borrando el cliente."
-    if not nombre_mencionado:
-        return "CF", "Consumidor Final"
-    cliente = buscar_cliente(nombre_mencionado)
-    if cliente:
-        id_c     = str(cliente.get("Identificación", "CF") or "CF").strip()
-        nombre_c = str(cliente.get("Nombre tercero", "Consumidor Final") or "Consumidor Final").strip()
-        return id_c, nombre_c
-    return "CF", "Consumidor Final"
 
 
 # ─────────────────────────────────────────────
 # CRUD DE VENTAS
 # ─────────────────────────────────────────────
-
-_DATOS_A_COLS = {
-    "fecha":                "fecha",
-    "hora":                 "hora",
-    "id cliente":           "id cliente",
-    "cliente":              "cliente",
-    "código del producto":  "código del producto",
-    "producto":             "producto",
-    "cantidad":             "cantidad",
-    "valor unitario":       "valor unitario",
-    "total":                "total",
-    "subtotal":             "subtotal",
-    "consecutivo de venta": "consecutivo de venta",
-    "alias":                "alias",
-    "vendedor":             "vendedor",
-    "metodo de pago":       "metodo de pago",
-}
-
 
 def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
                         observaciones="", cliente_nombre=None, cliente_id=None,
@@ -486,15 +419,10 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
     from memoria import cargar_memoria
 
     inicializar_excel()
-    wb           = openpyxl.load_workbook(config.EXCEL_FILE)
-    nombre_hoja  = obtener_nombre_hoja()
-    ws           = obtener_o_crear_hoja(wb, nombre_hoja)
-    cols         = detectar_columnas(ws)
+    wb = openpyxl.load_workbook(config.EXCEL_FILE)
 
-    fila       = max(ws.max_row + 1, config.EXCEL_FILA_DATOS)
     fecha_hoy  = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
     hora_ahora = datetime.now(config.COLOMBIA_TZ).strftime("%H:%M")
-    num_fila   = fila - config.EXCEL_FILA_DATOS + 1
 
     consecutivo_final    = consecutivo if consecutivo is not None else obtener_consecutivo_actual()
     id_cliente_final     = cliente_id    or "CF"
@@ -505,10 +433,9 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         from memoria import buscar_producto_en_catalogo
         prod_encontrado = buscar_producto_en_catalogo(str(producto))
         if prod_encontrado:
-            # Usar campo 'codigo' si existe, si no dejar vacio
             cod_producto_final = prod_encontrado.get("codigo", "")
 
-    datos = {
+    datos_base = {
         "fecha":                  fecha_hoy,
         "hora":                   hora_ahora,
         "id cliente":             id_cliente_final,
@@ -520,24 +447,37 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         "total":                  float(total),
         "subtotal":               float(total),
         "consecutivo de venta":   consecutivo_final,
-        "alias":                  str(num_fila),
         "vendedor":               str(vendedor),
         "metodo de pago":         str(observaciones),
     }
 
-    for nombre_col, num_col in cols.items():
-        clave = nombre_col.lower().strip()
-        if clave in datos:
-            ws.cell(row=fila, column=num_col, value=datos[clave])
-            continue
-        for dato_key, dato_val in datos.items():
-            if len(dato_key) > 5 and len(clave) > 5 and (dato_key in clave or clave in dato_key):
-                ws.cell(row=fila, column=num_col, value=dato_val)
-                break
+    # Hojas donde queremos guardar la venta simultáneamente
+    hojas_destino = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
 
-    if consecutivo_final % 2 == 0:
-        for col in range(1, ws.max_column + 1):
-            ws.cell(row=fila, column=col).fill = PatternFill("solid", fgColor="EFF6FF")
+    for nombre_sh in hojas_destino:
+        ws = obtener_o_crear_hoja(wb, nombre_sh)
+        cols = detectar_columnas(ws)
+        
+        fila = max(ws.max_row + 1, config.EXCEL_FILA_DATOS)
+        num_fila = fila - config.EXCEL_FILA_DATOS + 1
+        
+        # El alias es específico de la hoja
+        datos = datos_base.copy()
+        datos["alias"] = str(num_fila)
+
+        for nombre_col, num_col in cols.items():
+            clave = nombre_col.lower().strip()
+            if clave in datos:
+                ws.cell(row=fila, column=num_col, value=datos[clave])
+                continue
+            for dato_key, dato_val in datos.items():
+                if len(dato_key) > 5 and len(clave) > 5 and (dato_key in clave or clave in dato_key):
+                    ws.cell(row=fila, column=num_col, value=dato_val)
+                    break
+
+        if consecutivo_final % 2 == 0:
+            for col in range(1, ws.max_column + 1):
+                ws.cell(row=fila, column=col).fill = PatternFill("solid", fgColor="EFF6FF")
 
     wb.save(config.EXCEL_FILE)
     subir_a_drive(config.EXCEL_FILE)
@@ -545,7 +485,7 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
     sheets_agregar_venta(
         consecutivo_final, producto, cantidad, precio_unitario, total, vendedor, observaciones,
         id_cliente=id_cliente_final, nombre_cliente=nombre_cliente_final,
-        codigo_producto=cod_producto_final, alias=str(num_fila)
+        codigo_producto=cod_producto_final, alias=str(datos_base.get("alias", "1"))
     )
 
     return consecutivo_final
@@ -556,28 +496,38 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
     from sheets import sheets_borrar_fila
 
     inicializar_excel()
-    wb          = openpyxl.load_workbook(config.EXCEL_FILE)
-    nombre_hoja = obtener_nombre_hoja()
-    if nombre_hoja not in wb.sheetnames:
-        return False, "No hay ventas este mes."
+    wb = openpyxl.load_workbook(config.EXCEL_FILE)
+    
+    borrado_alguna = False
+    hojas_buscar = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
 
-    ws        = wb[nombre_hoja]
-    cols      = detectar_columnas(ws)
-    col_alias = cols.get(config.COL_ALIAS)
+    for nombre_sh in hojas_buscar:
+        if nombre_sh in wb.sheetnames:
+            ws = wb[nombre_sh]
+            cols = detectar_columnas(ws)
+            
+            # Buscamos por consecutivo de venta que es el identificador real en tu nuevo Excel
+            col_id = cols.get("consecutivo de venta") or cols.get("alias")
+            if not col_id:
+                continue
+                
+            for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
+                val = ws.cell(row=fila, column=col_id).value
+                try:
+                    if val is not None and int(float(str(val))) == int(numero_venta):
+                        ws.delete_rows(fila)
+                        borrado_alguna = True
+                        break # Pasa a borrar en la siguiente hoja
+                except (ValueError, TypeError):
+                    pass
 
-    for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
-        val = ws.cell(row=fila, column=col_alias).value if col_alias else None
-        try:
-            if val is not None and int(float(str(val))) == int(numero_venta):
-                ws.delete_rows(fila)
-                wb.save(config.EXCEL_FILE)
-                subir_a_drive(config.EXCEL_FILE)
-                sheets_borrar_fila(numero_venta)
-                return True, f"✅ Venta #{numero_venta} borrada del Excel y del Sheets."
-        except (ValueError, TypeError):
-            pass
-
-    return False, f"No encontre la venta #{numero_venta}."
+    if borrado_alguna:
+        wb.save(config.EXCEL_FILE)
+        subir_a_drive(config.EXCEL_FILE)
+        sheets_borrar_fila(numero_venta)
+        return True, f"✅ Venta #{numero_venta} borrada del Excel (Mensual y Acumulado) y del Sheets."
+        
+    return False, f"No encontré la venta #{numero_venta}."
 
 
 def obtener_venta_por_numero(numero_venta) -> dict | None:
@@ -588,9 +538,10 @@ def obtener_venta_por_numero(numero_venta) -> dict | None:
         return None
     ws        = wb[nombre_hoja]
     cols      = detectar_columnas(ws)
-    col_alias = cols.get(config.COL_ALIAS)
+    col_id = cols.get("consecutivo de venta") or cols.get("alias")
+    
     for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
-        val = ws.cell(row=fila, column=col_alias).value if col_alias else None
+        val = ws.cell(row=fila, column=col_id).value if col_id else None
         try:
             if val is not None and int(float(str(val))) == int(numero_venta):
                 return {nombre: ws.cell(row=fila, column=num).value for nombre, num in cols.items()}
