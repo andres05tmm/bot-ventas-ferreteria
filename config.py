@@ -80,4 +80,64 @@ SHEETS_HEADERS = [
 
 # Nombres de meses en español (constante global, no repetir en cada funcion)
 MESES = {
-    1: "Enero", 2:
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+}
+
+# ─────────────────────────────────────────────
+# CLIENTES DE API (creados una sola vez)
+# ─────────────────────────────────────────────
+claude_client  = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+openai_client  = openai.OpenAI(api_key=OPENAI_API_KEY)
+
+# ─────────────────────────────────────────────
+# CLIENTES DE GOOGLE (cached — se crean una vez)
+# ─────────────────────────────────────────────
+_creds_dict: dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+
+def _make_drive_service():
+    creds = Credentials.from_service_account_info(
+        _creds_dict,
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    return build("drive", "v3", credentials=creds)
+
+def _make_sheets_client():
+    return gspread.service_account_from_dict(
+        _creds_dict,
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+    )
+
+# Instancias cacheadas — se inicializan la primera vez que se usen
+_drive_service  = None
+_sheets_client  = None
+
+def get_drive_service():
+    """Retorna el servicio de Drive, creandolo si aun no existe."""
+    global _drive_service
+    if _drive_service is None:
+        _drive_service = _make_drive_service()
+    return _drive_service
+
+def get_sheets_client():
+    """Retorna el cliente de gspread, creandolo si aun no existe."""
+    global _sheets_client
+    if _sheets_client is None:
+        _sheets_client = _make_sheets_client()
+    return _sheets_client
+
+def reset_google_clients():
+    """Fuerza recreacion de clientes Google en la proxima llamada (util tras errores de auth)."""
+    global _drive_service, _sheets_client
+    _drive_service = None
+    _sheets_client = None
+
+# ─────────────────────────────────────────────
+# FLAGS DE DISPONIBILIDAD (estado de servicios)
+# ─────────────────────────────────────────────
+DRIVE_DISPONIBLE   = True
+SHEETS_DISPONIBLE  = bool(SHEETS_ID)
