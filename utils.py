@@ -103,3 +103,75 @@ def obtener_nombre_hoja() -> str:
     """Retorna el nombre de la hoja Excel del mes actual, ej: 'Febrero 2026'."""
     ahora = datetime.now(config.COLOMBIA_TZ)
     return f"{config.MESES[ahora.month]} {ahora.year}"
+
+
+# ─────────────────────────────────────────────
+# TABLA DE THINNER: precio → (cantidad_decimal, fraccion_legible)
+#
+# El thinner se vende por precio pagado, no por fraccion.
+# Muchos precios distintos corresponden a la misma fraccion de galon
+# (diferentes calidades / thinners mezclados).
+# El total cobrado es SIEMPRE el precio que dijo el cliente.
+# ─────────────────────────────────────────────
+
+_THINNER_PRECIO_A_CANTIDAD: dict[int, tuple[float, str]] = {
+    3000:  (round(1/12, 6),  "1/12"),
+    4000:  (0.1,              "1/10"),
+    5000:  (0.125,            "1/8"),
+    6000:  (round(1/6, 6),   "1/6"),
+    7000:  (0.2,              "1/5"),
+    8000:  (0.25,             "1/4"),
+    9000:  (0.3,              "3/10"),
+    10000: (round(1/3, 6),   "1/3"),
+    11000: (round(1/3, 6),   "1/3"),
+    12000: (0.4,              "2/5"),
+    13000: (0.5,              "1/2"),
+    14000: (0.5,              "1/2"),
+    15000: (0.5,              "1/2"),
+    16000: (round(5/9, 6),   "5/9"),
+    17000: (0.6,              "3/5"),
+    18000: (0.625,            "5/8"),
+    19000: (round(2/3, 6),   "2/3"),
+    20000: (0.75,             "3/4"),
+    21000: (0.8,              "4/5"),
+    22000: (round(5/6, 6),   "5/6"),
+    24000: (0.9,              "9/10"),
+    25000: (0.95,             "19/20"),
+    26000: (1.0,              "1"),
+}
+
+# Palabras clave que identifican al thinner en el nombre del producto
+_THINNER_KEYWORDS = ("thinner", "tiner", "tinner", "disolvente", "aguarras")
+
+
+def es_thinner(nombre_producto: str) -> bool:
+    """Retorna True si el nombre del producto corresponde a thinner."""
+    nombre_lower = nombre_producto.lower()
+    return any(k in nombre_lower for k in _THINNER_KEYWORDS)
+
+
+def cantidad_thinner_por_precio(precio_pagado: float) -> tuple[float, str]:
+    """
+    Dado el precio que pago el cliente por thinner, retorna (cantidad_decimal, fraccion_legible).
+    Si el precio no esta en la tabla, busca el mas cercano.
+    Retorna (0.0, "?") si el precio es 0 o no se puede determinar.
+    """
+    precio_int = int(round(precio_pagado))
+    if precio_int <= 0:
+        return 0.0, "?"
+
+    # Busqueda exacta primero
+    if precio_int in _THINNER_PRECIO_A_CANTIDAD:
+        return _THINNER_PRECIO_A_CANTIDAD[precio_int]
+
+    # Buscar el precio mas cercano en la tabla
+    precio_mas_cercano = min(_THINNER_PRECIO_A_CANTIDAD.keys(), key=lambda p: abs(p - precio_int))
+    return _THINNER_PRECIO_A_CANTIDAD[precio_mas_cercano]
+
+
+def tabla_thinner_para_prompt() -> str:
+    """Genera el texto de la tabla de thinner para incluir en el system prompt."""
+    lineas = []
+    for precio, (cantidad, frac) in sorted(_THINNER_PRECIO_A_CANTIDAD.items()):
+        lineas.append(f"   ${precio:,} → cantidad:{cantidad:.6g} ({frac} de galon)")
+    return "\n".join(lineas)
