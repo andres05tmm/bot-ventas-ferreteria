@@ -7,7 +7,7 @@ import asyncio
 import threading
 
 import config
-from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
+from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, es_thinner
 from excel import (
     obtener_siguiente_consecutivo,
     guardar_venta_excel,
@@ -71,22 +71,25 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
 
     total_transaccion = 0
     for venta in ventas:
-        producto       = venta.get("producto", "Sin nombre")
-        cantidad       = convertir_fraccion_a_decimal(venta.get("cantidad", 1))
-        precio_enviado = float(venta.get("precio_unitario", 0))
-
-        # ── REGLA DE PRECIOS CORREGIDA ──
-        # Si es una fracción (< 1) o es Thinner, NO MULTIPLICAR. El precio es el total.
-        if cantidad < 1 or (producto and "thinner" in producto.lower()):
-            total = round(precio_enviado)
-            precio_unitario_excel = total / cantidad if cantidad > 0 else total
-        else:
-            # Si es cantidad entera, SI MULTIPLICAR.
-            total = round(precio_enviado * cantidad)
-            precio_unitario_excel = precio_enviado
-
+        producto = venta.get("producto", "Sin nombre")
+        cantidad = convertir_fraccion_a_decimal(venta.get("cantidad", 1))
+        
+        # ── CAMBIO CLAVE: Priorizamos el TOTAL enviado por la IA ──
+        total = float(venta.get("total", 0))
+        
+        # Fallback por si la IA envía precio_unitario por error
+        if total == 0:
+            precio_unit = float(venta.get("precio_unitario", 0))
+            if cantidad < 1 or es_thinner(producto):
+                total = round(precio_unit)
+            else:
+                total = round(precio_unit * cantidad)
+        
+        # Calculamos el unitario para el Excel (Total / Cantidad)
+        precio_unitario_excel = total / cantidad if cantidad > 0 else total
+        
         total_transaccion += total
-        cantidad_legible   = decimal_a_fraccion_legible(cantidad)
+        cantidad_legible = decimal_a_fraccion_legible(cantidad)
 
         guardar_venta_excel(
             producto, cantidad, precio_unitario_excel, total, vendedor, metodo,
@@ -96,10 +99,10 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
 
         cliente_txt = f" | {nombre_c}" if nombre_c != "Consumidor Final" else ""
         
-        # ── ORDEN VISUAL CORREGIDO ── (Cantidad + Producto + Valor)
+        # ORDEN SOLICITADO: 1. Cantidad, 2. Producto, 3. Valor
         confirmaciones.append(f"• {cantidad_legible} {producto} ${total:,.0f}{cliente_txt}")
 
-        # Descontar inventario
+        # Inventario
         inventario = cargar_inventario()
         prod_lower = producto.lower()
         prod_key   = next((k for k in inventario if k in prod_lower or prod_lower in k), None)
