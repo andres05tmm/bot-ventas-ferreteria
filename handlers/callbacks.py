@@ -25,7 +25,6 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
     data  = query.data
     await query.answer()
 
-    # ── Métodos de Pago ──
     if data.startswith("pago_"):
         partes  = data.split("_")
         metodo  = partes[1]
@@ -36,14 +35,13 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             ventas = ventas_pendientes.get(chat_id)
 
         if not ventas:
-            await query.edit_message_text("❌ Esta sesion de pago expiro o ya fue procesada.")
+            await query.edit_message_text("Esta sesion de pago expiro o ya fue procesada.")
             return
 
         conf = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
         emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
         await query.edit_message_text(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf))
 
-    # ── Confirmación de Borrado ──
     elif data.startswith("borrar_"):
         partes  = data.split("_")
         confirm = partes[1]
@@ -56,9 +54,8 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             exito, msg = await asyncio.to_thread(borrar_venta_excel, numero)
             await query.edit_message_text(msg)
         else:
-            await query.edit_message_text("❌ Borrado cancelado.")
+            await query.edit_message_text("Borrado cancelado.")
 
-    # ── Gráficas ──
     elif data.startswith("grafica_"):
         from handlers.comandos import manejar_callback_grafica
         await manejar_callback_grafica(update, context)
@@ -70,30 +67,19 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
     """Muestra botones de metodo de pago con el orden: Cantidad + Producto + Valor."""
-    from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
     lineas = []
-    
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
-        
-        # Priorizamos el total enviado por la IA
-        total = float(v.get("total", 0))
-        
-        # Fallback por si manda unitario
-        if total == 0:
-            precio = float(v.get("precio_unitario", 0))
-            if cantidad_dec < 1 or (producto and "thinner" in producto.lower()):
-                total = round(precio)
-            else:
-                total = round(precio * cantidad_dec)
-                
-        cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
-        
-        # NUEVO ORDEN: Cantidad + Producto + Precio
-        lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
 
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        # Misma logica blindada que ventas_state: total primero, unitario como fallback
+        total      = float(v.get("total", 0))
+        p_unitario = float(v.get("precio_unitario", 0))
+        valor_final = total if total > 0 else round(p_unitario * cantidad_dec)
+
+        cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
+        lineas.append(f"• {cantidad_leg} {producto} ${valor_final:,.0f}")
+
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("💵 Efectivo",      callback_data=f"pago_efectivo_{chat_id}"),
         InlineKeyboardButton("📱 Transferencia", callback_data=f"pago_transferencia_{chat_id}"),
@@ -109,7 +95,6 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
 # FLUJO PASO A PASO: CLIENTE NUEVO
 # ─────────────────────────────────────────────
 
-# ¡CORREGIDO! Ahora recibe los 4 datos exactos que le manda mensajes.py
 async def manejar_texto_cliente(chat_id: int, texto: str, message, vendedor: str) -> bool:
     """
     Atrapa mensajes de texto normales si el usuario esta en medio de la creacion
@@ -148,18 +133,17 @@ async def manejar_texto_cliente(chat_id: int, texto: str, message, vendedor: str
         return True
 
     elif paso == "correo":
-        cliente["correo"] = texto if texto.lower() != 'no' else ""
+        cliente["correo"] = texto if texto.lower() != "no" else ""
         cliente["paso"] = "telefono"
         await message.reply_text("👤 ¿Cuál es el teléfono? (o escribe 'no' si no tiene)")
         return True
 
     elif paso == "telefono":
-        cliente["telefono"] = texto if texto.lower() != 'no' else ""
+        cliente["telefono"] = texto if texto.lower() != "no" else ""
         nombre = cliente["nombre"]
 
         await message.reply_text("⏳ Guardando cliente en la base de datos...")
 
-        # Guardar cliente en Excel
         ok = await asyncio.to_thread(
             guardar_cliente_nuevo,
             nombre, cliente["tipo_id"], cliente["identificacion"],
@@ -171,18 +155,14 @@ async def manejar_texto_cliente(chat_id: int, texto: str, message, vendedor: str
         else:
             await message.reply_text(f"⚠️ Hubo un error guardando a {nombre}.")
 
-        # Revisar si hay ventas esperando por este cliente
         with _estado_lock:
             pendientes = ventas_esperando_cliente.pop(chat_id, None)
             del clientes_en_proceso[chat_id]
 
         if pendientes and pendientes.get("ventas"):
             ventas = pendientes["ventas"]
-            # Asignar el nuevo cliente a todas las ventas pendientes
             for v in ventas:
                 v["cliente"] = nombre
-            
-            # Pasar al flujo de pago
             with _estado_lock:
                 ventas_pendientes[chat_id] = ventas
             await _enviar_botones_pago(message, chat_id, ventas)
