@@ -24,7 +24,7 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje  = update.message.text
     chat_id  = update.message.chat_id
-    vendedor = update.message.fromuser.first_name or "Desconocido"
+    vendedor = update.message.from_user.first_name or "Desconocido"
 
     if mensaje.startswith("/"):
         return
