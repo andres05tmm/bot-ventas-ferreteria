@@ -70,7 +70,8 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         producto       = venta.get("producto", "Sin nombre")
         cantidad       = convertir_fraccion_a_decimal(venta.get("cantidad", 1))
         precio_cobrado = float(venta.get("precio_unitario", 0))
-        total          = round(precio_cobrado * cantidad) if cantidad >= 1 else round(precio_cobrado)
+        # precio_unitario siempre es el precio POR UNIDAD — multiplicar por cantidad
+        total          = round(precio_cobrado * cantidad)
 
         total_transaccion += total
         cantidad_legible   = decimal_a_fraccion_legible(cantidad)
