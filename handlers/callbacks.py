@@ -1,5 +1,5 @@
 """
-Manejo de botones (callbacks) de Telegram.
+Manejo de botones (callbacks) de Telegram y flujos de texto interactivos (como crear clientes).
 """
 
 import asyncio
@@ -7,13 +7,18 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import config
-from excel import borrar_venta_excel
+from excel import borrar_venta_excel, guardar_cliente_nuevo
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 from ventas_state import (
     ventas_pendientes, borrados_pendientes, _estado_lock,
     registrar_ventas_con_metodo, clientes_en_proceso,
     ventas_esperando_cliente,
 )
+
+
+# ─────────────────────────────────────────────
+# MANEJO DE BOTONES (CALLBACKS)
+# ─────────────────────────────────────────────
 
 async def manejar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -58,6 +63,11 @@ async def manejar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from handlers.comandos import manejar_callback_grafica
         await manejar_callback_grafica(update, context)
 
+
+# ─────────────────────────────────────────────
+# ENVÍO DE BOTONES DE PAGO
+# ─────────────────────────────────────────────
+
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
     """Muestra botones de metodo de pago con resumen de ventas."""
     lineas = []
@@ -66,7 +76,7 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         precio       = float(v.get("precio_unitario", 0))
         producto     = v.get("producto", "")
         
-        # ── REGLA DE PRECIOS CORREGIDA ──
+        # ── REGLA DE PRECIOS ──
         # Si es fracción (<1) el precio es el total. Si es entero, se multiplica.
         if cantidad_dec < 1 or (producto and "thinner" in producto.lower()):
             total = round(precio)
@@ -75,7 +85,7 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
             
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
         
-        # ── ORDEN VISUAL CORREGIDO ── (Cantidad + Producto + Valor)
+        # ── ORDEN VISUAL ── (Cantidad + Producto + Valor)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
 
     keyboard = InlineKeyboardMarkup([[
@@ -87,3 +97,91 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         "¿Cómo fue el pago?\n\n" + "\n".join(lineas),
         reply_markup=keyboard,
     )
+
+
+# ─────────────────────────────────────────────
+# FLUJO PASO A PASO: CLIENTE NUEVO
+# ─────────────────────────────────────────────
+
+async def manejar_texto_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Atrapa mensajes de texto normales si el usuario esta en medio de la creacion
+    de un cliente nuevo. Retorna True si atrapo el mensaje.
+    """
+    chat_id = update.message.chat_id
+
+    with _estado_lock:
+        if chat_id not in clientes_en_proceso:
+            return False
+        cliente = clientes_en_proceso[chat_id]
+
+    texto = update.message.text.strip()
+    paso  = cliente["paso"]
+
+    if paso == "nombre":
+        cliente["nombre"] = texto
+        cliente["paso"] = "tipo_id"
+        await update.message.reply_text("👤 ¿Qué tipo de identificación tiene? (Ej: Cédula o NIT)")
+        return True
+
+    elif paso == "tipo_id":
+        cliente["tipo_id"] = texto
+        cliente["paso"] = "identificacion"
+        await update.message.reply_text("👤 ¿Cuál es el número de identificación?")
+        return True
+
+    elif paso == "identificacion":
+        cliente["identificacion"] = texto
+        cliente["paso"] = "tipo_persona"
+        await update.message.reply_text("👤 ¿Es persona Natural o Jurídica?")
+        return True
+
+    elif paso == "tipo_persona":
+        cliente["tipo_persona"] = texto
+        cliente["paso"] = "correo"
+        await update.message.reply_text("👤 ¿Cuál es el correo electrónico? (o escribe 'no' si no tiene)")
+        return True
+
+    elif paso == "correo":
+        cliente["correo"] = texto if texto.lower() != 'no' else ""
+        cliente["paso"] = "telefono"
+        await update.message.reply_text("👤 ¿Cuál es el teléfono? (o escribe 'no' si no tiene)")
+        return True
+
+    elif paso == "telefono":
+        cliente["telefono"] = texto if texto.lower() != 'no' else ""
+        nombre = cliente["nombre"]
+
+        await update.message.reply_text("⏳ Guardando cliente en la base de datos...")
+
+        # Guardar cliente en Excel
+        ok = await asyncio.to_thread(
+            guardar_cliente_nuevo,
+            nombre, cliente["tipo_id"], cliente["identificacion"],
+            cliente["tipo_persona"], cliente["correo"], cliente["telefono"]
+        )
+
+        if ok:
+            await update.message.reply_text(f"✅ Cliente {nombre.upper()} guardado con éxito.")
+        else:
+            await update.message.reply_text(f"⚠️ Hubo un error guardando a {nombre}.")
+
+        # Revisar si hay ventas esperando por este cliente
+        with _estado_lock:
+            pendientes = ventas_esperando_cliente.pop(chat_id, None)
+            del clientes_en_proceso[chat_id]
+
+        if pendientes and pendientes.get("ventas"):
+            ventas = pendientes["ventas"]
+            # Asignar el nuevo cliente a todas las ventas pendientes
+            for v in ventas:
+                v["cliente"] = nombre
+            
+            # Pasar al flujo de pago
+            with _estado_lock:
+                ventas_pendientes[chat_id] = ventas
+            await _enviar_botones_pago(update.message, chat_id, ventas)
+
+        return True
+
+    return False
