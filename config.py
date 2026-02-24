@@ -57,8 +57,8 @@ VERSION       = "v8.0-refactor"
 # ESTRUCTURA DEL EXCEL
 # ─────────────────────────────────────────────
 EXCEL_FILA_TITULO  = 1
-EXCEL_FILA_HEADERS = 2
-EXCEL_FILA_DATOS   = 3
+EXCEL_FILA_HEADERS = 3
+EXCEL_FILA_DATOS   = 4
 
 # Nombres de columnas en el Excel
 COL_FECHA    = "fecha"
