@@ -475,18 +475,19 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 cantidad_dec = v.get("cantidad", 1)
 
             datos = {
-                "#":               v.get("num", fila_nueva - 1),
-                "fecha":           v.get("fecha", fecha_str),
-                "hora":            v.get("hora", ""),
-                "producto":        v.get("producto", ""),
-                "cantidad":        v.get("cantidad", ""),
-                "valor unitario":  v.get("precio_unitario", 0),
-                "precio unitario": v.get("precio_unitario", 0),
-                "total":           v.get("total", 0),
-                "subtotal":        v.get("total", 0),
-                "vendedor":        v.get("vendedor", ""),
-                "metodo de pago":  v.get("metodo", ""),
-                "observaciones":   v.get("metodo", ""),
+                "fecha":                v.get("fecha", fecha_str),
+                "hora":                 v.get("hora", ""),
+                "id cliente":           v.get("id_cliente", "CF"),
+                "cliente":              v.get("cliente", "Consumidor Final"),
+                "código del producto":  v.get("codigo_producto", ""),
+                "producto":             v.get("producto", ""),
+                "cantidad":             v.get("cantidad", ""),
+                "valor unitario":       v.get("precio_unitario", 0),
+                "total":                v.get("total", 0),
+                "consecutivo de venta": v.get("num", fila_nueva - 1),
+                "alias":                v.get("alias", str(v.get("num", ""))),
+                "vendedor":             v.get("vendedor", ""),
+                "metodo de pago":       v.get("metodo", ""),
             }
 
             for nombre_col, num_col in cols.items():
