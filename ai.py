@@ -321,7 +321,7 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    - Ejemplo correcto: "• 12 Tornillo Drywall $6,000"
 
 3. Venta detectada — incluye al FINAL uno por producto:
-   [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000}}[/VENTA]
+   [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}[/VENTA]
    - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
    - Si menciona cliente y está en la base: Usa el nombre directo en "cliente".
    - Si menciona cliente y NO está en la base: Usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}. NUNCA preguntes el documento tú, usa la etiqueta.
