@@ -57,8 +57,8 @@ VERSION       = "v8.0-refactor"
 # ESTRUCTURA DEL EXCEL
 # ─────────────────────────────────────────────
 EXCEL_FILA_TITULO  = 1
-EXCEL_FILA_HEADERS = 3
-EXCEL_FILA_DATOS   = 4
+EXCEL_FILA_HEADERS = 2
+EXCEL_FILA_DATOS   = 3
 
 # Nombres de columnas en el Excel
 COL_FECHA    = "fecha"
@@ -73,8 +73,9 @@ COL_METODO   = "metodo de pago"
 
 # Encabezados del Google Sheets del dia
 SHEETS_HEADERS = [
-    "#", "Fecha", "Hora", "Producto", "Cantidad",
-    "Precio Unitario", "Total", "Vendedor", "Método Pago"
+    "CONSECUTIVO DE VENTA", "FECHA", "HORA", "ID CLIENTE", "CLIENTE",
+    "Código del Producto", "PRODUCTO", "CANTIDAD", "VALOR UNITARIO",
+    "TOTAL", "ALIAS", "VENDEDOR", "METODO DE PAGO"
 ]
 
 # Nombres de meses en español (constante global, no repetir en cada funcion)
