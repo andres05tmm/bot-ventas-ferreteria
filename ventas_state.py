@@ -7,7 +7,7 @@ import asyncio
 import threading
 
 import config
-from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
+from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, es_thinner, cantidad_thinner_por_precio
 from excel import (
     obtener_siguiente_consecutivo,
     guardar_venta_excel,
@@ -70,8 +70,22 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         producto       = venta.get("producto", "Sin nombre")
         cantidad       = convertir_fraccion_a_decimal(venta.get("cantidad", 1))
         precio_cobrado = float(venta.get("precio_unitario", 0))
-        # precio_unitario siempre es el precio POR UNIDAD — multiplicar por cantidad
-        total          = round(precio_cobrado * cantidad)
+
+        # ── Thinner: el precio pagado ES el total; la cantidad se deriva del precio ──
+        # Claude manda precio_unitario=lo que pago el cliente y cantidad=fraccion calculada.
+        # El total NUNCA debe multiplicarse: es exactamente lo que pago el cliente.
+        if es_thinner(producto):
+            # Si Claude no supo calcular bien la cantidad, la derivamos del precio
+            cantidad_esperada, frac_legible = cantidad_thinner_por_precio(precio_cobrado)
+            if cantidad_esperada > 0 and abs(cantidad - cantidad_esperada) > 0.05:
+                # Corregir cantidad si difiere significativamente de la tabla oficial
+                print(f"[THINNER] corrigiendo cantidad {cantidad:.4f} → {cantidad_esperada:.6g} para precio ${precio_cobrado:,.0f}")
+                cantidad = cantidad_esperada
+            # Para thinner: total = lo que pago el cliente (precio_cobrado), sin multiplicar
+            total = round(precio_cobrado)
+        else:
+            # Resto de productos: total = precio_unitario × cantidad
+            total = round(precio_cobrado * cantidad)
 
         total_transaccion += total
         cantidad_legible   = decimal_a_fraccion_legible(cantidad)
