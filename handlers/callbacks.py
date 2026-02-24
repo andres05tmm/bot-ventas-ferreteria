@@ -20,7 +20,6 @@ from ventas_state import (
 # MANEJO DE BOTONES (CALLBACKS)
 # ─────────────────────────────────────────────
 
-# ¡CORREGIDO! Se restauró el nombre 'manejar_metodo_pago' para que main.py lo encuentre
 async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data  = query.data
@@ -78,7 +77,6 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         producto     = v.get("producto", "")
         
         # ── REGLA DE PRECIOS ──
-        # Si es fracción (<1) el precio es el total. Si es entero, se multiplica.
         if cantidad_dec < 1 or (producto and "thinner" in producto.lower()):
             total = round(precio)
         else:
@@ -104,56 +102,55 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
 # FLUJO PASO A PASO: CLIENTE NUEVO
 # ─────────────────────────────────────────────
 
-async def manejar_texto_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+# ¡CORREGIDO! Ahora recibe los 4 datos exactos que le manda mensajes.py
+async def manejar_texto_cliente(chat_id: int, texto: str, message, vendedor: str) -> bool:
     """
     Atrapa mensajes de texto normales si el usuario esta en medio de la creacion
     de un cliente nuevo. Retorna True si atrapo el mensaje.
     """
-    chat_id = update.message.chat_id
-
     with _estado_lock:
         if chat_id not in clientes_en_proceso:
             return False
         cliente = clientes_en_proceso[chat_id]
 
-    texto = update.message.text.strip()
+    texto = texto.strip()
     paso  = cliente["paso"]
 
     if paso == "nombre":
         cliente["nombre"] = texto
         cliente["paso"] = "tipo_id"
-        await update.message.reply_text("👤 ¿Qué tipo de identificación tiene? (Ej: Cédula o NIT)")
+        await message.reply_text("👤 ¿Qué tipo de identificación tiene? (Ej: Cédula o NIT)")
         return True
 
     elif paso == "tipo_id":
         cliente["tipo_id"] = texto
         cliente["paso"] = "identificacion"
-        await update.message.reply_text("👤 ¿Cuál es el número de identificación?")
+        await message.reply_text("👤 ¿Cuál es el número de identificación?")
         return True
 
     elif paso == "identificacion":
         cliente["identificacion"] = texto
         cliente["paso"] = "tipo_persona"
-        await update.message.reply_text("👤 ¿Es persona Natural o Jurídica?")
+        await message.reply_text("👤 ¿Es persona Natural o Jurídica?")
         return True
 
     elif paso == "tipo_persona":
         cliente["tipo_persona"] = texto
         cliente["paso"] = "correo"
-        await update.message.reply_text("👤 ¿Cuál es el correo electrónico? (o escribe 'no' si no tiene)")
+        await message.reply_text("👤 ¿Cuál es el correo electrónico? (o escribe 'no' si no tiene)")
         return True
 
     elif paso == "correo":
         cliente["correo"] = texto if texto.lower() != 'no' else ""
         cliente["paso"] = "telefono"
-        await update.message.reply_text("👤 ¿Cuál es el teléfono? (o escribe 'no' si no tiene)")
+        await message.reply_text("👤 ¿Cuál es el teléfono? (o escribe 'no' si no tiene)")
         return True
 
     elif paso == "telefono":
         cliente["telefono"] = texto if texto.lower() != 'no' else ""
         nombre = cliente["nombre"]
 
-        await update.message.reply_text("⏳ Guardando cliente en la base de datos...")
+        await message.reply_text("⏳ Guardando cliente en la base de datos...")
 
         # Guardar cliente en Excel
         ok = await asyncio.to_thread(
@@ -163,9 +160,9 @@ async def manejar_texto_cliente(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
         if ok:
-            await update.message.reply_text(f"✅ Cliente {nombre.upper()} guardado con éxito.")
+            await message.reply_text(f"✅ Cliente {nombre.upper()} guardado con éxito.")
         else:
-            await update.message.reply_text(f"⚠️ Hubo un error guardando a {nombre}.")
+            await message.reply_text(f"⚠️ Hubo un error guardando a {nombre}.")
 
         # Revisar si hay ventas esperando por este cliente
         with _estado_lock:
@@ -181,7 +178,7 @@ async def manejar_texto_cliente(update: Update, context: ContextTypes.DEFAULT_TY
             # Pasar al flujo de pago
             with _estado_lock:
                 ventas_pendientes[chat_id] = ventas
-            await _enviar_botones_pago(update.message, chat_id, ventas)
+            await _enviar_botones_pago(message, chat_id, ventas)
 
         return True
 
