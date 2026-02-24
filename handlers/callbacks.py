@@ -20,7 +20,7 @@ async def manejar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data  = query.data
     await query.answer()
 
-    # ── MÉTODOS DE PAGO ──
+    # ── Métodos de Pago ──
     if data.startswith("pago_"):
         partes  = data.split("_")
         metodo  = partes[1]
@@ -34,13 +34,11 @@ async def manejar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Esta sesion de pago expiro o ya fue procesada.")
             return
 
-        # Procesar la venta
         conf = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
         emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
-        
         await query.edit_message_text(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf))
 
-    # ── CONFIRMACIÓN DE BORRADO ──
+    # ── Confirmación de Borrado ──
     elif data.startswith("borrar_"):
         partes  = data.split("_")
         confirm = partes[1]
@@ -55,31 +53,28 @@ async def manejar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("❌ Borrado cancelado.")
 
-    # ── GRÁFICAS ──
+    # ── Gráficas ──
     elif data.startswith("grafica_"):
         from handlers.comandos import manejar_callback_grafica
         await manejar_callback_grafica(update, context)
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
-    """
-    Muestra los botones de pago con el resumen corregido:
-    ORDEN: Cantidad + Producto + Valor Total.
-    LÓGICA: Si es fracción (<1), el precio es el total.
-    """
+    """Muestra botones de metodo de pago con resumen de ventas corregido."""
     lineas = []
     for v in ventas:
-        producto     = v.get("producto", "")
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         precio       = float(v.get("precio_unitario", 0))
+        producto     = v.get("producto", "")
         
-        # Lógica de precios: Fracción = Total | Entero = Unitario
+        # ── REGLA MATEMÁTICA CORREGIDA ──
         if cantidad_dec < 1 or (producto and "thinner" in producto.lower()):
             total = round(precio)
         else:
             total = round(precio * cantidad_dec)
             
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
-        # ORDEN: Cantidad + Producto + Valor
+        
+        # ── ORDEN VISUAL CORREGIDO ── (Cantidad + Producto + Valor)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
 
     keyboard = InlineKeyboardMarkup([[
@@ -87,7 +82,6 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         InlineKeyboardButton("📱 Transferencia", callback_data=f"pago_transferencia_{chat_id}"),
         InlineKeyboardButton("💳 Datafono",      callback_data=f"pago_datafono_{chat_id}"),
     ]])
-    
     await message.reply_text(
         "¿Cómo fue el pago?\n\n" + "\n".join(lineas),
         reply_markup=keyboard,
