@@ -33,27 +33,30 @@ def _normalizar(texto: str) -> str:
 # ─────────────────────────────────────────────
 
 def inicializar_hoja(ws):
-    """Crea la estructura real del Excel: titulo en fila 1, encabezados en fila 3."""
-    if ws.max_row > config.EXCEL_FILA_HEADERS:
+    """Crea la estructura real del Excel: titulo en fila 1, encabezados en fila 2."""
+    if ws.max_row > 1:
         return
 
-    ws.merge_cells(f"A1:{get_column_letter(9)}1")
-    celda = ws.cell(row=config.EXCEL_FILA_TITULO, column=1, value="FERRETERIA PUNTO ROJO - VENTAS")
+    num_cols = 13
+    ws.merge_cells(f"A1:{get_column_letter(num_cols)}1")
+    celda = ws.cell(row=1, column=1, value="DETALLE DE VENTAS")
     celda.font      = Font(bold=True, color="FFFFFF", size=13)
     celda.fill      = PatternFill("solid", fgColor="1A56DB")
     celda.alignment = Alignment(horizontal="center")
 
     encabezados = [
-        "FECHA", "HORA", "PRODUCTO", "CANTIDAD",
-        "VALOR UNITARIO", "SUBTOTAL", "ALIAS", "VENDEDOR", "METODO DE PAGO",
+        "FECHA", "HORA", "ID CLIENTE", "CLIENTE",
+        "Código del Producto", "PRODUCTO", "CANTIDAD",
+        "VALOR UNITARIO", "TOTAL", "CONSECUTIVO DE VENTA",
+        "ALIAS", "VENDEDOR", "METODO DE PAGO",
     ]
     for col, titulo in enumerate(encabezados, 1):
-        celda       = ws.cell(row=config.EXCEL_FILA_HEADERS, column=col, value=titulo)
+        celda       = ws.cell(row=2, column=col, value=titulo)
         celda.font  = Font(bold=True, color="FFFFFF", size=11)
         celda.fill  = PatternFill("solid", fgColor="1A56DB")
         celda.alignment = Alignment(horizontal="center")
 
-    anchos = [12, 8, 28, 10, 15, 14, 15, 15, 16]
+    anchos = [12, 8, 14, 28, 18, 28, 10, 15, 14, 18, 10, 15, 16]
     for col, ancho in enumerate(anchos, 1):
         ws.column_dimensions[get_column_letter(col)].width = ancho
 
@@ -457,12 +460,11 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
 
     cod_producto_final = codigo_producto or ""
     if not cod_producto_final:
-        catalogo   = cargar_memoria().get("catalogo", {})
-        prod_lower = str(producto).lower()
-        for cod, prod in catalogo.items():
-            if prod.get("nombre_lower", "") == prod_lower or prod_lower in prod.get("nombre_lower", ""):
-                cod_producto_final = cod
-                break
+        from memoria import buscar_producto_en_catalogo
+        prod_encontrado = buscar_producto_en_catalogo(str(producto))
+        if prod_encontrado:
+            # Usar campo 'codigo' si existe, si no dejar vacio
+            cod_producto_final = prod_encontrado.get("codigo", "")
 
     datos = {
         "fecha":                  fecha_hoy,
@@ -499,7 +501,9 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
     subir_a_drive(config.EXCEL_FILE)
 
     sheets_agregar_venta(
-        consecutivo_final, producto, cantidad, precio_unitario, total, vendedor, observaciones
+        consecutivo_final, producto, cantidad, precio_unitario, total, vendedor, observaciones,
+        id_cliente=id_cliente, nombre_cliente=cliente_nombre,
+        codigo_producto=codigo_producto or "", alias=str(num_fila)
     )
 
     return consecutivo_final
