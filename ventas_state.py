@@ -72,17 +72,16 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
     total_transaccion = 0
     for venta in ventas:
         producto       = venta.get("producto", "Sin nombre")
-        cantidad_raw   = venta.get("cantidad", 1)
-        cantidad       = convertir_fraccion_a_decimal(cantidad_raw)
+        cantidad       = convertir_fraccion_a_decimal(venta.get("cantidad", 1))
         precio_enviado = float(venta.get("precio_unitario", 0))
 
-        # ── REGLA MATEMÁTICA CORREGIDA ──
-        # Si es una fracción (< 1) o es Thinner, el precio es el TOTAL.
-        if cantidad < 1 or "thinner" in producto.lower():
+        # ── REGLA DE PRECIOS CORREGIDA ──
+        # Si es una fracción (< 1) o es Thinner, NO MULTIPLICAR. El precio es el total.
+        if cantidad < 1 or (producto and "thinner" in producto.lower()):
             total = round(precio_enviado)
             precio_unitario_excel = total / cantidad if cantidad > 0 else total
         else:
-            # Si es entero (1 o más), el precio es UNITARIO.
+            # Si es cantidad entera, SI MULTIPLICAR.
             total = round(precio_enviado * cantidad)
             precio_unitario_excel = precio_enviado
 
