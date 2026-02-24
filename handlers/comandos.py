@@ -86,7 +86,6 @@ async def comando_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────────
 
 async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Leer del Sheets primero (siempre actualizado)
     if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
         ventas_raw = await asyncio.to_thread(sheets_leer_ventas_del_dia)
         if ventas_raw:
@@ -113,7 +112,6 @@ async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(texto)
             return
 
-    # Sin ventas en el día
     await update.message.reply_text("No hay ventas registradas hoy.\nUsa el bot para registrar ventas durante el día.")
 
 
@@ -127,7 +125,7 @@ async def comando_buscar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Indica que quieres buscar.\nEjemplos:\n/buscar tornillos\n/buscar Juan\n/buscar 2025-06"
         )
         return
-    termino    = " ".join(context.args)
+    termino = " ".join(context.args)
     await update.message.reply_text(f"🔍 Buscando '{termino}'...")
     resultados = await asyncio.to_thread(buscar_ventas, termino)
     if not resultados:
@@ -167,8 +165,6 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.message.chat_id
-
-    # Buscar en Sheets primero
     venta = None
     if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
         ventas_sheets = await asyncio.to_thread(sheets_leer_ventas_del_dia)
@@ -178,4 +174,138 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     venta = {
                         config.COL_PRODUCTO: v.get("producto", "?"),
                         config.COL_FECHA:    v.get("fecha", "?"),
-                        config.COL_TOTAL:    v
+                        config.COL_TOTAL:    v.get("total", "?"),
+                        config.COL_VENDEDOR: v.get("vendedor", "?"),
+                    }
+                    break
+            except (ValueError, TypeError):
+                pass
+
+    if not venta:
+        from excel import obtener_venta_por_numero
+        venta = await asyncio.to_thread(obtener_venta_por_numero, numero)
+
+    if not venta:
+        await update.message.reply_text(f"No encontre la venta #{numero}.")
+        return
+
+    with _estado_lock:
+        borrados_pendientes[chat_id] = numero
+
+    producto = venta.get(config.COL_PRODUCTO, "?")
+    fecha    = venta.get(config.COL_FECHA, "?")
+    total    = venta.get(config.COL_TOTAL, "?")
+    vendedor = venta.get(config.COL_VENDEDOR, "?")
+    try:
+        total_fmt = f"${float(total):,.0f}"
+    except Exception:
+        total_fmt = str(total)
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Sí, borrar", callback_data=f"borrar_si_{chat_id}"),
+        InlineKeyboardButton("❌ Cancelar",   callback_data=f"borrar_no_{chat_id}"),
+    ]])
+    await update.message.reply_text(
+        f"⚠️ ¿Confirmas que quieres borrar esta venta?\n\n"
+        f"#{numero} — {producto}\nFecha: {fecha}\nTotal: {total_fmt}\nVendedor: {vendedor}",
+        reply_markup=keyboard,
+    )
+
+
+# ─────────────────────────────────────────────
+# /precios
+# ─────────────────────────────────────────────
+
+async def comando_precios(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    memoria  = cargar_memoria()
+    catalogo = memoria.get("catalogo", {})
+    precios  = memoria.get("precios", {})
+
+    if not catalogo and not precios:
+        await update.message.reply_text("No hay precios guardados aun.")
+        return
+
+    if catalogo:
+        categorias: dict = {}
+        for prod in catalogo.values():
+            cat    = prod.get("categoria", "Otros")
+            sufijo = " *" if prod.get("precios_fraccion") else ""
+            categorias.setdefault(cat, []).append(f"  • {prod['nombre']}: ${prod['precio_unidad']:,}{sufijo}")
+
+        await update.message.reply_text(
+            f"🧠 Catalogo de precios ({len(catalogo)} productos)\n"
+            f"* = tiene precios por fraccion\n\nTe envio una categoria a la vez:"
+        )
+        for cat, items in sorted(categorias.items()):
+            encabezado = f"📂 {cat} ({len(items)} productos):\n"
+            bloque = encabezado
+            for item in items:
+                linea = item + "\n"
+                if len(bloque) + len(linea) > 4000:
+                    await update.message.reply_text(bloque)
+                    bloque = f"📂 {cat} (continuacion):\n"
+                bloque += linea
+            if bloque.strip():
+                await update.message.reply_text(bloque)
+    else:
+        items = [f"  • {p}: ${v:,}" for p, v in sorted(precios.items())]
+        await update.message.reply_text(f"🧠 Precios guardados ({len(items)} productos):")
+        bloque = ""
+        for item in items:
+            linea = item + "\n"
+            if len(bloque) + len(linea) > 4000:
+                await update.message.reply_text(bloque)
+                bloque = ""
+            bloque += linea
+        if bloque.strip():
+            await update.message.reply_text(bloque)
+
+
+# ─────────────────────────────────────────────
+# /caja, /gastos, /inventario
+# ─────────────────────────────────────────────
+
+async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    resumen = obtener_resumen_caja()
+    await update.message.reply_text(f"💰 {resumen}")
+
+
+async def comando_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    gastos = cargar_gastos_hoy()
+    if not gastos:
+        await update.message.reply_text("No hay gastos registrados hoy.")
+        return
+    texto = "💸 Gastos de hoy:\n\n"
+    total = 0
+    for g in gastos:
+        texto += f"• {g['concepto']}: ${g['monto']:,.0f} ({g['categoria']}) — {g['origen']}\n"
+        total += g["monto"]
+    texto += f"\nTotal gastos: ${total:,.0f}"
+    await update.message.reply_text(texto)
+
+
+async def comando_inventario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    inventario = cargar_inventario()
+    if not inventario:
+        await update.message.reply_text("No hay productos en inventario aun.")
+        return
+    texto   = "📦 Inventario actual:\n\n"
+    alertas = []
+    for producto, datos in inventario.items():
+        if isinstance(datos, dict):
+            cantidad = datos.get("cantidad", 0)
+            minimo   = datos.get("minimo", 3)
+            emoji    = "⚠️" if cantidad <= minimo else "✅"
+            texto   += f"{emoji} {producto}: {cantidad} unidades\n"
+            if cantidad <= minimo:
+                alertas.append(producto)
+    if alertas:
+        texto += f"\n⚠️ Stock bajo en: {', '.join(alertas)}"
+    await update.message.reply_text(texto)
+
+
+# ─────────────────────────────────────────────
+# /clientes
+# ─────────────────────────────────────────────
+
+async def comando_clientes(update: Update
