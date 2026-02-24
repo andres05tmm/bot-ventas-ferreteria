@@ -39,6 +39,35 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if consumido:
         return
 
+    # ── Interceptar metodo de pago escrito como texto ──
+    # Si hay ventas pendientes esperando metodo de pago y el usuario
+    # escribe "efectivo", "nequi", etc. en lugar de presionar el boton,
+    # procesarlo directamente sin pasar a Claude para evitar duplicados.
+    with _estado_lock:
+        _ventas_pend = list(ventas_pendientes.get(chat_id, []))
+
+    if _ventas_pend:
+        _metodos_texto = {
+            "efectivo": "efectivo", "cash": "efectivo", "contado": "efectivo",
+            "transferencia": "transferencia", "transfer": "transferencia",
+            "nequi": "transferencia", "daviplata": "transferencia", "bancolombia": "transferencia",
+            "datafono": "datafono", "datáfono": "datafono", "tarjeta": "datafono",
+        }
+        metodo_detectado = _metodos_texto.get(mensaje.strip().lower())
+        if metodo_detectado:
+            with _estado_lock:
+                ventas = ventas_pendientes.pop(chat_id, [])
+            if ventas:
+                from ventas_state import registrar_ventas_con_metodo
+                confirmaciones = await asyncio.to_thread(
+                    registrar_ventas_con_metodo, ventas, metodo_detectado, vendedor, chat_id
+                )
+                emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo_detectado, "✅")
+                await update.message.reply_text(
+                    f"✅ Venta registrada — {emoji} {metodo_detectado.capitalize()}\n\n" + "\n".join(confirmaciones)
+                )
+            return
+
     # ── Excel cargado por el usuario ──
     excel_temp   = context.user_data.get("excel_temp")
     excel_nombre = context.user_data.get("excel_nombre")
@@ -201,6 +230,32 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         consumido = await manejar_texto_cliente(chat_id, texto, update.message, vendedor)
         if consumido:
             return
+
+        # ── Interceptar metodo de pago hablado ──
+        with _estado_lock:
+            _ventas_pend_audio = list(ventas_pendientes.get(chat_id, []))
+
+        if _ventas_pend_audio:
+            _metodos_audio = {
+                "efectivo": "efectivo", "cash": "efectivo", "contado": "efectivo",
+                "transferencia": "transferencia", "transfer": "transferencia",
+                "nequi": "transferencia", "daviplata": "transferencia", "bancolombia": "transferencia",
+                "datafono": "datafono", "datáfono": "datafono", "tarjeta": "datafono",
+            }
+            metodo_audio = _metodos_audio.get(texto.strip().lower())
+            if metodo_audio:
+                with _estado_lock:
+                    ventas_audio = ventas_pendientes.pop(chat_id, [])
+                if ventas_audio:
+                    from ventas_state import registrar_ventas_con_metodo
+                    confirmaciones = await asyncio.to_thread(
+                        registrar_ventas_con_metodo, ventas_audio, metodo_audio, vendedor, chat_id
+                    )
+                    emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo_audio, "✅")
+                    await update.message.reply_text(
+                        f"✅ Venta registrada — {emoji} {metodo_audio.capitalize()}\n\n" + "\n".join(confirmaciones)
+                    )
+                return
 
         historial = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", f"{vendedor}: {texto}")
