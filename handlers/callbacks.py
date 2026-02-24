@@ -17,7 +17,7 @@ from ventas_state import (
     ventas_pendientes, borrados_pendientes, clientes_en_proceso,
     ventas_esperando_cliente, registrar_ventas_con_metodo, _estado_lock,
 )
-from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
+from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, es_thinner
 
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
@@ -26,9 +26,14 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         precio       = float(v.get("precio_unitario", 0))
-        total        = round(precio * cantidad_dec)
+        producto     = v.get("producto", "")
+        # Thinner: el precio ya es el total — no multiplicar
+        if es_thinner(producto):
+            total = round(precio)
+        else:
+            total = round(precio * cantidad_dec)
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
-        lineas.append(f"• {v.get('producto')} x{cantidad_leg} = ${total:,.0f}")
+        lineas.append(f"• {producto} x{cantidad_leg} = ${total:,.0f}")
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("💵 Efectivo",      callback_data=f"pago_efectivo_{chat_id}"),
