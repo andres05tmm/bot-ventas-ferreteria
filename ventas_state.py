@@ -13,7 +13,7 @@ from excel import (
     guardar_venta_excel,
     obtener_nombre_id_cliente,
 )
-from memoria import cargar_inventario, guardar_inventario, cargar_caja, guardar_caja
+from memoria import cargar_inventario, guardar_inventario, cargar_caja, guardar_caja, cargar_memoria
 
 
 _estado_lock = threading.Lock()
@@ -33,6 +33,43 @@ clientes_en_proceso: dict[int, dict] = {}
 # {chat_id: {"ventas": [...], "metodo": "efectivo"|None}}
 # Ventas que quedaron en pausa esperando que se cree el cliente
 # Una vez creado el cliente, se registran automaticamente
+
+
+def _precio_es_total_fraccion(nombre_producto: str, precio: float, cantidad: float) -> bool:
+    """
+    Retorna True si el precio ya corresponde al precio de esa fraccion en el catalogo.
+    En ese caso el total = precio (no multiplicar por cantidad).
+
+    Para productos con precios_fraccion, Claude manda el precio de la fraccion
+    (ej: 26000 para 1/2 galon de vinilo T1), no el precio por galon completo.
+    Multiplicar daria un total incorrecto (26000 x 0.5 = 13000 en lugar de 26000).
+    """
+    if es_thinner(nombre_producto):
+        return True  # Thinner siempre maneja precio como total
+
+    try:
+        catalogo = cargar_memoria().get("catalogo", {})
+        nombre_lower = nombre_producto.lower()
+        # Buscar el producto en el catalogo (coincidencia parcial)
+        for prod in catalogo.values():
+            prod_lower = prod.get("nombre_lower", "")
+            if not prod_lower:
+                continue
+            # Coincidencia: el nombre del producto contiene el del catalogo o viceversa
+            if prod_lower in nombre_lower or nombre_lower in prod_lower:
+                precios_fraccion = prod.get("precios_fraccion", {})
+                if not precios_fraccion:
+                    break
+                # Verificar si el precio coincide con el precio de alguna fraccion
+                precio_int = int(round(precio))
+                for frac_data in precios_fraccion.values():
+                    if int(round(frac_data.get("precio", 0))) == precio_int:
+                        return True  # El precio ya es el total de esa fraccion
+                break
+    except Exception as e:
+        print(f"[PRECIO_FRACCION] error buscando en catalogo: {e}")
+
+    return False
 ventas_esperando_cliente: dict[int, dict] = {}
 
 
@@ -71,20 +108,20 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         cantidad       = convertir_fraccion_a_decimal(venta.get("cantidad", 1))
         precio_cobrado = float(venta.get("precio_unitario", 0))
 
-        # ── Thinner: el precio pagado ES el total; la cantidad se deriva del precio ──
-        # Claude manda precio_unitario=lo que pago el cliente y cantidad=fraccion calculada.
-        # El total NUNCA debe multiplicarse: es exactamente lo que pago el cliente.
+        # ── Correccion especial thinner: cantidad se deriva del precio ──
         if es_thinner(producto):
-            # Si Claude no supo calcular bien la cantidad, la derivamos del precio
-            cantidad_esperada, frac_legible = cantidad_thinner_por_precio(precio_cobrado)
+            cantidad_esperada, _ = cantidad_thinner_por_precio(precio_cobrado)
             if cantidad_esperada > 0 and abs(cantidad - cantidad_esperada) > 0.05:
-                # Corregir cantidad si difiere significativamente de la tabla oficial
                 print(f"[THINNER] corrigiendo cantidad {cantidad:.4f} → {cantidad_esperada:.6g} para precio ${precio_cobrado:,.0f}")
                 cantidad = cantidad_esperada
-            # Para thinner: total = lo que pago el cliente (precio_cobrado), sin multiplicar
+
+        # ── Calcular total ──
+        # Para productos con precios_fraccion (pinturas, thinner, etc.),
+        # Claude manda el precio de la fraccion como precio_unitario — ese ya ES el total.
+        # Para el resto, total = precio_unitario × cantidad.
+        if _precio_es_total_fraccion(producto, precio_cobrado, cantidad):
             total = round(precio_cobrado)
         else:
-            # Resto de productos: total = precio_unitario × cantidad
             total = round(precio_cobrado * cantidad)
 
         total_transaccion += total
