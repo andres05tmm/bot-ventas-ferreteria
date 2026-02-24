@@ -506,21 +506,26 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     ventas_con_metodo = []
     ventas_sin_metodo = []
 
-    # Si ya hay ventas pendientes de metodo de pago para este chat, NO procesar nuevas ventas
-    # (evita duplicados cuando el bot pregunta precio o info adicional)
+    # Bloquear nuevas ventas SOLO si ya hay ventas esperando que el usuario
+    # elija metodo de pago (esos botones ya estan en pantalla).
+    # Esto evita duplicados sin bloquear flujos legitimos como cuando el bot
+    # pregunta el precio y el usuario responde.
     with _estado_lock:
-        ya_hay_pendientes = bool(ventas_pendientes.get(chat_id))
+        esperando_pago = bool(ventas_pendientes.get(chat_id))
 
-    for venta_json in re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL):
+    ventas_nuevas = re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL)
+
+    for venta_json in ventas_nuevas:
         try:
-            if not ya_hay_pendientes:
+            if esperando_pago:
+                # Ya hay botones de pago en pantalla — ignorar para evitar duplicado
+                print(f"[VENTA] ignorado — esperando seleccion de pago para chat {chat_id}")
+            else:
                 venta = json.loads(venta_json.strip())
                 if venta.get("metodo_pago"):
                     ventas_con_metodo.append(venta)
                 else:
                     ventas_sin_metodo.append(venta)
-            else:
-                print(f"[VENTA] ignorado — ya hay ventas pendientes para chat {chat_id}")
         except Exception as e:
             print(f"Error parseando venta: {e}")
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
