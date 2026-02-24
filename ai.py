@@ -37,7 +37,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     resumen_excel_total    = resumen["total"]     if resumen else 0
     resumen_excel_cantidad = resumen["num_ventas"] if resumen else 0
 
-    # Sumar ventas del dia actual desde el Sheets (aun no pasadas al Excel)
+    # Sumar ventas del dia actual desde el Sheets
     resumen_sheets_total    = 0
     resumen_sheets_cantidad = 0
     if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
@@ -76,11 +76,11 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     else:
         datos_texto = "(no cargado)"
 
-    # Stopwords (se usa mas abajo en candidatos y clientes)
+    # Stopwords
     stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
                  "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en"}
 
-    # Info de fracciones si el mensaje las menciona
+    # Info de fracciones
     info_fracciones_extra = ""
     palabras_frac = ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"]
     if any(p in mensaje_usuario.lower() for p in palabras_frac):
@@ -99,7 +99,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             if encontrado:
                 break
 
-    # Candidatos del catalogo para el mensaje actual
+    # Candidatos del catalogo
     info_candidatos_extra = ""
     palabras_clave = [p for p in mensaje_usuario.lower().split() if p not in stopwords]
     if palabras_clave:
@@ -130,7 +130,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
                 "\nPRODUCTO ENCONTRADO EN CATALOGO:\n" + _linea_candidato(candidatos[0])
             )
 
-    # ── CLIENTES RECIENTES: si el mensaje lo pide ──
+    # ── CLIENTES RECIENTES ──
     clientes_recientes_texto = ""
     palabras_recientes = ["ultimo", "ultimos", "reciente", "recientes", "nuevo", "nuevos", "anadido", "anadidos", "agregado", "agregados", "registrado", "registrados"]
     _msg_norm = _normalizar(mensaje_usuario)
@@ -153,7 +153,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             print(f"Error clientes recientes: {e}")
             clientes_recientes_texto = ""
 
-    # ── CLIENTES: buscar si el mensaje menciona alguno ──
+    # ── CLIENTES BUSQUEDA ──
     clientes_texto = ""
     try:
         from excel import buscar_cliente_con_resultado
@@ -164,7 +164,6 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             cliente_unico, candidatos = buscar_cliente_con_resultado(termino_cliente)
 
             if len(candidatos) == 1:
-                # Un solo cliente encontrado — mostrarlo directamente
                 c      = candidatos[0]
                 nombre = c.get("Nombre tercero", "")
                 id_c   = c.get("Identificación", "")
@@ -174,7 +173,6 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
                     f"  - {nombre} ({tipo}: {id_c})"
                 )
             elif len(candidatos) > 1:
-                # Varios candidatos — el bot debe preguntar cual es
                 lineas_cli = []
                 for c in candidatos:
                     nombre = c.get("Nombre tercero", "")
@@ -193,14 +191,14 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     if not config.DRIVE_DISPONIBLE:
         aviso_drive = "\n⚠️ AVISO: Google Drive no disponible. Los datos se guardan localmente."
 
-    # Inventario: solo si el mensaje lo menciona
+    # Inventario
     palabras_inv = ["inventario", "stock", "queda", "quedan", "hay", "cuanto hay", "existencia"]
     if any(p in mensaje_usuario.lower() for p in palabras_inv):
         inventario_texto = f"INVENTARIO ACTUAL:\n{json.dumps(cargar_inventario(), ensure_ascii=False)}"
     else:
         inventario_texto = ""
 
-    # Caja y gastos: solo si el mensaje los menciona
+    # Caja y gastos
     palabras_caja = ["caja", "gasto", "gastos", "apertura", "cierre", "efectivo", "cuanto hay en caja"]
     if any(p in mensaje_usuario.lower() for p in palabras_caja):
         caja_texto   = f"ESTADO CAJA:\n{obtener_resumen_caja()}"
@@ -209,10 +207,8 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
         caja_texto   = ""
         gastos_texto = ""
 
-
-    # ── CATALOGO: carga inteligente segun el mensaje ──
+    # ── CATALOGO ──
     catalogo = memoria.get("catalogo", {})
-
     def _linea_producto(prod):
         fracs = prod.get("precios_fraccion", {})
         pxc   = prod.get("precio_por_cantidad")
@@ -231,17 +227,13 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 
     pide_catalogo_completo = any(p in msg_lower for p in palabras_precio)
     no_necesita_catalogo   = any(p in msg_lower for p in palabras_no_catalogo) and not pide_catalogo_completo
-    # Si ya tenemos candidatos especificos y no pide el catalogo completo, no lo mandamos
     tiene_candidatos = bool(info_candidatos_extra)
 
     if no_necesita_catalogo:
-        # Mensaje de caja/gastos/reportes — no necesita catalogo
         precios_texto = ""
     elif tiene_candidatos and not pide_catalogo_completo:
-        # Mensaje de venta con producto especifico — los candidatos ya estan en info_candidatos_extra
         precios_texto = ""
     elif catalogo:
-        # Catalogo completo: cuando pide precios genericos o mensaje ambiguo
         categorias: dict = {}
         for prod in catalogo.values():
             cat = prod.get("categoria", "Otros")
@@ -268,7 +260,6 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             "Si el usuario menciona una fraccion sin precio, preguntale cuanto vale."
         )
 
-    # Construir seccion catalogo solo si hay contenido
     if precios_texto:
         catalogo_seccion = (
             "CATALOGO DE PRODUCTOS (precios por fraccion incluidos):\n"
@@ -286,14 +277,20 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] caja[CAJA] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE]. Memoria permanente de precios.
 
 REGLAS CRITICAS DE FRACCIONES Y PRECIOS:
-- Muchos productos se venden en fracciones: 1/4, 1/2, 3/4, 1/8 de galon/unidad.
-- Los precios de fraccion NO se calculan matematicamente. Son precios independientes.
-- NUNCA calcules ni asumas el precio de una fraccion multiplicando el precio de unidad.
-- Si el usuario menciona una fraccion Y dice el precio: registra la venta y guarda el precio.
-- Si el usuario menciona una fraccion pero NO dice el precio: busca en PRECIOS DE FRACCION CONOCIDOS.
-  Si no lo tienes: pregunta antes de registrar.
-- En el campo "cantidad" pon el decimal: 1/4=0.25, 1/2=0.5, 3/4=0.75, 1/8=0.125
-- En el campo "precio_unitario" pon el precio TOTAL de esa fraccion (lo que pago el cliente)
+1. FRACCIONES (1/2, 1/4, 3/4, 1/8):
+   - Si el usuario dicta un precio para una FRACCIÓN, ese precio es el TOTAL.
+   - Envíalo tal cual en 'precio_unitario'.
+   - NUNCA multipliques ni dividas ese precio.
+   - Ejemplo: "1/2 galon vinilo 21000" -> cantidad: 0.5, precio_unitario: 21000.
+
+2. CANTIDADES ENTERAS (1, 2, 5, 12, etc.):
+   - Si dice "12 tornillos a 500 cada uno" -> precio_unitario: 500.
+   - Si dice "12 tornillos 6000" (sin "a" ni "cada uno") -> es el TOTAL de la compra. Divide 6000/12 = 500 y envía 500 en precio_unitario.
+
+3. REGLA THINNER — MUY IMPORTANTE:
+   - Cuando el usuario diga "X pesos de thinner" el precio es el TOTAL pagado.
+   - La cantidad (fraccion) se determina según: $3.000 → 0.083333 | $10.000 → 0.333333 | $15.000 → 0.5 | $20.000 → 0.75
+
 {info_fracciones_extra}
 {info_candidatos_extra}
 
@@ -315,117 +312,32 @@ DATOS HISTORICOS (analisis):
 {gastos_texto}
 {aviso_drive}
 
-REGLA CRITICA — PREGUNTAS VS ORDENES:
-NUNCA ejecutes una accion si el usuario esta PREGUNTANDO como funciona algo.
-Palabras que indican pregunta (NO actuar): "como hago", "como se hace", "como funciona",
-"como abro", "como cierro", "como registro", "para que sirve", "que pasa si", "y si quiero".
-Solo actua cuando el mensaje es una orden directa: "abre caja", "cierra caja", "registra venta".
-Ejemplos:
-  - "y como hago cuando la quiera abrir?" → SOLO explicar, NO abrir caja
-  - "abre la caja con 50000" → SI abrir caja
-  - "como se registra un gasto?" → SOLO explicar, NO registrar nada
-  - "registra un gasto de 5000" → SI registrar gasto
-
-INSTRUCCIONES DE FORMATO:
+INSTRUCCIONES DE FORMATO Y RESPUESTA:
 1. Responde en español, natural y amigable. Sin markdown con ** ni #.
-   Mensajes cortos y directos, SIN lineas en blanco entre frases ni parrafos.
-   Cuando confirmes una venta CON cliente ya registrado en el sistema, usa UNA sola frase corta:
-   Ejemplo correcto (cliente existente): "Listo, registro a Patricia Hernandez. ¿Metodo de pago?"
-   Cuando confirmes una venta CON cliente NUEVO (emites [INICIAR_CLIENTE]), NO preguntes
-   el metodo de pago — el sistema lo hara automaticamente despues de crear el cliente:
-   Ejemplo correcto (cliente nuevo): "Detecto la venta y el cliente nuevo. Voy a registrar todo junto."
-   Ejemplo INCORRECTO (cliente nuevo): "Listo, registro a Alberto Trujillo. ¿Metodo de pago?"
-   CRITICO: Si el mensaje incluye "PRODUCTOS DEL CATALOGO QUE COINCIDEN" o
-   "PRODUCTO ENCONTRADO EN CATALOGO", SIEMPRE usa esa informacion para responder precios.
 
-2. Venta detectada — incluye al FINAL uno por producto:
+2. ORDEN DE RESPUESTA EN TEXTO PARA VENTAS (CRITICO):
+   - Cuando confirmes o listes una venta en tu respuesta de texto, usa SIEMPRE este orden estricto: 1. Cantidad, 2. Producto, 3. Valor Total.
+   - Ejemplo correcto: "• 1/2 Vinilo Blanco T-2 $21,000"
+   - Ejemplo correcto: "• 12 Tornillo Drywall $6,000"
+
+3. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000}}[/VENTA]
-   - Si el usuario NO menciona cliente en ninguna parte del mensaje: NO preguntes, registra directo sin campo "cliente".
-   - Si el usuario menciona un cliente: agrega "cliente": "nombre del cliente".
-   - Si el usuario menciona el metodo DE PAGO EN ESTE MISMO MENSAJE: agrega "metodo_pago": "efectivo|transferencia|datafono".
-   - Si NO dijo el metodo EN ESTE MENSAJE: NO pongas metodo_pago (el sistema preguntara con botones).
-   CRITICO: NUNCA preguntes "a nombre de quien" si el usuario no menciono un cliente explícitamente.
-   CRITICO: El metodo de pago solo se incluye si el usuario lo dijo EXPLICITAMENTE en el mensaje actual.
-   CRITICO: NUNCA repitas [VENTA] para el mismo producto.
-   CRITICO: Si el usuario esta RESPONDIENDO una pregunta tuya, NO emitas [VENTA] de nuevo.
+   - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
+   - Si menciona cliente y está en la base: Usa el nombre directo en "cliente".
+   - Si menciona cliente y NO está en la base: Usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}. NUNCA preguntes el documento tú, usa la etiqueta.
 
-   REGLA DE PRECIO TOTAL VS UNITARIO — CRITICA:
-   En una ferreteria colombiana, cuando el usuario dice "X producto PRECIO" sin palabras especiales,
-   el PRECIO es siempre el TOTAL cobrado, NO el precio por unidad.
-   precio_unitario = PRECIO / cantidad
+4. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
+5. Codigo producto: [CODIGO_PRODUCTO]{{"producto": "nombre exacto del producto", "codigo": "COD123"}}[/CODIGO_PRODUCTO]
+6. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
+7. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
+8. Excel: [EXCEL]{{"titulo": "Titulo", "encabezados": ["Col1"], "filas": [["dato"]]}}[/EXCEL]
+9. Apertura caja: [CAJA]{{"accion": "apertura", "monto": 50000}}[/CAJA]
+10. Cierre caja: [CAJA]{{"accion": "cierre"}}[/CAJA]
+11. Gasto: [GASTO]{{"concepto": "nombre", "monto": 50000, "categoria": "varios", "origen": "caja"}}[/GASTO]
+12. Inventario: [INVENTARIO]{{"producto": "nombre", "cantidad": 10, "minimo": 2, "unidad": "galones", "accion": "actualizar"}}[/INVENTARIO]
+13. Borrar cliente: [BORRAR_CLIENTE]{{"nombre": "nombre o identificacion del cliente"}}[/BORRAR_CLIENTE]
 
-   EJEMPLOS DE PRECIO TOTAL (sin palabras especiales → dividir):
-   - "12 tornillos drywall 2000" → precio_unitario=166.67, cantidad=12 (2000 es el total)
-   - "12 tornillos 2000" → precio_unitario=166.67, cantidad=12
-   - "5 brochas 10000" → precio_unitario=2000, cantidad=5
-   - "vendio 3 galones vinilo 120000" → precio_unitario=40000, cantidad=3
-   - "50 tornillos 5000" → precio_unitario=100, cantidad=50 (5000 es el total)
-
-   EJEMPLOS DE PRECIO UNITARIO (con palabras especiales → multiplicar):
-   - "12 tornillos a 2000" → precio_unitario=2000, total=24000
-   - "12 tornillos a 2000 cada uno" → precio_unitario=2000, total=24000
-   - "12 tornillos c/u 2000" → precio_unitario=2000, total=24000
-   - "5 brochas a 3000 cada una" → precio_unitario=3000, total=15000
-   Palabras que indican precio UNITARIO: "a X", "c/u", "cada uno", "cada una", "por unidad".
-   Si NO aparece ninguna de esas palabras: el precio es el TOTAL, divide entre cantidad.
-
-   REGLA DE FRACCIONES EN VENTAS (MUY IMPORTANTE):
-   Cuando el usuario diga "un cuarto", "un octavo", "medio", "un tercio" etc, convierte asi:
-   - "un cuarto" o "1/4" → cantidad: 0.25
-   - "un octavo" o "1/8" → cantidad: 0.125
-   - "medio" o "media" o "1/2" → cantidad: 0.5
-   - "tres cuartos" o "3/4" → cantidad: 0.75
-   - "un dieciseisavo" o "1/16" → cantidad: 0.0625
-
-   REGLA THINNER — MUY IMPORTANTE:
-   Cuando el usuario diga "X pesos de thinner/tiner/tinner" el precio es el TOTAL pagado.
-   La cantidad (fraccion de galon) se determina SEGUN ESTA TABLA OFICIAL:
-   $3.000 → cantidad:0.083333 | $10.000 → cantidad:0.333333
-   $15.000 → cantidad:0.5     | $20.000 → cantidad:0.75
-
-   REGLA DE PINTURAS SIN COLOR (MUY IMPORTANTE):
-   Si el usuario dice "vinilo t1", "esmalte", etc SIN especificar color:
-   → SIEMPRE pregunta el color primero: "¿De qué color?" y NO registres hasta saberlo.
-
-2b. Cliente en una venta — REGLAS CRITICAS:
-   FLUJO SEGUN LO QUE APARECE EN EL SISTEMA:
-
-   A) Si el usuario NO MENCIONÓ a ningún cliente:
-      → NO uses [INICIAR_CLIENTE]. NUNCA preguntes el nombre.
-      → Registra la [VENTA] directamente sin el campo "cliente".
-      → El sistema usará "Consumidor Final" automáticamente.
-
-   B) Si aparece "CLIENTE ENCONTRADO EN EL SISTEMA":
-      → Usa ese cliente DIRECTAMENTE en el campo "cliente" del [VENTA].
-      → NO preguntes identificacion. NO uses [INICIAR_CLIENTE].
-
-   C) Si aparece "MULTIPLES CLIENTES ENCONTRADOS":
-      → Pregunta al usuario cual es antes de registrar la venta.
-
-   D) Si el usuario MENCIONÓ un cliente explícitamente pero NO aparece en el sistema:
-      → El cliente no existe y hay que crearlo. USA SIEMPRE [INICIAR_CLIENTE].
-      → NUNCA uses [CLIENTE_NUEVO] a menos que el usuario haya dado EXPLICITAMENTE
-        en ese mismo mensaje: nombre completo + numero de cedula/NIT + tipo de documento.
-      → Ejemplo normal: [INICIAR_CLIENTE]{{"nombre":"nombre del cliente"}}[/INICIAR_CLIENTE]
-
-   METODO DE PAGO CUANDO HAY CLIENTE NUEVO — CRITICO:
-   Cuando emites [INICIAR_CLIENTE], el sistema pausa las ventas. NO preguntes metodo de pago.
-   Ejemplo correcto: "Detecto la venta y el cliente nuevo. Voy a registrar todo junto."
-   + [INICIAR_CLIENTE]{{"nombre":"Alberto Trujillo"}}[/INICIAR_CLIENTE]
-   + [VENTA]...[/VENTA]
-
-3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
-3c. Codigo producto: [CODIGO_PRODUCTO]{{"producto": "nombre exacto del producto", "codigo": "COD123"}}[/CODIGO_PRODUCTO]
-3b. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
-4. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
-5. Excel: [EXCEL]{{"titulo": "Titulo", "encabezados": ["Col1"], "filas": [["dato"]]}}[/EXCEL]
-6. Apertura caja: [CAJA]{{"accion": "apertura", "monto": 50000}}[/CAJA]
-7. Cierre caja: [CAJA]{{"accion": "cierre"}}[/CAJA]
-8. Gasto: [GASTO]{{"concepto": "nombre", "monto": 50000, "categoria": "varios", "origen": "caja"}}[/GASTO]
-9. Inventario: [INVENTARIO]{{"producto": "nombre", "cantidad": 10, "minimo": 2, "unidad": "galones", "accion": "actualizar"}}[/INVENTARIO]
-10. Borrar cliente: [BORRAR_CLIENTE]{{"nombre": "nombre o identificacion del cliente"}}[/BORRAR_CLIENTE]
-11. Para borrar ventas: /borrar numero
-12. Usuario actual: {nombre_usuario}"""
+Usuario actual: {nombre_usuario}"""
 
 
 # ─────────────────────────────────────────────
@@ -510,7 +422,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 ventas_pendientes[chat_id] = ventas_sin_metodo
             acciones.append("PEDIR_METODO_PAGO")
 
-    # ── Cliente nuevo ──
+    # ── Cliente nuevo (manual explícito) ──
     for cli_json in re.findall(r'\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]', texto_respuesta, re.DOTALL):
         try:
             datos  = json.loads(cli_json.strip())
@@ -524,10 +436,8 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 )
                 acciones.append(
                     f"👤 Cliente creado: {nombre.upper()} — {datos.get('tipo_id','')}: {id_num}"
-                    if ok else f"⚠️ No pude guardar el cliente {nombre}. Intenta de nuevo."
+                    if ok else f"⚠️ No pude guardar el cliente {nombre}."
                 )
-            else:
-                acciones.append("⚠️ Para crear el cliente necesito al menos el nombre y el número de identificación.")
         except Exception as e:
             print(f"Error cliente nuevo: {e}")
         texto_limpio = texto_limpio.replace(f'[CLIENTE_NUEVO]{cli_json}[/CLIENTE_NUEVO]', '')
@@ -575,8 +485,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 from excel import borrar_cliente
                 exito, msg = borrar_cliente(nombre)
                 acciones.append(msg)
-            else:
-                acciones.append("⚠️ No se especifico el cliente a borrar.")
         except Exception as e:
             print(f"Error borrando cliente: {e}")
         texto_limpio = texto_limpio.replace(f'[BORRAR_CLIENTE]{bc_json}[/BORRAR_CLIENTE]', '')
@@ -618,7 +526,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             if nombre and codigo:
                 mem      = cargar_memoria()
                 catalogo = mem.get("catalogo", {})
-                from memoria import buscar_producto_en_catalogo
                 prod = buscar_producto_en_catalogo(nombre)
                 if prod:
                     for k, v in catalogo.items():
@@ -628,8 +535,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     mem["catalogo"] = catalogo
                     guardar_memoria(mem)
                     acciones.append(f"🏷️ Código guardado: {nombre} = {codigo}")
-                else:
-                    acciones.append(f"⚠️ Producto '{nombre}' no encontrado en el catálogo.")
         except Exception as e:
             print(f"Error codigo producto: {e}")
         texto_limpio = texto_limpio.replace(f'[CODIGO_PRODUCTO]{cp_json}[/CODIGO_PRODUCTO]', '')
