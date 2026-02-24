@@ -45,7 +45,8 @@ def _obtener_hoja_sheets():
         return None
 
 
-def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vendedor, metodo) -> bool:
+def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vendedor, metodo,
+                          id_cliente="CF", nombre_cliente="Consumidor Final", codigo_producto="", alias="") -> bool:
     """Agrega una fila de venta al Google Sheets en tiempo real."""
     if not config.SHEETS_ID:
         return False
@@ -61,15 +62,28 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
             if not isinstance(cantidad, str) else str(cantidad)
         )
         fila = [
-            num, fecha, hora, str(producto), cantidad_legible,
-            float(precio_unitario), float(total), str(vendedor), str(metodo),
+            num,                    # CONSECUTIVO DE VENTA
+            fecha,                  # FECHA
+            hora,                   # HORA
+            str(id_cliente),        # ID CLIENTE
+            str(nombre_cliente),    # CLIENTE
+            str(codigo_producto),   # Código del Producto
+            str(producto),          # PRODUCTO
+            cantidad_legible,       # CANTIDAD
+            float(precio_unitario), # VALOR UNITARIO
+            float(total),           # TOTAL
+            str(alias or num),      # ALIAS
+            str(vendedor),          # VENDEDOR
+            str(metodo),            # METODO DE PAGO
         ]
         ws.append_row(fila, value_input_option="USER_ENTERED")
 
         # Alternar color de fila
         num_filas = len(ws.get_all_values())
+        num_cols  = len(config.SHEETS_HEADERS)
+        col_letra = chr(ord('A') + num_cols - 1)
         if num_filas % 2 == 0:
-            ws.format(f"A{num_filas}:I{num_filas}", {
+            ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
                 "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0}
             })
 
@@ -123,15 +137,19 @@ def sheets_leer_ventas_del_dia() -> list:
             if not any(fila.values()):
                 continue
             resultado.append({
-                "num":             fila.get("#", fila.get("num", "")),
-                "fecha":           fila.get("Fecha", fila.get("fecha", "")),
-                "hora":            fila.get("Hora", fila.get("hora", "")),
-                "producto":        fila.get("Producto", fila.get("producto", "")),
-                "cantidad":        fila.get("Cantidad", fila.get("cantidad", "")),
-                "precio_unitario": fila.get("Precio Unitario", fila.get("precio_unitario", 0)),
-                "total":           fila.get("Total", fila.get("total", 0)),
-                "vendedor":        fila.get("Vendedor", fila.get("vendedor", "")),
-                "metodo":          fila.get("Método Pago", fila.get("metodo", "")),
+                "num":             fila.get("CONSECUTIVO DE VENTA", fila.get("#", "")),
+                "fecha":           fila.get("FECHA", fila.get("Fecha", "")),
+                "hora":            fila.get("HORA", fila.get("Hora", "")),
+                "id_cliente":      fila.get("ID CLIENTE", "CF"),
+                "cliente":         fila.get("CLIENTE", "Consumidor Final"),
+                "codigo_producto": fila.get("Código del Producto", ""),
+                "producto":        fila.get("PRODUCTO", fila.get("Producto", "")),
+                "cantidad":        fila.get("CANTIDAD", fila.get("Cantidad", "")),
+                "precio_unitario": fila.get("VALOR UNITARIO", fila.get("Precio Unitario", 0)),
+                "total":           fila.get("TOTAL", fila.get("Total", 0)),
+                "alias":           fila.get("ALIAS", ""),
+                "vendedor":        fila.get("VENDEDOR", fila.get("Vendedor", "")),
+                "metodo":          fila.get("METODO DE PAGO", fila.get("Método Pago", "")),
             })
         return resultado
     except Exception as e:
