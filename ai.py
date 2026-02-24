@@ -22,7 +22,7 @@ from memoria import (
 from excel import (
     obtener_todos_los_datos, obtener_resumen_ventas,
     generar_excel_personalizado, guardar_cliente_nuevo,
-    inicializar_excel,
+    inicializar_excel, buscar_clientes_multiples, _normalizar,
 )
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
@@ -32,14 +32,37 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 # ─────────────────────────────────────────────
 
 def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
-    memoria       = cargar_memoria()
-    resumen       = obtener_resumen_ventas()
-    resumen_texto = (
-        f"${resumen['total']:,.0f} en {resumen['num_ventas']} ventas este mes"
-        if resumen else "Sin ventas este mes"
-    )
+    memoria = cargar_memoria()
+    resumen = obtener_resumen_ventas()
+    resumen_excel_total    = resumen["total"]      if resumen else 0
+    resumen_excel_cantidad = resumen["num_ventas"] if resumen else 0
 
-    # Cargar datos historicos solo si el mensaje parece un analisis
+    resumen_sheets_total    = 0
+    resumen_sheets_cantidad = 0
+    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+        try:
+            from sheets import sheets_leer_ventas_del_dia
+            ventas_hoy = sheets_leer_ventas_del_dia()
+            for v in ventas_hoy:
+                try:
+                    resumen_sheets_total    += float(v.get("total", 0) or 0)
+                    resumen_sheets_cantidad += 1
+                except (ValueError, TypeError):
+                    pass
+        except Exception:
+            pass
+
+    total_combinado    = resumen_excel_total + resumen_sheets_total
+    cantidad_combinada = resumen_excel_cantidad + resumen_sheets_cantidad
+
+    if cantidad_combinada > 0:
+        resumen_texto = (
+            f"${total_combinado:,.0f} en {cantidad_combinada} ventas este mes "
+            f"(hoy: ${resumen_sheets_total:,.0f} en {resumen_sheets_cantidad} ventas)"
+        )
+    else:
+        resumen_texto = "Sin ventas este mes"
+
     palabras_analisis = ["cuanto", "vendimos", "reporte", "analiz", "total",
                          "resumen", "estadistica", "top", "mas vendido"]
     if any(p in mensaje_usuario.lower() for p in palabras_analisis):
@@ -51,7 +74,9 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
     else:
         datos_texto = "(no cargado)"
 
-    # Info de fracciones si el mensaje las menciona
+    stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
+                 "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en"}
+
     info_fracciones_extra = ""
     palabras_frac = ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"]
     if any(p in mensaje_usuario.lower() for p in palabras_frac):
@@ -70,10 +95,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             if encontrado:
                 break
 
-    # Candidatos del catalogo para el mensaje actual
     info_candidatos_extra = ""
-    stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
-                 "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en"}
     palabras_clave = [p for p in mensaje_usuario.lower().split() if p not in stopwords]
     if palabras_clave:
         termino    = " ".join(palabras_clave[:5])
@@ -103,32 +125,113 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
                 "\nPRODUCTO ENCONTRADO EN CATALOGO:\n" + _linea_candidato(candidatos[0])
             )
 
+    # ── CLIENTES RECIENTES ──
+    clientes_recientes_texto = ""
+    palabras_recientes = ["ultimo", "ultimos", "reciente", "recientes", "nuevo", "nuevos",
+                          "anadido", "anadidos", "agregado", "agregados", "registrado", "registrados"]
+    _msg_norm = _normalizar(mensaje_usuario)
+    if any(p in _msg_norm for p in palabras_recientes) and "cliente" in _msg_norm:
+        try:
+            from excel import obtener_clientes_recientes
+            recientes = obtener_clientes_recientes(5)
+            if recientes:
+                lineas = []
+                for c in recientes:
+                    nombre = c.get("Nombre tercero", "")
+                    id_c   = c.get("Identificacion", "") or c.get("Identificación", "")
+                    tipo   = c.get("Tipo de identificacion", "") or c.get("Tipo de identificación", "")
+                    fecha  = c.get("Fecha registro", "Sin fecha")
+                    lineas.append(f"  - {nombre} ({tipo}: {id_c}) — registrado: {fecha}")
+                clientes_recientes_texto = (
+                    "ULTIMOS 5 CLIENTES REGISTRADOS EN EL SISTEMA:\n" + "\n".join(lineas)
+                )
+        except Exception as e:
+            print(f"Error clientes recientes: {e}")
+
+    # ── CLIENTES BUSQUEDA ──
+    clientes_texto = ""
+    try:
+        from excel import buscar_cliente_con_resultado
+        palabras_cliente = [p for p in mensaje_usuario.lower().split()
+                            if len(p) > 3 and p not in stopwords]
+        if palabras_cliente:
+            termino_cliente = " ".join(palabras_cliente[:4])
+            cliente_unico, candidatos_cli = buscar_cliente_con_resultado(termino_cliente)
+
+            if len(candidatos_cli) == 1:
+                c      = candidatos_cli[0]
+                nombre = c.get("Nombre tercero", "")
+                id_c   = c.get("Identificación", "")
+                tipo   = c.get("Tipo de identificación", "")
+                clientes_texto = (
+                    f"CLIENTE ENCONTRADO EN EL SISTEMA (usar este directamente):\n"
+                    f"  - {nombre} ({tipo}: {id_c})"
+                )
+            elif len(candidatos_cli) > 1:
+                lineas_cli = []
+                for c in candidatos_cli:
+                    nombre = c.get("Nombre tercero", "")
+                    id_c   = c.get("Identificación", "")
+                    tipo   = c.get("Tipo de identificación", "")
+                    lineas_cli.append(f"  - {nombre} ({tipo}: {id_c})")
+                clientes_texto = (
+                    "MULTIPLES CLIENTES ENCONTRADOS — pregunta al usuario cual es:\n"
+                    + "\n".join(lineas_cli)
+                    + "\nEjemplo: '¿Te refieres a NOMBRE1 (CC: 123) o NOMBRE2 (CC: 456)?'"
+                )
+    except Exception:
+        clientes_texto = ""
+
     aviso_drive = ""
     if not config.DRIVE_DISPONIBLE:
         aviso_drive = "\n⚠️ AVISO: Google Drive no disponible. Los datos se guardan localmente."
 
-    # Catalogo agrupado por categoria
+    palabras_inv = ["inventario", "stock", "queda", "quedan", "hay", "cuanto hay", "existencia"]
+    if any(p in mensaje_usuario.lower() for p in palabras_inv):
+        inventario_texto = f"INVENTARIO ACTUAL:\n{json.dumps(cargar_inventario(), ensure_ascii=False)}"
+    else:
+        inventario_texto = ""
+
+    palabras_caja = ["caja", "gasto", "gastos", "apertura", "cierre", "efectivo", "cuanto hay en caja"]
+    if any(p in mensaje_usuario.lower() for p in palabras_caja):
+        caja_texto   = f"ESTADO CAJA:\n{obtener_resumen_caja()}"
+        gastos_texto = f"GASTOS DE HOY:\n{json.dumps(cargar_gastos_hoy(), ensure_ascii=False, default=str)}"
+    else:
+        caja_texto   = ""
+        gastos_texto = ""
+
+    # ── CATALOGO ──
     catalogo = memoria.get("catalogo", {})
-    if catalogo:
+
+    def _linea_producto(prod):
+        fracs = prod.get("precios_fraccion", {})
+        pxc   = prod.get("precio_por_cantidad")
+        if fracs:
+            return f"  - {prod['nombre']}: " + " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
+        elif pxc:
+            return (f"  - {prod['nombre']}: "
+                    f"c/u=${pxc['precio_bajo_umbral']:,} | x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
+        else:
+            return f"  - {prod['nombre']}: ${prod['precio_unidad']:,}"
+
+    palabras_precio     = ["precio", "vale", "cuesta", "cuanto", "catalogo", "productos", "lista", "precios"]
+    palabras_no_catalogo = ["caja", "gasto", "gastos", "apertura", "cierre", "reporte", "excel",
+                            "cliente", "clientes", "inventario", "vendimos", "resumen", "analiz"]
+    msg_lower = mensaje_usuario.lower()
+
+    pide_catalogo_completo = any(p in msg_lower for p in palabras_precio)
+    no_necesita_catalogo   = any(p in msg_lower for p in palabras_no_catalogo) and not pide_catalogo_completo
+    tiene_candidatos       = bool(info_candidatos_extra)
+
+    if no_necesita_catalogo:
+        precios_texto = ""
+    elif tiene_candidatos and not pide_catalogo_completo:
+        precios_texto = ""
+    elif catalogo:
         categorias: dict = {}
         for prod in catalogo.values():
             cat = prod.get("categoria", "Otros")
-            fracs = prod.get("precios_fraccion", {})
-            pxc   = prod.get("precio_por_cantidad")
-            if fracs:
-                # Mostrar precios de fraccion directamente para que Claude los vea sin buscar
-                precios_frac_str = " | ".join(
-                    f"{k}=${v['precio']:,}" for k, v in fracs.items()
-                )
-                linea = f"  - {prod['nombre']}: {precios_frac_str}"
-            elif pxc:
-                # Tornilleria: mostrar precio normal y mayorista
-                linea = (f"  - {prod['nombre']}: "
-                         f"c/u=${pxc['precio_bajo_umbral']:,} | "
-                         f"x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
-            else:
-                linea = f"  - {prod['nombre']}: ${prod['precio_unidad']:,}"
-            categorias.setdefault(cat, []).append(linea)
+            categorias.setdefault(cat, []).append(_linea_producto(prod))
         lineas_cat = []
         for cat, items in sorted(categorias.items()):
             lineas_cat.append(f"{cat}:")
@@ -151,19 +254,21 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             "Si el usuario menciona una fraccion sin precio, preguntale cuanto vale."
         )
 
+    if precios_texto:
+        catalogo_seccion = (
+            "CATALOGO DE PRODUCTOS (precios por fraccion incluidos):\n"
+            "Formato: 1=galon | 3/4 | 1/2 | 1/4 | 1/8 | 1/16\n"
+            + precios_texto
+            + "\n\n" + precios_fraccion_texto
+        )
+    elif precios_fraccion_texto and "ninguno" not in precios_fraccion_texto:
+        catalogo_seccion = precios_fraccion_texto
+    else:
+        catalogo_seccion = ""
+
     return f"""Eres FerreBot, asistente inteligente de una ferreteria colombiana.
 
-==================================================
-TUS CAPACIDADES - NUNCA LAS OLVIDES
-==================================================
-- SI PUEDES registrar ventas con [VENTA]...[/VENTA]
-- SI PUEDES crear Excel con [EXCEL]...[/EXCEL]
-- SI PUEDES guardar precios con [PRECIO]...[/PRECIO]
-- SI PUEDES controlar inventario con [INVENTARIO]...[/INVENTARIO]
-- SI PUEDES manejar caja con [CAJA]...[/CAJA]
-- SI PUEDES registrar gastos con [GASTO]...[/GASTO]
-- TIENES memoria permanente de precios y productos
-==================================================
+CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] caja[CAJA] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE]. Memoria permanente de precios.
 
 REGLA DEFINITIVA DE PRECIOS:
 1. Por defecto, CUALQUIER precio mencionado es el TOTAL (no multipliques nunca).
@@ -182,22 +287,19 @@ REGLA DEFINITIVA DE PRECIOS:
 
 4. REGLA THINNER:
    - "X pesos de thinner" -> precio es el TOTAL pagado. Cantidad segun:
-     $3.000→0.083 | $5.000→0.125 | $8.000→0.25 | $10.000→0.333 | $13.000→0.5 | $15.000→0.5 | $20.000→0.75 | $26.000→1.0
+     $3.000->0.083 | $5.000->0.125 | $8.000->0.25 | $10.000->0.333 | $13.000->0.5 | $15.000->0.5 | $20.000->0.75 | $26.000->1.0
 
 CRITICO: En [VENTA] usa SIEMPRE la llave "total". NUNCA uses "precio_unitario".
+
 {info_fracciones_extra}
 {info_candidatos_extra}
 
 INFORMACION DEL NEGOCIO:
 {json.dumps(memoria.get('negocio', {}), ensure_ascii=False)}
+{clientes_recientes_texto}
 {clientes_texto}
 
-CATALOGO DE PRODUCTOS (con precios por fraccion incluidos):
-IMPORTANTE: Los precios de fraccion YA estan en el catalogo. Usaelos directamente.
-Formato: 1=galon completo | 3/4 | 1/2 | 1/4 | 1/8 | 1/16
-{precios_texto}
-
-{precios_fraccion_texto}
+{catalogo_seccion}
 
 RESUMEN VENTAS DEL MES:
 {resumen_texto}
@@ -205,62 +307,38 @@ RESUMEN VENTAS DEL MES:
 DATOS HISTORICOS (analisis):
 {datos_texto}
 
-INVENTARIO ACTUAL:
-{json.dumps(cargar_inventario(), ensure_ascii=False)}
-
-ESTADO CAJA:
-{obtener_resumen_caja()}
-
-GASTOS DE HOY:
-{json.dumps(cargar_gastos_hoy(), ensure_ascii=False, default=str)}
+{inventario_texto}
+{caja_texto}
+{gastos_texto}
 {aviso_drive}
 
-INSTRUCCIONES DE FORMATO:
+INSTRUCCIONES DE FORMATO Y RESPUESTA:
 1. Responde en español, natural y amigable. Sin markdown con ** ni #.
-   CRITICO: Si el mensaje incluye "PRODUCTOS DEL CATALOGO QUE COINCIDEN" o
-   "PRODUCTO ENCONTRADO EN CATALOGO", SIEMPRE usa esa informacion para responder precios.
 
-2. Venta detectada — incluye al FINAL uno por producto:
+2. ORDEN DE RESPUESTA EN TEXTO PARA VENTAS (CRITICO):
+   - Cuando confirmes o listes una venta en tu respuesta de texto, usa SIEMPRE este orden: 1. Cantidad, 2. Producto, 3. Valor Total.
+   - Ejemplo correcto: "1/2 Vinilo Blanco T-2 $21,000"
+   - Ejemplo correcto: "12 Tornillo Drywall $6,000"
+
+3. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}}[/VENTA]
    - Usa SIEMPRE la llave "total" con el valor final pagado. NUNCA uses "precio_unitario".
-   - Si hay cliente: agrega "cliente": "nombre del cliente"
-   - Si el usuario ya dijo el metodo: agrega "metodo_pago": "efectivo|transferencia|datafono"
-   - Si NO dijo el metodo: NO pongas metodo_pago (el sistema preguntara con botones)
-   CRITICO: NUNCA repitas [VENTA] para el mismo producto.
+   - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
+   - Si menciona cliente y esta en la base: Usa el nombre directo en "cliente".
+   - Si menciona cliente y NO esta en la base: Usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}[/INICIAR_CLIENTE]. NUNCA preguntes el documento tu, usa la etiqueta.
 
-   REGLA DE FRACCIONES EN VENTAS:
-   - "un cuarto"/"1/4"→0.25 | "un octavo"/"1/8"→0.125 | "medio"/"1/2"→0.5 | "tres cuartos"/"3/4"→0.75 | "1/16"→0.0625
-   NUNCA registres una fraccion como cantidad 1.
+4. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
+5. Codigo producto: [CODIGO_PRODUCTO]{{"producto": "nombre exacto del producto", "codigo": "COD123"}}[/CODIGO_PRODUCTO]
+6. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
+7. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
+8. Excel: [EXCEL]{{"titulo": "Titulo", "encabezados": ["Col1"], "filas": [["dato"]]}}[/EXCEL]
+9. Apertura caja: [CAJA]{{"accion": "apertura", "monto": 50000}}[/CAJA]
+10. Cierre caja: [CAJA]{{"accion": "cierre"}}[/CAJA]
+11. Gasto: [GASTO]{{"concepto": "nombre", "monto": 50000, "categoria": "varios", "origen": "caja"}}[/GASTO]
+12. Inventario: [INVENTARIO]{{"producto": "nombre", "cantidad": 10, "minimo": 2, "unidad": "galones", "accion": "actualizar"}}[/INVENTARIO]
+13. Borrar cliente: [BORRAR_CLIENTE]{{"nombre": "nombre o identificacion del cliente"}}[/BORRAR_CLIENTE]
 
-   REGLA THINNER (conversion precio a cantidad):
-     $3.000→0.083 | $5.000→0.125 | $8.000→0.25 | $10.000→0.333 | $13.000→0.5 | $15.000→0.5 | $20.000→0.75 | $26.000→1.0
-   Ejemplo: "15000 de tiner" → {{"cantidad": 0.5, "total": 15000}}
-
-   REGLA DE PRODUCTOS AMBIGUOS:
-   Si dicen "esmalte negro", "esmalte blanco" etc SIN especificar tipo, asume el corriente basico.
-   NO preguntes el tipo ni el color si ya lo dijeron.
-   Solo pregunta si mencionan expresamente "3 en 1" o "anticorrosivo".
-
-2b. Cliente nuevo — REGLAS CRITICAS:
-   PRIMERO verifica si el cliente ya existe en CLIENTES ENCONTRADOS EN EL SISTEMA.
-   SI EXISTE usalo directamente. SI NO EXISTE inicia el flujo de creacion.
-   - Si ya dio todos los datos usa:
-     [CLIENTE_NUEVO]{{"nombre":"NOMBRE","tipo_id":"Cédula de ciudadanía","identificacion":"123","tipo_persona":"Natural","correo":""}}[/CLIENTE_NUEVO]
-   - Si faltan datos usa (el sistema muestra botones, NO hagas preguntas manuales):
-     [INICIAR_CLIENTE]{{"nombre":"nombre del cliente"}}[/INICIAR_CLIENTE]
-   - tipo_id validos: "Cédula de ciudadanía", "NIT", "Cédula de extranjería"
-   - tipo_persona validos: "Natural", "Juridica"
-
-3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
-3b. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
-4. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
-5. Excel: [EXCEL]{{"titulo": "Titulo", "encabezados": ["Col1"], "filas": [["dato"]]}}[/EXCEL]
-6. Apertura caja: [CAJA]{{"accion": "apertura", "monto": 50000}}[/CAJA]
-7. Cierre caja: [CAJA]{{"accion": "cierre"}}[/CAJA]
-8. Gasto: [GASTO]{{"concepto": "nombre", "monto": 50000, "categoria": "varios", "origen": "caja"}}[/GASTO]
-9. Inventario: [INVENTARIO]{{"producto": "nombre", "cantidad": 10, "minimo": 2, "unidad": "galones", "accion": "actualizar"}}[/INVENTARIO]
-10. Para borrar: /borrar numero
-11. Usuario actual: {nombre_usuario}"""
+Usuario actual: {nombre_usuario}"""
 
 
 # ─────────────────────────────────────────────
@@ -271,7 +349,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     system_prompt = _construir_system_prompt(mensaje_usuario, nombre_usuario)
 
     messages = []
-    for msg in historial_chat[-10:]:
+    for msg in historial_chat[-6:]:
         if isinstance(msg, dict) and "role" in msg and "content" in msg:
             messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
     messages.append({"role": "user", "content": str(mensaje_usuario)})
@@ -281,7 +359,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
         None,
         lambda: config.claude_client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=2000,
+            max_tokens=900,
             system=system_prompt,
             messages=messages,
         )
@@ -294,13 +372,9 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
 # ─────────────────────────────────────────────
 
 def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
-    """
-    Extrae y ejecuta todas las acciones del mensaje de Claude.
-    Retorna (texto_limpio, acciones, archivos_excel).
-    """
     from ventas_state import ventas_pendientes, registrar_ventas_con_metodo, _estado_lock
 
-    acciones:      list[str] = []
+    acciones:       list[str] = []
     archivos_excel: list[str] = []
     texto_limpio = texto_respuesta
 
@@ -308,31 +382,45 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     ventas_con_metodo = []
     ventas_sin_metodo = []
 
+    with _estado_lock:
+        esperando_pago = bool(ventas_pendientes.get(chat_id))
+
     for venta_json in re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL):
         try:
-            venta = json.loads(venta_json.strip())
-            if venta.get("metodo_pago"):
-                ventas_con_metodo.append(venta)
+            if esperando_pago:
+                print(f"[VENTA] ignorado — esperando seleccion de pago para chat {chat_id}")
             else:
-                ventas_sin_metodo.append(venta)
+                venta = json.loads(venta_json.strip())
+                if venta.get("metodo_pago"):
+                    ventas_con_metodo.append(venta)
+                else:
+                    ventas_sin_metodo.append(venta)
         except Exception as e:
             print(f"Error parseando venta: {e}")
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
 
+    if esperando_pago and ventas_con_metodo:
+        ventas_con_metodo.clear()
+
     if ventas_con_metodo:
+        grupos: dict = {}
         for venta in ventas_con_metodo:
             metodo = venta.get("metodo_pago", "efectivo").lower()
-            conf   = registrar_ventas_con_metodo([venta], metodo, vendedor, chat_id)
-            emoji  = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
+            grupos.setdefault(metodo, []).append(venta)
+        for metodo, grupo in grupos.items():
+            conf  = registrar_ventas_con_metodo(grupo, metodo, vendedor, chat_id)
+            emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
             acciones.append(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n" + "\n".join(conf))
 
     if ventas_sin_metodo:
-        import threading
-        with _estado_lock:
-            ventas_pendientes[chat_id] = ventas_sin_metodo
-        acciones.append("PEDIR_METODO_PAGO")
+        if esperando_pago:
+            acciones.append("PAGO_PENDIENTE_AVISO")
+        else:
+            with _estado_lock:
+                ventas_pendientes[chat_id] = ventas_sin_metodo
+            acciones.append("PEDIR_METODO_PAGO")
 
-    # ── Cliente nuevo (datos completos dados de una vez) ──
+    # ── Cliente nuevo (datos completos) ──
     for cli_json in re.findall(r'\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]', texto_respuesta, re.DOTALL):
         try:
             datos  = json.loads(cli_json.strip())
@@ -346,10 +434,8 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 )
                 acciones.append(
                     f"👤 Cliente creado: {nombre.upper()} — {datos.get('tipo_id','')}: {id_num}"
-                    if ok else f"⚠️ No pude guardar el cliente {nombre}. Intenta de nuevo."
+                    if ok else f"⚠️ No pude guardar el cliente {nombre}."
                 )
-            else:
-                acciones.append("⚠️ Para crear el cliente necesito al menos el nombre y el número de identificación.")
         except Exception as e:
             print(f"Error cliente nuevo: {e}")
         texto_limpio = texto_limpio.replace(f'[CLIENTE_NUEVO]{cli_json}[/CLIENTE_NUEVO]', '')
@@ -359,20 +445,47 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         try:
             datos  = json.loads(ini_json.strip())
             nombre = datos.get("nombre", "").strip()
-            from ventas_state import clientes_en_proceso, _estado_lock as _lock
+            from ventas_state import clientes_en_proceso, ventas_esperando_cliente, _estado_lock as _lock
             with _lock:
                 clientes_en_proceso[chat_id] = {
-                    "nombre":       nombre,
-                    "tipo_id":      None,
+                    "nombre":         nombre,
+                    "tipo_id":        None,
                     "identificacion": None,
-                    "tipo_persona": None,
-                    "correo":       None,
-                    "paso":         "nombre" if not nombre else "tipo_id",
+                    "tipo_persona":   None,
+                    "correo":         None,
+                    "paso":           "nombre" if not nombre else "tipo_id",
+                    "vendedor":       vendedor,
                 }
+                if chat_id in ventas_pendientes and ventas_pendientes[chat_id]:
+                    ventas_esperando_cliente[chat_id] = {
+                        "ventas":   ventas_pendientes.pop(chat_id),
+                        "metodo":   None,
+                        "vendedor": vendedor,
+                    }
+                elif ventas_sin_metodo:
+                    ventas_esperando_cliente[chat_id] = {
+                        "ventas":   list(ventas_sin_metodo),
+                        "metodo":   None,
+                        "vendedor": vendedor,
+                    }
+                    ventas_sin_metodo.clear()
             acciones.append("INICIAR_FLUJO_CLIENTE")
         except Exception as e:
             print(f"Error iniciando flujo cliente: {e}")
         texto_limpio = texto_limpio.replace(f'[INICIAR_CLIENTE]{ini_json}[/INICIAR_CLIENTE]', '')
+
+    # ── Borrar cliente ──
+    for bc_json in re.findall(r'\[BORRAR_CLIENTE\](.*?)\[/BORRAR_CLIENTE\]', texto_respuesta, re.DOTALL):
+        try:
+            datos  = json.loads(bc_json.strip())
+            nombre = datos.get("nombre", "").strip()
+            if nombre:
+                from excel import borrar_cliente
+                exito, msg = borrar_cliente(nombre)
+                acciones.append(msg)
+        except Exception as e:
+            print(f"Error borrando cliente: {e}")
+        texto_limpio = texto_limpio.replace(f'[BORRAR_CLIENTE]{bc_json}[/BORRAR_CLIENTE]', '')
 
     # ── Precio fraccion ──
     for pf_json in re.findall(r'\[PRECIO_FRACCION\](.*?)\[/PRECIO_FRACCION\]', texto_respuesta, re.DOTALL):
@@ -401,6 +514,28 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             print(f"Error precio: {e}")
         texto_limpio = texto_limpio.replace(f'[PRECIO]{precio_json}[/PRECIO]', '')
+
+    # ── Codigo producto ──
+    for cp_json in re.findall(r'\[CODIGO_PRODUCTO\](.*?)\[/CODIGO_PRODUCTO\]', texto_respuesta, re.DOTALL):
+        try:
+            datos  = json.loads(cp_json.strip())
+            nombre = datos.get("producto", "").strip()
+            codigo = datos.get("codigo", "").strip()
+            if nombre and codigo:
+                mem      = cargar_memoria()
+                catalogo = mem.get("catalogo", {})
+                prod = buscar_producto_en_catalogo(nombre)
+                if prod:
+                    for k, v in catalogo.items():
+                        if v.get("nombre_lower") == prod.get("nombre_lower"):
+                            catalogo[k]["codigo"] = codigo
+                            break
+                    mem["catalogo"] = catalogo
+                    guardar_memoria(mem)
+                    acciones.append(f"🏷️ Código guardado: {nombre} = {codigo}")
+        except Exception as e:
+            print(f"Error codigo producto: {e}")
+        texto_limpio = texto_limpio.replace(f'[CODIGO_PRODUCTO]{cp_json}[/CODIGO_PRODUCTO]', '')
 
     # ── Negocio ──
     for neg_json in re.findall(r'\[NEGOCIO\](.*?)\[/NEGOCIO\]', texto_respuesta, re.DOTALL):
@@ -457,10 +592,10 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     # ── Inventario ──
     for inv_json in re.findall(r'\[INVENTARIO\](.*?)\[/INVENTARIO\]', texto_respuesta, re.DOTALL):
         try:
-            datos     = json.loads(inv_json.strip())
+            datos      = json.loads(inv_json.strip())
             inventario = cargar_inventario()
-            producto  = datos.get("producto", "").lower()
-            accion    = datos.get("accion", "actualizar")
+            producto   = datos.get("producto", "").lower()
+            accion     = datos.get("accion", "actualizar")
             if accion == "actualizar":
                 cantidad = convertir_fraccion_a_decimal(datos.get("cantidad", 0))
                 minimo   = convertir_fraccion_a_decimal(datos.get("minimo", 0.5))
@@ -486,8 +621,8 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     # ── Excel personalizado ──
     for excel_json in re.findall(r'\[EXCEL\](.*?)\[/EXCEL\]', texto_respuesta, re.DOTALL):
         try:
-            datos    = json.loads(excel_json.strip())
-            nombre   = f"reporte_{datetime.now(config.COLOMBIA_TZ).strftime('%Y%m%d_%H%M%S')}.xlsx"
+            datos  = json.loads(excel_json.strip())
+            nombre = f"reporte_{datetime.now(config.COLOMBIA_TZ).strftime('%Y%m%d_%H%M%S')}.xlsx"
             generar_excel_personalizado(
                 datos.get("titulo", "Reporte"),
                 datos.get("encabezados", []),
