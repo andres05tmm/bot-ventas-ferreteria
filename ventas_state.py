@@ -15,11 +15,13 @@ from excel import (
 )
 from memoria import cargar_inventario, guardar_inventario, cargar_caja, guardar_caja, cargar_memoria
 
-
 _estado_lock = threading.Lock()
 
 # {chat_id: [lista de ventas pendientes de confirmar metodo de pago]}
 ventas_pendientes: dict[int, list] = {}
+
+# {chat_id: [mensajes en standby esperando que se confirme el pago anterior]}
+mensajes_standby: dict[int, list[str]] = {}
 
 # {chat_id: numero_venta} para confirmar borrado
 borrados_pendientes: dict[int, int] = {}
@@ -33,6 +35,7 @@ clientes_en_proceso: dict[int, dict] = {}
 # {chat_id: {"ventas": [...], "metodo": "efectivo"|None}}
 # Ventas que quedaron en pausa esperando que se cree el cliente
 # Una vez creado el cliente, se registran automaticamente
+ventas_esperando_cliente: dict[int, dict] = {}
 
 # Lock asyncio por chat para serializar mensajes del mismo chat
 # Evita race conditions cuando dos mensajes llegan casi simultaneamente
@@ -82,7 +85,6 @@ def _precio_es_total_fraccion(nombre_producto: str, precio: float, cantidad: flo
         print(f"[PRECIO_FRACCION] error buscando en catalogo: {e}")
 
     return False
-ventas_esperando_cliente: dict[int, dict] = {}
 
 
 def agregar_al_historial(chat_id: int, role: str, content: str):
