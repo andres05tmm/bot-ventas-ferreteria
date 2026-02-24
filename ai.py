@@ -342,8 +342,11 @@ INSTRUCCIONES DE FORMATO:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "precio_unitario": 40000}}[/VENTA]
    - Si hay cliente: agrega "cliente": "nombre del cliente"
    - Si el usuario NO menciona cliente: NO preguntes, registra directo sin campo "cliente" (el sistema asume Consumidor Final automaticamente).
-   - Si el usuario ya dijo el metodo: agrega "metodo_pago": "efectivo|transferencia|datafono"
-   - Si NO dijo el metodo: NO pongas metodo_pago (el sistema preguntara con botones)
+   - Si el usuario menciona el metodo DE PAGO EN ESTE MISMO MENSAJE: agrega "metodo_pago": "efectivo|transferencia|datafono"
+   - Si NO dijo el metodo EN ESTE MENSAJE: NO pongas metodo_pago (el sistema preguntara con botones)
+   CRITICO: El metodo de pago solo se incluye si el usuario lo dijo EXPLICITAMENTE en el mensaje actual.
+   NUNCA asumas el metodo de pago por mensajes anteriores del historial.
+   Si el mensaje anterior dijo "efectivo" pero este mensaje no lo menciona: NO incluyas metodo_pago.
    CRITICO: NUNCA preguntes "a nombre de quien" si el usuario no menciono un cliente.
    CRITICO: NUNCA repitas [VENTA] para el mismo producto.
    CRITICO: Si el usuario esta RESPONDIENDO una pregunta tuya (ej: te dice el precio que le faltaba,
@@ -533,7 +536,8 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     for venta_json in ventas_nuevas:
         try:
             if esperando_pago:
-                # Ya hay botones de pago en pantalla — ignorar para evitar duplicado
+                # Ya hay botones de pago en pantalla — ignorar TODA venta nueva para evitar
+                # duplicados, incluso si Claude mando metodo_pago incluido en el JSON.
                 print(f"[VENTA] ignorado — esperando seleccion de pago para chat {chat_id}")
             else:
                 venta = json.loads(venta_json.strip())
@@ -544,6 +548,12 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             print(f"Error parseando venta: {e}")
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
+
+    # Segunda defensa: si habia pago pendiente y Claude igual genero ventas_con_metodo,
+    # son duplicados — descartarlos.
+    if esperando_pago and ventas_con_metodo:
+        print(f"[VENTA] {len(ventas_con_metodo)} venta(s) con metodo descartadas — pago pendiente para chat {chat_id}")
+        ventas_con_metodo.clear()
 
     if ventas_con_metodo:
         grupos: dict = {}
