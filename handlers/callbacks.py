@@ -59,14 +59,15 @@ async def manejar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await manejar_callback_grafica(update, context)
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
-    """Muestra botones de metodo de pago con resumen de ventas corregido."""
+    """Muestra botones de metodo de pago con resumen de ventas."""
     lineas = []
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         precio       = float(v.get("precio_unitario", 0))
         producto     = v.get("producto", "")
         
-        # ── REGLA MATEMÁTICA CORREGIDA ──
+        # ── REGLA DE PRECIOS CORREGIDA ──
+        # Si es fracción (<1) el precio es el total. Si es entero, se multiplica.
         if cantidad_dec < 1 or (producto and "thinner" in producto.lower()):
             total = round(precio)
         else:
