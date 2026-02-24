@@ -110,9 +110,6 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             fracs = p.get("precios_fraccion", {})
             pxc   = p.get("precio_por_cantidad")
             if fracs:
-                claves = list(fracs.keys())
-                if claves and str(claves[0]).isdigit():
-                    return f"  - {p['nombre']}: ${p['precio_unidad']:,}/galon [ver tabla THINNER]"
                 precios_str = " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
                 return f"  - {p['nombre']}: {precios_str}"
             elif pxc:
@@ -167,6 +164,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             cliente_unico, candidatos = buscar_cliente_con_resultado(termino_cliente)
 
             if len(candidatos) == 1:
+                # Un solo cliente encontrado — mostrarlo directamente
                 c      = candidatos[0]
                 nombre = c.get("Nombre tercero", "")
                 id_c   = c.get("Identificación", "")
@@ -176,6 +174,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
                     f"  - {nombre} ({tipo}: {id_c})"
                 )
             elif len(candidatos) > 1:
+                # Varios candidatos — el bot debe preguntar cual es
                 lineas_cli = []
                 for c in candidatos:
                     nombre = c.get("Nombre tercero", "")
@@ -218,10 +217,6 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
         fracs = prod.get("precios_fraccion", {})
         pxc   = prod.get("precio_por_cantidad")
         if fracs:
-            claves = list(fracs.keys())
-            # Thinner usa claves numericas (precio) — mostrar compacto
-            if claves and str(claves[0]).isdigit():
-                return f"  - {prod['nombre']}: ${prod['precio_unidad']:,}/galon [ver tabla THINNER]"
             return f"  - {prod['nombre']}: " + " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
         elif pxc:
             return (f"  - {prod['nombre']}: "
@@ -236,13 +231,17 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 
     pide_catalogo_completo = any(p in msg_lower for p in palabras_precio)
     no_necesita_catalogo   = any(p in msg_lower for p in palabras_no_catalogo) and not pide_catalogo_completo
+    # Si ya tenemos candidatos especificos y no pide el catalogo completo, no lo mandamos
     tiene_candidatos = bool(info_candidatos_extra)
 
     if no_necesita_catalogo:
+        # Mensaje de caja/gastos/reportes — no necesita catalogo
         precios_texto = ""
     elif tiene_candidatos and not pide_catalogo_completo:
+        # Mensaje de venta con producto especifico — los candidatos ya estan en info_candidatos_extra
         precios_texto = ""
     elif catalogo:
+        # Catalogo completo: cuando pide precios genericos o mensaje ambiguo
         categorias: dict = {}
         for prod in catalogo.values():
             cat = prod.get("categoria", "Otros")
@@ -269,6 +268,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             "Si el usuario menciona una fraccion sin precio, preguntale cuanto vale."
         )
 
+    # Construir seccion catalogo solo si hay contenido
     if precios_texto:
         catalogo_seccion = (
             "CATALOGO DE PRODUCTOS (precios por fraccion incluidos):\n"
@@ -379,17 +379,9 @@ INSTRUCCIONES DE FORMATO:
    - "un dieciseisavo" o "1/16" → cantidad: 0.0625
    NUNCA registres un octavo como cantidad 1. NUNCA registres un cuarto como cantidad 1.
 
-   REGLA THINNER — conversion automatica precio a fraccion de galon:
-   Cuando el usuario diga "X pesos de thinner", "tiner por X" o "vendio thinner por X",
-   convierte automaticamente usando esta tabla COMPLETA:
-     3000=0.0833  4000=0.1    5000=0.125  6000=0.1667  7000=0.2
-     8000=0.25    9000=0.3    10000=0.3333 11000=0.3333 12000=0.4
-     13000=0.5    14000=0.5   15000=0.5   16000=0.5556 17000=0.6
-     18000=0.625  19000=0.6667 20000=0.75  21000=0.8   22000=0.8333
-     24000=0.9    25000=0.95  26000=1.0
-   El precio_unitario es el valor en pesos que pago el cliente.
-   Ejemplo: "15000 de tiner" → cantidad: 0.5, precio_unitario: 15000
-   Ejemplo: "11000 de thinner" → cantidad: 0.3333, precio_unitario: 11000
+   REGLA THINNER: "X pesos de thinner" → convierte precio a fraccion de galon.
+   Tabla: 5000=0.125 8000=0.25 10000=0.333 13000=0.5 18000=0.625 20000=0.75 26000=1.0
+   precio_unitario=lo que pago el cliente. Ej: "15000 de tiner"→cantidad:0.5,precio:15000
 
    REGLA DE PRODUCTOS AMBIGUOS:
    Si dicen "esmalte negro", "esmalte blanco" etc SIN especificar tipo, asume el corriente basico.
@@ -453,6 +445,9 @@ INSTRUCCIONES DE FORMATO:
    La cantidad va SOLO en el campo "cantidad", nunca en el nombre del producto.
 
 3. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
+3c. Codigo producto: [CODIGO_PRODUCTO]{{"producto": "nombre exacto del producto", "codigo": "COD123"}}[/CODIGO_PRODUCTO]
+    Usa esto cuando el usuario diga el codigo de un producto, ej: "el vinilo T1 blanco tiene codigo VT1B".
+    El codigo se guarda en el catalogo y aparecera automaticamente en cada venta de ese producto.
 3b. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
 4. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
 5. Excel: [EXCEL]{{"titulo": "Titulo", "encabezados": ["Col1"], "filas": [["dato"]]}}[/EXCEL]
@@ -511,6 +506,8 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     ventas_con_metodo = []
     ventas_sin_metodo = []
 
+    # Si ya hay ventas pendientes de metodo de pago para este chat, NO procesar nuevas ventas
+    # (evita duplicados cuando el bot pregunta precio o info adicional)
     with _estado_lock:
         ya_hay_pendientes = bool(ventas_pendientes.get(chat_id))
 
@@ -582,12 +579,15 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     "paso":           "nombre" if not nombre else "tipo_id",
                     "vendedor":       vendedor,
                 }
+                # Si habia ventas sin metodo pendientes, guardarlas para
+                # registrarlas automaticamente cuando se cree el cliente
                 if chat_id in ventas_pendientes and ventas_pendientes[chat_id]:
                     ventas_esperando_cliente[chat_id] = {
                         "ventas":   ventas_pendientes.pop(chat_id),
                         "metodo":   None,
                         "vendedor": vendedor,
                     }
+                # Si habia ventas con metodo ya confirmado, guardarlas tambien
                 elif ventas_sin_metodo:
                     ventas_esperando_cliente[chat_id] = {
                         "ventas":   list(ventas_sin_metodo),
@@ -642,6 +642,32 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             print(f"Error precio: {e}")
         texto_limpio = texto_limpio.replace(f'[PRECIO]{precio_json}[/PRECIO]', '')
+
+    # ── Codigo producto ──
+    for cp_json in re.findall(r'\[CODIGO_PRODUCTO\](.*?)\[/CODIGO_PRODUCTO\]', texto_respuesta, re.DOTALL):
+        try:
+            datos   = json.loads(cp_json.strip())
+            nombre  = datos.get("producto", "").strip()
+            codigo  = datos.get("codigo", "").strip()
+            if nombre and codigo:
+                mem      = cargar_memoria()
+                catalogo = mem.get("catalogo", {})
+                from memoria import buscar_producto_en_catalogo
+                prod = buscar_producto_en_catalogo(nombre)
+                if prod:
+                    # Encontrar la clave del producto y actualizar
+                    for k, v in catalogo.items():
+                        if v.get("nombre_lower") == prod.get("nombre_lower"):
+                            catalogo[k]["codigo"] = codigo
+                            break
+                    mem["catalogo"] = catalogo
+                    guardar_memoria(mem)
+                    acciones.append(f"🏷️ Código guardado: {nombre} = {codigo}")
+                else:
+                    acciones.append(f"⚠️ Producto '{nombre}' no encontrado en el catálogo.")
+        except Exception as e:
+            print(f"Error codigo producto: {e}")
+        texto_limpio = texto_limpio.replace(f'[CODIGO_PRODUCTO]{cp_json}[/CODIGO_PRODUCTO]', '')
 
     # ── Negocio ──
     for neg_json in re.findall(r'\[NEGOCIO\](.*?)\[/NEGOCIO\]', texto_respuesta, re.DOTALL):
