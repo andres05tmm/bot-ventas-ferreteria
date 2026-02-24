@@ -178,46 +178,4 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     venta = {
                         config.COL_PRODUCTO: v.get("producto", "?"),
                         config.COL_FECHA:    v.get("fecha", "?"),
-                        config.COL_TOTAL:    v.get("total", "?"),
-                        config.COL_VENDEDOR: v.get("vendedor", "?"),
-                    }
-                    break
-            except (ValueError, TypeError):
-                pass
-
-    if not venta:
-        from excel import obtener_venta_por_numero
-        venta = await asyncio.to_thread(obtener_venta_por_numero, numero)
-
-    if not venta:
-        await update.message.reply_text(f"No encontre la venta #{numero}.")
-        return
-
-    with _estado_lock:
-        borrados_pendientes[chat_id] = numero
-
-    producto = venta.get(config.COL_PRODUCTO, "?")
-    fecha    = venta.get(config.COL_FECHA, "?")
-    total    = venta.get(config.COL_TOTAL, "?")
-    vendedor = venta.get(config.COL_VENDEDOR, "?")
-    try:
-        total_fmt = f"${float(total):,.0f}"
-    except Exception:
-        total_fmt = str(total)
-
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Sí, borrar", callback_data=f"borrar_si_{chat_id}"),
-        InlineKeyboardButton("❌ Cancelar",   callback_data=f"borrar_no_{chat_id}"),
-    ]])
-    await update.message.reply_text(
-        f"⚠️ ¿Confirmas que quieres borrar esta venta?\n\n"
-        f"#{numero} — {producto}\nFecha: {fecha}\nTotal: {total_fmt}\nVendedor: {vendedor}",
-        reply_markup=keyboard,
-    )
-
-
-# ─────────────────────────────────────────────
-# /precios
-# ─────────────────────────────────────────────
-
-async def comando_precios(update: Update, context: ContextTypes.
+                        config.COL_TOTAL:    v
