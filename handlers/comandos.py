@@ -210,9 +210,7 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"#{numero} — {producto}\nFecha: {fecha}\nTotal: {total_fmt}\nVendedor: {vendedor}",
         reply_markup=keyboard,
     )
-
-
-# ─────────────────────────────────────────────
+    # ─────────────────────────────────────────────
 # /precios
 # ─────────────────────────────────────────────
 
@@ -308,4 +306,226 @@ async def comando_inventario(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # /clientes
 # ─────────────────────────────────────────────
 
-async def comando_clientes(update: Update
+async def comando_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if args:
+        termino    = " ".join(args)
+        resultados = await asyncio.to_thread(buscar_clientes_multiples, termino, 5)
+        if not resultados:
+            await update.message.reply_text(f"No encontre clientes con '{termino}'.")
+            return
+        texto = f"👥 Clientes encontrados para '{termino}':\n\n"
+        for c in resultados:
+            nombre = c.get("Nombre tercero", "")
+            id_c   = c.get("Identificación", "")
+            tipo   = c.get("Tipo de identificación", "")
+            texto += f"• {nombre} — {tipo}: {id_c}\n"
+        await update.message.reply_text(texto)
+    else:
+        clientes = await asyncio.to_thread(cargar_clientes)
+        await update.message.reply_text(f"👥 Tienes {len(clientes)} clientes registrados.")
+
+
+# ─────────────────────────────────────────────
+# /sheets
+# ─────────────────────────────────────────────
+
+async def comando_sheets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not config.SHEETS_ID:
+        await update.message.reply_text("⚠️ Google Sheets no configurado.")
+        return
+    ventas = await asyncio.to_thread(sheets_leer_ventas_del_dia)
+    estado = "✅ Conectado" if config.SHEETS_DISPONIBLE else "⚠️ Sin conexion"
+    url    = f"https://docs.google.com/spreadsheets/d/{config.SHEETS_ID}/edit"
+    total_dia = sum(float(v.get("total", 0) or 0) for v in ventas)
+    texto = (
+        f"📊 Google Sheets — {estado}\n\n"
+        f"Ventas de hoy: {len(ventas)}\n"
+        f"Total del dia: ${total_dia:,.0f}\n\n"
+        f"🔗 {url}"
+    )
+    await update.message.reply_text(texto)
+
+
+# ─────────────────────────────────────────────
+# /grafica
+# ─────────────────────────────────────────────
+
+async def comando_grafica(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("📅 Ventas por día",   callback_data="grafica_dias"),
+        InlineKeyboardButton("📦 Productos",         callback_data="grafica_productos"),
+    ], [
+        InlineKeyboardButton("💳 Métodos de pago",  callback_data="grafica_pagos"),
+    ]])
+    await update.message.reply_text("¿Qué gráfica quieres ver?", reply_markup=keyboard)
+
+
+async def manejar_callback_grafica(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from graficas import (
+        generar_grafica_ventas_por_dia_async,
+        generar_grafica_productos_async,
+        generar_grafica_metodos_pago_async,
+    )
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    tipo    = query.data
+    await query.edit_message_text("📊 Generando gráfica...")
+
+    ruta = None
+    try:
+        if tipo == "grafica_dias":
+            ruta   = await generar_grafica_ventas_por_dia_async()
+            titulo = "ventas_por_dia.png"
+        elif tipo == "grafica_productos":
+            ruta   = await generar_grafica_productos_async()
+            titulo = "productos_mas_vendidos.png"
+        elif tipo == "grafica_pagos":
+            ruta   = await generar_grafica_metodos_pago_async()
+            titulo = "metodos_de_pago.png"
+        else:
+            return
+
+        if not ruta or not os.path.exists(ruta):
+            await context.bot.send_message(chat_id=chat_id, text="No hay datos suficientes para esta gráfica aun.")
+            return
+        with open(ruta, "rb") as f:
+            await context.bot.send_photo(chat_id=chat_id, photo=f, filename=titulo)
+    except Exception:
+        print(f"Error generando grafica: {traceback.format_exc()}")
+        await context.bot.send_message(chat_id=chat_id, text="Tuve un problema generando la gráfica. Intenta de nuevo.")
+    finally:
+        if ruta and os.path.exists(ruta):
+            os.remove(ruta)
+
+
+# ─────────────────────────────────────────────
+# /cerrar
+# ─────────────────────────────────────────────
+
+async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    await update.message.reply_text("🔒 Iniciando cierre del dia...")
+
+    if not config.SHEETS_ID:
+        await update.message.reply_text("⚠️ Google Sheets no configurado.")
+        return
+
+    ventas_sheets = await asyncio.to_thread(sheets_leer_ventas_del_dia)
+    if not ventas_sheets:
+        await update.message.reply_text("📭 El Sheets no tiene ventas hoy.")
+        return
+
+    diferencias = await asyncio.to_thread(sheets_detectar_ediciones_vs_excel)
+    if diferencias:
+        await update.message.reply_text("✏️ Correcciones manuales detectadas:\n\n" + "\n".join(diferencias))
+
+    hoy       = datetime.now(config.COLOMBIA_TZ)
+    fecha_str = hoy.strftime("%Y-%m-%d")
+
+    try:
+        await asyncio.to_thread(inicializar_excel)
+        wb = await asyncio.to_thread(openpyxl.load_workbook, config.EXCEL_FILE)
+        hojas_destino = [obtener_nombre_ho_ja(), "Registro de Ventas-Acumulado"]
+        # Corregir error de tipeo en obtener_nombre_hoja
+        hojas_destino[0] = obtener_nombre_hoja()
+        total_general = 0
+
+        for indice_hoja, nombre_hoja in enumerate(hojas_destino):
+            ws   = obtener_o_crear_hoja(wb, nombre_hoja)
+            cols = detectar_columnas(ws)
+            col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
+
+            if col_fecha:
+                filas_hoy = [
+                    fila for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1)
+                    if str(ws.cell(row=fila, column=col_fecha).value or "")[:10] == fecha_str
+                ]
+                for fila in reversed(filas_hoy):
+                    ws.delete_rows(fila)
+
+            for v in ventas_sheets:
+                fila_nueva = ws.max_row + 1
+                datos = {
+                    "fecha":                v.get("fecha", fecha_str),
+                    "hora":                 v.get("hora", ""),
+                    "id cliente":           v.get("id_cliente", "CF"),
+                    "cliente":              v.get("cliente", "Consumidor Final"),
+                    "código del producto":  v.get("codigo_producto", ""),
+                    "producto":             v.get("producto", ""),
+                    "cantidad":             v.get("cantidad", ""),
+                    "valor unitario":       v.get("precio_unitario", 0),
+                    "total":                v.get("total", 0),
+                    "consecutivo de venta": v.get("num", fila_nueva - 1),
+                    "alias":                v.get("alias", str(v.get("num", ""))),
+                    "vendedor":             v.get("vendedor", ""),
+                    "metodo de pago":       v.get("metodo", ""),
+                }
+                for nombre_col, num_col in cols.items():
+                    clave = nombre_col.lower().strip()
+                    if clave in datos:
+                        ws.cell(row=fila_nueva, column=num_col, value=datos[clave])
+
+                if fila_nueva % 2 == 0:
+                    for col in range(1, ws.max_column + 1):
+                        ws.cell(row=fila_nueva, column=col).fill = PatternFill("solid", fgColor="EFF6FF")
+
+                if indice_hoja == 0:
+                    total_general += float(v.get("total", 0) or 0)
+
+        await asyncio.to_thread(wb.save, config.EXCEL_FILE)
+        await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
+
+        await update.message.reply_text(f"✅ Sincronizado: {len(ventas_sheets)} ventas — Total: ${total_general:,.0f}")
+        with open(config.EXCEL_FILE, "rb") as f:
+            await update.message.reply_document(document=f, filename="ventas.xlsx")
+
+    except Exception:
+        print(traceback.format_exc())
+        await update.message.reply_text("❌ Error actualizando el Excel.")
+        return
+
+    await update.message.reply_text("🧹 Limpiando Sheets...")
+    from sheets import sheets_limpiar
+    ok = await asyncio.to_thread(sheets_limpiar)
+
+    if ok:
+        await update.message.reply_text("✅ Cierre completado.")
+    else:
+        await update.message.reply_text("⚠️ Excel actualizado, pero Sheets no se pudo limpiar.")
+
+
+# ─────────────────────────────────────────────
+# /resetventas
+# ─────────────────────────────────────────────
+
+async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = [a.upper() for a in (context.args or [])]
+    if args and args[0] == "EXCEL":
+        if len(args) < 2 or args[1] != "CONFIRMAR":
+            await update.message.reply_text("⚠️ Escribe `/resetventas excel CONFIRMAR` para borrar la hoja del mes.", parse_mode="Markdown")
+            return
+        try:
+            inicializar_excel()
+            wb = openpyxl.load_workbook(config.EXCEL_FILE)
+            hoja = obtener_nombre_hoja()
+            if hoja in wb.sheetnames:
+                del wb[hoja]
+                wb.save(config.EXCEL_FILE)
+                await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
+                await update.message.reply_text(f"✅ Hoja {hoja} borrada.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {e}")
+        return
+
+    if not args or args[0] != "CONFIRMAR":
+        await update.message.reply_text("⚠️ Escribe `/resetventas CONFIRMAR` para limpiar el dia.", parse_mode="Markdown")
+        return
+
+    await asyncio.to_thread(sheets_limpiar)
+    from memoria import cargar_memoria, guardar_memoria
+    mem = cargar_memoria()
+    mem["ultimo_consecutivo"] = 0
+    guardar_memoria(mem)
+    await update.message.reply_text("✅ Reset del dia completado.")
