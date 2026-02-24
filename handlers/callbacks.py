@@ -115,6 +115,45 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
         texto = f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(confirmaciones)
         await query.edit_message_text(texto)
+
+        # --- NUEVO: Procesar standby tras pagar con botón ---
+        from ventas_state import mensajes_standby
+        with _estado_lock:
+            standby_msgs = mensajes_standby.pop(chat_id, [])
+
+        if standby_msgs:
+            texto_standby = " ".join(standby_msgs)
+            await query.message.reply_text(f"▶️ Procesando venta en standby:\n_{texto_standby}_", parse_mode="Markdown")
+
+            # Invocamos a Claude directo para no fallar con el objeto "Update" de los callbacks
+            from ai import procesar_con_claude, procesar_acciones
+            from ventas_state import get_historial, agregar_al_historial
+            from handlers.mensajes import _enviar_pregunta_cliente
+
+            historial = get_historial(chat_id)
+            agregar_al_historial(chat_id, "user", f"{vendedor}: {texto_standby}")
+            respuesta_raw = await procesar_con_claude(f"{vendedor}: {texto_standby}", vendedor, historial)
+            
+            texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
+            agregar_al_historial(chat_id, "assistant", texto_respuesta)
+
+            if texto_respuesta:
+                import re
+                if "INICIAR_FLUJO_CLIENTE" in acciones:
+                    texto_respuesta = re.sub(r'[.!,]?\s*[¿]?[Mm]é?todo de pago\??', '', texto_respuesta).strip().rstrip(".")
+                await query.message.reply_text(texto_respuesta)
+
+            for accion in acciones:
+                if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO"):
+                    await query.message.reply_text(accion)
+
+            if "INICIAR_FLUJO_CLIENTE" in acciones:
+                await _enviar_pregunta_cliente(query.message, chat_id)
+            elif "PEDIR_METODO_PAGO" in acciones or "PAGO_PENDIENTE_AVISO" in acciones:
+                with _estado_lock:
+                    ventas_nuevas = ventas_pendientes.get(chat_id, [])
+                await _enviar_botones_pago(query.message, chat_id, ventas_nuevas)
+        # ----------------------------------------------------
         return
 
     # ── Tipo de documento del cliente ──
