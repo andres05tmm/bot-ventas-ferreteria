@@ -34,6 +34,18 @@ clientes_en_proceso: dict[int, dict] = {}
 # Ventas que quedaron en pausa esperando que se cree el cliente
 # Una vez creado el cliente, se registran automaticamente
 
+# Lock asyncio por chat para serializar mensajes del mismo chat
+# Evita race conditions cuando dos mensajes llegan casi simultaneamente
+_chat_locks: dict[int, asyncio.Lock] = {}
+_chat_locks_meta = threading.Lock()
+
+def get_chat_lock(chat_id: int) -> asyncio.Lock:
+    """Retorna el lock asyncio para un chat, creandolo si no existe."""
+    with _chat_locks_meta:
+        if chat_id not in _chat_locks:
+            _chat_locks[chat_id] = asyncio.Lock()
+        return _chat_locks[chat_id]
+
 
 def _precio_es_total_fraccion(nombre_producto: str, precio: float, cantidad: float) -> bool:
     """
