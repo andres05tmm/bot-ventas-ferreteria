@@ -92,6 +92,11 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
     Registra una lista de ventas con el metodo de pago dado.
     Todos los productos de una misma transaccion comparten el mismo consecutivo.
     """
+    # Limpiar estado pendiente ANTES de registrar para que nuevas ventas
+    # no queden bloqueadas mientras se procesa esta.
+    with _estado_lock:
+        ventas_pendientes.pop(chat_id, None)
+
     confirmaciones = []
     consecutivo    = obtener_siguiente_consecutivo()
 
