@@ -20,7 +20,8 @@ from ventas_state import (
 # MANEJO DE BOTONES (CALLBACKS)
 # ─────────────────────────────────────────────
 
-async def manejar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ¡CORREGIDO! Se restauró el nombre 'manejar_metodo_pago' para que main.py lo encuentre
+async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data  = query.data
     await query.answer()
