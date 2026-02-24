@@ -502,8 +502,8 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
 
     sheets_agregar_venta(
         consecutivo_final, producto, cantidad, precio_unitario, total, vendedor, observaciones,
-        id_cliente=id_cliente, nombre_cliente=cliente_nombre,
-        codigo_producto=codigo_producto or "", alias=str(num_fila)
+        id_cliente=id_cliente_final, nombre_cliente=nombre_cliente_final,
+        codigo_producto=cod_producto_final, alias=str(num_fila)
     )
 
     return consecutivo_final
