@@ -15,7 +15,7 @@ import config
 from ai import procesar_con_claude, procesar_acciones, editar_excel_con_claude
 from ventas_state import (
     agregar_al_historial, get_historial,
-    ventas_pendientes, _estado_lock,
+    ventas_pendientes, _estado_lock, get_chat_lock,
 )
 from handlers.callbacks import manejar_texto_cliente, _enviar_botones_pago
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
@@ -29,6 +29,12 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mensaje.startswith("/"):
         return
 
+    # Serializar mensajes del mismo chat para evitar race conditions
+    async with get_chat_lock(chat_id):
+        await _procesar_mensaje(update, context, mensaje, chat_id, vendedor)
+
+
+async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     # ── Flujo paso a paso de creacion de cliente (texto) ──
@@ -215,6 +221,11 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vendedor = update.message.from_user.first_name or "Desconocido"
     chat_id  = update.message.chat_id
     await update.message.reply_text("🎤 Escuchando...")
+    async with get_chat_lock(chat_id):
+        await _procesar_audio(update, context, chat_id, vendedor)
+
+
+async def _procesar_audio(update, context, chat_id, vendedor):
     try:
         archivo_voz = await update.message.voice.get_file()
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
