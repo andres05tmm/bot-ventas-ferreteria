@@ -4,6 +4,7 @@ Sin dependencias de otros modulos del proyecto para evitar imports circulares.
 """
 
 from datetime import datetime
+import re
 import config
 
 # Mapas de fraccion a decimal y viceversa
@@ -47,16 +48,14 @@ def convertir_fraccion_a_decimal(valor) -> float:
     if isinstance(valor, (int, float)):
         return float(valor)
     valor = str(valor).strip()
-    # Buscar exacto en el mapa expandido primero
     if valor in _FRAC_A_DEC:
         return _FRAC_A_DEC[valor]
     if "/" in valor:
-        # Puede ser "3 y 1/4" o "1/12" directo
         if " " in valor:
             try:
-                partes  = valor.split()
-                entero  = float(partes[0])
-                frac_str = partes[-1]  # ultimo token con la fraccion
+                partes   = valor.split()
+                entero   = float(partes[0])
+                frac_str = partes[-1]
                 fraccion = _FRAC_A_DEC.get(frac_str) or _dividir(frac_str)
                 return entero + fraccion
             except Exception:
@@ -107,11 +106,6 @@ def obtener_nombre_hoja() -> str:
 
 # ─────────────────────────────────────────────
 # TABLA DE THINNER: precio → (cantidad_decimal, fraccion_legible)
-#
-# El thinner se vende por precio pagado, no por fraccion.
-# Muchos precios distintos corresponden a la misma fraccion de galon
-# (diferentes calidades / thinners mezclados).
-# El total cobrado es SIEMPRE el precio que dijo el cliente.
 # ─────────────────────────────────────────────
 
 _THINNER_PRECIO_A_CANTIDAD: dict[int, tuple[float, str]] = {
@@ -140,7 +134,6 @@ _THINNER_PRECIO_A_CANTIDAD: dict[int, tuple[float, str]] = {
     26000: (1.0,              "1"),
 }
 
-# Palabras clave que identifican al thinner en el nombre del producto
 _THINNER_KEYWORDS = ("thinner", "tiner", "tinner", "disolvente", "aguarras")
 
 
@@ -154,17 +147,12 @@ def cantidad_thinner_por_precio(precio_pagado: float) -> tuple[float, str]:
     """
     Dado el precio que pago el cliente por thinner, retorna (cantidad_decimal, fraccion_legible).
     Si el precio no esta en la tabla, busca el mas cercano.
-    Retorna (0.0, "?") si el precio es 0 o no se puede determinar.
     """
     precio_int = int(round(precio_pagado))
     if precio_int <= 0:
         return 0.0, "?"
-
-    # Busqueda exacta primero
     if precio_int in _THINNER_PRECIO_A_CANTIDAD:
         return _THINNER_PRECIO_A_CANTIDAD[precio_int]
-
-    # Buscar el precio mas cercano en la tabla
     precio_mas_cercano = min(_THINNER_PRECIO_A_CANTIDAD.keys(), key=lambda p: abs(p - precio_int))
     return _THINNER_PRECIO_A_CANTIDAD[precio_mas_cercano]
 
@@ -175,3 +163,58 @@ def tabla_thinner_para_prompt() -> str:
     for precio, (cantidad, frac) in sorted(_THINNER_PRECIO_A_CANTIDAD.items()):
         lineas.append(f"   ${precio:,} → cantidad:{cantidad:.6g} ({frac} de galon)")
     return "\n".join(lineas)
+
+
+# ─────────────────────────────────────────────
+# CORRECTOR DE TRANSCRIPCION DE AUDIO
+# ─────────────────────────────────────────────
+
+# Diccionario: "lo que entendio Whisper" → "lo que realmente es"
+# Agregar aqui nuevas palabras a medida que se detecten errores
+_CORRECCIONES_AUDIO: dict[str, str] = {
+    # Drywall
+    "driver":    "drywall",
+    "draiul":    "drywall",
+    "draibol":   "drywall",
+    "draiwall":  "drywall",
+    "draiuol":   "drywall",
+    "graihol":   "drywall",
+    # Thinner
+    "tiner":     "thinner",
+    "tinner":    "thinner",
+    # Boxer
+    "boser":     "boxer",
+    "vocel":     "boxer",
+    "bocel":     "boxer",
+    "bóxer":     "boxer",
+    # Bisagra
+    "bisara":    "bisagra",
+    "visagra":   "bisagra",
+    "bisarga":   "bisagra",
+    # Puntilla
+    "pontilla":  "puntilla",
+    "puntia":    "puntilla",
+    # Sellador
+    "cejador":   "sellador",
+    "sejador":   "sellador",
+    # Segueta
+    "cegueta":   "segueta",
+    "sagueta":   "segueta",
+    # Agrega nuevas correcciones aqui:
+    # "error_whisper": "palabra_correcta",
+}
+
+
+def corregir_texto_audio(texto: str) -> str:
+    """
+    Corrige errores comunes de transcripcion de Whisper antes de enviar a la IA.
+    Usa IGNORECASE para no destruir mayusculas del texto original.
+    Aplica reemplazo de palabra completa (\b) para no corromper otras palabras.
+    """
+    if not texto:
+        return texto
+
+    for error, correcto in _CORRECCIONES_AUDIO.items():
+        texto = re.sub(rf'\b{error}\b', correcto, texto, flags=re.IGNORECASE)
+
+    return texto
