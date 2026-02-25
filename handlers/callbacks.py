@@ -12,7 +12,7 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 from ventas_state import (
     ventas_pendientes, borrados_pendientes, _estado_lock,
     registrar_ventas_con_metodo, clientes_en_proceso,
-    ventas_esperando_cliente,
+    ventas_esperando_cliente, mensajes_standby,
 )
 
 
@@ -21,10 +21,25 @@ from ventas_state import (
 # ─────────────────────────────────────────────
 
 async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    data  = query.data
+    query    = update.callback_query
+    data     = query.data
+    chat_id  = query.message.chat_id
     await query.answer()
 
+    # ── Cancelar / Modificar venta ──
+    if data.startswith("pago_cancelar_"):
+        with _estado_lock:
+            ventas_pendientes.pop(chat_id, None)
+            mensajes_standby.pop(chat_id, None)
+
+        await query.edit_message_text(
+            "🛑 Venta en pausa.\n\n"
+            "El chat está desbloqueado. Dime qué quieres corregir:\n"
+            "Ej: 'Era sin la brocha', 'Agrega un martillo a 15000', o 'Cancela todo'."
+        )
+        return
+
+    # ── Métodos de pago ──
     if data.startswith("pago_"):
         partes  = data.split("_")
         metodo  = partes[1]
@@ -38,10 +53,23 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.edit_message_text("Esta sesion de pago expiro o ya fue procesada.")
             return
 
-        conf = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
+        conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
         emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
         await query.edit_message_text(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf))
 
+        # Procesar mensajes que quedaron en standby
+        with _estado_lock:
+            pendientes = mensajes_standby.pop(chat_id, [])
+        if pendientes:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🔄 Procesando {len(pendientes)} mensaje(s) que estaban en espera..."
+            )
+            for msg_text in pendientes:
+                from handlers.mensajes import _procesar_mensaje
+                await _procesar_mensaje(update, context, msg_text, chat_id, update.effective_user.first_name)
+
+    # ── Confirmación de borrado ──
     elif data.startswith("borrar_"):
         partes  = data.split("_")
         confirm = partes[1]
@@ -56,6 +84,7 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             await query.edit_message_text("Borrado cancelado.")
 
+    # ── Gráficas ──
     elif data.startswith("grafica_"):
         from handlers.comandos import manejar_callback_grafica
         await manejar_callback_grafica(update, context)
@@ -66,13 +95,12 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ─────────────────────────────────────────────
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
-    """Muestra botones de metodo de pago con el orden: Cantidad + Producto + Valor."""
+    """Muestra botones de metodo de pago con opcion de modificar/cancelar."""
     lineas = []
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
 
-        # Misma logica blindada que ventas_state: total primero, unitario como fallback
         total      = float(v.get("total", 0))
         p_unitario = float(v.get("precio_unitario", 0))
         valor_final = total if total > 0 else round(p_unitario * cantidad_dec)
@@ -80,11 +108,16 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
         lineas.append(f"• {cantidad_leg} {producto} ${valor_final:,.0f}")
 
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("💵 Efectivo",      callback_data=f"pago_efectivo_{chat_id}"),
-        InlineKeyboardButton("📱 Transferencia", callback_data=f"pago_transferencia_{chat_id}"),
-        InlineKeyboardButton("💳 Datafono",      callback_data=f"pago_datafono_{chat_id}"),
-    ]])
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("💵 Efectivo",      callback_data=f"pago_efectivo_{chat_id}"),
+            InlineKeyboardButton("📱 Transf.",        callback_data=f"pago_transferencia_{chat_id}"),
+            InlineKeyboardButton("💳 Datáfono",       callback_data=f"pago_datafono_{chat_id}"),
+        ],
+        [
+            InlineKeyboardButton("✏️ Modificar / Cancelar Venta", callback_data=f"pago_cancelar_{chat_id}"),
+        ]
+    ])
     await message.reply_text(
         "¿Cómo fue el pago?\n\n" + "\n".join(lineas),
         reply_markup=keyboard,
