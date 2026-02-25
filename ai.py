@@ -285,7 +285,15 @@ REGLA DEFINITIVA DE PRECIOS:
    - "un cuarto"=0.25 | "un octavo"=0.125 | "medio/media"=0.5 | "tres cuartos"=0.75 | "1/16"=0.0625
    - Ejemplo: "un cuarto vinilo 15000" -> {{"cantidad": 0.25, "total": 15000}}
 
-4. REGLA THINNER:
+4. NOMENCLATURA DE TORNILLOS — REGLA CRITICA:
+   En ferreteria colombiana los tornillos tienen medida en el nombre: "10 por 3½", "8 por 1", "6 por 2".
+   Formato: "NúmeroTornillo x Longitud" donde el número es calibre y la longitud en pulgadas.
+   - "24 tornillos drywall 10 por 3 y medio cinco mil" = 24 unidades, producto "Tornillo Drywall 10×3½", precio total $5.000
+   - "12 tornillos 8 por 1 tres mil" = 12 unidades, producto "Tornillo 8×1", precio total $3.000
+   - NUNCA interpretes la medida del tornillo (ej: "10 por 3½") como precio o cantidad de venta.
+   - El precio SIEMPRE viene DESPUES de la medida, generalmente al final.
+
+5. REGLA THINNER:
    - "X pesos de thinner" -> precio es el TOTAL pagado. Cantidad segun tabla:
      $3.000->1/12 | $4.000->1/10 | $5.000->1/8 | $6.000->1/6 | $7.000->1/5 | $8.000->1/4
      $9.000->3/10 | $10.000->1/3 | $11.000->1/3 | $12.000->2/5 | $13.000->1/2 | $14.000->1/2
