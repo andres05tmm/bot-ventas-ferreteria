@@ -200,9 +200,10 @@ _CORRECCIONES_AUDIO: dict[str, str] = {
     # Segueta
     "cegueta":   "segueta",
     "sagueta":   "segueta",
-    # Agrega nuevas correcciones aqui:
-    # "error_whisper": "palabra_correcta",
-}
+     # Chazos
+    "dos hechazos": "doce chazos",
+    "hechazos": "chazos",
+    }
 
 
 def corregir_texto_audio(texto: str) -> str:
