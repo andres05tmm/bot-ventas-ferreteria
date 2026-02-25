@@ -80,10 +80,24 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         cantidad = convertir_fraccion_a_decimal(venta.get("cantidad", 1))
 
         # ── LOGICA DE PRECIO BLINDADA ──
-        # Si la IA envía "total" → se usa directamente (caso por defecto)
-        # Si la IA envía "precio_unitario" → se multiplica (caso "c/u")
-        total                   = float(venta.get("total", 0))
-        precio_unitario_enviado = float(venta.get("precio_unitario", 0))
+        # Claude a veces manda precios como string ("$4,000" o "4.000")
+        # Esta funcion limpia cualquier formato antes de convertir a float
+        def _parsear_precio(clave):
+            val = venta.get(clave, 0)
+            if isinstance(val, str):
+                val = val.replace("$", "").replace(",", "").replace(".", "").strip()
+                # Si tenia punto decimal real (ej: "4000.5"), restaurarlo
+                try:
+                    return float(val)
+                except:
+                    return 0.0
+            try:
+                return float(val)
+            except:
+                return 0.0
+
+        total                   = _parsear_precio("total")
+        precio_unitario_enviado = _parsear_precio("precio_unitario")
 
         if total > 0:
             valor_final = total
