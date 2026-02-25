@@ -271,14 +271,18 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] caja[CAJA] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE]. Memoria permanente de precios.
 
 REGLA DEFINITIVA DE PRECIOS:
-1. Por defecto, CUALQUIER precio mencionado es el TOTAL (no multipliques nunca).
-   - Ejemplo: "12 tornillos 500"       -> {{"cantidad": 12,  "total": 500}}
-   - Ejemplo: "2 brochas 8000"         -> {{"cantidad": 2,   "total": 8000}}
-   - Ejemplo: "1/2 galon vinilo 21000" -> {{"cantidad": 0.5, "total": 21000}}
+1. Por defecto, CUALQUIER numero al final es el TOTAL. Nunca multipliques por defecto.
+   - "15 tornillos drywall 14000"    -> {{"cantidad": 15,  "total": 14000}}
+   - "2 brochas 8000"                -> {{"cantidad": 2,   "total": 8000}}
+   - "1/2 galon vinilo 21000"        -> {{"cantidad": 0.5, "total": 21000}}
+   - "300 tornillos 16500"           -> {{"cantidad": 300, "total": 16500}}
 
-2. La UNICA excepcion es si el usuario dice "unidad", "cada uno", "cada una" o "c/u".
-   Solo en ese caso multiplica cantidad x precio para obtener el total.
-   - Ejemplo: "12 tornillos 50 la unidad" -> {{"cantidad": 12, "total": 600}}
+2. La UNICA excepcion: si el usuario dice "cada unidad", "por unidad", "la unidad",
+   "c/u", "cada uno" o "cada una" — en ese caso el numero es precio unitario, multiplica.
+   - "300 tornillos a 55 cada unidad" -> 300 x 55 = {{"cantidad": 300, "total": 16500}}
+   - "15 tornillos a 120 por unidad"  -> 15 x 120 = {{"cantidad": 15,  "total": 1800}}
+   - "2 brochas a 4000 cada una"      -> 2 x 4000 = {{"cantidad": 2,   "total": 8000}}
+   SI no escuchas ninguna de esas palabras clave: el precio ES el total, no multipliques.
 
 3. FRACCIONES (1/2, 1/4, 3/4, 1/8, 1/16):
    - El precio SIEMPRE es el TOTAL de esa fraccion. NUNCA dividas ni multipliques.
@@ -350,17 +354,19 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
 
 3. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}}[/VENTA]
-   - Usa SIEMPRE la llave "total" con el valor final pagado. NUNCA uses "precio_unitario".
-   - Para cantidad = 1: total = precio del catalogo. Ej: 1 galon laca miel = 65000
-   - Para cantidad > 1: total = precio_unitario × cantidad. Ej: 2 galones laca miel = 65000 × 2 = 130000
-   - Para fracciones: total = precio de esa fraccion en catalogo. Ej: 1/4 vinilo T1 = 15000 (NO multiplicar)
+   - USA SIEMPRE y ÚNICAMENTE la llave "total" con el valor final pagado.
+   - NUNCA uses "precio_unitario", "precio", "monto", "valor" ni ninguna otra llave para el dinero.
+   - Para cantidad = 1: total = precio del catalogo. Ej: 1 galon laca miel → total: 65000
+   - Para cantidad > 1: total = precio_unitario × cantidad. Ej: 2 galones laca miel → total: 130000
+   - Para fracciones: total = precio de esa fraccion en catalogo. Ej: 1/4 vinilo T1 → total: 15000 (NUNCA multipliques)
    - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
-   - Si menciona cliente y esta en la base: Usa el nombre directo en "cliente".
-   - Si menciona cliente y NO esta en la base: Usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}[/INICIAR_CLIENTE]. NUNCA preguntes el documento tu, usa la etiqueta.
-   IMPORTANTE — FORMATO JSON ESTRICTO:
-   Las ÚNICAS claves permitidas para el dinero son "total" y "precio_unitario".
-   NUNCA inventes otras claves como "precio", "monto", "valor" o "precio_total".
-   NUNCA incluyas el símbolo $ ni comas en los números. Correcto: 21000. Incorrecto: $21,000.
+   - Si menciona cliente y esta en la base: incluye "cliente": "Nombre" en el JSON.
+   - Si menciona cliente y NO esta en la base: usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}[/INICIAR_CLIENTE]. NUNCA preguntes el documento tu.
+   FORMATO JSON ESTRICTO:
+   CORRECTO:   {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000}}
+   INCORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "precio_unitario": 15000}}
+   INCORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": "$15,000"}}
+   NUNCA incluyas el simbolo $ ni comas en los numeros.
 
 4. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
 5. Codigo producto: [CODIGO_PRODUCTO]{{"producto": "nombre exacto del producto", "codigo": "COD123"}}[/CODIGO_PRODUCTO]
