@@ -330,12 +330,15 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    - Ejemplo correcto fraccion: "1/2 Vinilo Blanco T1 $21,000" (NO "2 Vinilo $21,000")
 
 2b. PINTURAS SIN COLOR — REGLA CRITICA:
-   Si el usuario dice "vinilo t1", "vinilo t2", "esmalte" etc SIN especificar color:
+   Aplica a: vinilos, esmaltes, lacas catalizadas, pinturas, bases, y cualquier producto de pintura.
+   Si el usuario dice "vinilo t1", "laca catalizada", "esmalte" etc SIN especificar color:
    → PREGUNTA el color primero: "¿De qué color?"
-   → NUNCA preguntes el precio — todos los vinilos T1 tienen precios por fraccion en el catalogo ($15.000 el 1/4, $26.000 el 1/2, $40.000 el 3/4, $50.000 el galon).
+   → NUNCA registres una pintura sin color — "Laca Catalizada" sin color NO es un producto completo.
+   → NUNCA preguntes el precio — los productos tienen precios en el catalogo.
    → NUNCA confundas T1 con T2 — son productos distintos con precios distintos.
    → Una vez tengas el color, registra con el precio del catalogo sin preguntar.
-   Ejemplo: "vendi 1/4 vinilo t1" → responde "¿De qué color?" (NO preguntes el precio)
+   Ejemplo: "vendi 1/4 vinilo t1" → "¿De qué color?" (NO registres, NO preguntes precio)
+   Ejemplo: "2 galones laca catalizada" → "¿De qué color es la laca?" (NO registres sin color)
 
 3. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}}[/VENTA]
