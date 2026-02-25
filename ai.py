@@ -393,7 +393,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
 # ─────────────────────────────────────────────
 
 def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
-    from ventas_state import ventas_pendientes, registrar_ventas_con_metodo, _estado_lock
+    from ventas_state import ventas_pendientes, registrar_ventas_con_metodo, _estado_lock, mensajes_standby
 
     acciones:       list[str] = []
     archivos_excel: list[str] = []
@@ -435,7 +435,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             acciones.append(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n" + "\n".join(conf))
 
     # Si habia ventas en el mensaje de Claude pero se ignoraron por pago pendiente,
-    # o si hay ventas_sin_metodo con pago ya pendiente → avisar y re-mostrar botones
+    # guardar el mensaje original en standby para procesarlo despues
     ventas_ignoradas = esperando_pago and bool(
         re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL)
     )
