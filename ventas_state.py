@@ -99,19 +99,24 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         total                   = _parsear_precio("total")
         precio_unitario_enviado = _parsear_precio("precio_unitario")
 
+        # REGLA DEFINITIVA DE PRECIO:
+        # Claude calcula el total ANTES de enviarlo en el JSON.
+        # - Caso normal ("15 tornillos 14000"):       total=14000, precio_unitario=0
+        # - Caso unitario ("300 tornillos a 55 c/u"): Claude multiplica → total=16500
+        # - Caso fraccion ("1/4 vinilo 15000"):       total=15000
+        # Por tanto: si llega "total" > 0, es el valor definitivo. Siempre.
+        # El campo "precio_unitario" ya no deberia llegar desde el model, pero
+        # lo mantenemos como fallback por compatibilidad con mensajes en transicion.
         if total > 0:
-            # Si la cantidad es mayor a 1 y el total parece ser solo el precio unitario,
-            # multiplicar. Detectamos esto si total < precio_catalogo * cantidad.
-            # Caso simple: si cantidad entera > 1 y total = precio de 1 unidad, multiplicar.
-            if cantidad > 1.0 and precio_unitario_enviado > 0 and abs(total - precio_unitario_enviado) < 1:
-                valor_final = round(precio_unitario_enviado * cantidad)
-            elif cantidad > 1.0 and precio_unitario_enviado == 0:
-                # Solo tenemos total — verificar si parece precio unitario buscando en catálogo
-                valor_final = total  # confiamos en Claude por ahora
-            else:
-                valor_final = total
+            valor_final = round(total)
         elif precio_unitario_enviado > 0:
-            valor_final = round(precio_unitario_enviado * cantidad)
+            # Fallback: Claude mando precio_unitario en lugar de total
+            # Para fracciones (cantidad < 1) el precio_unitario ya es el total de esa fraccion
+            # Para enteros, multiplicamos normalmente
+            if cantidad < 1.0:
+                valor_final = round(precio_unitario_enviado)
+            else:
+                valor_final = round(precio_unitario_enviado * cantidad)
         else:
             valor_final = 0
 
