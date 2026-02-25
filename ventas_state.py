@@ -100,7 +100,16 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         precio_unitario_enviado = _parsear_precio("precio_unitario")
 
         if total > 0:
-            valor_final = total
+            # Si la cantidad es mayor a 1 y el total parece ser solo el precio unitario,
+            # multiplicar. Detectamos esto si total < precio_catalogo * cantidad.
+            # Caso simple: si cantidad entera > 1 y total = precio de 1 unidad, multiplicar.
+            if cantidad > 1.0 and precio_unitario_enviado > 0 and abs(total - precio_unitario_enviado) < 1:
+                valor_final = round(precio_unitario_enviado * cantidad)
+            elif cantidad > 1.0 and precio_unitario_enviado == 0:
+                # Solo tenemos total — verificar si parece precio unitario buscando en catálogo
+                valor_final = total  # confiamos en Claude por ahora
+            else:
+                valor_final = total
         elif precio_unitario_enviado > 0:
             valor_final = round(precio_unitario_enviado * cantidad)
         else:
