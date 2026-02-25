@@ -427,9 +427,7 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         await asyncio.to_thread(inicializar_excel)
         wb = await asyncio.to_thread(openpyxl.load_workbook, config.EXCEL_FILE)
-        hojas_destino = [obtener_nombre_ho_ja(), "Registro de Ventas-Acumulado"]
-        # Corregir error de tipeo en obtener_nombre_hoja
-        hojas_destino[0] = obtener_nombre_hoja()
+        hojas_destino = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
         total_general = 0
 
         for indice_hoja, nombre_hoja in enumerate(hojas_destino):
