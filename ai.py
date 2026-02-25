@@ -434,13 +434,17 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
             acciones.append(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n" + "\n".join(conf))
 
-    if ventas_sin_metodo:
-        if esperando_pago:
-            acciones.append("PAGO_PENDIENTE_AVISO")
-        else:
-            with _estado_lock:
-                ventas_pendientes[chat_id] = ventas_sin_metodo
-            acciones.append("PEDIR_METODO_PAGO")
+    # Si habia ventas en el mensaje de Claude pero se ignoraron por pago pendiente,
+    # o si hay ventas_sin_metodo con pago ya pendiente → avisar y re-mostrar botones
+    ventas_ignoradas = esperando_pago and bool(
+        re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL)
+    )
+    if ventas_ignoradas or (ventas_sin_metodo and esperando_pago):
+        acciones.append("PAGO_PENDIENTE_AVISO")
+    elif ventas_sin_metodo:
+        with _estado_lock:
+            ventas_pendientes[chat_id] = ventas_sin_metodo
+        acciones.append("PEDIR_METODO_PAGO")
 
     # ── Cliente nuevo (datos completos) ──
     for cli_json in re.findall(r'\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]', texto_respuesta, re.DOTALL):
