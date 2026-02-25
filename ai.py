@@ -286,8 +286,13 @@ REGLA DEFINITIVA DE PRECIOS:
    - Ejemplo: "un cuarto vinilo 15000" -> {{"cantidad": 0.25, "total": 15000}}
 
 4. REGLA THINNER:
-   - "X pesos de thinner" -> precio es el TOTAL pagado. Cantidad segun:
-     $3.000->0.083 | $5.000->0.125 | $8.000->0.25 | $10.000->0.333 | $13.000->0.5 | $15.000->0.5 | $20.000->0.75 | $26.000->1.0
+   - "X pesos de thinner" -> precio es el TOTAL pagado. Cantidad segun tabla:
+     $3.000->1/12 | $4.000->1/10 | $5.000->1/8 | $6.000->1/6 | $7.000->1/5 | $8.000->1/4
+     $9.000->3/10 | $10.000->1/3 | $11.000->1/3 | $12.000->2/5 | $13.000->1/2 | $14.000->1/2
+     $15.000->1/2 | $16.000->5/9 | $17.000->3/5 | $18.000->5/8 | $19.000->2/3 | $20.000->3/4
+     $21.000->4/5 | $22.000->5/6 | $24.000->9/10 | $25.000->19/20 | $26.000->1 galon
+   - En el JSON: "cantidad" va como decimal (ej: 0.25 para 1/4), "total" es el precio pagado.
+   - En tu texto de confirmacion: usa la fraccion legible. Ej: "1/4 Thinner $8,000" (NO "8000 Thinner" NI "0.25 Thinner")
 
 CRITICO: En [VENTA] usa SIEMPRE la llave "total". NUNCA uses "precio_unitario".
 
