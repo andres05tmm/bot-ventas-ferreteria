@@ -1,5 +1,5 @@
 """
-Handlers de mensajes: texto, audio y documentos Excel.
+Handlers de mensajes: texto, audio (voz) y documentos Excel.
 """
 
 import asyncio
@@ -8,17 +8,82 @@ import tempfile
 import traceback
 
 import openpyxl
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import config
 from ai import procesar_con_claude, procesar_acciones, editar_excel_con_claude
 from ventas_state import (
     agregar_al_historial, get_historial,
-    ventas_pendientes, _estado_lock, get_chat_lock,
+    ventas_pendientes, clientes_en_proceso, _estado_lock,
 )
-from handlers.callbacks import manejar_texto_cliente, _enviar_botones_pago
-from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
+from excel import guardar_cliente_nuevo
+from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
+
+
+async def _enviar_botones_pago(message, chat_id: int, ventas: list):
+    """Muestra los botones de metodo de pago con un resumen de las ventas."""
+    lineas = []
+    for v in ventas:
+        cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
+        precio       = float(v.get("precio_unitario", 0))
+        total_mostrar = precio * cantidad_dec if cantidad_dec >= 1 else precio
+        cantidad_legible = (
+            decimal_a_fraccion_legible(cantidad_dec)
+            if isinstance(cantidad_dec, float) else v.get("cantidad", 1)
+        )
+        lineas.append(f"• {v.get('producto')} x{cantidad_legible} = ${total_mostrar:,.0f}")
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("💵 Efectivo",      callback_data=f"pago_efectivo_{chat_id}"),
+        InlineKeyboardButton("📱 Transferencia", callback_data=f"pago_transferencia_{chat_id}"),
+        InlineKeyboardButton("💳 Datafono",      callback_data=f"pago_datafono_{chat_id}"),
+    ]])
+    await message.reply_text(f"¿Cómo fue el pago?\n\n" + "\n".join(lineas), reply_markup=keyboard)
+
+
+async def _enviar_pregunta_cliente(message, chat_id: int):
+    """
+    Lee el paso actual del flujo de creacion de cliente y envia
+    la pregunta correspondiente, con botones cuando aplica.
+    """
+    with _estado_lock:
+        datos = clientes_en_proceso.get(chat_id)
+    if not datos:
+        return
+
+    paso = datos.get("paso")
+
+    if paso == "nombre":
+        await message.reply_text("👤 Vamos a crear el cliente. ¿Cuál es el nombre completo?")
+
+    elif paso == "tipo_id":
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🪪 CC",  callback_data=f"cli_tipoid_CC_{chat_id}"),
+            InlineKeyboardButton("🏢 NIT", callback_data=f"cli_tipoid_NIT_{chat_id}"),
+            InlineKeyboardButton("🌍 CE",  callback_data=f"cli_tipoid_CE_{chat_id}"),
+        ]])
+        await message.reply_text(
+            f"Perfecto. ¿Qué tipo de documento tiene {datos.get('nombre', 'el cliente')}?",
+            reply_markup=keyboard,
+        )
+
+    elif paso == "identificacion":
+        await message.reply_text(
+            f"¿Cuál es el número de {datos.get('tipo_id', 'identificación')}?"
+        )
+
+    elif paso == "tipo_persona":
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("👤 Persona Natural",   callback_data=f"cli_persona_Natural_{chat_id}"),
+            InlineKeyboardButton("🏢 Persona Jurídica",  callback_data=f"cli_persona_Juridica_{chat_id}"),
+        ]])
+        await message.reply_text("¿Es Persona Natural o Persona Jurídica?", reply_markup=keyboard)
+
+    elif paso == "correo":
+        await message.reply_text(
+            "¿Cuál es el correo electrónico? (escribe 'no tiene' si no aplica)"
+        )
 
 
 async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -29,71 +94,60 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mensaje.startswith("/"):
         return
 
-    # Serializar mensajes del mismo chat para evitar race conditions
-    async with get_chat_lock(chat_id):
-        await _procesar_mensaje(update, context, mensaje, chat_id, vendedor)
-
-
-async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    # ── Flujo paso a paso de creacion de cliente (texto) ──
-    # Si el usuario esta en medio de crear un cliente, este handler
-    # consume el mensaje y devuelve True. Tambien registra ventas
-    # pendientes automaticamente si las habia.
-    consumido = await manejar_texto_cliente(chat_id, mensaje, update.message, vendedor)
-    if consumido:
-        return
-
-    # ── Interceptar metodo de pago escrito como texto o mandar a STANDBY ──
+    # ── Flujo paso a paso de creacion de cliente ──
     with _estado_lock:
-        _ventas_pend = list(ventas_pendientes.get(chat_id, []))
+        en_proceso = clientes_en_proceso.get(chat_id)
+    if en_proceso:
+        paso = en_proceso.get("paso")
+        texto_lower = mensaje.strip().lower()
 
-    if _ventas_pend:
-        _metodos_texto = {
-            "efectivo": "efectivo", "cash": "efectivo", "contado": "efectivo",
-            "transferencia": "transferencia", "transfer": "transferencia",
-            "nequi": "transferencia", "daviplata": "transferencia", "bancolombia": "transferencia",
-            "datafono": "datafono", "datáfono": "datafono", "tarjeta": "datafono",
-        }
-        metodo_detectado = _metodos_texto.get(mensaje.strip().lower())
-        if metodo_detectado:
+        if paso == "nombre":
+            en_proceso["nombre"] = mensaje.strip().upper()
+            en_proceso["paso"]   = "tipo_id"
             with _estado_lock:
-                ventas = ventas_pendientes.pop(chat_id, [])
-            if ventas:
-                from ventas_state import registrar_ventas_con_metodo
-                confirmaciones = await asyncio.to_thread(
-                    registrar_ventas_con_metodo, ventas, metodo_detectado, vendedor, chat_id
-                )
-                emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo_detectado, "✅")
-                await update.message.reply_text(
-                    f"✅ Venta registrada — {emoji} {metodo_detectado.capitalize()}\n\n" + "\n".join(confirmaciones)
-                )
-
-                # --- Procesar standby tras pago por texto ---
-                from ventas_state import mensajes_standby
-                with _estado_lock:
-                    standby_msgs = mensajes_standby.pop(chat_id, [])
-                if standby_msgs:
-                    texto_standby = " ".join(standby_msgs)
-                    await update.message.reply_text(f"▶️ Procesando venta en standby:\n_{texto_standby}_", parse_mode="Markdown")
-                    await _procesar_mensaje(update, context, texto_standby, chat_id, vendedor)
-                # ----------------------------------------------------
+                clientes_en_proceso[chat_id] = en_proceso
+            await _enviar_pregunta_cliente(update.message, chat_id)
             return
-        else:
-            # --- Interceptar y mandar a standby ---
-            from ventas_state import mensajes_standby
-            with _estado_lock:
-                if chat_id not in mensajes_standby:
-                    mensajes_standby[chat_id] = []
-                mensajes_standby[chat_id].append(mensaje)
 
-            await update.message.reply_text(
-                "⏸️ Tienes una venta anterior esperando confirmación de pago.\n\n"
-                "He puesto esta nueva solicitud en *standby*. La procesaré automáticamente apenas confirmes el pago anterior.", 
-                parse_mode="Markdown"
+        elif paso == "identificacion":
+            en_proceso["identificacion"] = mensaje.strip()
+            en_proceso["paso"]           = "tipo_persona"
+            with _estado_lock:
+                clientes_en_proceso[chat_id] = en_proceso
+            await _enviar_pregunta_cliente(update.message, chat_id)
+            return
+
+        elif paso == "correo":
+            correo = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
+            en_proceso["correo"] = correo
+            # ── Todos los datos recopilados — guardar cliente ──
+            with _estado_lock:
+                clientes_en_proceso.pop(chat_id, None)
+            ok = await asyncio.to_thread(
+                guardar_cliente_nuevo,
+                en_proceso["nombre"],
+                en_proceso["tipo_id"],
+                en_proceso["identificacion"],
+                en_proceso["tipo_persona"],
+                correo,
             )
+            if ok:
+                tipo_map = {"CC": "Cédula de ciudadanía", "NIT": "NIT", "CE": "Cédula de extranjería"}
+                tipo_legible = tipo_map.get(en_proceso["tipo_id"], en_proceso["tipo_id"])
+                await update.message.reply_text(
+                    f"✅ Cliente creado exitosamente:\n\n"
+                    f"👤 {en_proceso['nombre']}\n"
+                    f"📄 {tipo_legible}: {en_proceso['identificacion']}\n"
+                    f"🏷️ {en_proceso['tipo_persona']}\n"
+                    f"📧 {correo or 'Sin correo'}"
+                )
+            else:
+                await update.message.reply_text("⚠️ No pude guardar el cliente. Intenta de nuevo.")
             return
+
+    # Si el usuario esta en flujo de cliente pero llega aqui, continuar normal
 
     # ── Excel cargado por el usuario ──
     excel_temp   = context.user_data.get("excel_temp")
@@ -139,45 +193,29 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
     # ── Flujo normal con Claude ──
     try:
-        historial = get_historial(chat_id)
+        historial    = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
         respuesta_raw = await procesar_con_claude(f"{vendedor}: {mensaje}", vendedor, historial)
         texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
-        pedir_metodo      = "PEDIR_METODO_PAGO"    in acciones
-        iniciar_cliente   = "INICIAR_FLUJO_CLIENTE" in acciones
-        pago_pend_aviso   = "PAGO_PENDIENTE_AVISO"  in acciones
-
-        # Seguro: si hay cliente nuevo, quitar cualquier pregunta de metodo de pago del texto
-        if iniciar_cliente and texto_respuesta:
-            import re as _re
-            texto_respuesta = _re.sub(
-                r'[.!,]?\s*[¿]?[Mm]é?todo de pago\??',
-                '', texto_respuesta
-            ).strip().rstrip(".")
-
         if texto_respuesta:
             await update.message.reply_text(texto_respuesta)
 
+        pedir_metodo   = "PEDIR_METODO_PAGO"    in acciones
+        iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
+
         for accion in acciones:
-            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO"):
+            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE"):
                 await update.message.reply_text(accion)
 
-        # Si hay que iniciar cliente Y pedir metodo de pago en el mismo mensaje,
-        # el cliente tiene prioridad — las ventas ya quedaron en ventas_esperando_cliente
+        if pedir_metodo:
+            with _estado_lock:
+                ventas = ventas_pendientes.get(chat_id, [])
+            await _enviar_botones_pago(update.message, chat_id, ventas)
+
         if iniciar_cliente:
             await _enviar_pregunta_cliente(update.message, chat_id)
-        elif pago_pend_aviso:
-            # Hay venta pendiente de pago — recordarle al usuario y re-mostrar botones
-            with _estado_lock:
-                ventas = ventas_pendientes.get(chat_id, [])
-            await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
-            await _enviar_botones_pago(update.message, chat_id, ventas)
-        elif pedir_metodo:
-            with _estado_lock:
-                ventas = ventas_pendientes.get(chat_id, [])
-            await _enviar_botones_pago(update.message, chat_id, ventas)
 
         for archivo in archivos_excel:
             if os.path.exists(archivo):
@@ -191,62 +229,10 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         await update.message.reply_text("Tuve un problema. Intenta de nuevo.")
 
 
-async def _enviar_pregunta_cliente(message, chat_id: int):
-    """
-    Lee el paso actual del flujo de creacion de cliente y envia
-    la pregunta correspondiente con botones cuando aplica.
-    """
-    from ventas_state import clientes_en_proceso
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
-    with _estado_lock:
-        datos = clientes_en_proceso.get(chat_id)
-    if not datos:
-        return
-
-    paso = datos.get("paso")
-
-    if paso == "nombre":
-        await message.reply_text("👤 Vamos a crear el cliente. ¿Cuál es el nombre completo?")
-
-    elif paso == "tipo_id":
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🪪 CC",  callback_data=f"cli_tipoid_CC_{chat_id}"),
-            InlineKeyboardButton("🏢 NIT", callback_data=f"cli_tipoid_NIT_{chat_id}"),
-            InlineKeyboardButton("🌍 CE",  callback_data=f"cli_tipoid_CE_{chat_id}"),
-        ]])
-        await message.reply_text(
-            f"¿Qué tipo de documento tiene {datos.get('nombre', 'el cliente')}?",
-            reply_markup=keyboard,
-        )
-
-    elif paso == "identificacion":
-        await message.reply_text(
-            f"¿Cuál es el número de {datos.get('tipo_id', 'identificación')}?"
-        )
-
-    elif paso == "tipo_persona":
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("👤 Persona Natural",  callback_data=f"cli_persona_Natural_{chat_id}"),
-            InlineKeyboardButton("🏢 Persona Jurídica", callback_data=f"cli_persona_Juridica_{chat_id}"),
-        ]])
-        await message.reply_text("¿Es Persona Natural o Persona Jurídica?", reply_markup=keyboard)
-
-    elif paso == "correo":
-        await message.reply_text(
-            "¿Cuál es el correo electrónico? (escribe 'no tiene' si no aplica)"
-        )
-
-
 async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vendedor = update.message.from_user.first_name or "Desconocido"
     chat_id  = update.message.chat_id
     await update.message.reply_text("🎤 Escuchando...")
-    async with get_chat_lock(chat_id):
-        await _procesar_audio(update, context, chat_id, vendedor)
-
-
-async def _procesar_audio(update, context, chat_id, vendedor):
     try:
         archivo_voz = await update.message.voice.get_file()
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
@@ -261,98 +247,25 @@ async def _procesar_audio(update, context, chat_id, vendedor):
 
         transcripcion = await asyncio.to_thread(_transcribir)
         os.unlink(ruta_audio)
-        texto = transcripcion.text
+        texto = corregir_texto_audio(transcripcion.text)
         await update.message.reply_text(f"📝 Escuche: {texto}")
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # Verificar si esta en flujo de cliente
-        consumido = await manejar_texto_cliente(chat_id, texto, update.message, vendedor)
-        if consumido:
-            return
-
-        # ── Interceptar metodo de pago hablado o mandar a STANDBY ──
-        with _estado_lock:
-            _ventas_pend_audio = list(ventas_pendientes.get(chat_id, []))
-
-        if _ventas_pend_audio:
-            _metodos_audio = {
-                "efectivo": "efectivo", "cash": "efectivo", "contado": "efectivo",
-                "transferencia": "transferencia", "transfer": "transferencia",
-                "nequi": "transferencia", "daviplata": "transferencia", "bancolombia": "transferencia",
-                "datafono": "datafono", "datáfono": "datafono", "tarjeta": "datafono",
-            }
-            metodo_audio = _metodos_audio.get(texto.strip().lower())
-            if metodo_audio:
-                with _estado_lock:
-                    ventas_audio = ventas_pendientes.pop(chat_id, [])
-                if ventas_audio:
-                    from ventas_state import registrar_ventas_con_metodo
-                    confirmaciones = await asyncio.to_thread(
-                        registrar_ventas_con_metodo, ventas_audio, metodo_audio, vendedor, chat_id
-                    )
-                    emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo_audio, "✅")
-                    await update.message.reply_text(
-                        f"✅ Venta registrada — {emoji} {metodo_audio.capitalize()}\n\n" + "\n".join(confirmaciones)
-                    )
-
-                    # --- Procesar standby tras pago por audio ---
-                    from ventas_state import mensajes_standby
-                    with _estado_lock:
-                        standby_msgs = mensajes_standby.pop(chat_id, [])
-                    if standby_msgs:
-                        texto_standby = " ".join(standby_msgs)
-                        await update.message.reply_text(f"▶️ Procesando venta en standby:\n_{texto_standby}_", parse_mode="Markdown")
-                        await _procesar_mensaje(update, context, texto_standby, chat_id, vendedor)
-                    # ----------------------------------------------------
-                return
-            else:
-                # --- Interceptar audio y mandar a standby ---
-                from ventas_state import mensajes_standby
-                with _estado_lock:
-                    if chat_id not in mensajes_standby:
-                        mensajes_standby[chat_id] = []
-                    mensajes_standby[chat_id].append(texto)
-
-                await update.message.reply_text(
-                    "⏸️ Tienes una venta anterior esperando confirmación de pago.\n\n"
-                    "He puesto este audio en *standby*. Lo procesaré automáticamente apenas confirmes el pago anterior.", 
-                    parse_mode="Markdown"
-                )
-                return
-
-        historial = get_historial(chat_id)
+        historial     = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", f"{vendedor}: {texto}")
         respuesta_raw = await procesar_con_claude(f"{vendedor}: {texto}", vendedor, historial)
         texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
-        pedir_metodo      = "PEDIR_METODO_PAGO"    in acciones
-        iniciar_cliente   = "INICIAR_FLUJO_CLIENTE" in acciones
-        pago_pend_aviso   = "PAGO_PENDIENTE_AVISO"  in acciones
-
-        # Seguro: si hay cliente nuevo, quitar cualquier pregunta de metodo de pago del texto
-        if iniciar_cliente and texto_respuesta:
-            import re as _re
-            texto_respuesta = _re.sub(
-                r'[.!,]?\s*[¿]?[Mm]é?todo de pago\??',
-                '', texto_respuesta
-            ).strip().rstrip(".")
-
         if texto_respuesta:
             await update.message.reply_text(texto_respuesta)
 
+        pedir_metodo = "PEDIR_METODO_PAGO" in acciones
         for accion in acciones:
-            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO"):
+            if accion != "PEDIR_METODO_PAGO":
                 await update.message.reply_text(accion)
 
-        if iniciar_cliente:
-            await _enviar_pregunta_cliente(update.message, chat_id)
-        elif pago_pend_aviso:
-            with _estado_lock:
-                ventas = ventas_pendientes.get(chat_id, [])
-            await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
-            await _enviar_botones_pago(update.message, chat_id, ventas)
-        elif pedir_metodo:
+        if pedir_metodo:
             with _estado_lock:
                 ventas = ventas_pendientes.get(chat_id, [])
             await _enviar_botones_pago(update.message, chat_id, ventas)
