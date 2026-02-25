@@ -317,8 +317,10 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
 
 2. ORDEN DE RESPUESTA EN TEXTO PARA VENTAS (CRITICO):
    - Cuando confirmes o listes una venta en tu respuesta de texto, usa SIEMPRE este orden: 1. Cantidad, 2. Producto, 3. Valor Total.
-   - Ejemplo correcto: "1/2 Vinilo Blanco T-2 $21,000"
-   - Ejemplo correcto: "12 Tornillo Drywall $6,000"
+   - Para cantidades fraccionarias usa la fraccion legible, NUNCA el decimal ni la cantidad inversa.
+   - Ejemplo correcto entero: "12 Tornillo Drywall $6,000"
+   - Ejemplo correcto fraccion: "1/4 Thinner $8,000" (NO "8 Thinner $8,000", NO "0.25 Thinner $8,000")
+   - Ejemplo correcto fraccion: "1/2 Vinilo Blanco T-2 $21,000" (NO "2 Vinilo $21,000")
 
 3. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}}[/VENTA]
