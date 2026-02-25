@@ -97,6 +97,7 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
     """Muestra botones de metodo de pago con opcion de modificar/cancelar."""
     lineas = []
+    print(f"[BOTONES DEBUG] ventas recibidas: {ventas}")
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
