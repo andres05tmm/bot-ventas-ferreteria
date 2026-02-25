@@ -26,8 +26,25 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
     lineas = []
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
-        precio       = float(v.get("precio_unitario", 0))
-        total_mostrar = precio * cantidad_dec if cantidad_dec >= 1 else precio
+
+        # Leer total o precio_unitario, limpiando formato string si hace falta
+        def _parsear(clave):
+            val = v.get(clave, 0)
+            if isinstance(val, str):
+                val = val.replace("$", "").replace(",", "").strip()
+            try: return float(val)
+            except: return 0.0
+
+        total_directo  = _parsear("total")
+        precio_unitario = _parsear("precio_unitario")
+
+        if total_directo > 0:
+            total_mostrar = total_directo
+        elif precio_unitario > 0:
+            total_mostrar = precio_unitario * cantidad_dec if cantidad_dec >= 1 else precio_unitario
+        else:
+            total_mostrar = 0
+
         cantidad_legible = (
             decimal_a_fraccion_legible(cantidad_dec)
             if isinstance(cantidad_dec, float) else v.get("cantidad", 1)
@@ -204,6 +221,7 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         pedir_metodo   = "PEDIR_METODO_PAGO"    in acciones
         iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
+        print(f"[ACCIONES DEBUG] acciones={acciones} | pedir_metodo={pedir_metodo}")
 
         for accion in acciones:
             if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE"):
