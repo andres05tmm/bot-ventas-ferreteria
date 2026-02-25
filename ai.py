@@ -326,6 +326,10 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
    - Si menciona cliente y esta en la base: Usa el nombre directo en "cliente".
    - Si menciona cliente y NO esta en la base: Usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}[/INICIAR_CLIENTE]. NUNCA preguntes el documento tu, usa la etiqueta.
+   IMPORTANTE — FORMATO JSON ESTRICTO:
+   Las ÚNICAS claves permitidas para el dinero son "total" y "precio_unitario".
+   NUNCA inventes otras claves como "precio", "monto", "valor" o "precio_total".
+   NUNCA incluyas el símbolo $ ni comas en los números. Correcto: 21000. Incorrecto: $21,000.
 
 4. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
 5. Codigo producto: [CODIGO_PRODUCTO]{{"producto": "nombre exacto del producto", "codigo": "COD123"}}[/CODIGO_PRODUCTO]
