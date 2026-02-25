@@ -63,11 +63,23 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         if pendientes:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"🔄 Procesando {len(pendientes)} mensaje(s) que estaban en espera..."
+                text=f"🔄 Procesando venta en espera..."
             )
             for msg_text in pendientes:
-                from handlers.mensajes import _procesar_mensaje
-                await _procesar_mensaje(update, context, msg_text, chat_id, update.effective_user.first_name)
+                from ai import procesar_con_claude, procesar_acciones
+                from ventas_state import agregar_al_historial, get_historial
+                historial = get_historial(chat_id)
+                agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
+                respuesta_raw = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
+                texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
+                agregar_al_historial(chat_id, "assistant", texto_resp)
+                if texto_resp and "PAGO_PENDIENTE_AVISO" not in acciones2:
+                    await context.bot.send_message(chat_id=chat_id, text=texto_resp)
+                if "PEDIR_METODO_PAGO" in acciones2:
+                    from handlers.mensajes import _enviar_botones_pago
+                    with _estado_lock:
+                        ventas2 = ventas_pendientes.get(chat_id, [])
+                    await _enviar_botones_pago(query.message, chat_id, ventas2)
 
     # ── Confirmación de borrado ──
     elif data.startswith("borrar_"):
