@@ -16,6 +16,7 @@ from ai import procesar_con_claude, procesar_acciones, editar_excel_con_claude
 from ventas_state import (
     agregar_al_historial, get_historial,
     ventas_pendientes, clientes_en_proceso, _estado_lock,
+    get_chat_lock, registrar_ventas_con_metodo,
 )
 from excel import guardar_cliente_nuevo
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
@@ -111,6 +112,12 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mensaje.startswith("/"):
         return
 
+    # Serializar mensajes del mismo chat para evitar race conditions
+    async with get_chat_lock(chat_id):
+        await _procesar_mensaje(update, context, mensaje, chat_id, vendedor)
+
+
+async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     # ── Flujo paso a paso de creacion de cliente ──
@@ -208,6 +215,31 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Tuve un problema editando el Excel. Intenta con una instruccion diferente.")
             return
 
+    # ── Interceptar metodo de pago escrito como texto ──
+    with _estado_lock:
+        _ventas_pend = list(ventas_pendientes.get(chat_id, []))
+
+    if _ventas_pend:
+        _metodos_texto = {
+            "efectivo": "efectivo", "cash": "efectivo", "contado": "efectivo",
+            "transferencia": "transferencia", "transfer": "transferencia",
+            "nequi": "transferencia", "daviplata": "transferencia", "bancolombia": "transferencia",
+            "datafono": "datafono", "datáfono": "datafono", "tarjeta": "datafono",
+        }
+        metodo_detectado = _metodos_texto.get(mensaje.strip().lower())
+        if metodo_detectado:
+            with _estado_lock:
+                ventas = ventas_pendientes.pop(chat_id, [])
+            if ventas:
+                confirmaciones = await asyncio.to_thread(
+                    registrar_ventas_con_metodo, ventas, metodo_detectado, vendedor, chat_id
+                )
+                emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo_detectado, "✅")
+                await update.message.reply_text(
+                    f"✅ Venta registrada — {emoji} {metodo_detectado.capitalize()}\n\n" + "\n".join(confirmaciones)
+                )
+            return
+
     # ── Flujo normal con Claude ──
     try:
         historial    = get_historial(chat_id)
@@ -219,15 +251,21 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if texto_respuesta:
             await update.message.reply_text(texto_respuesta)
 
-        pedir_metodo   = "PEDIR_METODO_PAGO"    in acciones
+        pedir_metodo    = "PEDIR_METODO_PAGO"    in acciones
         iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
+        pago_pend_aviso = "PAGO_PENDIENTE_AVISO"  in acciones
         print(f"[ACCIONES DEBUG] acciones={acciones} | pedir_metodo={pedir_metodo}")
 
         for accion in acciones:
-            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE"):
+            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO"):
                 await update.message.reply_text(accion)
 
-        if pedir_metodo:
+        if pago_pend_aviso:
+            with _estado_lock:
+                ventas = ventas_pendientes.get(chat_id, [])
+            await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
+            await _enviar_botones_pago(update.message, chat_id, ventas)
+        elif pedir_metodo:
             with _estado_lock:
                 ventas = ventas_pendientes.get(chat_id, [])
             await _enviar_botones_pago(update.message, chat_id, ventas)
