@@ -395,12 +395,13 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 print(f"[VENTA] ignorado — esperando seleccion de pago para chat {chat_id}")
             else:
                 venta = json.loads(venta_json.strip())
+                print(f"[VENTA DEBUG] JSON recibido: {venta}")
                 if venta.get("metodo_pago"):
                     ventas_con_metodo.append(venta)
                 else:
                     ventas_sin_metodo.append(venta)
         except Exception as e:
-            print(f"Error parseando venta: {e}")
+            print(f"Error parseando venta: {e} | JSON raw: {repr(venta_json.strip())}")
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
 
     if esperando_pago and ventas_con_metodo:
