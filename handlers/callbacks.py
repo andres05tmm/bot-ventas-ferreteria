@@ -101,8 +101,17 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
 
-        total      = float(v.get("total", 0))
-        p_unitario = float(v.get("precio_unitario", 0))
+        def _parsear_precio(clave):
+            val = v.get(clave, 0)
+            if isinstance(val, str):
+                val = val.replace("$", "").replace(",", "").replace(".", "").strip()
+            try:
+                return float(val)
+            except:
+                return 0.0
+
+        total      = _parsear_precio("total")
+        p_unitario = _parsear_precio("precio_unitario")
         valor_final = total if total > 0 else round(p_unitario * cantidad_dec)
 
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
