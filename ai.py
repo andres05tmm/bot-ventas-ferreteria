@@ -343,6 +343,9 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
 3. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}}[/VENTA]
    - Usa SIEMPRE la llave "total" con el valor final pagado. NUNCA uses "precio_unitario".
+   - Para cantidad = 1: total = precio del catalogo. Ej: 1 galon laca miel = 65000
+   - Para cantidad > 1: total = precio_unitario × cantidad. Ej: 2 galones laca miel = 65000 × 2 = 130000
+   - Para fracciones: total = precio de esa fraccion en catalogo. Ej: 1/4 vinilo T1 = 15000 (NO multiplicar)
    - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
    - Si menciona cliente y esta en la base: Usa el nombre directo en "cliente".
    - Si menciona cliente y NO esta en la base: Usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}[/INICIAR_CLIENTE]. NUNCA preguntes el documento tu, usa la etiqueta.
