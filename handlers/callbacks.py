@@ -75,9 +75,10 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
                 agregar_al_historial(chat_id, "assistant", texto_resp)
                 if texto_resp and "PAGO_PENDIENTE_AVISO" not in acciones2:
                     await context.bot.send_message(chat_id=chat_id, text=texto_resp)
-                # Solo mostrar botones de pago si Claude no está pidiendo más info
-                # (si hay texto de respuesta Y ventas pendientes, Claude está preguntando algo)
-                if "PEDIR_METODO_PAGO" in acciones2 and not texto_resp:
+                # Mostrar botones si hay ventas pendientes, EXCEPTO si Claude está
+                # haciendo una pregunta (texto termina en ? o contiene "¿")
+                es_pregunta = texto_resp and ("?" in texto_resp or "¿" in texto_resp)
+                if "PEDIR_METODO_PAGO" in acciones2 and not es_pregunta:
                     from handlers.mensajes import _enviar_botones_pago
                     with _estado_lock:
                         ventas2 = ventas_pendientes.get(chat_id, [])
