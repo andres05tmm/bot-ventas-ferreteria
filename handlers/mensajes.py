@@ -49,7 +49,7 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
             decimal_a_fraccion_legible(cantidad_dec)
             if isinstance(cantidad_dec, float) else v.get("cantidad", 1)
         )
-        lineas.append(f"• {v.get('producto')} x{cantidad_legible} = ${total_mostrar:,.0f}")
+        lineas.append(f"• {cantidad_legible} {v.get('producto')} — ${total_mostrar:,.0f}")
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("💵 Efectivo",      callback_data=f"pago_efectivo_{chat_id}"),
