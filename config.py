@@ -60,16 +60,16 @@ EXCEL_FILA_TITULO  = 1
 EXCEL_FILA_HEADERS = 3
 EXCEL_FILA_DATOS   = 4
 
-# Nombres de columnas en el Excel (ACTUALIZADO AL NUEVO FORMATO)
-COL_FECHA    = "FECHA"
-COL_HORA     = "HORA"
-COL_PRODUCTO = "PRODUCTO"
-COL_CANTIDAD = "CANTIDAD"
-COL_PRECIO   = "VALOR UNITARIO"
-COL_TOTAL    = "TOTAL"
-COL_ALIAS    = "ALIAS"
-COL_VENDEDOR = "VENDEDOR"
-COL_METODO   = "METODO DE PAGO"
+# Nombres de columnas en el Excel (deben coincidir con los encabezados reales de inicializar_hoja)
+COL_FECHA    = "fecha"
+COL_HORA     = "hora"
+COL_PRODUCTO = "producto"
+COL_CANTIDAD = "cantidad"
+COL_PRECIO   = "valor unitario"
+COL_TOTAL    = "total"
+COL_ALIAS    = "alias"
+COL_VENDEDOR = "vendedor"
+COL_METODO   = "metodo de pago"
 
 # Encabezados del Google Sheets del dia
 SHEETS_HEADERS = [
