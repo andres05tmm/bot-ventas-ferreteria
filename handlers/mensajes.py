@@ -16,7 +16,7 @@ from ai import procesar_con_claude, procesar_acciones, editar_excel_con_claude
 from ventas_state import (
     agregar_al_historial, get_historial,
     ventas_pendientes, clientes_en_proceso, _estado_lock,
-    get_chat_lock, registrar_ventas_con_metodo,
+    get_chat_lock, registrar_ventas_con_metodo, mensajes_standby,
 )
 from excel import guardar_cliente_nuevo
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
@@ -238,6 +238,22 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 await update.message.reply_text(
                     f"✅ Venta registrada — {emoji} {metodo_detectado.capitalize()}\n\n" + "\n".join(confirmaciones)
                 )
+            # Procesar mensaje en standby si hay uno esperando
+            with _estado_lock:
+                standby_list = mensajes_standby.pop(chat_id, [])
+            for standby_msg in standby_list:
+                await update.message.reply_text(f"📋 Procesando venta pendiente: {standby_msg}")
+                historial = get_historial(chat_id)
+                agregar_al_historial(chat_id, "user", f"{vendedor}: {standby_msg}")
+                respuesta_raw = await procesar_con_claude(f"{vendedor}: {standby_msg}", vendedor, historial)
+                texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
+                agregar_al_historial(chat_id, "assistant", texto_resp)
+                if texto_resp:
+                    await update.message.reply_text(texto_resp)
+                if "PEDIR_METODO_PAGO" in acciones2:
+                    with _estado_lock:
+                        ventas2 = ventas_pendientes.get(chat_id, [])
+                    await _enviar_botones_pago(update.message, chat_id, ventas2)
             return
 
     # ── Flujo normal con Claude ──
@@ -248,19 +264,26 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
-        if texto_respuesta:
-            await update.message.reply_text(texto_respuesta)
-
         pedir_metodo    = "PEDIR_METODO_PAGO"    in acciones
         iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
         pago_pend_aviso = "PAGO_PENDIENTE_AVISO"  in acciones
         print(f"[ACCIONES DEBUG] acciones={acciones} | pedir_metodo={pedir_metodo}")
+
+        # No mostrar texto de Claude si hay pago pendiente y bloqueó la venta
+        # (evita el "Registré la venta..." cuando en realidad no la registró)
+        if texto_respuesta and not pago_pend_aviso:
+            await update.message.reply_text(texto_respuesta)
 
         for accion in acciones:
             if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO"):
                 await update.message.reply_text(accion)
 
         if pago_pend_aviso:
+            # Guardar este mensaje en standby para procesarlo tras confirmar pago
+            with _estado_lock:
+                if chat_id not in mensajes_standby:
+                    mensajes_standby[chat_id] = []
+                mensajes_standby[chat_id].append(mensaje)
             with _estado_lock:
                 ventas = ventas_pendientes.get(chat_id, [])
             await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
