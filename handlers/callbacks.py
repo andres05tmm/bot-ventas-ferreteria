@@ -431,13 +431,78 @@ async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
 async def manejar_callback_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Maneja los botones inline del flujo de creación de cliente:
-      - cli_tipoid_CC_{chat_id}     → tipo de identificación CC / NIT / CE
+      - cli_crear_si_{chat_id}         → usuario quiere crear el cliente antes de registrar
+      - cli_crear_no_{chat_id}         → usuario NO quiere crear cliente, registrar así
+      - cli_tipoid_CC_{chat_id}        → tipo de identificación CC / NIT / CE
       - cli_persona_Natural_{chat_id}  → tipo de persona Natural / Juridica
     """
     query   = update.callback_query
     data    = query.data
     chat_id = query.message.chat_id
     await query.answer()
+
+    # ── ¿Crear cliente? Sí ──
+    if data.startswith("cli_crear_si_"):
+        with _estado_lock:
+            ventas = list(ventas_pendientes.get(chat_id, []))
+
+        if not ventas:
+            await query.edit_message_text("No hay venta pendiente. Registra la venta de nuevo.")
+            return
+
+        # Extraer el nombre del cliente de la primera venta que lo tenga
+        nombre_cliente = ""
+        for v in ventas:
+            nombre_cliente = v.get("cliente", "").strip()
+            if nombre_cliente:
+                break
+
+        # Guardar la venta en espera de que se complete el cliente
+        with _estado_lock:
+            from ventas_state import ventas_esperando_cliente
+            ventas_esperando_cliente[chat_id] = {
+                "ventas":   ventas,
+                "metodo":   None,
+                "vendedor": update.effective_user.first_name,
+            }
+            clientes_en_proceso[chat_id] = {
+                "nombre":         nombre_cliente.upper() if nombre_cliente else "",
+                "tipo_id":        None,
+                "identificacion": None,
+                "tipo_persona":   None,
+                "correo":         None,
+                "telefono":       None,
+                "paso":           "tipo_id" if nombre_cliente else "nombre",
+                "vendedor":       update.effective_user.first_name,
+            }
+
+        if nombre_cliente:
+            await query.edit_message_text(
+                f"👤 Creando cliente: *{nombre_cliente.upper()}*\n"
+                f"¿Qué tipo de documento tiene?",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🪪 CC",  callback_data=f"cli_tipoid_CC_{chat_id}"),
+                    InlineKeyboardButton("🏢 NIT", callback_data=f"cli_tipoid_NIT_{chat_id}"),
+                    InlineKeyboardButton("🌍 CE",  callback_data=f"cli_tipoid_CE_{chat_id}"),
+                ]])
+            )
+        else:
+            await query.edit_message_text("👤 Vamos a crear el cliente. ¿Cuál es el nombre completo?")
+        return
+
+    # ── ¿Crear cliente? No ──
+    if data.startswith("cli_crear_no_"):
+        with _estado_lock:
+            ventas = list(ventas_pendientes.get(chat_id, []))
+
+        if not ventas:
+            await query.edit_message_text("No hay venta pendiente.")
+            return
+
+        await query.edit_message_text("➡️ De acuerdo. Procediendo sin crear el cliente...")
+        await _enviar_botones_pago(query.message, chat_id, ventas)
+        return
 
     # ── Tipo de identificación ──
     if data.startswith("cli_tipoid_"):
