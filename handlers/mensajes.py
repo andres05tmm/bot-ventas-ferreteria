@@ -308,15 +308,12 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         resumen_venta = _json.dumps(ventas_actuales, ensure_ascii=False)
 
         prompt_modificacion = (
-            f"El vendedor tiene esta venta pendiente de confirmar:
-{resumen_venta}
-
-"
-            f"El vendedor quiere modificarla con esta instrucción: "{mensaje}"
-
-"
-            "Aplica EXACTAMENTE los cambios pedidos a la venta (modifica cantidad, precio, "
-            "quita o agrega productos según corresponda). "
+            "El vendedor tiene esta venta pendiente de confirmar:\n"
+            + resumen_venta
+            + "\n\nEl vendedor quiere modificarla con esta instruccion: "
+            + mensaje
+            + "\n\nAplica EXACTAMENTE los cambios pedidos a la venta (modifica cantidad, precio, "
+            "quita o agrega productos segun corresponda). "
             "Luego emite los [VENTA] actualizados con los datos correctos y confirma los cambios en texto. "
             "IMPORTANTE: emite [VENTA] para TODOS los productos que quedan en la venta (no solo el modificado)."
         )
