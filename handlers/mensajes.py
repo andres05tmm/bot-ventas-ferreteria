@@ -477,6 +477,16 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
         await update.message.reply_text(f"📝 Escuché: {texto}")
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
+        # ── Chequeo de pago pendiente: si hay venta esperando, el audio va al standby ──
+        with _estado_lock:
+            _ventas_pend = list(ventas_pendientes.get(chat_id, []))
+
+        if _ventas_pend:
+            agregar_a_standby(chat_id, texto)
+            await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
+            await _enviar_botones_pago(update.message, chat_id, _ventas_pend)
+            return
+
         historial     = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", f"{vendedor}: {texto}")
         respuesta_raw = await procesar_con_claude(f"{vendedor}: {texto}", vendedor, historial)
