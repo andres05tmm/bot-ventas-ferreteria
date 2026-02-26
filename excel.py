@@ -674,3 +674,51 @@ async def borrar_venta_excel_async(*args, **kwargs) -> tuple[bool, str]:
 async def inicializar_excel_async():
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, inicializar_excel)
+
+
+# ─────────────────────────────────────────────
+# FIADOS EN EXCEL
+# ─────────────────────────────────────────────
+
+def registrar_fiado_en_excel(cliente: str, concepto: str, cargo: float, abono: float, saldo: float):
+    """
+    Agrega una fila a la hoja 'Fiados' del Excel con el movimiento.
+    Crea la hoja si no existe con encabezados limpios (sin logo).
+    """
+    inicializar_excel()
+    wb = openpyxl.load_workbook(config.EXCEL_FILE)
+
+    nombre_hoja = "Fiados"
+    if nombre_hoja not in wb.sheetnames:
+        ws = wb.create_sheet(title=nombre_hoja)
+        # Encabezados simples para fiados (sin logo)
+        encabezados = ["FECHA", "CLIENTE", "CONCEPTO", "CARGO", "ABONO", "SALDO"]
+        for col, titulo in enumerate(encabezados, 1):
+            celda = ws.cell(row=1, column=col, value=titulo)
+            celda.font      = Font(bold=True, color="FFFFFF", size=11)
+            celda.fill      = PatternFill("solid", fgColor="1A1A1A")
+            celda.alignment = Alignment(horizontal="center", vertical="center")
+        anchos = [12, 25, 40, 15, 15, 15]
+        for col, ancho in enumerate(anchos, 1):
+            ws.column_dimensions[get_column_letter(col)].width = ancho
+        fila_datos = 2
+    else:
+        ws = wb[nombre_hoja]
+        fila_datos = ws.max_row + 1
+
+    from datetime import datetime
+    fecha = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+
+    valores = [fecha, cliente, concepto, cargo if cargo > 0 else "", abono if abono > 0 else "", saldo]
+    for col, val in enumerate(valores, 1):
+        celda = ws.cell(row=fila_datos, column=col, value=val)
+        celda.alignment = Alignment(horizontal="center")
+        if col in (4, 5, 6) and val != "":
+            celda.number_format = "$#,##0"
+        # Fila alterna
+        if fila_datos % 2 == 0:
+            celda.fill = PatternFill("solid", fgColor="EFF6FF")
+
+    wb.save(config.EXCEL_FILE)
+    from drive import subir_a_drive
+    subir_a_drive(config.EXCEL_FILE)
