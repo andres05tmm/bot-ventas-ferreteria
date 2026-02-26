@@ -17,7 +17,7 @@ from sheets import _obtener_hoja_sheets
 from handlers.comandos import (
     comando_inicio, comando_excel, comando_ventas, comando_buscar,
     comando_borrar, comando_precios, comando_caja, comando_gastos,
-    comando_inventario, comando_clientes, comando_grafica,
+    comando_inventario, comando_clientes, comando_grafica, comando_fiados,
     manejar_callback_grafica, comando_sheets, comando_cerrar_dia,
     comando_reset_ventas,
 )
@@ -55,6 +55,7 @@ def main():
     app.add_handler(CommandHandler("inventario", comando_inventario))
     app.add_handler(CommandHandler("clientes",   comando_clientes))
     app.add_handler(CommandHandler("grafica",    comando_grafica))
+    app.add_handler(CommandHandler("fiados",     comando_fiados))
     app.add_handler(CommandHandler("sheets",     comando_sheets))
     app.add_handler(CommandHandler("cerrar",     comando_cerrar_dia))
     app.add_handler(CommandHandler("resetventas", comando_reset_ventas))
