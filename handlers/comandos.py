@@ -1,0 +1,611 @@
+"""
+Handlers de comandos de Telegram.
+Las operaciones de I/O bloqueantes (Excel, Drive) se ejecutan via asyncio.to_thread
+para no bloquear el event loop.
+"""
+
+import asyncio
+import json
+import os
+import traceback
+from datetime import datetime
+
+import openpyxl
+from openpyxl.styles import PatternFill
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes
+
+import config
+from excel import (
+    inicializar_excel, obtener_nombre_hoja, obtener_o_crear_hoja,
+    detectar_columnas, buscar_ventas, obtener_ventas_recientes,
+    buscar_clientes_multiples, cargar_clientes,
+)
+from memoria import (
+    cargar_memoria, obtener_resumen_caja, cargar_gastos_hoy,
+    cargar_inventario, verificar_alertas_inventario,
+    resumen_fiados, detalle_fiado_cliente,
+)
+from sheets import (
+    sheets_leer_ventas_del_dia, sheets_detectar_ediciones_vs_excel,
+    sheets_limpiar,
+)
+from drive import subir_a_drive
+from utils import convertir_fraccion_a_decimal, obtener_nombre_hoja
+from ventas_state import borrados_pendientes, _estado_lock
+
+
+# ─────────────────────────────────────────────
+# /start y /ayuda
+# ─────────────────────────────────────────────
+
+async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    estado_drive  = "✅ Drive conectado" if config.DRIVE_DISPONIBLE else "⚠️ Drive offline"
+    estado_sheets = (
+        "✅ Sheets conectado" if config.SHEETS_DISPONIBLE else
+        ("⚠️ Sheets no configurado" if not config.SHEETS_ID else "⚠️ Sheets sin conexion")
+    )
+    await update.message.reply_text(
+        "👋 Hola! Soy tu asistente de la ferreteria.\n\n"
+        "Puedo ayudarte con cualquier cosa:\n\n"
+        "🛍️ Registrar ventas — 'Vendi 1/4 de vinilo t1 azul'\n"
+        "🧠 Recordar precios — ya tengo el catalogo completo\n"
+        "📊 Reportes — 'Cuanto vendimos esta semana?'\n"
+        "📎 Excel personalizado — 'Hazme un Excel con los productos mas vendidos'\n"
+        "📈 Graficas — /grafica\n"
+        "🔍 Buscar ventas — /buscar [termino]\n"
+        "💬 Cualquier pregunta — Lo que necesites\n\n"
+        "Comandos:\n"
+        "/ventas — Ver ultimas ventas\n"
+        "/buscar [termino] — Buscar ventas\n"
+        "/borrar [numero] — Borrar una venta\n"
+        "/precios — Ver precios guardados\n"
+        "/excel — Descargar archivo acumulado\n"
+        "/sheets — Ver estado del Sheet del dia\n"
+        "/cerrar — Cierre del dia (genera Excel + limpia Sheets)\n"
+        "/grafica — Ver graficas de ventas\n"
+        "/caja — Estado de caja\n"
+        "/gastos — Gastos de hoy\n"
+        "/inventario — Ver inventario\n"
+        "/fiados — Ver cuentas fiadas\n\n"
+        f"{estado_drive} | {estado_sheets}"
+    )
+
+
+# ─────────────────────────────────────────────
+# /excel
+# ─────────────────────────────────────────────
+
+async def comando_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await asyncio.to_thread(inicializar_excel)
+    await update.message.reply_text("📎 Aqui esta tu archivo de ventas:")
+    with open(config.EXCEL_FILE, "rb") as archivo:
+        await update.message.reply_document(document=archivo, filename="ventas.xlsx")
+
+
+# ─────────────────────────────────────────────
+# /ventas
+# ─────────────────────────────────────────────
+
+async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+        ventas_raw = await asyncio.to_thread(sheets_leer_ventas_del_dia)
+        if ventas_raw:
+            total_dia = 0
+            encabezado = f"📋 Ventas de hoy ({len(ventas_raw)}):\n\n"
+            lineas = []
+            for v in ventas_raw:
+                num      = v.get("num", "?")
+                producto = v.get("producto", "?")
+                vendedor = v.get("vendedor", "?")
+                total_raw = v.get("total")
+                try:
+                    t = float(total_raw) if total_raw else 0
+                    total_dia += t
+                    total_fmt = f"${t:,.0f}"
+                except (ValueError, TypeError):
+                    total_fmt = str(total_raw) if total_raw else "?"
+                metodo = v.get("metodo", "")
+                linea = f"#{num} — {producto} — {total_fmt} — {vendedor}"
+                if metodo:
+                    linea += f" ({metodo})"
+                lineas.append(linea)
+            pie = f"\n💰 Total del día: ${total_dia:,.0f}\n\nUsa /borrar [numero] para eliminar una venta."
+
+            # Partir en bloques de max 4000 chars para no superar el limite de Telegram
+            bloque = encabezado
+            for linea in lineas:
+                if len(bloque) + len(linea) + 1 > 4000:
+                    await update.message.reply_text(bloque)
+                    bloque = ""
+                bloque += linea + "\n"
+            bloque += pie
+            await update.message.reply_text(bloque)
+            return
+
+    await update.message.reply_text("No hay ventas registradas hoy.\nUsa el bot para registrar ventas durante el día.")
+
+
+# ─────────────────────────────────────────────
+# /buscar
+# ─────────────────────────────────────────────
+
+async def comando_buscar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "Indica que quieres buscar.\nEjemplos:\n/buscar tornillos\n/buscar Juan\n/buscar 2025-06"
+        )
+        return
+    termino = " ".join(context.args)
+    await update.message.reply_text(f"🔍 Buscando '{termino}'...")
+    resultados = await asyncio.to_thread(buscar_ventas, termino)
+    if not resultados:
+        await update.message.reply_text(f"No encontre ventas que coincidan con '{termino}'.")
+        return
+    texto = f"🔍 {len(resultados)} resultado(s) para '{termino}':\n\n"
+    for r in resultados[:15]:
+        num    = r.get("#", "?")
+        fecha  = r.get("fecha", "?")
+        prod   = r.get("producto", "?")
+        total  = r.get("total", "?")
+        vend   = r.get("vendedor", "?")
+        hoja   = r.get("hoja", "")
+        try:
+            total_fmt = f"${float(total):,.0f}" if total else "?"
+        except Exception:
+            total_fmt = str(total)
+        texto += f"#{num} [{hoja}] {fecha} — {prod} — {total_fmt} — {vend}\n"
+    if len(resultados) > 15:
+        texto += f"\n... y {len(resultados) - 15} mas. Usa un termino mas especifico."
+    await update.message.reply_text(texto)
+
+
+# ─────────────────────────────────────────────
+# /borrar
+# ─────────────────────────────────────────────
+
+async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Indica el numero de venta.\nEjemplo: /borrar 5")
+        return
+    arg = context.args[0].lstrip("#")
+    try:
+        numero = int(arg)
+    except ValueError:
+        await update.message.reply_text("El numero debe ser entero.\nEjemplo: /borrar 5")
+        return
+
+    chat_id = update.message.chat_id
+    venta = None
+    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+        ventas_sheets = await asyncio.to_thread(sheets_leer_ventas_del_dia)
+        for v in ventas_sheets:
+            try:
+                if int(float(str(v.get("num", "")))) == numero:
+                    venta = {
+                        config.COL_PRODUCTO: v.get("producto", "?"),
+                        config.COL_FECHA:    v.get("fecha", "?"),
+                        config.COL_TOTAL:    v.get("total", "?"),
+                        config.COL_VENDEDOR: v.get("vendedor", "?"),
+                    }
+                    break
+            except (ValueError, TypeError):
+                pass
+
+    if not venta:
+        from excel import obtener_venta_por_numero
+        venta = await asyncio.to_thread(obtener_venta_por_numero, numero)
+
+    if not venta:
+        await update.message.reply_text(f"No encontre la venta #{numero}.")
+        return
+
+    with _estado_lock:
+        borrados_pendientes[chat_id] = numero
+
+    producto = venta.get(config.COL_PRODUCTO, "?")
+    fecha    = venta.get(config.COL_FECHA, "?")
+    total    = venta.get(config.COL_TOTAL, "?")
+    vendedor = venta.get(config.COL_VENDEDOR, "?")
+    try:
+        total_fmt = f"${float(total):,.0f}"
+    except Exception:
+        total_fmt = str(total)
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Sí, borrar", callback_data=f"borrar_si_{chat_id}"),
+        InlineKeyboardButton("❌ Cancelar",   callback_data=f"borrar_no_{chat_id}"),
+    ]])
+    await update.message.reply_text(
+        f"⚠️ ¿Confirmas que quieres borrar esta venta?\n\n"
+        f"#{numero} — {producto}\nFecha: {fecha}\nTotal: {total_fmt}\nVendedor: {vendedor}",
+        reply_markup=keyboard,
+    )
+    # ─────────────────────────────────────────────
+# /precios
+# ─────────────────────────────────────────────
+
+async def comando_precios(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    memoria  = cargar_memoria()
+    catalogo = memoria.get("catalogo", {})
+    precios  = memoria.get("precios", {})
+
+    if not catalogo and not precios:
+        await update.message.reply_text("No hay precios guardados aun.")
+        return
+
+    if catalogo:
+        categorias: dict = {}
+        for prod in catalogo.values():
+            cat    = prod.get("categoria", "Otros")
+            sufijo = " *" if prod.get("precios_fraccion") else ""
+            categorias.setdefault(cat, []).append(f"  • {prod['nombre']}: ${prod['precio_unidad']:,}{sufijo}")
+
+        await update.message.reply_text(
+            f"🧠 Catalogo de precios ({len(catalogo)} productos)\n"
+            f"* = tiene precios por fraccion\n\nTe envio una categoria a la vez:"
+        )
+        for cat, items in sorted(categorias.items()):
+            encabezado = f"📂 {cat} ({len(items)} productos):\n"
+            bloque = encabezado
+            for item in items:
+                linea = item + "\n"
+                if len(bloque) + len(linea) > 4000:
+                    await update.message.reply_text(bloque)
+                    bloque = f"📂 {cat} (continuacion):\n"
+                bloque += linea
+            if bloque.strip():
+                await update.message.reply_text(bloque)
+    else:
+        items = [f"  • {p}: ${v:,}" for p, v in sorted(precios.items())]
+        await update.message.reply_text(f"🧠 Precios guardados ({len(items)} productos):")
+        bloque = ""
+        for item in items:
+            linea = item + "\n"
+            if len(bloque) + len(linea) > 4000:
+                await update.message.reply_text(bloque)
+                bloque = ""
+            bloque += linea
+        if bloque.strip():
+            await update.message.reply_text(bloque)
+
+
+# ─────────────────────────────────────────────
+# /caja, /gastos, /inventario
+# ─────────────────────────────────────────────
+
+async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    resumen = obtener_resumen_caja()
+    await update.message.reply_text(f"💰 {resumen}")
+
+
+async def comando_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    gastos = cargar_gastos_hoy()
+    if not gastos:
+        await update.message.reply_text("No hay gastos registrados hoy.")
+        return
+    texto = "💸 Gastos de hoy:\n\n"
+    total = 0
+    for g in gastos:
+        texto += f"• {g['concepto']}: ${g['monto']:,.0f} ({g['categoria']}) — {g['origen']}\n"
+        total += g["monto"]
+    texto += f"\nTotal gastos: ${total:,.0f}"
+    await update.message.reply_text(texto)
+
+
+async def comando_inventario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    inventario = cargar_inventario()
+    if not inventario:
+        await update.message.reply_text("No hay productos en inventario aun.")
+        return
+    texto   = "📦 Inventario actual:\n\n"
+    alertas = []
+    for producto, datos in inventario.items():
+        if isinstance(datos, dict):
+            cantidad = datos.get("cantidad", 0)
+            minimo   = datos.get("minimo", 3)
+            emoji    = "⚠️" if cantidad <= minimo else "✅"
+            texto   += f"{emoji} {producto}: {cantidad} unidades\n"
+            if cantidad <= minimo:
+                alertas.append(producto)
+    if alertas:
+        texto += f"\n⚠️ Stock bajo en: {', '.join(alertas)}"
+    await update.message.reply_text(texto)
+
+
+# ─────────────────────────────────────────────
+# /clientes
+# ─────────────────────────────────────────────
+
+async def comando_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if args:
+        termino    = " ".join(args)
+        resultados = await asyncio.to_thread(buscar_clientes_multiples, termino, 5)
+        if not resultados:
+            await update.message.reply_text(f"No encontre clientes con '{termino}'.")
+            return
+        texto = f"👥 Clientes encontrados para '{termino}':\n\n"
+        for c in resultados:
+            nombre = c.get("Nombre tercero", "")
+            id_c   = c.get("Identificación", "")
+            tipo   = c.get("Tipo de identificación", "")
+            texto += f"• {nombre} — {tipo}: {id_c}\n"
+        await update.message.reply_text(texto)
+    else:
+        clientes = await asyncio.to_thread(cargar_clientes)
+        await update.message.reply_text(f"👥 Tienes {len(clientes)} clientes registrados.")
+
+
+# ─────────────────────────────────────────────
+# /fiados
+# ─────────────────────────────────────────────
+
+async def comando_fiados(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        cliente = " ".join(context.args)
+        texto   = detalle_fiado_cliente(cliente)
+    else:
+        texto = resumen_fiados()
+    await update.message.reply_text(texto, parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
+# /sheets
+# ─────────────────────────────────────────────
+
+async def comando_sheets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not config.SHEETS_ID:
+        await update.message.reply_text("⚠️ Google Sheets no configurado.")
+        return
+    ventas = await asyncio.to_thread(sheets_leer_ventas_del_dia)
+    estado = "✅ Conectado" if config.SHEETS_DISPONIBLE else "⚠️ Sin conexion"
+    url    = f"https://docs.google.com/spreadsheets/d/{config.SHEETS_ID}/edit"
+    total_dia = sum(float(v.get("total", 0) or 0) for v in ventas)
+    texto = (
+        f"📊 Google Sheets — {estado}\n\n"
+        f"Ventas de hoy: {len(ventas)}\n"
+        f"Total del dia: ${total_dia:,.0f}\n\n"
+        f"🔗 {url}"
+    )
+    await update.message.reply_text(texto)
+
+
+# ─────────────────────────────────────────────
+# /grafica
+# ─────────────────────────────────────────────
+
+async def comando_grafica(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("📅 Ventas por día", callback_data="grafica_dias"),
+        InlineKeyboardButton("📦 Productos",      callback_data="grafica_productos"),
+    ]])
+    await update.message.reply_text("¿Qué gráfica quieres ver?", reply_markup=keyboard)
+
+
+async def manejar_callback_grafica(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from graficas import (
+        generar_grafica_ventas_por_dia_async,
+        generar_grafica_productos_async,
+    )
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    tipo    = query.data
+    await query.edit_message_text("📊 Generando gráfica...")
+
+    ruta = None
+    try:
+        if tipo == "grafica_dias":
+            ruta   = await generar_grafica_ventas_por_dia_async()
+            titulo = "ventas_por_dia.png"
+        elif tipo == "grafica_productos":
+            ruta   = await generar_grafica_productos_async()
+            titulo = "productos_mas_vendidos.png"
+        else:
+            return
+
+        if not ruta or not os.path.exists(ruta):
+            await context.bot.send_message(chat_id=chat_id, text="No hay datos suficientes para esta gráfica aun.")
+            return
+        with open(ruta, "rb") as f:
+            await context.bot.send_photo(chat_id=chat_id, photo=f, filename=titulo)
+    except Exception:
+        print(f"Error generando grafica: {traceback.format_exc()}")
+        await context.bot.send_message(chat_id=chat_id, text="Tuve un problema generando la gráfica. Intenta de nuevo.")
+    finally:
+        if ruta and os.path.exists(ruta):
+            os.remove(ruta)
+
+
+# ─────────────────────────────────────────────
+# /cerrar
+# ─────────────────────────────────────────────
+
+async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    await update.message.reply_text("🔒 Iniciando cierre del dia...")
+
+    if not config.SHEETS_ID:
+        await update.message.reply_text("⚠️ Google Sheets no configurado.")
+        return
+
+    ventas_sheets = await asyncio.to_thread(sheets_leer_ventas_del_dia)
+    if not ventas_sheets:
+        await update.message.reply_text("📭 El Sheets no tiene ventas hoy.")
+        return
+
+    diferencias = await asyncio.to_thread(sheets_detectar_ediciones_vs_excel)
+    if diferencias:
+        encabezado = "✏️ Correcciones manuales detectadas:\n\n"
+        bloque = encabezado
+        for d in diferencias:
+            linea = d + "\n"
+            if len(bloque) + len(linea) > 4000:
+                await update.message.reply_text(bloque)
+                bloque = ""
+            bloque += linea
+        if bloque.strip():
+            await update.message.reply_text(bloque)
+
+    hoy       = datetime.now(config.COLOMBIA_TZ)
+    fecha_str = hoy.strftime("%Y-%m-%d")
+
+    try:
+        await asyncio.to_thread(inicializar_excel)
+        wb = await asyncio.to_thread(openpyxl.load_workbook, config.EXCEL_FILE)
+        hojas_destino = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+        total_general = 0
+
+        for indice_hoja, nombre_hoja in enumerate(hojas_destino):
+            ws   = obtener_o_crear_hoja(wb, nombre_hoja)
+            cols = detectar_columnas(ws)
+            col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
+
+            if col_fecha:
+                filas_hoy = [
+                    fila for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1)
+                    if str(ws.cell(row=fila, column=col_fecha).value or "")[:10] == fecha_str
+                ]
+                for fila in reversed(filas_hoy):
+                    ws.delete_rows(fila)
+
+            for v in ventas_sheets:
+                fila_nueva = ws.max_row + 1
+                datos = {
+                    "fecha":                v.get("fecha", fecha_str),
+                    "hora":                 v.get("hora", ""),
+                    "id cliente":           v.get("id_cliente", "CF"),
+                    "cliente":              v.get("cliente", "Consumidor Final"),
+                    "código del producto":  v.get("codigo_producto", ""),
+                    "producto":             v.get("producto", ""),
+                    "cantidad":             v.get("cantidad", ""),
+                    "valor unitario":       v.get("precio_unitario", 0),
+                    "total":                v.get("total", 0),
+                    "consecutivo de venta": v.get("num", fila_nueva - 1),
+                    "alias":                v.get("alias", str(v.get("num", ""))),
+                    "vendedor":             v.get("vendedor", ""),
+                    "metodo de pago":       v.get("metodo", ""),
+                }
+                for nombre_col, num_col in cols.items():
+                    clave = nombre_col.lower().strip()
+                    if clave in datos:
+                        ws.cell(row=fila_nueva, column=num_col, value=datos[clave])
+
+                if fila_nueva % 2 == 0:
+                    for col in range(1, ws.max_column + 1):
+                        ws.cell(row=fila_nueva, column=col).fill = PatternFill("solid", fgColor="EFF6FF")
+
+                if indice_hoja == 0:
+                    total_general += float(v.get("total", 0) or 0)
+
+        await asyncio.to_thread(wb.save, config.EXCEL_FILE)
+        await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
+
+        await update.message.reply_text(f"✅ Sincronizado: {len(ventas_sheets)} ventas — Total: ${total_general:,.0f}")
+        with open(config.EXCEL_FILE, "rb") as f:
+            await update.message.reply_document(document=f, filename="ventas.xlsx")
+
+    except Exception:
+        print(traceback.format_exc())
+        await update.message.reply_text("❌ Error actualizando el Excel.")
+        return
+
+    await update.message.reply_text("🧹 Limpiando Sheets...")
+    from sheets import sheets_limpiar
+    ok = await asyncio.to_thread(sheets_limpiar)
+
+    if ok:
+        await update.message.reply_text("✅ Cierre completado.")
+    else:
+        await update.message.reply_text("⚠️ Excel actualizado, pero Sheets no se pudo limpiar.")
+
+
+# ─────────────────────────────────────────────
+# /resetventas
+# ─────────────────────────────────────────────
+
+async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = [a.upper() for a in (context.args or [])]
+    if args and args[0] == "EXCEL":
+        # Formato: /resetventas excel CONFIRMAR DD/MM/YYYY
+        if len(args) < 3 or args[1] != "CONFIRMAR":
+            await update.message.reply_text(
+                "⚠️ Uso: `/resetventas excel CONFIRMAR DD/MM/YYYY`\nEjemplo: `/resetventas excel CONFIRMAR 24/02/2026`",
+                parse_mode="Markdown"
+            )
+            return
+        # Parsear fecha
+        from datetime import timedelta
+        try:
+            fecha_str_raw = context.args[2]  # conservar original con barras
+            fecha_obj = datetime.strptime(fecha_str_raw, "%d/%m/%Y")
+            fecha_iso = fecha_obj.strftime("%Y-%m-%d")
+        except (ValueError, IndexError):
+            await update.message.reply_text("❌ Fecha inválida. Usa el formato DD/MM/YYYY, ej: 24/02/2026")
+            return
+        try:
+            inicializar_excel()
+            wb = await asyncio.to_thread(openpyxl.load_workbook, config.EXCEL_FILE)
+            hoja = obtener_nombre_hoja()
+
+            total_borradas = 0
+            hojas_limpiar = [hoja, "Registro de Ventas-Acumulado"]
+            for nombre_ws in hojas_limpiar:
+                if nombre_ws not in wb.sheetnames:
+                    continue
+                ws_actual = wb[nombre_ws]
+                cols_actual = detectar_columnas(ws_actual)
+                col_f = next((v for k, v in cols_actual.items() if "fecha" in k), None)
+                if not col_f:
+                    continue
+                filas_borrar = [
+                    fila for fila in range(config.EXCEL_FILA_DATOS, ws_actual.max_row + 1)
+                    if str(ws_actual.cell(row=fila, column=col_f).value or "")[:10] == fecha_iso
+                ]
+                for fila in reversed(filas_borrar):
+                    ws_actual.delete_rows(fila)
+                total_borradas += len(filas_borrar)
+
+            if total_borradas == 0:
+                await update.message.reply_text(f"No hay ventas del {fecha_str_raw} en el Excel.")
+                return
+
+            await asyncio.to_thread(wb.save, config.EXCEL_FILE)
+            await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
+            await update.message.reply_text(f"✅ Eliminadas {total_borradas} filas del {fecha_str_raw} (hoja del mes + acumulado).")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {e}")
+        return
+
+    if not args or args[0] != "CONFIRMAR":
+        await update.message.reply_text("⚠️ Escribe `/resetventas CONFIRMAR` para limpiar el dia.", parse_mode="Markdown")
+        return
+
+    # 1. Limpiar Google Sheets
+    await asyncio.to_thread(sheets_limpiar)
+    
+    # 2. Resetear el consecutivo de ventas
+    from memoria import cargar_memoria, guardar_memoria
+    mem = cargar_memoria()
+    mem["ultimo_consecutivo"] = 0
+    guardar_memoria(mem)
+    
+    # 3. Limpiar TODO el estado en memoria (Standbys, ventas a medias, clientes en proceso)
+    try:
+        from ventas_state import (
+            ventas_pendientes, borrados_pendientes, historiales,
+            mensajes_standby, clientes_en_proceso, ventas_esperando_cliente,
+            _estado_lock
+        )
+        with _estado_lock:
+            ventas_pendientes.clear()
+            borrados_pendientes.clear()
+            historiales.clear()
+            mensajes_standby.clear()
+            clientes_en_proceso.clear()
+            ventas_esperando_cliente.clear()
+    except Exception as e:
+        print(f"Error limpiando memoria interna: {e}")
+
+    await update.message.reply_text("✅ Reset del dia completado. Todos los procesos en standby fueron cancelados.")
