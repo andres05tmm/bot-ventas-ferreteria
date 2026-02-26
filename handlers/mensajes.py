@@ -329,7 +329,11 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         pedir_metodo    = "PEDIR_METODO_PAGO"    in acciones
         iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
         pago_pend_aviso = "PAGO_PENDIENTE_AVISO"  in acciones
+        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
         print(f"[ACCIONES DEBUG] acciones={acciones} | pedir_metodo={pedir_metodo}")
+
+        _acciones_internas = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE",
+                              "PAGO_PENDIENTE_AVISO")
 
         # No mostrar texto de Claude si hay pago pendiente y bloqueó la venta
         # (evita el "Registré la venta..." cuando en realidad no la registró)
@@ -337,7 +341,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             await update.message.reply_text(texto_respuesta)
 
         for accion in acciones:
-            if accion not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO"):
+            if not accion.startswith("PEDIR_CONFIRMACION:") and accion not in _acciones_internas:
                 await update.message.reply_text(accion)
 
         if pago_pend_aviso:
@@ -350,6 +354,12 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 ventas = ventas_pendientes.get(chat_id, [])
             await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
             await _enviar_botones_pago(update.message, chat_id, ventas)
+        elif confirmacion_accion:
+            metodo_conocido = confirmacion_accion.split(":", 1)[1]
+            with _estado_lock:
+                ventas = ventas_pendientes.get(chat_id, [])
+            from handlers.callbacks import _enviar_confirmacion_con_metodo
+            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
         elif pedir_metodo:
             with _estado_lock:
                 ventas = ventas_pendientes.get(chat_id, [])
@@ -401,12 +411,21 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if texto_respuesta:
             await update.message.reply_text(texto_respuesta)
 
-        pedir_metodo = "PEDIR_METODO_PAGO" in acciones
+        pedir_metodo        = "PEDIR_METODO_PAGO" in acciones
+        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+        _acciones_internas  = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO")
+
         for accion in acciones:
-            if accion != "PEDIR_METODO_PAGO":
+            if not accion.startswith("PEDIR_CONFIRMACION:") and accion not in _acciones_internas:
                 await update.message.reply_text(accion)
 
-        if pedir_metodo:
+        if confirmacion_accion:
+            metodo_conocido = confirmacion_accion.split(":", 1)[1]
+            with _estado_lock:
+                ventas = ventas_pendientes.get(chat_id, [])
+            from handlers.callbacks import _enviar_confirmacion_con_metodo
+            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
+        elif pedir_metodo:
             with _estado_lock:
                 ventas = ventas_pendientes.get(chat_id, [])
             await _enviar_botones_pago(update.message, chat_id, ventas)
