@@ -23,6 +23,9 @@ ventas_pendientes: dict[int, list] = {}
 # {chat_id: [mensajes en standby esperando que se confirme el pago anterior]}
 mensajes_standby: dict[int, list[str]] = {}
 
+# chat_id -> True cuando el usuario presionó "Modificar" y el próximo mensaje es una reescritura
+esperando_correccion: dict[int, bool] = {}
+
 # {chat_id: numero_venta} para confirmar borrado
 borrados_pendientes: dict[int, int] = {}
 
