@@ -1,15 +1,92 @@
 """
-Utilidades compartidas: conversiones de fracciones, helpers de formato.
-Sin dependencias de otros modulos del proyecto para evitar imports circulares.
+Utilidades compartidas: conversiones de fracciones, helpers de formato, parseo de precios.
+Sin dependencias de otros módulos del proyecto para evitar imports circulares.
+
+CORRECCIONES v2:
+  - _normalizar centralizada aquí (eliminada la duplicada en memoria.py y excel.py)
+  - parsear_precio centralizado aquí (eliminada la duplicada en ventas_state.py y callbacks.py)
+  - Audio: manejo seguro de ruta antes del try/finally
 """
 
-from datetime import datetime
+import unicodedata
 import re
+from datetime import datetime
 import config
 
-# Mapas de fraccion a decimal y viceversa
+# ─────────────────────────────────────────────
+# NORMALIZACIÓN DE TEXTO (única definición en todo el proyecto)
+# ─────────────────────────────────────────────
+
+def _normalizar(texto: str) -> str:
+    """
+    Convierte a minúsculas y elimina tildes/diacríticos.
+    Permite comparar 'Andrés' con 'andres', 'MÁLAGA' con 'malaga', etc.
+    Es la definición única — importar desde aquí en todos los módulos.
+    """
+    return (
+        unicodedata.normalize("NFD", str(texto).lower())
+        .encode("ascii", "ignore")
+        .decode()
+    )
+
+
+# ─────────────────────────────────────────────
+# PARSEO DE PRECIO (única definición en todo el proyecto)
+# ─────────────────────────────────────────────
+
+def parsear_precio(val) -> float:
+    """
+    Convierte un valor de precio a float, manejando:
+      - Strings con $ y comas (ej: "$1,500" → 1500.0)
+      - Formato colombiano punto-miles (ej: "1.500" → 1500.0)
+      - Formato internacional coma-miles (ej: "1,500" → 1500.0)
+      - Formato mixto (ej: "1.500,50" → 1500.50 | "1,500.50" → 1500.50)
+      - Ints y floats directos
+
+    CORRECCIÓN: antes esta lógica estaba duplicada en ventas_state.py (_parsear_precio)
+    y en callbacks.py (_parsear_precio). Ahora vive aquí y ambos la importan.
+    """
+    if isinstance(val, (int, float)):
+        try:
+            return float(val)
+        except Exception:
+            return 0.0
+
+    val = str(val).replace("$", "").strip()
+
+    if not val:
+        return 0.0
+
+    if "," in val and "." in val:
+        # Ambos separadores presentes
+        if val.rfind(".") > val.rfind(","):
+            # Punto es decimal: "1,500.50" → 1500.50
+            val = val.replace(",", "")
+        else:
+            # Coma es decimal: "1.500,50" → 1500.50
+            val = val.replace(".", "").replace(",", ".")
+    elif "." in val:
+        partes = val.split(".")
+        if len(partes) == 2 and len(partes[1]) == 3:
+            # Separador de miles colombiano: "1.500" → 1500
+            val = val.replace(".", "")
+        # else: decimal real "4000.5" → dejar como está
+    elif "," in val:
+        # Solo coma como separador de miles: "1,500" → 1500
+        val = val.replace(",", "")
+
+    try:
+        return float(val)
+    except Exception:
+        return 0.0
+
+
+# ─────────────────────────────────────────────
+# MAPAS DE FRACCIÓN
+# ─────────────────────────────────────────────
+
 _FRAC_A_DEC: dict[str, float] = {
-    # Fracciones estandar
+    # Fracciones estándar
     "1/8":   0.125,
     "1/4":   0.25,
     "3/8":   0.375,
@@ -35,16 +112,15 @@ _FRAC_A_DEC: dict[str, float] = {
     "19/20": 0.95,
 }
 
-# Inverso: decimal → fraccion legible
-# Ordenado de mayor precision a menor para que el mas exacto gane
+# Inverso: decimal → fracción legible
 _DEC_A_FRAC: dict[float, str] = {v: k for k, v in _FRAC_A_DEC.items()}
 
-# Tolerancia para comparacion de decimales
-_TOL = 0.013  # ~50 ml en un galon, suficiente para cubrir aproximaciones
+# Tolerancia para comparación de decimales
+_TOL = 0.013  # ~50 ml en un galón, suficiente para cubrir aproximaciones
 
 
 def convertir_fraccion_a_decimal(valor) -> float:
-    """Convierte fracciones como '1/4', '1/3', '1/12', '3 y 1/4' o numeros a float."""
+    """Convierte fracciones como '1/4', '1/3', '1/12', '3 y 1/4' o números a float."""
     if isinstance(valor, (int, float)):
         return float(valor)
     valor = str(valor).strip()
@@ -105,7 +181,7 @@ def obtener_nombre_hoja() -> str:
 
 
 # ─────────────────────────────────────────────
-# TABLA DE THINNER: precio → (cantidad_decimal, fraccion_legible)
+# TABLA DE THINNER: precio → (cantidad_decimal, fracción_legible)
 # ─────────────────────────────────────────────
 
 _THINNER_PRECIO_A_CANTIDAD: dict[int, tuple[float, str]] = {
@@ -145,8 +221,8 @@ def es_thinner(nombre_producto: str) -> bool:
 
 def cantidad_thinner_por_precio(precio_pagado: float) -> tuple[float, str]:
     """
-    Dado el precio que pago el cliente por thinner, retorna (cantidad_decimal, fraccion_legible).
-    Si el precio no esta en la tabla, busca el mas cercano.
+    Dado el precio que pagó el cliente por thinner, retorna (cantidad_decimal, fraccion_legible).
+    Si el precio no está en la tabla, busca el más cercano.
     """
     precio_int = int(round(precio_pagado))
     if precio_int <= 0:
@@ -161,16 +237,14 @@ def tabla_thinner_para_prompt() -> str:
     """Genera el texto de la tabla de thinner para incluir en el system prompt."""
     lineas = []
     for precio, (cantidad, frac) in sorted(_THINNER_PRECIO_A_CANTIDAD.items()):
-        lineas.append(f"   ${precio:,} → cantidad:{cantidad:.6g} ({frac} de galon)")
+        lineas.append(f"   ${precio:,} → cantidad:{cantidad:.6g} ({frac} de galón)")
     return "\n".join(lineas)
 
 
 # ─────────────────────────────────────────────
-# CORRECTOR DE TRANSCRIPCION DE AUDIO
+# CORRECTOR DE TRANSCRIPCIÓN DE AUDIO
 # ─────────────────────────────────────────────
 
-# Diccionario: "lo que entendio Whisper" → "lo que realmente es"
-# Agregar aqui nuevas palabras a medida que se detecten errores
 _CORRECCIONES_AUDIO: dict[str, str] = {
     # Drywall
     "driver":    "drywall",
@@ -200,22 +274,20 @@ _CORRECCIONES_AUDIO: dict[str, str] = {
     # Segueta
     "cegueta":   "segueta",
     "sagueta":   "segueta",
-     # Chazos
+    # Chazos
     "dos hechazos": "doce chazos",
-    "hechazos": "chazos",
-    }
+    "hechazos":     "chazos",
+}
 
 
 def corregir_texto_audio(texto: str) -> str:
     """
-    Corrige errores comunes de transcripcion de Whisper antes de enviar a la IA.
-    Usa IGNORECASE para no destruir mayusculas del texto original.
-    Aplica reemplazo de palabra completa (\b) para no corromper otras palabras.
+    Corrige errores comunes de transcripción de Whisper antes de enviar a la IA.
+    Usa IGNORECASE para no destruir mayúsculas del texto original.
+    Aplica reemplazo de palabra completa (\\b) para no corromper otras palabras.
     """
     if not texto:
         return texto
-
     for error, correcto in _CORRECCIONES_AUDIO.items():
         texto = re.sub(rf'\b{error}\b', correcto, texto, flags=re.IGNORECASE)
-
     return texto
