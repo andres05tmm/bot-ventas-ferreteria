@@ -463,7 +463,8 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
      CRITICO: palabras como "colbon", "vinilo", "thinner" son PRODUCTOS, no clientes. NUNCA preguntes por cliente si el usuario solo nombro un producto.
    - Si menciona cliente y esta en la base: incluye "cliente": "Nombre" en el JSON.
-   - Si menciona cliente y NO esta en la base: usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}[/INICIAR_CLIENTE]. NUNCA preguntes el documento tu.
+   - Si menciona cliente y NO esta en la base: registra la venta con el nombre tal cual — NO pidas documentos ni inicies flujo de cliente. Los datos del cliente solo se necesitan para facturación electrónica, no para ventas normales ni fiados.
+   - NUNCA uses [INICIAR_CLIENTE] para ventas con fiado — el fiado funciona solo con el nombre.
    FORMATO JSON ESTRICTO:
    CORRECTO con metodo:    {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000, "metodo_pago": "efectivo"}}
    CORRECTO sin metodo:    {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000}}
