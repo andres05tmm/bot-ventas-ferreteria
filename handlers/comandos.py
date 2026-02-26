@@ -520,17 +520,47 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
     args = [a.upper() for a in (context.args or [])]
     if args and args[0] == "EXCEL":
         if len(args) < 2 or args[1] != "CONFIRMAR":
-            await update.message.reply_text("⚠️ Escribe `/resetventas excel CONFIRMAR` para borrar la hoja del mes.", parse_mode="Markdown")
+            await update.message.reply_text("⚠️ Escribe `/resetventas excel CONFIRMAR` para borrar las ventas del último día registrado.", parse_mode="Markdown")
             return
         try:
             inicializar_excel()
-            wb = openpyxl.load_workbook(config.EXCEL_FILE)
+            wb = await asyncio.to_thread(openpyxl.load_workbook, config.EXCEL_FILE)
             hoja = obtener_nombre_hoja()
-            if hoja in wb.sheetnames:
-                del wb[hoja]
-                wb.save(config.EXCEL_FILE)
-                await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
-                await update.message.reply_text(f"✅ Hoja {hoja} borrada.")
+            if hoja not in wb.sheetnames:
+                await update.message.reply_text(f"No hay hoja '{hoja}' en el Excel.")
+                return
+            ws   = wb[hoja]
+            cols = detectar_columnas(ws)
+            col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
+
+            # Encontrar la fecha del ultimo dia con ventas
+            fechas = set()
+            if col_fecha:
+                for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
+                    val = fila[col_fecha - 1]
+                    if val:
+                        fechas.add(str(val)[:10])
+
+            if not fechas:
+                await update.message.reply_text("No hay ventas en la hoja del mes.")
+                return
+
+            ultima_fecha = max(fechas)
+
+            # Borrar solo las filas de esa fecha
+            filas_borrar = []
+            if col_fecha:
+                for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
+                    val = ws.cell(row=fila, column=col_fecha).value
+                    if val and str(val)[:10] == ultima_fecha:
+                        filas_borrar.append(fila)
+
+            for fila in reversed(filas_borrar):
+                ws.delete_rows(fila)
+
+            await asyncio.to_thread(wb.save, config.EXCEL_FILE)
+            await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
+            await update.message.reply_text(f"✅ Eliminadas {len(filas_borrar)} ventas del {ultima_fecha} de la hoja '{hoja}'.")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
         return
