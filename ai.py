@@ -1,15 +1,17 @@
 """
-Integracion con Claude AI:
-- Construccion del system prompt con contexto del negocio
+Integración con Claude AI (modelo: claude-haiku-4-5-20251001):
+- Construcción del system prompt con contexto del negocio
 - Llamada a la API de Claude con PROMPT CACHING (ahorro ~60% en tokens de input)
-- Parseo y ejecucion de acciones embebidas en la respuesta ([VENTA]...[/VENTA], etc.)
+- Parseo y ejecución de acciones embebidas en la respuesta ([VENTA]...[/VENTA], etc.)
 
 OPTIMIZACIONES DE COSTO ACTIVAS:
-  1. Prompt caching  — la parte estatica del prompt (reglas + catalogo) se cachea 5 min.
+  1. Prompt caching  — la parte estática del prompt (reglas + catálogo) se cachea 5 min.
                        Costo de tokens cacheados = 10% del precio normal.
-  2. Historial corto — se envian solo los ultimos 4 mensajes (antes 6).
-  3. max_tokens cap  — techo de 2000 tokens de respuesta (antes 3000).
-  4. import logging  — al tope del archivo (evita NameError en handlers).
+  2. Historial corto — se envían solo los últimos 4 mensajes.
+  3. max_tokens cap  — techo de 2000 tokens de respuesta.
+
+CORRECCIONES v2:
+  - Comentario de modelo corregido: era "Claude 3.5", el modelo real es claude-haiku-4-5-20251001
 """
 
 import logging
@@ -38,8 +40,6 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
 # ─────────────────────────────────────────────
 # PARTE ESTÁTICA DEL SYSTEM PROMPT (cacheable)
-# Contiene: reglas de negocio + catálogo + instrucciones de formato.
-# Es idéntica en todas las llamadas → Anthropic la cachea y cobra 10% del precio normal.
 # ─────────────────────────────────────────────
 
 def _construir_parte_estatica(memoria: dict) -> str:
@@ -284,19 +284,14 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
 
 # ─────────────────────────────────────────────
 # PARTE DINÁMICA DEL SYSTEM PROMPT (por mensaje)
-# Contiene: contexto específico de cada mensaje.
-# Cambia en cada llamada → NO se cachea.
 # ─────────────────────────────────────────────
 
 def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria: dict) -> str:
     """
-    Construye la parte del system prompt que SI cambia entre mensajes:
-    candidatos del catalogo, cliente encontrado, ventas del dia, inventario, caja, etc.
+    Construye la parte del system prompt que SÍ cambia entre mensajes:
+    candidatos del catálogo, cliente encontrado, ventas del día, inventario, caja, etc.
     """
     # ── Resumen de ventas ──
-    # IMPORTANTE: el Excel acumulado y el Sheets reflejan los mismos datos del mes,
-    # por eso NO sumamos ambos (evita conteo doble). Sheets es la fuente del día;
-    # Excel mensual es la fuente histórica del mes completo.
     resumen_sheets_total    = 0
     resumen_sheets_cantidad = 0
     if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
@@ -312,13 +307,10 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         except Exception:
             pass
 
-    resumen = obtener_resumen_ventas()
-    resumen_excel_total    = resumen["total"]      if resumen else 0
+    resumen               = obtener_resumen_ventas()
+    resumen_excel_total   = resumen["total"]      if resumen else 0
     resumen_excel_cantidad = resumen["num_ventas"] if resumen else 0
 
-    # Si Sheets está activo, los datos del día ya están en el Excel mensual,
-    # así que el total mensual viene del Excel y el desglose diario del Sheets.
-    # Si Sheets no está activo, solo usamos Excel.
     total_mes    = resumen_excel_total
     cantidad_mes = resumen_excel_cantidad
 
@@ -332,7 +324,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                          "resumen", "estadistica", "top", "mas vendido"]
     if any(p in mensaje_usuario.lower() for p in palabras_analisis):
         try:
-            todos = obtener_todos_los_datos()
+            todos       = obtener_todos_los_datos()
             datos_texto = json.dumps(todos[-100:], ensure_ascii=False, default=str) if todos else "Sin datos aun"
         except Exception:
             datos_texto = "Sin datos aun"
@@ -351,7 +343,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             encontrado = False
             for i in range(len(palabras_msg) - largo + 1):
                 fragmento = " ".join(palabras_msg[i:i + largo])
-                prod = buscar_producto_en_catalogo(fragmento)
+                prod      = buscar_producto_en_catalogo(fragmento)
                 if prod and prod.get("precios_fraccion"):
                     info = obtener_info_fraccion_producto(prod["nombre_lower"])
                     if info:
@@ -363,7 +355,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     # ── Candidatos del catálogo para este mensaje específico ──
     info_candidatos_extra = ""
-    palabras_clave = [p for p in mensaje_usuario.lower().split() if p not in stopwords]
+    palabras_clave        = [p for p in mensaje_usuario.lower().split() if p not in stopwords]
 
     def _linea_candidato(p: dict) -> str:
         fracs = p.get("precios_fraccion", {})
@@ -420,7 +412,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             print(f"Error clientes recientes: {e}")
 
     # ── Búsqueda de cliente si el mensaje lo indica ──
-    clientes_texto = ""
+    clientes_texto      = ""
     _indicadores_cliente = [
         "cliente", "para ", "de parte", "a nombre", "factura", "facturar",
         "a credito", "fiado", "cuenta de",
@@ -459,8 +451,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         except Exception:
             clientes_texto = ""
 
-    # ── Inventario, caja y gastos (solo si se consultan) ──
-    palabras_inv = ["inventario", "stock", "queda", "quedan", "hay", "cuanto hay", "existencia"]
+    # ── Inventario, caja y gastos ──
+    palabras_inv     = ["inventario", "stock", "queda", "quedan", "hay", "cuanto hay", "existencia"]
     inventario_texto = (
         f"INVENTARIO ACTUAL:\n{json.dumps(cargar_inventario(), ensure_ascii=False)}"
         if any(p in mensaje_usuario.lower() for p in palabras_inv) else ""
@@ -479,7 +471,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if not config.DRIVE_DISPONIBLE else ""
     )
 
-    # Ensamblar: solo incluir secciones que tienen contenido
     partes = [
         p for p in [
             info_fracciones_extra,
@@ -503,18 +494,16 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 # ─────────────────────────────────────────────
 
 async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list) -> str:
-    memoria = cargar_memoria()
+    memoria        = cargar_memoria()
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
 
-    # OPTIMIZACION #2: historial reducido a 4 mensajes (antes 6) — ahorra ~800 tokens/llamada
     messages = []
     for msg in historial_chat[-4:]:
         if isinstance(msg, dict) and "role" in msg and "content" in msg:
             messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
     messages.append({"role": "user", "content": str(mensaje_usuario)})
 
-    # OPTIMIZACION #3: techo de 2000 tokens de respuesta (antes 3000)
     num_lineas = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
     max_tokens = min(2000, max(1000, num_lineas * 200))
 
@@ -526,9 +515,6 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
                 lambda: config.claude_client.messages.create(
                     model="claude-haiku-4-5-20251001",
                     max_tokens=max_tokens,
-                    # OPTIMIZACION #1: PROMPT CACHING
-                    # parte_estatica (~5.000 tokens, reglas + catalogo) → se cachea 5 min → 10% del costo normal
-                    # parte_dinamica (contexto por mensaje) → nunca se cachea
                     system=[
                         {
                             "type": "text",
@@ -541,7 +527,6 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
                         },
                     ],
                     messages=messages,
-
                 )
             ),
             timeout=30.0,
@@ -553,7 +538,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
 
 
 # ─────────────────────────────────────────────
-# PARSEO Y EJECUCION DE ACCIONES
+# PARSEO Y EJECUCIÓN DE ACCIONES
 # ─────────────────────────────────────────────
 
 def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
@@ -573,7 +558,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     for venta_json in re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL):
         try:
             if esperando_pago:
-                print(f"[VENTA] ignorado — esperando seleccion de pago para chat {chat_id}")
+                print(f"[VENTA] ignorado — esperando selección de pago para chat {chat_id}")
             else:
                 venta = json.loads(venta_json.strip())
                 logging.getLogger("ferrebot.ai").debug(f"[VENTA] JSON recibido: {venta}")
@@ -588,12 +573,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     if esperando_pago and ventas_con_metodo:
         ventas_con_metodo.clear()
 
-    # ── Verificar cliente desconocido ANTES de encolar la venta ──
-    # Si alguna venta menciona un cliente que no existe en la base,
-    # pausamos el flujo y preguntamos si quiere crearlo.
-    # Esto es más confiable que depender de que el modelo siga la instrucción del prompt.
     def _tiene_cliente_desconocido(ventas: list) -> str | None:
-        """Retorna el nombre del primer cliente desconocido encontrado, o None."""
         from excel import buscar_cliente_con_resultado
         for v in ventas:
             nombre_cliente = v.get("cliente", "").strip()
@@ -608,14 +588,12 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         return None
 
     todas_las_ventas_nuevas = ventas_con_metodo + ventas_sin_metodo
-    cliente_desconocido = _tiene_cliente_desconocido(todas_las_ventas_nuevas) if todas_las_ventas_nuevas else None
+    cliente_desconocido     = _tiene_cliente_desconocido(todas_las_ventas_nuevas) if todas_las_ventas_nuevas else None
 
     if cliente_desconocido and not esperando_pago:
-        # Guardar las ventas en pendientes pero emitir acción especial en lugar de pedir pago
         with _estado_lock:
             ventas_pendientes[chat_id] = todas_las_ventas_nuevas
         acciones.append(f"CLIENTE_DESCONOCIDO:{cliente_desconocido}")
-        # Limpiar para que no se procesen por los flujos normales abajo
         ventas_con_metodo.clear()
         ventas_sin_metodo.clear()
 
@@ -713,7 +691,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 mem = cargar_memoria()
                 mem.setdefault("precios_fraccion", {}).setdefault(producto.lower(), {})[fraccion] = round(precio)
                 guardar_memoria(mem)
-                acciones.append(f"Precio de fraccion guardado: {producto} {fraccion} = ${precio:,.0f}")
+                acciones.append(f"Precio de fracción guardado: {producto} {fraccion} = ${precio:,.0f}")
         except Exception as e:
             print(f"Error precio fraccion: {e}")
         texto_limpio = texto_limpio.replace(f'[PRECIO_FRACCION]{pf_json}[/PRECIO_FRACCION]', '')
@@ -730,7 +708,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             print(f"Error precio: {e}")
         texto_limpio = texto_limpio.replace(f'[PRECIO]{precio_json}[/PRECIO]', '')
 
-    # ── Codigo producto ──
+    # ── Código producto ──
     for cp_json in re.findall(r'\[CODIGO_PRODUCTO\](.*?)\[/CODIGO_PRODUCTO\]', texto_respuesta, re.DOTALL):
         try:
             datos  = json.loads(cp_json.strip())
@@ -739,7 +717,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             if nombre and codigo:
                 mem      = cargar_memoria()
                 catalogo = mem.get("catalogo", {})
-                prod = buscar_producto_en_catalogo(nombre)
+                prod     = buscar_producto_en_catalogo(nombre)
                 if prod:
                     for k, v in catalogo.items():
                         if v.get("nombre_lower") == prod.get("nombre_lower"):
@@ -747,9 +725,9 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                             break
                     mem["catalogo"] = catalogo
                     guardar_memoria(mem)
-                    acciones.append(f"Codigo guardado: {nombre} = {codigo}")
+                    acciones.append(f"Código guardado: {nombre} = {codigo}")
         except Exception as e:
-            print(f"Error codigo producto: {e}")
+            print(f"Error código producto: {e}")
         texto_limpio = texto_limpio.replace(f'[CODIGO_PRODUCTO]{cp_json}[/CODIGO_PRODUCTO]', '')
 
     # ── Negocio ──
@@ -771,7 +749,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             if datos.get("accion") == "apertura":
                 caja.update({
                     "abierta": True,
-                    "fecha": datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
+                    "fecha":   datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
                     "monto_apertura": float(datos.get("monto", 0)),
                     "efectivo": 0, "transferencias": 0, "datafono": 0,
                 })
@@ -832,9 +810,9 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 if ok:
                     from excel import registrar_fiado_en_excel
                     from memoria import cargar_fiados
-                    fiados = cargar_fiados()
+                    fiados      = cargar_fiados()
                     cliente_key = next((k for k in fiados if k.lower() in cliente.lower() or cliente.lower() in k.lower()), cliente)
-                    saldo = fiados.get(cliente_key, {}).get("saldo", 0)
+                    saldo       = fiados.get(cliente_key, {}).get("saldo", 0)
                     registrar_fiado_en_excel(cliente_key, "Abono", 0, monto, saldo)
                 acciones.append(msg)
         except Exception as e:
@@ -890,7 +868,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
 
 
 # ─────────────────────────────────────────────
-# EDICION DE EXCEL CON CLAUDE
+# EDICIÓN DE EXCEL CON CLAUDE
 # ─────────────────────────────────────────────
 
 async def editar_excel_con_claude(instruccion: str, ruta_excel: str, nombre_excel: str,
@@ -919,15 +897,15 @@ async def editar_excel_con_claude(instruccion: str, ruta_excel: str, nombre_exce
 
 El usuario quiere: {instruccion}
 
-Genera SOLO el codigo Python necesario para modificar el archivo usando openpyxl.
-- El archivo ya esta cargado, usa: wb = openpyxl.load_workbook('{ruta_excel}')
+Genera SOLO el código Python necesario para modificar el archivo usando openpyxl.
+- El archivo ya está cargado, usa: wb = openpyxl.load_workbook('{ruta_excel}')
 - Al final guarda con: wb.save('{ruta_excel}')
 - Usa colores en formato hex sin # (ej: 'FF0000' para rojo)
-- Solo tienes disponibles: openpyxl y json. NO uses os, sys, subprocess ni ninguna otra libreria.
-- Solo el codigo, sin explicaciones ni comentarios ni bloques ```
-- Si la instruccion no tiene sentido para un Excel, devuelve solo la palabra: IMPOSIBLE"""
+- Solo tienes disponibles: openpyxl y json. NO uses os, sys, subprocess ni ninguna otra librería.
+- Solo el código, sin explicaciones ni comentarios ni bloques ```
+- Si la instrucción no tiene sentido para un Excel, devuelve solo la palabra: IMPOSIBLE"""
 
-    loop = asyncio.get_event_loop()
+    loop     = asyncio.get_event_loop()
     respuesta = await loop.run_in_executor(
         None,
         lambda: config.claude_client.messages.create(
