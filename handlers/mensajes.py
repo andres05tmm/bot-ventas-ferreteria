@@ -17,6 +17,7 @@ from ventas_state import (
     agregar_al_historial, get_historial,
     ventas_pendientes, clientes_en_proceso, _estado_lock,
     get_chat_lock, registrar_ventas_con_metodo, mensajes_standby,
+    esperando_correccion,
 )
 from excel import guardar_cliente_nuevo
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
@@ -292,6 +293,65 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                         from handlers.callbacks import _enviar_botones_pago as _botones_cb
                         await _botones_cb(update.message, chat_id, ventas2)
             return
+
+    # ── Modo modificación/corrección de venta ──
+    with _estado_lock:
+        en_correccion = esperando_correccion.pop(chat_id, False)
+
+    if en_correccion == "modificar":
+        # El usuario quiere modificar la venta pendiente con instrucciones en texto libre.
+        # Le pasamos a Claude la venta actual + la instrucción de cambio para que la edite.
+        with _estado_lock:
+            ventas_actuales = list(ventas_pendientes.get(chat_id, []))
+
+        import json as _json
+        resumen_venta = _json.dumps(ventas_actuales, ensure_ascii=False)
+
+        prompt_modificacion = (
+            f"El vendedor tiene esta venta pendiente de confirmar:
+{resumen_venta}
+
+"
+            f"El vendedor quiere modificarla con esta instrucción: "{mensaje}"
+
+"
+            "Aplica EXACTAMENTE los cambios pedidos a la venta (modifica cantidad, precio, "
+            "quita o agrega productos según corresponda). "
+            "Luego emite los [VENTA] actualizados con los datos correctos y confirma los cambios en texto. "
+            "IMPORTANTE: emite [VENTA] para TODOS los productos que quedan en la venta (no solo el modificado)."
+        )
+        historial = get_historial(chat_id)
+        agregar_al_historial(chat_id, "user", prompt_modificacion)
+
+        # Limpiar ventas anteriores para que las nuevas [VENTA] las reemplacen
+        with _estado_lock:
+            ventas_pendientes.pop(chat_id, None)
+
+        respuesta_raw = await procesar_con_claude(prompt_modificacion, vendedor, historial)
+        texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
+        agregar_al_historial(chat_id, "assistant", texto_respuesta)
+        if texto_respuesta:
+            await update.message.reply_text(texto_respuesta)
+        if "PEDIR_METODO_PAGO" in acciones:
+            with _estado_lock:
+                ventas = list(ventas_pendientes.get(chat_id, []))
+            await _enviar_botones_pago(update.message, chat_id, ventas)
+        return
+
+    elif en_correccion:
+        # Modo reescritura completa (fallback)
+        historial = get_historial(chat_id)
+        agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
+        respuesta_raw = await procesar_con_claude(f"{vendedor}: {mensaje}", vendedor, historial)
+        texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
+        agregar_al_historial(chat_id, "assistant", texto_respuesta)
+        if texto_respuesta:
+            await update.message.reply_text(texto_respuesta)
+        if "PEDIR_METODO_PAGO" in acciones:
+            with _estado_lock:
+                ventas = ventas_pendientes.get(chat_id, [])
+            await _enviar_botones_pago(update.message, chat_id, ventas)
+        return
 
     # ── Flujo normal con Claude ──
     try:
