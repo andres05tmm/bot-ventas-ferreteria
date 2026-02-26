@@ -1,18 +1,23 @@
-import logging
 """
-Memoria persistente del bot: precios, catalogo, negocio, inventario, caja, gastos.
+Memoria persistente del bot: precios, catálogo, negocio, inventario, caja, gastos.
 Usa cache en RAM para evitar lecturas repetidas del JSON.
+
+CORRECCIONES v2:
+  - Docstring movido ANTES del import (antes estaba después, Python no lo reconocía)
+  - _normalizar eliminada de aquí — se importa de utils (era duplicado con lógica distinta)
 """
 
+import logging
 import json
 import os
 import threading
 from datetime import datetime
 
 import config
+from utils import _normalizar  # única definición centralizada
 
 _cache: dict | None = None
-_bloquear_subida_drive: bool = False  # True durante la sincronizacion inicial
+_bloquear_subida_drive: bool = False  # True durante la sincronización inicial
 _cache_lock = threading.Lock()        # Protege _cache en entornos multi-hilo
 
 
@@ -56,18 +61,18 @@ def invalidar_cache_memoria():
 
 
 # ─────────────────────────────────────────────
-# CATALOGO
+# CATÁLOGO
 # ─────────────────────────────────────────────
 
 def buscar_producto_en_catalogo(nombre_buscado: str) -> dict | None:
     """
-    Busca un producto en el catalogo por nombre (busqueda flexible).
+    Busca un producto en el catálogo por nombre (búsqueda flexible).
     Retorna el dict del producto o None.
-    Niveles de busqueda:
+    Niveles de búsqueda:
       1. Coincidencia exacta en nombre_lower
-      2. Todas las palabras del termino aparecen en el nombre
+      2. Todas las palabras del término aparecen en el nombre
       3. Al menos todas menos una aparecen
-      4. Al menos UNA palabra aparece (busqueda parcial)
+      4. Al menos UNA palabra aparece (búsqueda parcial)
     """
     catalogo = cargar_memoria().get("catalogo", {})
     if not catalogo:
@@ -102,7 +107,7 @@ def buscar_producto_en_catalogo(nombre_buscado: str) -> dict | None:
 
 
 def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
-    """Retorna todos los candidatos que coincidan con el termino, ordenados por relevancia."""
+    """Retorna todos los candidatos que coincidan con el término, ordenados por relevancia."""
     catalogo = cargar_memoria().get("catalogo", {})
     if not catalogo:
         return []
@@ -130,20 +135,16 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
 def obtener_precio_para_cantidad(nombre_producto: str, cantidad_decimal: float) -> tuple[int, float]:
     """
     Dado un producto y una cantidad decimal, retorna (precio_total, precio_unidad).
-    - Pinturas: usa precios_fraccion por fraccion de galon (1/4, 1/2, etc.)
-    - Tornilleria: si cantidad >= 100 usa precio mayorista, si no precio unitario normal.
-    - Resto: proporcional al precio_unidad.
     """
     prod = buscar_producto_en_catalogo(nombre_producto)
     if not prod:
-        precios = cargar_memoria().get("precios", {})
+        precios  = cargar_memoria().get("precios", {})
         precio_u = precios.get(nombre_producto.strip().lower(), 0)
         return round(precio_u * cantidad_decimal), precio_u
 
     precio_u   = prod.get("precio_unidad", 0)
     fracciones = prod.get("precios_fraccion", {})
 
-    # ── Tornilleria: precio por umbral de cantidad ──
     precio_x_cantidad = prod.get("precio_por_cantidad")
     if precio_x_cantidad:
         umbral = precio_x_cantidad.get("umbral", 100)
@@ -153,7 +154,6 @@ def obtener_precio_para_cantidad(nombre_producto: str, cantidad_decimal: float) 
             precio_u_aplicado = precio_x_cantidad.get("precio_bajo_umbral", precio_u)
         return round(precio_u_aplicado * cantidad_decimal), precio_u_aplicado
 
-    # ── Pinturas: precio por fraccion de galon ──
     for frac_data in fracciones.values():
         if isinstance(frac_data, dict) and abs(frac_data.get("decimal", 0) - cantidad_decimal) < 0.01:
             return frac_data.get("precio", round(precio_u * cantidad_decimal)), precio_u
@@ -175,31 +175,29 @@ def obtener_precios_como_texto() -> str:
         return "\n".join(lineas)
     if precios:
         return "\n".join(f"- {p}: ${v:,}" for p, v in precios.items())
-    return "No hay precios guardados aun."
+    return "No hay precios guardados aún."
 
 
 def obtener_info_fraccion_producto(nombre_producto: str) -> str | None:
-    """Retorna texto con los precios por fraccion o por cantidad de un producto."""
+    """Retorna texto con los precios por fracción o por cantidad de un producto."""
     prod = buscar_producto_en_catalogo(nombre_producto)
     if not prod:
         return None
 
-    nombre = prod['nombre']
+    nombre   = prod['nombre']
     precio_u = prod['precio_unidad']
 
-    # Tornilleria: precio por umbral de cantidad
     pxc = prod.get("precio_por_cantidad")
     if pxc:
-        umbral     = pxc.get("umbral", 100)
-        p_bajo     = pxc.get("precio_bajo_umbral", precio_u)
-        p_sobre    = pxc.get("precio_sobre_umbral", precio_u)
+        umbral  = pxc.get("umbral", 100)
+        p_bajo  = pxc.get("precio_bajo_umbral", precio_u)
+        p_sobre = pxc.get("precio_sobre_umbral", precio_u)
         return (
             f"{nombre}: "
             f"c/u (menos de {umbral}) = ${p_bajo:,} | "
             f"c/u (x{umbral} o más) = ${p_sobre:,}"
         )
 
-    # Pinturas: precio por fraccion de galon
     fracs = prod.get("precios_fraccion", {})
     if not fracs:
         return f"{nombre}: unidad=${precio_u:,} (no fraccionable)"
@@ -256,10 +254,10 @@ def obtener_resumen_caja() -> str:
     from excel import obtener_resumen_ventas
     caja = cargar_caja()
     if not caja.get("abierta"):
-        return "La caja no esta abierta hoy."
-    resumen          = obtener_resumen_ventas()
-    total_ventas     = resumen["total"] if resumen else 0
-    gastos_hoy       = cargar_gastos_hoy()
+        return "La caja no está abierta hoy."
+    resumen           = obtener_resumen_ventas()
+    total_ventas      = resumen["total"] if resumen else 0
+    gastos_hoy        = cargar_gastos_hoy()
     total_gastos_caja = sum(g["monto"] for g in gastos_hoy if g.get("origen") == "caja")
     efectivo_esperado = caja["monto_apertura"] + caja["efectivo"] - total_gastos_caja
     return (
@@ -299,15 +297,6 @@ def cargar_fiados() -> dict:
     return cargar_memoria().get("fiados", {})
 
 
-def _normalizar(texto: str) -> str:
-    """Elimina tildes y pasa a minusculas para busqueda flexible."""
-    import unicodedata
-    return ''.join(
-        c for c in unicodedata.normalize('NFD', texto.lower())
-        if unicodedata.category(c) != 'Mn'
-    )
-
-
 def _buscar_cliente_fiado(nombre: str, fiados: dict) -> str | None:
     """Busca el key del cliente en fiados de forma flexible (sin tildes, parcial)."""
     busqueda = _normalizar(nombre.strip())
@@ -315,12 +304,12 @@ def _buscar_cliente_fiado(nombre: str, fiados: dict) -> str | None:
     for k in fiados:
         if _normalizar(k) == busqueda:
             return k
-    # 2. La busqueda esta contenida en el nombre o viceversa
+    # 2. La búsqueda está contenida en el nombre o viceversa
     for k in fiados:
         kn = _normalizar(k)
         if busqueda in kn or kn in busqueda:
             return k
-    # 3. Todas las palabras de la busqueda aparecen en el nombre
+    # 3. Todas las palabras de la búsqueda aparecen en el nombre
     palabras = busqueda.split()
     for k in fiados:
         kn = _normalizar(k)
@@ -334,8 +323,7 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
     Registra un movimiento de fiado (cargo=lo que quedó debiendo, abono=lo que pagó).
     Crea el cliente en fiados si no existe.
     """
-    from datetime import datetime
-    mem = cargar_memoria()
+    mem    = cargar_memoria()
     fiados = mem.setdefault("fiados", {})
     if cliente not in fiados:
         fiados[cliente] = {"saldo": 0, "movimientos": []}
@@ -362,7 +350,6 @@ def abonar_fiado(cliente: str, monto: float, concepto: str = "Abono") -> tuple[b
     mem    = cargar_memoria()
     fiados = mem.get("fiados", {})
 
-    # Busqueda flexible del nombre
     cliente_key = _buscar_cliente_fiado(cliente, fiados)
 
     if not cliente_key:
@@ -376,12 +363,12 @@ def abonar_fiado(cliente: str, monto: float, concepto: str = "Abono") -> tuple[b
 
 def resumen_fiados() -> str:
     """Texto con todos los clientes que deben algo."""
-    fiados = cargar_fiados()
+    fiados     = cargar_fiados()
     pendientes = {k: v for k, v in fiados.items() if v.get("saldo", 0) > 0}
     if not pendientes:
         return "No hay fiados pendientes. ✅"
     lineas = ["💳 *Fiados pendientes:*\n"]
-    total = 0
+    total  = 0
     for cliente, datos in sorted(pendientes.items()):
         saldo = datos["saldo"]
         total += saldo
@@ -392,7 +379,7 @@ def resumen_fiados() -> str:
 
 def detalle_fiado_cliente(cliente: str) -> str:
     """Retorna el detalle de movimientos de un cliente."""
-    fiados = cargar_fiados()
+    fiados      = cargar_fiados()
     cliente_key = _buscar_cliente_fiado(cliente, fiados)
     if not cliente_key:
         return f"No encontré a '{cliente}' en los fiados."
@@ -400,7 +387,7 @@ def detalle_fiado_cliente(cliente: str) -> str:
     saldo = datos.get("saldo", 0)
     movs  = datos.get("movimientos", [])
     lineas = [f"📋 Cuenta de {cliente_key} — Saldo: ${saldo:,.0f}\n"]
-    for m in movs[-10:]:  # ultimos 10 movimientos
+    for m in movs[-10:]:  # últimos 10 movimientos
         if m["cargo"] > 0 and m["abono"] > 0:
             lineas.append(f"  {m['fecha']} | {m['concepto']} | Cargo: ${m['cargo']:,.0f} | Abono: ${m['abono']:,.0f} | Saldo: ${m['saldo']:,.0f}")
         elif m["cargo"] > 0:
