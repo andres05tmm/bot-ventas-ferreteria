@@ -5,6 +5,14 @@ CORRECCIONES v2:
   - _parsear_precio local eliminada — se usa parsear_precio de utils (era duplicado)
   - manejar_texto_cliente eliminada — era código muerto (nunca se llamaba desde ningún handler)
   - Docstring ANTES del import logging
+
+CORRECCIONES v3 — FIX CRÍTICO standby:
+  Antes: el loop procesaba TODOS los mensajes del standby de golpe.
+    Mensaje 1 → dejaba venta nueva en ventas_pendientes
+    Mensaje 2 → veía ventas_pendientes ocupado → [VENTA] ignorado → pérdida silenciosa
+  Ahora: _procesar_siguiente_standby toma SOLO el primero, muestra botones si genera venta,
+    y guarda el resto de vuelta en mensajes_standby. El siguiente mensaje se procesa cuando
+    el usuario confirme el pago de ese, garantizando la cadena completa.
 """
 
 import logging
@@ -19,7 +27,72 @@ from ventas_state import (
     ventas_pendientes, borrados_pendientes, _estado_lock,
     registrar_ventas_con_metodo, clientes_en_proceso,
     ventas_esperando_cliente, mensajes_standby,
+    agregar_a_standby,
 )
+
+
+# ─────────────────────────────────────────────
+# HELPER: procesar el siguiente mensaje del standby (uno por vez)
+# ─────────────────────────────────────────────
+
+async def _procesar_siguiente_standby(bot, message, chat_id: int, pendientes: list, vendedor: str):
+    """
+    Toma el PRIMER mensaje del standby, lo procesa, y para.
+
+    - Si genera una venta → muestra los botones de pago y termina.
+      El siguiente mensaje del standby se procesará cuando el usuario confirme ese pago.
+    - Si NO genera venta (consulta, saludo, etc.) → continúa con el siguiente del standby.
+    - El resto de los mensajes se guarda de vuelta en mensajes_standby antes de procesar,
+      para que no se pierdan si hay un error.
+    """
+    from ai import procesar_con_claude, procesar_acciones
+    from ventas_state import agregar_al_historial, get_historial
+
+    if not pendientes:
+        return
+
+    msg_text = pendientes[0]
+    resto    = pendientes[1:]
+
+    # Guardar el resto de vuelta ANTES de procesar (seguridad ante errores)
+    if resto:
+        with _estado_lock:
+            mensajes_standby[chat_id] = resto
+
+    historial     = get_historial(chat_id)
+    agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
+    respuesta_raw            = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
+    texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
+    agregar_al_historial(chat_id, "assistant", texto_resp)
+
+    confirmacion_accion = next((a for a in acciones2 if a.startswith("PEDIR_CONFIRMACION:")), None)
+    pedir_metodo        = "PEDIR_METODO_PAGO" in acciones2
+    genera_venta        = confirmacion_accion or pedir_metodo
+
+    if texto_resp and "PAGO_PENDIENTE_AVISO" not in acciones2:
+        await bot.send_message(chat_id=chat_id, text=texto_resp)
+
+    if confirmacion_accion:
+        metodo_conocido = confirmacion_accion.split(":", 1)[1]
+        with _estado_lock:
+            ventas2 = list(ventas_pendientes.get(chat_id, []))
+        if ventas2:
+            await _enviar_confirmacion_con_metodo(message, chat_id, ventas2, metodo_conocido)
+    elif pedir_metodo:
+        with _estado_lock:
+            ventas2 = list(ventas_pendientes.get(chat_id, []))
+        if ventas2:
+            await _enviar_botones_pago(message, chat_id, ventas2)
+        else:
+            # No quedó venta (raro), seguir con el siguiente
+            genera_venta = False
+
+    if not genera_venta and resto:
+        # Sin venta pendiente — el siguiente del standby puede procesarse ya
+        with _estado_lock:
+            siguiente_resto = mensajes_standby.pop(chat_id, [])
+        if siguiente_resto:
+            await _procesar_siguiente_standby(bot, message, chat_id, siguiente_resto, vendedor)
 
 
 # ─────────────────────────────────────────────
@@ -43,7 +116,8 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         items = "\n".join(
-            "  - " + str(v.get("producto", "?")) + " x" + str(v.get("cantidad", 1)) + " - $" + f"{v.get('total', 0):,}"
+            "  - " + str(v.get("producto", "?")) + " x" + str(v.get("cantidad", 1))
+            + " - $" + f"{v.get('total', 0):,}"
             for v in ventas_actuales
         )
 
@@ -64,14 +138,12 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
     if data.startswith("pago_cancelar_"):
         from ventas_state import esperando_correccion
         with _estado_lock:
-            ventas_canceladas = ventas_pendientes.pop(chat_id, [])
-            standby_pendiente = mensajes_standby.pop(chat_id, [])
-
-        with _estado_lock:
+            ventas_canceladas             = ventas_pendientes.pop(chat_id, [])
+            standby_pendiente             = mensajes_standby.pop(chat_id, [])
             esperando_correccion[chat_id] = True
 
         if ventas_canceladas:
-            items         = "\n".join(f"  • {v.get('producto', '?')} — ${v.get('total', 0):,}" for v in ventas_canceladas)
+            items           = "\n".join(f"  • {v.get('producto', '?')} — ${v.get('total', 0):,}" for v in ventas_canceladas)
             texto_cancelado = f"Venta cancelada:\n{items}\n\n"
         else:
             texto_cancelado = ""
@@ -82,22 +154,10 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
         if standby_pendiente:
-            for msg_text in standby_pendiente:
-                from ai import procesar_con_claude, procesar_acciones
-                from ventas_state import agregar_al_historial, get_historial
-                vendedor  = update.effective_user.first_name
-                historial = get_historial(chat_id)
-                agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
-                respuesta_raw               = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
-                texto_resp, acciones2, _    = procesar_acciones(respuesta_raw, vendedor, chat_id)
-                agregar_al_historial(chat_id, "assistant", texto_resp)
-                if texto_resp:
-                    await context.bot.send_message(chat_id=chat_id, text=f"📋 {msg_text}\n{texto_resp}")
-                if "PEDIR_METODO_PAGO" in acciones2:
-                    with _estado_lock:
-                        ventas2 = list(ventas_pendientes.get(chat_id, []))
-                    if ventas2:
-                        await _enviar_botones_pago_por_chat(context.bot, chat_id, ventas2)
+            await _procesar_siguiente_standby(
+                context.bot, query.message, chat_id,
+                standby_pendiente, update.effective_user.first_name,
+            )
         return
 
     # ── Confirmar venta con método ya conocido ──
@@ -119,27 +179,19 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
         emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
-        await query.edit_message_text(f"✅ Venta confirmada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf))
+        await query.edit_message_text(
+            f"✅ Venta confirmada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
+        )
 
         with _estado_lock:
             pendientes = mensajes_standby.pop(chat_id, [])
-        for msg_text in pendientes:
-            from ai import procesar_con_claude, procesar_acciones
-            from ventas_state import agregar_al_historial, get_historial
-            historial = get_historial(chat_id)
-            agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
-            respuesta_raw            = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
-            texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
-            agregar_al_historial(chat_id, "assistant", texto_resp)
-            if texto_resp:
-                await context.bot.send_message(chat_id=chat_id, text=texto_resp)
-            if "PEDIR_METODO_PAGO" in acciones2:
-                with _estado_lock:
-                    ventas2 = ventas_pendientes.get(chat_id, [])
-                await _enviar_botones_pago(query.message, chat_id, ventas2)
+        if pendientes:
+            await _procesar_siguiente_standby(
+                context.bot, query.message, chat_id, pendientes, vendedor
+            )
         return
 
-    # ── Métodos de pago ──
+    # ── Métodos de pago (botones 💵📱💳) ──
     if data.startswith("pago_"):
         partes   = data.split("_")
         metodo   = partes[1]
@@ -157,28 +209,16 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
         emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
-        await query.edit_message_text(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf))
+        await query.edit_message_text(
+            f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
+        )
 
         with _estado_lock:
             pendientes = mensajes_standby.pop(chat_id, [])
         if pendientes:
-            await context.bot.send_message(chat_id=chat_id, text="🔄 Procesando venta en espera...")
-            for msg_text in pendientes:
-                from ai import procesar_con_claude, procesar_acciones
-                from ventas_state import agregar_al_historial, get_historial
-                historial = get_historial(chat_id)
-                agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
-                respuesta_raw            = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
-                texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
-                agregar_al_historial(chat_id, "assistant", texto_resp)
-                if texto_resp and "PAGO_PENDIENTE_AVISO" not in acciones2:
-                    await context.bot.send_message(chat_id=chat_id, text=texto_resp)
-                es_pregunta = texto_resp and ("?" in texto_resp or "¿" in texto_resp)
-                if "PEDIR_METODO_PAGO" in acciones2 and not es_pregunta:
-                    from handlers.mensajes import _enviar_botones_pago
-                    with _estado_lock:
-                        ventas2 = ventas_pendientes.get(chat_id, [])
-                    await _enviar_botones_pago(query.message, chat_id, ventas2)
+            await _procesar_siguiente_standby(
+                context.bot, query.message, chat_id, pendientes, vendedor
+            )
 
     # ── Confirmación de borrado ──
     elif data.startswith("borrar_"):
@@ -215,7 +255,6 @@ async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, m
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
-        # CORRECCIÓN: parsear_precio de utils en lugar de la función local
         total        = parsear_precio(v.get("total", 0))
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
@@ -225,7 +264,7 @@ async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, m
         InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"),
     ]])
     await message.reply_text(
-        f"✓ Venta registrada — {emoji_metodo} {metodo.capitalize()}\n\n" + "\n".join(lineas),
+        f"✓ Venta — {emoji_metodo} {metodo.capitalize()}\n\n" + "\n".join(lineas),
         reply_markup=keyboard,
     )
 
@@ -233,11 +272,9 @@ async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, m
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
     """Muestra botones de método de pago con opción de modificar."""
     lineas = []
-    logging.getLogger("ferrebot.callbacks").debug(f"[BOTONES] ventas recibidas: {ventas}")
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
-        # CORRECCIÓN: parsear_precio de utils en lugar de la función local duplicada
         total        = parsear_precio(v.get("total", 0))
         p_unitario   = parsear_precio(v.get("precio_unitario", 0))
         valor_final  = total if total > 0 else round(p_unitario * cantidad_dec)
@@ -293,7 +330,6 @@ async def manejar_callback_cliente(update: Update, context: ContextTypes.DEFAULT
                 break
 
         with _estado_lock:
-            from ventas_state import ventas_esperando_cliente
             ventas_esperando_cliente[chat_id] = {
                 "ventas":   ventas,
                 "metodo":   None,
@@ -401,7 +437,6 @@ async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
-        # CORRECCIÓN: parsear_precio de utils
         total        = parsear_precio(v.get("total", 0))
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
