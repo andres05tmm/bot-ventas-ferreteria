@@ -37,28 +37,24 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         # Construir resumen de la venta actual
-        items = "
-".join(f"  • {v.get('producto','?')} x{v.get('cantidad',1)} — ${v.get('total',0):,}" for v in ventas_actuales)
+        items = "\n".join(
+            "  - " + str(v.get("producto","?")) + " x" + str(v.get("cantidad",1)) + " - $" + f"{v.get('total',0):,}"
+            for v in ventas_actuales
+        )
 
         # Marcar que el proximo mensaje es una modificacion (no reescritura completa)
         with _estado_lock:
             esperando_correccion[chat_id] = "modificar"
 
-        await query.edit_message_text(
-            f"✏️ Venta actual:
-{items}
-
-"
-            "Dime qué quieres cambiar, por ejemplo:
-"
-            "  • "el precio del sellador era 25000"
-"
-            "  • "quita los aerosoles"
-"
-            "  • "los tornillos eran 3 docenas no 5"
-"
-            "  • "agrega 1 brocha 5000""
+        texto_modificar = (
+            "Venta actual:\n" + items + "\n\n"
+            "Dime que quieres cambiar, por ejemplo:\n"
+            "  - el precio del sellador era 25000\n"
+            "  - quita los aerosoles\n"
+            "  - los tornillos eran 3 docenas no 5\n"
+            "  - agrega 1 brocha 5000"
         )
+        await query.edit_message_text(texto_modificar)
         return
 
     # ── Cancelar venta ──
