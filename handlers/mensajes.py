@@ -18,7 +18,7 @@ from ventas_state import (
     agregar_al_historial, get_historial,
     ventas_pendientes, clientes_en_proceso, _estado_lock,
     get_chat_lock, registrar_ventas_con_metodo, mensajes_standby,
-    esperando_correccion,
+    esperando_correccion, ventas_esperando_cliente,
 )
 from excel import guardar_cliente_nuevo
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
@@ -369,6 +369,24 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         elif "PEDIR_METODO_PAGO" in acciones:
             await _enviar_botones_pago(update.message, chat_id, ventas)
         return
+
+    # ── Respuesta "no" a la pregunta de crear cliente ──
+    # Claude pregunta "¿Quieres crear el cliente antes de registrar?"
+    # Si el usuario dice no, registramos la venta pendiente con el nombre tal cual
+    with _estado_lock:
+        _esperando_cliente_yn = ventas_pendientes.get(chat_id) and not clientes_en_proceso.get(chat_id)
+
+    if _esperando_cliente_yn:
+        _msg_lower = mensaje.strip().lower()
+        _respuesta_no = {"no", "nop", "nope", "nel", "sin cliente", "registra sin cliente", "registra asi"}
+        if _msg_lower in _respuesta_no or _msg_lower.startswith("no "):
+            # El usuario no quiere crear el cliente — registrar la venta con el nombre que ya tiene
+            with _estado_lock:
+                ventas_para_registrar = list(ventas_pendientes.get(chat_id, []))
+            if ventas_para_registrar:
+                await update.message.reply_text("👍 Registrando la venta sin crear el cliente...")
+                await _enviar_botones_pago(update.message, chat_id, ventas_para_registrar)
+                return
 
     # ── Flujo normal con Claude ──
     try:
