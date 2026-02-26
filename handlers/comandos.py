@@ -529,7 +529,7 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
     args = [a.upper() for a in (context.args or [])]
     if args and args[0] == "EXCEL":
         if len(args) < 2 or args[1] != "CONFIRMAR":
-            await update.message.reply_text("⚠️ Escribe `/resetventas excel CONFIRMAR` para borrar las ventas del último día registrado.", parse_mode="Markdown")
+            await update.message.reply_text("⚠️ Escribe `/resetventas excel CONFIRMAR` para borrar las ventas de ayer.", parse_mode="Markdown")
             return
         try:
             inicializar_excel()
@@ -542,34 +542,28 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
             cols = detectar_columnas(ws)
             col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
 
-            # Encontrar la fecha del ultimo dia con ventas
-            fechas = set()
-            if col_fecha:
-                for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
-                    val = fila[col_fecha - 1]
-                    if val:
-                        fechas.add(str(val)[:10])
+            # Calcular fecha de ayer en zona Colombia
+            from datetime import timedelta
+            ayer = (datetime.now(config.COLOMBIA_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
 
-            if not fechas:
-                await update.message.reply_text("No hay ventas en la hoja del mes.")
-                return
-
-            ultima_fecha = max(fechas)
-
-            # Borrar solo las filas de esa fecha
+            # Borrar solo las filas de ayer
             filas_borrar = []
             if col_fecha:
                 for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
                     val = ws.cell(row=fila, column=col_fecha).value
-                    if val and str(val)[:10] == ultima_fecha:
+                    if val and str(val)[:10] == ayer:
                         filas_borrar.append(fila)
+
+            if not filas_borrar:
+                await update.message.reply_text(f"No hay ventas del {ayer} en la hoja '{hoja}'.")
+                return
 
             for fila in reversed(filas_borrar):
                 ws.delete_rows(fila)
 
             await asyncio.to_thread(wb.save, config.EXCEL_FILE)
             await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
-            await update.message.reply_text(f"✅ Eliminadas {len(filas_borrar)} ventas del {ultima_fecha} de la hoja '{hoja}'.")
+            await update.message.reply_text(f"✅ Eliminadas {len(filas_borrar)} ventas del {ayer} de la hoja '{hoja}'.")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
         return
