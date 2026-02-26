@@ -22,7 +22,7 @@ from handlers.comandos import (
     comando_reset_ventas,
 )
 from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento
-from handlers.callbacks import manejar_metodo_pago
+from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente
 
 
 def main():
@@ -68,9 +68,9 @@ def main():
     # Callbacks (botones inline)
     app.add_handler(CallbackQueryHandler(manejar_metodo_pago,      pattern="^pago_"))
     app.add_handler(CallbackQueryHandler(manejar_metodo_pago,      pattern="^borrar_"))
-    app.add_handler(CallbackQueryHandler(manejar_metodo_pago,      pattern="^cli_tipoid_"))
-    app.add_handler(CallbackQueryHandler(manejar_metodo_pago,      pattern="^cli_persona_"))
-    app.add_handler(CallbackQueryHandler(manejar_callback_grafica, pattern="^grafica_"))
+    app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_tipoid_"))
+    app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_persona_"))
+    app.add_handler(CallbackQueryHandler(manejar_callback_grafica,  pattern="^grafica_"))
 
     if config.WEBHOOK_URL:
         print(f"🌐 Iniciando en modo WEBHOOK: {config.WEBHOOK_URL}")
