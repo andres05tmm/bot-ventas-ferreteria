@@ -290,10 +290,9 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     candidatos del catalogo, cliente encontrado, ventas del dia, inventario, caja, etc.
     """
     # ── Resumen de ventas ──
-    resumen = obtener_resumen_ventas()
-    resumen_excel_total    = resumen["total"]      if resumen else 0
-    resumen_excel_cantidad = resumen["num_ventas"] if resumen else 0
-
+    # IMPORTANTE: el Excel acumulado y el Sheets reflejan los mismos datos del mes,
+    # por eso NO sumamos ambos (evita conteo doble). Sheets es la fuente del día;
+    # Excel mensual es la fuente histórica del mes completo.
     resumen_sheets_total    = 0
     resumen_sheets_cantidad = 0
     if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
@@ -309,13 +308,20 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         except Exception:
             pass
 
-    total_combinado    = resumen_excel_total + resumen_sheets_total
-    cantidad_combinada = resumen_excel_cantidad + resumen_sheets_cantidad
+    resumen = obtener_resumen_ventas()
+    resumen_excel_total    = resumen["total"]      if resumen else 0
+    resumen_excel_cantidad = resumen["num_ventas"] if resumen else 0
+
+    # Si Sheets está activo, los datos del día ya están en el Excel mensual,
+    # así que el total mensual viene del Excel y el desglose diario del Sheets.
+    # Si Sheets no está activo, solo usamos Excel.
+    total_mes    = resumen_excel_total
+    cantidad_mes = resumen_excel_cantidad
 
     resumen_texto = (
-        f"${total_combinado:,.0f} en {cantidad_combinada} ventas este mes "
+        f"${total_mes:,.0f} en {cantidad_mes} ventas este mes "
         f"(hoy: ${resumen_sheets_total:,.0f} en {resumen_sheets_cantidad} ventas)"
-    ) if cantidad_combinada > 0 else "Sin ventas este mes"
+    ) if cantidad_mes > 0 else "Sin ventas este mes"
 
     # ── Datos históricos (solo si piden análisis) ──
     palabras_analisis = ["cuanto", "vendimos", "reporte", "analiz", "total",
@@ -531,7 +537,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
                         },
                     ],
                     messages=messages,
-                    betas=["prompt-caching-2024-07-31"],
+
                 )
             ),
             timeout=30.0,
