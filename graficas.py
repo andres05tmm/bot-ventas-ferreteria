@@ -28,13 +28,28 @@ def _cargar_ws():
     return ws, cols, nombre_hoja
 
 
+def _col_total(cols: dict):
+    """
+    Busca la columna de totales de forma flexible:
+    acepta 'total' o 'subtotal' como encabezado.
+    """
+    for k, v in cols.items():
+        if k in ("total", "subtotal"):
+            return v
+    # Fallback: cualquier columna que contenga 'total'
+    for k, v in cols.items():
+        if "total" in k:
+            return v
+    return None
+
+
 def generar_grafica_ventas_por_dia() -> str | None:
     ws, cols, nombre_hoja = _cargar_ws()
     if ws is None:
         return None
 
     col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
-    col_total = next((v for k, v in cols.items() if k == "total"), None)
+    col_total = _col_total(cols)
     if not col_fecha or not col_total:
         return None
 
@@ -88,7 +103,7 @@ def generar_grafica_productos() -> str | None:
         return None
 
     col_producto = next((v for k, v in cols.items() if "producto" in k), None)
-    col_total    = next((v for k, v in cols.items() if k == "total"), None)
+    col_total    = _col_total(cols)
     if not col_producto or not col_total:
         return None
 
@@ -139,66 +154,6 @@ def generar_grafica_productos() -> str | None:
     return ruta
 
 
-def generar_grafica_metodos_pago() -> str | None:
-    ws, cols, nombre_hoja = _cargar_ws()
-    if ws is None:
-        return None
-
-    col_obs   = next((v for k, v in cols.items() if "observa" in k or "metodo" in k), None)
-    col_total = next((v for k, v in cols.items() if k == "total"), None)
-    if not col_obs or not col_total:
-        return None
-
-    metodos: dict[str, float] = {"efectivo": 0, "transferencia": 0, "datafono": 0, "otro": 0}
-    for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
-        if not any(fila):
-            continue
-        obs   = str(fila[col_obs - 1] or "").lower()
-        total = fila[col_total - 1]
-        if not total:
-            continue
-        try:
-            monto = float(total)
-        except Exception:
-            continue
-        if "efectivo" in obs:
-            metodos["efectivo"] += monto
-        elif "transfer" in obs:
-            metodos["transferencia"] += monto
-        elif "datafono" in obs or "datáfono" in obs:
-            metodos["datafono"] += monto
-        else:
-            metodos["otro"] += monto
-
-    metodos = {k: v for k, v in metodos.items() if v > 0}
-    if not metodos:
-        return None
-
-    etiquetas = list(metodos.keys())
-    valores   = list(metodos.values())
-    colores_map = {"efectivo": "#22C55E", "transferencia": "#3B82F6", "datafono": "#F59E0B", "otro": "#94A3B8"}
-    cols_grafica = [colores_map.get(e, "#94A3B8") for e in etiquetas]
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    wedges, _, autotexts = ax.pie(
-        valores, labels=None, autopct="%1.1f%%",
-        colors=cols_grafica, startangle=90,
-        wedgeprops={"edgecolor": "white", "linewidth": 2, "width": 0.6},
-    )
-    for at in autotexts:
-        at.set_fontsize(10)
-        at.set_fontweight("bold")
-    ax.legend(wedges, [f"{e.capitalize()}: ${v:,.0f}" for e, v in zip(etiquetas, valores)],
-              loc="lower center", bbox_to_anchor=(0.5, -0.12), ncol=2, fontsize=9, frameon=False)
-    ax.set_title(f"Métodos de pago — {nombre_hoja}", fontsize=13, fontweight="bold", pad=15)
-    plt.tight_layout()
-
-    ruta = f"grafica_pagos_{datetime.now(config.COLOMBIA_TZ).strftime('%Y%m%d_%H%M%S')}.png"
-    plt.savefig(ruta, dpi=150, bbox_inches="tight")
-    plt.close()
-    return ruta
-
-
 # Wrappers async
 async def generar_grafica_ventas_por_dia_async():
     loop = asyncio.get_event_loop()
@@ -207,7 +162,3 @@ async def generar_grafica_ventas_por_dia_async():
 async def generar_grafica_productos_async():
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, generar_grafica_productos)
-
-async def generar_grafica_metodos_pago_async():
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, generar_grafica_metodos_pago)
