@@ -341,8 +341,19 @@ DOCENAS Y OTRAS UNIDADES DE CONTEO:
   "1 docena"  = 12 unidades  | "media docena" = 6 unidades
   "2 docenas" = 24 unidades  | "5 docenas"    = 60 unidades
   "1 ciento"  = 100 unidades | "medio ciento" = 50 unidades
-  Para tornillos vendidos por docena: cantidad = docenas × 12, total = cantidad × precio_unitario_catalogo
-  Ejemplo: "5 docenas tornillo drywall 6x1-1/2" a $58 c/u → cantidad: 60, total: 3480
+  Para tornillos vendidos por docena: cantidad = docenas x 12, total = cantidad x precio_unitario_catalogo
+  CRITICO: Los tornillos tienen precios UNITARIOS muy bajos (entre $25 y $208 por unidad).
+  Si el usuario dice "5 docenas tornillo drywall 8x2":
+    - cantidad = 5 x 12 = 60
+    - precio unitario del catalogo = 67
+    - total = 60 x 67 = 4020
+    - JSON: {{"producto": "TORNILLO DRYWALL 8X 2", "cantidad": 60, "total": 4020}}
+  Si el usuario dice "3 docenas tornillo drywall 6x1-1/2":
+    - cantidad = 3 x 12 = 36
+    - precio unitario del catalogo = 58
+    - total = 36 x 58 = 2088
+    - JSON: {{"producto": "TORNILLO DRYWALL 6X1-1/2", "cantidad": 36, "total": 2088}}
+  NUNCA uses un total de miles de pesos para tornillos individuales — su precio unitario es menor a $300.
 
 {info_fracciones_extra}
 {info_candidatos_extra}
