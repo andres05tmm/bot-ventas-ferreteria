@@ -351,6 +351,17 @@ Si no encuentras el precio en el catalogo, registra la venta con "total": 0 y en
 NUNCA bloquees el registro preguntando el precio si el producto esta en el catalogo.
 NUNCA hagas preguntas cuando el mensaje tiene multiples productos — registra todo lo que puedas identificar y al final lista lo que quedó con precio 0 si algo faltó.
 
+REGLA CRITICA — PRODUCTOS QUE SE VENDEN POR UNIDADES ENTERAS (cuñetes, galones T3, manijas, etc.):
+Estos productos NO tienen fracciones — se venden de a 1, 2, 3 unidades completas.
+Para calcular el total: total = precio_unidad × cantidad. SIEMPRE multiplica.
+Ejemplos OBLIGATORIOS:
+  - "2 cuñetes vinilo t1 blanco"  → precio_unidad=220000 → total = 2 × 220000 = 440000
+  - "3 galones vinilo t3 blanco"  → precio_unidad=22000  → total = 3 × 22000  = 66000
+  - "5 galones vinilo t3 coral"   → precio_unidad=22000  → total = 5 × 22000  = 110000
+  - "1 manija"                    → precio_unidad=2000   → total = 1 × 2000   = 2000
+NUNCA uses el precio_unidad como total directamente cuando cantidad > 1.
+NUNCA confundas "precio de 1 unidad" con "total de la venta" cuando hay varias unidades.
+
 REGLA ABSOLUTA MULTI-PRODUCTO — CRITICO:
 Cuando el mensaje contiene 3 o más productos (separados por comas, saltos de línea o enumeración):
 → REGISTRA TODOS sin hacer ninguna pregunta. Cero preguntas. Cero interrupciones.
@@ -370,6 +381,13 @@ El usuario puede decir la medida de varias formas, todas significan lo mismo:
   "8 por 1"       → 8X1      | "8 por 1 y media"   → 8X1-1/2 | "8 por 3/4"       → 8X3/4
   "10 por 1"      → 10X1     | "10 por 1 y media"  → 10X1-1/2| "10 por 2"        → 10X2
 Usa SIEMPRE el nombre del catalogo con formato NUMEROxMEDIDA (ej: "TORNILLO DRYWALL 6X1-1/2").
+
+CHAZOS Y PRODUCTOS CON PRECIO UNITARIO BAJO — REGLA CRITICA:
+Los chazos tienen precio unitario muy bajo ($42-$208 por unidad). SIEMPRE multiplica cantidad × precio_unidad.
+  - "12 Chazo 5/16"  → precio_unidad=83  → total = 12 × 83  = 996
+  - "50 Chazo 1/4"   → precio_unidad=42  → total = 50 × 42  = 2100
+  - "100 Chazo 1/2"  → precio_unidad=208 → total = 100 × 208 = 20800
+NUNCA uses un total de miles de pesos para chazos individuales — su precio unitario es menor a $250.
 
 DOCENAS Y OTRAS UNIDADES DE CONTEO:
   "1 docena"  = 12 unidades  | "media docena" = 6 unidades
