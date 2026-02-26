@@ -220,6 +220,17 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         _ventas_pend = list(ventas_pendientes.get(chat_id, []))
 
     if _ventas_pend:
+        # Detectar si el usuario quiere cancelar/olvidar la venta pendiente
+        _cancelar_palabras = {"olvida", "olvidala", "olvídala", "cancela", "cancelar",
+                              "no", "no registres", "borra", "descarta", "dale"}
+        _msg_norm = mensaje.strip().lower()
+        if any(p in _msg_norm for p in _cancelar_palabras):
+            with _estado_lock:
+                ventas_pendientes.pop(chat_id, None)
+                mensajes_standby.pop(chat_id, None)
+            await update.message.reply_text("🗑️ Venta cancelada. ¿Qué más necesitas?")
+            return
+
         _metodos_texto = {
             "efectivo": "efectivo", "cash": "efectivo", "contado": "efectivo",
             "transferencia": "transferencia", "transfer": "transferencia",
@@ -250,10 +261,16 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 agregar_al_historial(chat_id, "assistant", texto_resp)
                 if texto_resp:
                     await update.message.reply_text(texto_resp)
+                for accion2 in acciones2:
+                    if accion2 not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO"):
+                        await update.message.reply_text(accion2)
                 if "PEDIR_METODO_PAGO" in acciones2:
                     with _estado_lock:
-                        ventas2 = ventas_pendientes.get(chat_id, [])
-                    await _enviar_botones_pago(update.message, chat_id, ventas2)
+                        ventas2 = list(ventas_pendientes.get(chat_id, []))
+                    if ventas2:
+                        # Usar botones completos (con opcion cancelar) desde callbacks
+                        from handlers.callbacks import _enviar_botones_pago as _botones_cb
+                        await _botones_cb(update.message, chat_id, ventas2)
             return
 
     # ── Flujo normal con Claude ──
