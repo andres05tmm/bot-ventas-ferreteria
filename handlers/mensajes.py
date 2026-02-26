@@ -24,41 +24,9 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corr
 
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
-    """Muestra los botones de metodo de pago con un resumen de las ventas."""
-    lineas = []
-    for v in ventas:
-        cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
-
-        # Leer total o precio_unitario, limpiando formato string si hace falta
-        def _parsear(clave):
-            val = v.get(clave, 0)
-            if isinstance(val, str):
-                val = val.replace("$", "").replace(",", "").strip()
-            try: return float(val)
-            except: return 0.0
-
-        total_directo  = _parsear("total")
-        precio_unitario = _parsear("precio_unitario")
-
-        if total_directo > 0:
-            total_mostrar = total_directo
-        elif precio_unitario > 0:
-            total_mostrar = precio_unitario * cantidad_dec if cantidad_dec >= 1 else precio_unitario
-        else:
-            total_mostrar = 0
-
-        cantidad_legible = (
-            decimal_a_fraccion_legible(cantidad_dec)
-            if isinstance(cantidad_dec, float) else v.get("cantidad", 1)
-        )
-        lineas.append(f"• {cantidad_legible} {v.get('producto')} — ${total_mostrar:,.0f}")
-
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("💵 Efectivo",      callback_data=f"pago_efectivo_{chat_id}"),
-        InlineKeyboardButton("📱 Transferencia", callback_data=f"pago_transferencia_{chat_id}"),
-        InlineKeyboardButton("💳 Datafono",      callback_data=f"pago_datafono_{chat_id}"),
-    ]])
-    await message.reply_text(f"¿Cómo fue el pago?\n\n" + "\n".join(lineas), reply_markup=keyboard)
+    """Delega a callbacks._enviar_botones_pago para mantener un solo teclado centralizado."""
+    from handlers.callbacks import _enviar_botones_pago as _botones_central
+    await _botones_central(message, chat_id, ventas)
 
 
 async def _enviar_pregunta_cliente(message, chat_id: int):
