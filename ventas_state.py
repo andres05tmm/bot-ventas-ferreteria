@@ -1,14 +1,21 @@
-import logging
 """
-Estado en memoria para ventas pendientes de confirmacion y borrados pendientes.
+Estado en memoria para ventas pendientes de confirmación y borrados pendientes.
 Protegido con threading.Lock para evitar race conditions en el event loop async.
+
+CORRECCIONES v2:
+  - _parsear_precio eliminada — se usa parsear_precio de utils (era duplicado)
+  - mensajes_standby tiene cap de MAX_STANDBY mensajes por chat (evita crecimiento infinito)
+  - consecutivo siempre >= 1: se usa obtener_siguiente_consecutivo() directamente
+    en lugar de obtener_consecutivo_actual() que podía retornar 0
+  - Docstring movido ANTES del import logging
 """
 
+import logging
 import asyncio
 import threading
 
 import config
-from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, es_thinner
+from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, es_thinner, parsear_precio
 from excel import (
     obtener_siguiente_consecutivo,
     guardar_venta_excel,
@@ -18,13 +25,16 @@ from memoria import cargar_inventario, guardar_inventario, cargar_caja, guardar_
 
 _estado_lock = threading.Lock()
 
-# {chat_id: [lista de ventas pendientes de confirmar metodo de pago]}
+# Límite máximo de mensajes en standby por chat (evita crecimiento infinito)
+MAX_STANDBY = 3
+
+# {chat_id: [lista de ventas pendientes de confirmar método de pago]}
 ventas_pendientes: dict[int, list] = {}
 
 # {chat_id: [mensajes en standby esperando que se confirme el pago anterior]}
 mensajes_standby: dict[int, list[str]] = {}
 
-# chat_id -> True cuando el usuario presionó "Modificar" y el próximo mensaje es una reescritura
+# chat_id -> "modificar" | True cuando hay corrección pendiente
 esperando_correccion: dict[int, bool] = {}
 
 # {chat_id: numero_venta} para confirmar borrado
@@ -33,7 +43,7 @@ borrados_pendientes: dict[int, int] = {}
 # {chat_id: [historial de mensajes]}
 historiales: dict[int, list] = {}
 
-# {chat_id: dict con datos del cliente en proceso de creacion}
+# {chat_id: dict con datos del cliente en proceso de creación}
 clientes_en_proceso: dict[int, dict] = {}
 
 # {chat_id: {"ventas": [...], "metodo": "efectivo"|None}}
@@ -53,8 +63,7 @@ def get_chat_lock(chat_id: int) -> asyncio.Lock:
 def agregar_al_historial(chat_id: int, role: str, content: str):
     with _estado_lock:
         if chat_id not in historiales:
-            # Limitar el total de chats en memoria (evita crecimiento infinito de RAM)
-            # Si hay más de 200 chats distintos, eliminar el más antiguo
+            # Límite de 200 chats distintos en memoria
             if len(historiales) >= 200:
                 oldest_chat = next(iter(historiales))
                 del historiales[oldest_chat]
@@ -69,12 +78,29 @@ def get_historial(chat_id: int) -> list:
         return list(historiales.get(chat_id, []))
 
 
+def agregar_a_standby(chat_id: int, mensaje: str):
+    """
+    Agrega un mensaje al standby del chat.
+    CORRECCIÓN: limitado a MAX_STANDBY mensajes para evitar crecimiento infinito.
+    """
+    with _estado_lock:
+        if chat_id not in mensajes_standby:
+            mensajes_standby[chat_id] = []
+        if len(mensajes_standby[chat_id]) < MAX_STANDBY:
+            mensajes_standby[chat_id].append(mensaje)
+        else:
+            # Descartamos el más antiguo y guardamos el nuevo
+            mensajes_standby[chat_id].pop(0)
+            mensajes_standby[chat_id].append(mensaje)
+
+
 def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_id: int) -> list[str]:
     with _estado_lock:
         ventas_pendientes.pop(chat_id, None)
 
-    confirmaciones = []
-    consecutivo    = obtener_siguiente_consecutivo()
+    confirmaciones    = []
+    # CORRECCIÓN: obtener_siguiente_consecutivo() siempre retorna >= 1
+    consecutivo       = obtener_siguiente_consecutivo()
     total_transaccion = 0
 
     # Resolver cliente (del primer producto que lo mencione)
@@ -88,59 +114,16 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         producto = venta.get("producto", "Sin nombre")
         cantidad = convertir_fraccion_a_decimal(venta.get("cantidad", 1))
 
-        # ── LOGICA DE PRECIO BLINDADA ──
-        # Claude a veces manda precios como string ("$4,000" o "4.000")
-        # Esta funcion limpia cualquier formato antes de convertir a float
-        def _parsear_precio(clave):
-            val = venta.get(clave, 0)
-            if isinstance(val, str):
-                val = val.replace("$", "").strip()
-                # Formato colombiano: punto como sep. de miles, coma como decimal
-                # Ej: "1.500" -> 1500 | "1.500,50" -> 1500.50
-                # Formato internacional: coma como sep. de miles, punto como decimal
-                # Ej: "1,500" -> 1500 | "1,500.50" -> 1500.50
-                if "," in val and "." in val:
-                    if val.rfind(".") > val.rfind(","):
-                        # Punto es decimal: "1,500.50"
-                        val = val.replace(",", "")
-                    else:
-                        # Coma es decimal: "1.500,50"
-                        val = val.replace(".", "").replace(",", ".")
-                elif "." in val:
-                    partes = val.split(".")
-                    if len(partes) == 2 and len(partes[1]) == 3:
-                        # Sep. de miles colombiano: "1.500" -> 1500
-                        val = val.replace(".", "")
-                    # else: decimal real "4000.5", dejar como está
-                elif "," in val:
-                    # Solo coma como sep. de miles: "1,500" -> 1500
-                    val = val.replace(",", "")
-                try:
-                    return float(val)
-                except Exception:
-                    return 0.0
-            try:
-                return float(val)
-            except Exception:
-                return 0.0
-
-        total                   = _parsear_precio("total")
-        precio_unitario_enviado = _parsear_precio("precio_unitario")
+        # CORRECCIÓN: usar parsear_precio de utils en lugar de la función local duplicada
+        total                   = parsear_precio(venta.get("total", 0))
+        precio_unitario_enviado = parsear_precio(venta.get("precio_unitario", 0))
 
         # REGLA DEFINITIVA DE PRECIO:
-        # Claude calcula el total ANTES de enviarlo en el JSON.
-        # - Caso normal ("15 tornillos 14000"):       total=14000, precio_unitario=0
-        # - Caso unitario ("300 tornillos a 55 c/u"): Claude multiplica → total=16500
-        # - Caso fraccion ("1/4 vinilo 15000"):       total=15000
-        # Por tanto: si llega "total" > 0, es el valor definitivo. Siempre.
-        # El campo "precio_unitario" ya no deberia llegar desde el model, pero
-        # lo mantenemos como fallback por compatibilidad con mensajes en transicion.
+        # Si llega "total" > 0, es el valor definitivo.
+        # "precio_unitario" es fallback por compatibilidad.
         if total > 0:
             valor_final = round(total)
         elif precio_unitario_enviado > 0:
-            # Fallback: Claude mando precio_unitario en lugar de total
-            # Para fracciones (cantidad < 1) el precio_unitario ya es el total de esa fraccion
-            # Para enteros, multiplicamos normalmente
             if cantidad < 1.0:
                 valor_final = round(precio_unitario_enviado)
             else:
@@ -151,7 +134,6 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         total_transaccion += valor_final
         cantidad_legible   = decimal_a_fraccion_legible(cantidad)
 
-        # Unitario para el Excel (registro contable)
         precio_u_excel = valor_final / cantidad if cantidad > 0 else valor_final
 
         guardar_venta_excel(
@@ -161,7 +143,6 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         )
 
         cliente_txt = f" | {nombre_c}" if nombre_c != "Consumidor Final" else ""
-        # Orden: Cantidad + Producto + Valor
         confirmaciones.append(f"• {cantidad_legible} {producto} ${valor_final:,.0f}{cliente_txt}")
 
         # Descontar inventario
@@ -169,7 +150,7 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         prod_lower = producto.lower()
         prod_key   = next((k for k in inventario if k in prod_lower or prod_lower in k), None)
         if prod_key and isinstance(inventario[prod_key], dict):
-            inv = inventario[prod_key]
+            inv             = inventario[prod_key]
             inv["cantidad"] = max(0, round(inv.get("cantidad", 0) - cantidad, 4))
             guardar_inventario(inventario)
             restante = decimal_a_fraccion_legible(inv["cantidad"])
@@ -180,8 +161,8 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
     # Actualizar caja
     caja = cargar_caja()
     if caja.get("abierta"):
-        campo = {"efectivo": "efectivo", "transferencia": "transferencias", "datafono": "datafono"}.get(metodo, "efectivo")
-        caja[campo] = caja.get(campo, 0) + total_transaccion
+        campo        = {"efectivo": "efectivo", "transferencia": "transferencias", "datafono": "datafono"}.get(metodo, "efectivo")
+        caja[campo]  = caja.get(campo, 0) + total_transaccion
         guardar_caja(caja)
 
     confirmaciones.insert(0, f"🧾 Consecutivo #{consecutivo}")
