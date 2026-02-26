@@ -26,17 +26,85 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id  = query.message.chat_id
     await query.answer()
 
-    # ── Cancelar / Modificar venta ──
-    if data.startswith("pago_cancelar_"):
+    # ── Modificar venta ──
+    if data.startswith("pago_modificar_"):
+        from ventas_state import esperando_correccion
         with _estado_lock:
-            ventas_pendientes.pop(chat_id, None)
-            mensajes_standby.pop(chat_id, None)
+            ventas_actuales = list(ventas_pendientes.get(chat_id, []))
+
+        if not ventas_actuales:
+            await query.edit_message_text("No hay venta activa para modificar.")
+            return
+
+        # Construir resumen de la venta actual
+        items = "
+".join(f"  • {v.get('producto','?')} x{v.get('cantidad',1)} — ${v.get('total',0):,}" for v in ventas_actuales)
+
+        # Marcar que el proximo mensaje es una modificacion (no reescritura completa)
+        with _estado_lock:
+            esperando_correccion[chat_id] = "modificar"
 
         await query.edit_message_text(
-            "🛑 Venta en pausa.\n\n"
-            "El chat está desbloqueado. Dime qué quieres corregir:\n"
-            "Ej: 'Era sin la brocha', 'Agrega un martillo a 15000', o 'Cancela todo'."
+            f"✏️ Venta actual:
+{items}
+
+"
+            "Dime qué quieres cambiar, por ejemplo:
+"
+            "  • "el precio del sellador era 25000"
+"
+            "  • "quita los aerosoles"
+"
+            "  • "los tornillos eran 3 docenas no 5"
+"
+            "  • "agrega 1 brocha 5000""
         )
+        return
+
+    # ── Cancelar venta ──
+    if data.startswith("pago_cancelar_"):
+        from ventas_state import esperando_correccion
+        with _estado_lock:
+            ventas_canceladas = ventas_pendientes.pop(chat_id, [])
+            standby_pendiente = mensajes_standby.pop(chat_id, [])
+
+        # Marcar que el proximo mensaje es una correccion/reescritura
+        with _estado_lock:
+            esperando_correccion[chat_id] = True
+
+        # Construir resumen de lo que se cancela
+        if ventas_canceladas:
+            items = "\n".join(f"  • {v.get('producto','?')} — ${v.get('total',0):,}" for v in ventas_canceladas)
+            texto_cancelado = f"Venta cancelada:\n{items}\n\n"
+        else:
+            texto_cancelado = ""
+
+        await query.edit_message_text(
+            f"✏️ {texto_cancelado}"
+            "Reescribe la venta como quieras y la registro de nuevo."
+        )
+
+        # Si habia standby, procesarlo ahora
+        if standby_pendiente:
+            for msg_text in standby_pendiente:
+                from ai import procesar_con_claude, procesar_acciones
+                from ventas_state import agregar_al_historial, get_historial
+                vendedor = update.effective_user.first_name
+                historial = get_historial(chat_id)
+                agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
+                respuesta_raw = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
+                texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
+                agregar_al_historial(chat_id, "assistant", texto_resp)
+                if texto_resp:
+                    await context.bot.send_message(chat_id=chat_id, text=f"📋 {msg_text}\n{texto_resp}")
+                if "PEDIR_METODO_PAGO" in acciones2:
+                    with _estado_lock:
+                        ventas2 = list(ventas_pendientes.get(chat_id, []))
+                    if ventas2:
+                        await _enviar_botones_pago(
+                            type("Msg", (), {"reply_text": lambda self, t, **kw: context.bot.send_message(chat_id=chat_id, text=t, **kw)})(),
+                            chat_id, ventas2
+                        )
         return
 
     # ── Métodos de pago ──
@@ -140,7 +208,8 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
             InlineKeyboardButton("💳 Datáfono",       callback_data=f"pago_datafono_{chat_id}"),
         ],
         [
-            InlineKeyboardButton("✏️ Modificar / Cancelar Venta", callback_data=f"pago_cancelar_{chat_id}"),
+            InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"),
+            InlineKeyboardButton("🗑️ Cancelar venta", callback_data=f"pago_cancelar_{chat_id}"),
         ]
     ])
     await message.reply_text(
