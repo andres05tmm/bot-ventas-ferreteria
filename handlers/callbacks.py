@@ -103,6 +103,43 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
                         )
         return
 
+    # ── Confirmar venta con metodo ya conocido ──
+    if data.startswith("pago_confirmar_"):
+        # formato: pago_confirmar_{metodo}_{chat_id}
+        partes   = data.split("_")
+        metodo   = partes[2]
+        chat_id  = int(partes[3])
+        vendedor = update.effective_user.first_name
+
+        with _estado_lock:
+            ventas = ventas_pendientes.get(chat_id)
+
+        if not ventas:
+            await query.edit_message_text("Esta sesion ya fue procesada.")
+            return
+
+        conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
+        emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
+        await query.edit_message_text(f"✅ Venta confirmada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf))
+
+        with _estado_lock:
+            pendientes = mensajes_standby.pop(chat_id, [])
+        for msg_text in pendientes:
+            from ai import procesar_con_claude, procesar_acciones
+            from ventas_state import agregar_al_historial, get_historial
+            historial = get_historial(chat_id)
+            agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
+            respuesta_raw = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
+            texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
+            agregar_al_historial(chat_id, "assistant", texto_resp)
+            if texto_resp:
+                await context.bot.send_message(chat_id=chat_id, text=texto_resp)
+            if "PEDIR_METODO_PAGO" in acciones2:
+                with _estado_lock:
+                    ventas2 = ventas_pendientes.get(chat_id, [])
+                await _enviar_botones_pago(query.message, chat_id, ventas2)
+        return
+
     # ── Métodos de pago ──
     if data.startswith("pago_"):
         partes  = data.split("_")
@@ -172,6 +209,36 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ─────────────────────────────────────────────
 # ENVÍO DE BOTONES DE PAGO
 # ─────────────────────────────────────────────
+
+async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, metodo: str):
+    """
+    Cuando el usuario ya dijo el metodo de pago, muestra la venta confirmada
+    con botones de Confirmar o Modificar (sin preguntar el metodo de nuevo).
+    """
+    emoji_metodo = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
+    lineas = []
+    for v in ventas:
+        cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
+        producto     = v.get("producto", "")
+        total        = v.get("total", 0)
+        try:
+            total = float(str(total).replace("$","").replace(",",""))
+        except Exception:
+            total = 0
+        cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
+        lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Confirmar",        callback_data=f"pago_confirmar_{metodo}_{chat_id}"),
+            InlineKeyboardButton("✏️ Modificar venta",  callback_data=f"pago_modificar_{chat_id}"),
+        ]
+    ])
+    await message.reply_text(
+        f"✓ Venta registrada — {emoji_metodo} {metodo.capitalize()}\n\n" + "\n".join(lineas),
+        reply_markup=keyboard,
+    )
+
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
     """Muestra botones de metodo de pago con opcion de modificar/cancelar."""
