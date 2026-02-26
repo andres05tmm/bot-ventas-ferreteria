@@ -437,7 +437,16 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     diferencias = await asyncio.to_thread(sheets_detectar_ediciones_vs_excel)
     if diferencias:
-        await update.message.reply_text("✏️ Correcciones manuales detectadas:\n\n" + "\n".join(diferencias))
+        encabezado = "✏️ Correcciones manuales detectadas:\n\n"
+        bloque = encabezado
+        for d in diferencias:
+            linea = d + "\n"
+            if len(bloque) + len(linea) > 4000:
+                await update.message.reply_text(bloque)
+                bloque = ""
+            bloque += linea
+        if bloque.strip():
+            await update.message.reply_text(bloque)
 
     hoy       = datetime.now(config.COLOMBIA_TZ)
     fecha_str = hoy.strftime("%Y-%m-%d")
