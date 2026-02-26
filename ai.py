@@ -393,6 +393,10 @@ El usuario puede decir la medida de varias formas, todas significan lo mismo:
   "8 por 1"       → 8X1      | "8 por 1 y media"   → 8X1-1/2 | "8 por 3/4"       → 8X3/4
   "10 por 1"      → 10X1     | "10 por 1 y media"  → 10X1-1/2| "10 por 2"        → 10X2
 Usa SIEMPRE el nombre del catalogo con formato NUMEROxMEDIDA (ej: "TORNILLO DRYWALL 6X1-1/2").
+CRITICO — TORNILLO 6X1 vs 6X1-1/2:
+  "tornillo drywall 6x1" o "tornillo 6 por 1" SIN fraccion adicional → producto EXACTO "TORNILLO DRYWALL 6X1", precio_unidad=38
+  "tornillo drywall 6x1-1/2" o "tornillo 6 por 1 y medio" → producto "TORNILLO DRYWALL 6X1-1/2", precio_unidad=58
+  NUNCA confundas "6x1" con "6x1-1/2" — son productos distintos con precios distintos.
 
 CHAZOS Y PRODUCTOS CON PRECIO UNITARIO BAJO — REGLA CRITICA:
 Los chazos tienen precio unitario muy bajo ($42-$208 por unidad). SIEMPRE multiplica cantidad × precio_unidad.
