@@ -1,8 +1,8 @@
-import logging
 """
 Handlers de mensajes: texto, audio (voz) y documentos Excel.
 """
 
+import logging
 import asyncio
 import os
 import tempfile
@@ -22,6 +22,8 @@ from ventas_state import (
 )
 from excel import guardar_cliente_nuevo
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
+
+logger = logging.getLogger("ferrebot.mensajes")
 
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
@@ -358,7 +360,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
         pago_pend_aviso = "PAGO_PENDIENTE_AVISO"  in acciones
         confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
-        logging.getLogger("ferrebot.mensajes").debug("[ACCIONES] acciones={acciones} | pedir_metodo={pedir_metodo}")
+        logging.getLogger("ferrebot.mensajes").debug(f"[ACCIONES] acciones={acciones} | pedir_metodo={pedir_metodo}")
 
         _acciones_internas = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE",
                               "PAGO_PENDIENTE_AVISO")
@@ -404,7 +406,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 os.remove(archivo)
 
     except Exception:
-        logger = logging.getLogger("ferrebot.mensajes")
         logger.error("Error en mensaje: %s", traceback.format_exc())
         await update.message.reply_text("Tuve un problema. Intenta de nuevo.")
 
@@ -432,8 +433,12 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                     model="whisper-1", file=audio_file, language="es"
                 )
 
-        transcripcion = await asyncio.to_thread(_transcribir)
-        os.unlink(ruta_audio)
+        try:
+            transcripcion = await asyncio.to_thread(_transcribir)
+        finally:
+            if os.path.exists(ruta_audio):
+                os.unlink(ruta_audio)
+
         texto = corregir_texto_audio(transcripcion.text)
         await update.message.reply_text(f"📝 Escuche: {texto}")
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
