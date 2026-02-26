@@ -272,6 +272,11 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         with _estado_lock:
             ventas_actuales = list(ventas_pendientes.get(chat_id, []))
 
+        # Guardar el metodo original antes de limpiar ventas_pendientes
+        metodo_original = None
+        if ventas_actuales and ventas_actuales[0].get("metodo_pago"):
+            metodo_original = ventas_actuales[0]["metodo_pago"]
+
         import json as _json
         resumen_venta = _json.dumps(ventas_actuales, ensure_ascii=False)
 
@@ -283,7 +288,8 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             + "\n\nAplica EXACTAMENTE los cambios pedidos a la venta (modifica cantidad, precio, "
             "quita o agrega productos segun corresponda). "
             "Luego emite los [VENTA] actualizados con los datos correctos y confirma los cambios en texto. "
-            "IMPORTANTE: emite [VENTA] para TODOS los productos que quedan en la venta (no solo el modificado)."
+            "IMPORTANTE: emite [VENTA] para TODOS los productos que quedan en la venta (no solo el modificado). "
+            + (f"IMPORTANTE: mantén metodo_pago={metodo_original} en todos los [VENTA]." if metodo_original else "")
         )
         historial = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", prompt_modificacion)
@@ -297,10 +303,26 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
         if texto_respuesta:
             await update.message.reply_text(texto_respuesta)
-        if "PEDIR_METODO_PAGO" in acciones:
-            with _estado_lock:
-                ventas = list(ventas_pendientes.get(chat_id, []))
-            await _enviar_botones_pago(update.message, chat_id, ventas)
+
+        # Mostrar botones según si el método ya se conoce o no
+        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+        with _estado_lock:
+            ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
+
+        if ventas_nuevas:
+            if confirmacion_accion:
+                metodo_conocido = confirmacion_accion.split(":", 1)[1]
+                from handlers.callbacks import _enviar_confirmacion_con_metodo
+                await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido)
+            elif metodo_original:
+                # Las [VENTA] nuevas no traen metodo_pago — restaurar el original y mostrar confirmacion
+                with _estado_lock:
+                    for v in ventas_pendientes.get(chat_id, []):
+                        v["metodo_pago"] = metodo_original
+                from handlers.callbacks import _enviar_confirmacion_con_metodo
+                await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_original)
+            else:
+                await _enviar_botones_pago(update.message, chat_id, ventas_nuevas)
         return
 
     elif en_correccion:
@@ -312,9 +334,14 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
         if texto_respuesta:
             await update.message.reply_text(texto_respuesta)
-        if "PEDIR_METODO_PAGO" in acciones:
-            with _estado_lock:
-                ventas = ventas_pendientes.get(chat_id, [])
+        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+        with _estado_lock:
+            ventas = ventas_pendientes.get(chat_id, [])
+        if confirmacion_accion:
+            metodo_conocido = confirmacion_accion.split(":", 1)[1]
+            from handlers.callbacks import _enviar_confirmacion_con_metodo
+            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
+        elif "PEDIR_METODO_PAGO" in acciones:
             await _enviar_botones_pago(update.message, chat_id, ventas)
         return
 
