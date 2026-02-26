@@ -619,13 +619,13 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 print(f"[VENTA] ignorado — esperando seleccion de pago para chat {chat_id}")
             else:
                 venta = json.loads(venta_json.strip())
-                logging.getLogger("ferrebot.ai").debug("[VENTA] JSON recibido: {venta}")
+                logging.getLogger("ferrebot.ai").debug(f"[VENTA] JSON recibido: {venta}")
                 if venta.get("metodo_pago"):
                     ventas_con_metodo.append(venta)
                 else:
                     ventas_sin_metodo.append(venta)
         except Exception as e:
-            logging.getLogger("ferrebot.ai").error("Error parseando venta: {e} | JSON raw: {repr(venta_json.strip())}")
+            logging.getLogger("ferrebot.ai").error(f"Error parseando venta: {e} | JSON raw: {repr(venta_json.strip())}")
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
 
     if esperando_pago and ventas_con_metodo:
@@ -669,7 +669,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     if ok else f"⚠️ No pude guardar el cliente {nombre}."
                 )
         except Exception as e:
-            logging.getLogger("ferrebot.ai").error("Error cliente nuevo: {e}")
+            logging.getLogger("ferrebot.ai").error(f"Error cliente nuevo: {e}")
         texto_limpio = texto_limpio.replace(f'[CLIENTE_NUEVO]{cli_json}[/CLIENTE_NUEVO]', '')
 
     # ── Iniciar flujo paso a paso de cliente ──
