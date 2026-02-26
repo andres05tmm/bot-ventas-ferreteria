@@ -118,6 +118,17 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         elif paso == "correo":
             correo = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
             en_proceso["correo"] = correo
+            en_proceso["paso"]   = "telefono"
+            with _estado_lock:
+                clientes_en_proceso[chat_id] = en_proceso
+            await update.message.reply_text(
+                "¿Cuál es el teléfono? (escribe 'no tiene' si no aplica)"
+            )
+            return
+
+        elif paso == "telefono":
+            telefono = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
+            en_proceso["telefono"] = telefono
             # ── Todos los datos recopilados — guardar cliente ──
             with _estado_lock:
                 clientes_en_proceso.pop(chat_id, None)
@@ -127,17 +138,19 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 en_proceso["tipo_id"],
                 en_proceso["identificacion"],
                 en_proceso["tipo_persona"],
-                correo,
+                en_proceso.get("correo", ""),
+                telefono,
             )
             if ok:
                 tipo_map = {"CC": "Cédula de ciudadanía", "NIT": "NIT", "CE": "Cédula de extranjería"}
-                tipo_legible = tipo_map.get(en_proceso["tipo_id"], en_proceso["tipo_id"])
+                tipo_legible = tipo_map.get(en_proceso.get("tipo_id", ""), en_proceso.get("tipo_id", ""))
                 await update.message.reply_text(
                     f"✅ Cliente creado exitosamente:\n\n"
                     f"👤 {en_proceso['nombre']}\n"
                     f"📄 {tipo_legible}: {en_proceso['identificacion']}\n"
-                    f"🏷️ {en_proceso['tipo_persona']}\n"
-                    f"📧 {correo or 'Sin correo'}"
+                    f"🏷️ {en_proceso.get('tipo_persona', '')}\n"
+                    f"📧 {en_proceso.get('correo', '') or 'Sin correo'}\n"
+                    f"📞 {telefono or 'Sin teléfono'}"
                 )
             else:
                 await update.message.reply_text("⚠️ No pude guardar el cliente. Intenta de nuevo.")
@@ -156,6 +169,15 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             if codigo.strip() == "IMPOSIBLE":
                 await update.message.reply_text("No pude hacer eso con el Excel. Intenta con otra instruccion.")
                 return
+
+            # Validación de seguridad: el código solo puede tocar archivos del directorio de trabajo
+            import re as _re
+            rutas_sospechosas = _re.findall(r'''load_workbook\s*\(\s*['"]([^'"]+)['"]''', codigo)
+            rutas_sospechosas += _re.findall(r'''\.save\s*\(\s*['"]([^'"]+)['"]''', codigo)
+            for ruta_en_codigo in rutas_sospechosas:
+                if ruta_en_codigo != excel_temp and ruta_en_codigo not in (excel_nombre, f"modificado_{excel_nombre}"):
+                    await update.message.reply_text("No puedo ejecutar esa operación por seguridad.")
+                    return
 
             namespace_seguro = {
                 "__builtins__": {
@@ -502,6 +524,15 @@ async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
 
     try:
+        # Eliminar archivo temporal anterior de este chat si existe (evita acumulación)
+        excel_temp_anterior = context.user_data.get("excel_temp")
+        if excel_temp_anterior and os.path.exists(excel_temp_anterior):
+            try:
+                os.remove(excel_temp_anterior)
+            except Exception:
+                pass
+        context.user_data.pop("excel_temp", None)
+        context.user_data.pop("excel_nombre", None)
         archivo   = await doc.get_file()
         ruta_temp = f"temp_{chat_id}_{nombre}"
         await archivo.download_to_drive(ruta_temp)
