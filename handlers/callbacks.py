@@ -118,6 +118,9 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.edit_message_text("Esta sesion ya fue procesada.")
             return
 
+        # Responder inmediatamente para evitar que Telegram expire el query
+        await query.edit_message_text("⏳ Registrando venta...")
+
         conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
         emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
         await query.edit_message_text(f"✅ Venta confirmada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf))
@@ -153,6 +156,9 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not ventas:
             await query.edit_message_text("Esta sesion de pago expiro o ya fue procesada.")
             return
+
+        # Responder inmediatamente para evitar que Telegram expire el query
+        await query.edit_message_text("⏳ Registrando venta...")
 
         conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
         emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
