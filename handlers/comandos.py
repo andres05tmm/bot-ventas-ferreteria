@@ -24,6 +24,7 @@ from excel import (
 from memoria import (
     cargar_memoria, obtener_resumen_caja, cargar_gastos_hoy,
     cargar_inventario, verificar_alertas_inventario,
+    resumen_fiados, detalle_fiado_cliente,
 )
 from sheets import (
     sheets_leer_ventas_del_dia, sheets_detectar_ediciones_vs_excel,
@@ -65,7 +66,8 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/grafica — Ver graficas de ventas\n"
         "/caja — Estado de caja\n"
         "/gastos — Gastos de hoy\n"
-        "/inventario — Ver inventario\n\n"
+        "/inventario — Ver inventario\n"
+        "/fiados — Ver cuentas fiadas\n\n"
         f"{estado_drive} | {estado_sheets}"
     )
 
@@ -90,7 +92,8 @@ async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ventas_raw = await asyncio.to_thread(sheets_leer_ventas_del_dia)
         if ventas_raw:
             total_dia = 0
-            texto = f"📋 Ventas de hoy ({len(ventas_raw)}):\n\n"
+            encabezado = f"📋 Ventas de hoy ({len(ventas_raw)}):\n\n"
+            lineas = []
             for v in ventas_raw:
                 num      = v.get("num", "?")
                 producto = v.get("producto", "?")
@@ -103,13 +106,21 @@ async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except (ValueError, TypeError):
                     total_fmt = str(total_raw) if total_raw else "?"
                 metodo = v.get("metodo", "")
-                texto += f"#{num} — {producto} — {total_fmt} — {vendedor}"
+                linea = f"#{num} — {producto} — {total_fmt} — {vendedor}"
                 if metodo:
-                    texto += f" ({metodo})"
-                texto += "\n"
-            texto += f"\n💰 Total del día: ${total_dia:,.0f}"
-            texto += "\n\nUsa /borrar [numero] para eliminar una venta."
-            await update.message.reply_text(texto)
+                    linea += f" ({metodo})"
+                lineas.append(linea)
+            pie = f"\n💰 Total del día: ${total_dia:,.0f}\n\nUsa /borrar [numero] para eliminar una venta."
+
+            # Partir en bloques de max 4000 chars para no superar el limite de Telegram
+            bloque = encabezado
+            for linea in lineas:
+                if len(bloque) + len(linea) + 1 > 4000:
+                    await update.message.reply_text(bloque)
+                    bloque = ""
+                bloque += linea + "\n"
+            bloque += pie
+            await update.message.reply_text(bloque)
             return
 
     await update.message.reply_text("No hay ventas registradas hoy.\nUsa el bot para registrar ventas durante el día.")
@@ -324,6 +335,19 @@ async def comando_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         clientes = await asyncio.to_thread(cargar_clientes)
         await update.message.reply_text(f"👥 Tienes {len(clientes)} clientes registrados.")
+
+
+# ─────────────────────────────────────────────
+# /fiados
+# ─────────────────────────────────────────────
+
+async def comando_fiados(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        cliente = " ".join(context.args)
+        texto   = detalle_fiado_cliente(cliente)
+    else:
+        texto = resumen_fiados()
+    await update.message.reply_text(texto, parse_mode="Markdown")
 
 
 # ─────────────────────────────────────────────
