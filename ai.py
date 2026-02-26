@@ -240,7 +240,17 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 
     pide_catalogo_completo = any(p in msg_lower for p in palabras_precio)
     no_necesita_catalogo   = any(p in msg_lower for p in palabras_no_catalogo) and not pide_catalogo_completo
-    tiene_candidatos       = bool(info_candidatos_extra)
+
+    # Contar cuántos productos distintos hay en el mensaje (aproximación por saltos de línea o comas)
+    es_mensaje_multi_producto = (
+        "\n" in mensaje_usuario or
+        mensaje_usuario.count(",") >= 2 or
+        len([p for p in mensaje_usuario.split() if len(p) > 3]) >= 6
+    )
+
+    # Solo suprimir el catálogo si hay candidatos Y es un mensaje simple (1 producto)
+    # En mensajes multi-producto SIEMPRE incluir el catálogo completo
+    tiene_candidatos = bool(info_candidatos_extra) and not es_mensaje_multi_producto
 
     if no_necesita_catalogo:
         precios_texto = ""
@@ -340,6 +350,18 @@ CRITICO: Si el usuario menciona un producto pero NO dice su precio, usa el preci
 Si no encuentras el precio en el catalogo, registra la venta con "total": 0 y en tu texto di "⚠️ registré [producto] con precio pendiente, confirma el valor".
 NUNCA bloquees el registro preguntando el precio si el producto esta en el catalogo.
 NUNCA hagas preguntas cuando el mensaje tiene multiples productos — registra todo lo que puedas identificar y al final lista lo que quedó con precio 0 si algo faltó.
+
+REGLA ABSOLUTA MULTI-PRODUCTO — CRITICO:
+Cuando el mensaje contiene 3 o más productos (separados por comas, saltos de línea o enumeración):
+→ REGISTRA TODOS sin hacer ninguna pregunta. Cero preguntas. Cero interrupciones.
+→ Si un producto tiene color especificado (ej: "vinilo blanco t1", "sellador caramelo") → registra directo.
+→ Si un producto NO tiene color (ej: solo "vinilo t1" sin color) en un mensaje multi-producto → registra con nombre genérico y precio 0, indica pendiente.
+→ Si un producto no está en catálogo → registra con total: 0, indica pendiente en texto.
+→ "Base" sin especificación → usar "Base Poliuretano 2K" con su precio del catálogo.
+→ "Manija" sin especificación → registrar con total: 0, indicar pendiente.
+→ "Broca Muro 8x16" sin precio → buscar en catálogo; si no está, registrar con total: 0.
+→ "3 galones de thinner" → 3 galones, total = 3 x 26000 = 78000 (precio galon del catalogo).
+NUNCA uses la regla 2b (preguntar color) en mensajes con múltiples productos — es solo para mensajes de UN solo producto.
 
 TORNILLOS — MAPEO DE MEDIDAS (CRITICO):
 El usuario puede decir la medida de varias formas, todas significan lo mismo:
@@ -518,13 +540,16 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     messages.append({"role": "user", "content": str(mensaje_usuario)})
 
     loop = asyncio.get_event_loop()
+    # Mensajes con múltiples productos necesitan más tokens para los [VENTA] de cada uno
+    num_lineas = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
+    max_tokens = min(3000, max(1500, num_lineas * 200))
     try:
         respuesta = await asyncio.wait_for(
             loop.run_in_executor(
                 None,
                 lambda: config.claude_client.messages.create(
                     model="claude-haiku-4-5-20251001",
-                    max_tokens=1500,
+                    max_tokens=max_tokens,
                     system=system_prompt,
                     messages=messages,
                 )
