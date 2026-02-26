@@ -414,16 +414,27 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    - USA SIEMPRE y ÚNICAMENTE la llave "total" con el valor final pagado.
    - NUNCA uses "precio_unitario", "precio", "monto", "valor" ni ninguna otra llave para el dinero.
    - Para cantidad = 1: total = precio del catalogo. Ej: 1 galon laca miel → total: 65000
-   - Para cantidad > 1: total = precio_unitario × cantidad. Ej: 2 galones laca miel → total: 130000
+   - Para cantidad > 1: total = precio_unitario x cantidad. Ej: 2 galones laca miel → total: 130000
    - Para fracciones: total = precio de esa fraccion en catalogo. Ej: 1/4 vinilo T1 → total: 15000 (NUNCA multipliques)
+   - METODO DE PAGO — CRITICO:
+     Si el usuario menciona el metodo de pago en su mensaje, DEBES incluirlo en el JSON como "metodo_pago".
+     Palabras que indican metodo:
+       "efectivo" / "cash" / "en plata" / "billetes"        → "efectivo"
+       "transferencia" / "nequi" / "daviplata" / "bancolombia" / "transf" → "transferencia"
+       "datafono" / "tarjeta" / "credito" / "debito"         → "datafono"
+     Ejemplo: "vendi 2 brochas 8000 efectivo"
+       CORRECTO: {{"producto": "Brocha 2 pulgadas", "cantidad": 2, "total": 8000, "metodo_pago": "efectivo"}}
+     Si el usuario NO menciona el metodo: NO pongas "metodo_pago" en el JSON (el sistema preguntara con botones).
+     NUNCA omitas "metodo_pago" cuando el usuario lo dijo claramente en su mensaje.
    - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
      CRITICO: palabras como "colbon", "vinilo", "thinner" son PRODUCTOS, no clientes. NUNCA preguntes por cliente si el usuario solo nombro un producto.
    - Si menciona cliente y esta en la base: incluye "cliente": "Nombre" en el JSON.
    - Si menciona cliente y NO esta en la base: usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}[/INICIAR_CLIENTE]. NUNCA preguntes el documento tu.
    FORMATO JSON ESTRICTO:
-   CORRECTO:   {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000}}
-   INCORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "precio_unitario": 15000}}
-   INCORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": "$15,000"}}
+   CORRECTO con metodo:    {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000, "metodo_pago": "efectivo"}}
+   CORRECTO sin metodo:    {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000}}
+   INCORRECTO:             {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "precio_unitario": 15000}}
+   INCORRECTO:             {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": "$15,000"}}
    NUNCA incluyas el simbolo $ ni comas en los numeros.
 
 4. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
@@ -503,14 +514,13 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         ventas_con_metodo.clear()
 
     if ventas_con_metodo:
-        grupos: dict = {}
-        for venta in ventas_con_metodo:
-            metodo = venta.get("metodo_pago", "efectivo").lower()
-            grupos.setdefault(metodo, []).append(venta)
-        for metodo, grupo in grupos.items():
-            conf  = registrar_ventas_con_metodo(grupo, metodo, vendedor, chat_id)
-            emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
-            acciones.append(f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n" + "\n".join(conf))
+        # El usuario ya dijo el metodo — meter en ventas_pendientes con el metodo
+        # guardado y pedir confirmacion (no registrar directo).
+        # Tomamos el metodo del primer producto (todos vienen del mismo mensaje).
+        metodo_conocido = ventas_con_metodo[0].get("metodo_pago", "efectivo").lower()
+        with _estado_lock:
+            ventas_pendientes[chat_id] = ventas_con_metodo
+        acciones.append(f"PEDIR_CONFIRMACION:{metodo_conocido}")
 
     # Si habia ventas en el mensaje de Claude pero se ignoraron por pago pendiente,
     # guardar el mensaje original en standby para procesarlo despues
