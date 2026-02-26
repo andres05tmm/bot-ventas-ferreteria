@@ -1,5 +1,11 @@
 """
 Handlers de mensajes: texto, audio (voz) y documentos Excel.
+
+CORRECCIONES v2:
+  - manejar_audio: ruta_audio se inicializa a None ANTES del try/finally para
+    evitar NameError si download_to_drive falla antes de asignar la variable
+  - mensajes_standby: se usa agregar_a_standby() de ventas_state que tiene cap MAX_STANDBY
+  - Docstring ANTES del import logging
 """
 
 import logging
@@ -19,6 +25,7 @@ from ventas_state import (
     ventas_pendientes, clientes_en_proceso, _estado_lock,
     get_chat_lock, registrar_ventas_con_metodo, mensajes_standby,
     esperando_correccion, ventas_esperando_cliente,
+    agregar_a_standby,   # ← nueva función con cap de MAX_STANDBY
 )
 from excel import guardar_cliente_nuevo
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
@@ -34,7 +41,7 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
 
 async def _enviar_pregunta_cliente(message, chat_id: int):
     """
-    Lee el paso actual del flujo de creacion de cliente y envia
+    Lee el paso actual del flujo de creación de cliente y envía
     la pregunta correspondiente, con botones cuando aplica.
     """
     with _estado_lock:
@@ -59,21 +66,17 @@ async def _enviar_pregunta_cliente(message, chat_id: int):
         )
 
     elif paso == "identificacion":
-        await message.reply_text(
-            f"¿Cuál es el número de {datos.get('tipo_id', 'identificación')}?"
-        )
+        await message.reply_text(f"¿Cuál es el número de {datos.get('tipo_id', 'identificación')}?")
 
     elif paso == "tipo_persona":
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("👤 Persona Natural",   callback_data=f"cli_persona_Natural_{chat_id}"),
-            InlineKeyboardButton("🏢 Persona Jurídica",  callback_data=f"cli_persona_Juridica_{chat_id}"),
+            InlineKeyboardButton("👤 Persona Natural",  callback_data=f"cli_persona_Natural_{chat_id}"),
+            InlineKeyboardButton("🏢 Persona Jurídica", callback_data=f"cli_persona_Juridica_{chat_id}"),
         ]])
         await message.reply_text("¿Es Persona Natural o Persona Jurídica?", reply_markup=keyboard)
 
     elif paso == "correo":
-        await message.reply_text(
-            "¿Cuál es el correo electrónico? (escribe 'no tiene' si no aplica)"
-        )
+        await message.reply_text("¿Cuál es el correo electrónico? (escribe 'no tiene' si no aplica)")
 
 
 async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,7 +87,6 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mensaje.startswith("/"):
         return
 
-    # Serializar mensajes del mismo chat para evitar race conditions
     async with get_chat_lock(chat_id):
         await _procesar_mensaje(update, context, mensaje, chat_id, vendedor)
 
@@ -92,11 +94,11 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    # ── Flujo paso a paso de creacion de cliente ──
+    # ── Flujo paso a paso de creación de cliente ──
     with _estado_lock:
         en_proceso = clientes_en_proceso.get(chat_id)
     if en_proceso:
-        paso = en_proceso.get("paso")
+        paso        = en_proceso.get("paso")
         texto_lower = mensaje.strip().lower()
 
         if paso == "nombre":
@@ -116,20 +118,17 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             return
 
         elif paso == "correo":
-            correo = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
+            correo               = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
             en_proceso["correo"] = correo
             en_proceso["paso"]   = "telefono"
             with _estado_lock:
                 clientes_en_proceso[chat_id] = en_proceso
-            await update.message.reply_text(
-                "¿Cuál es el teléfono? (escribe 'no tiene' si no aplica)"
-            )
+            await update.message.reply_text("¿Cuál es el teléfono? (escribe 'no tiene' si no aplica)")
             return
 
         elif paso == "telefono":
-            telefono = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
+            telefono               = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
             en_proceso["telefono"] = telefono
-            # ── Todos los datos recopilados — guardar cliente ──
             with _estado_lock:
                 clientes_en_proceso.pop(chat_id, None)
             ok = await asyncio.to_thread(
@@ -142,7 +141,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 telefono,
             )
             if ok:
-                tipo_map = {"CC": "Cédula de ciudadanía", "NIT": "NIT", "CE": "Cédula de extranjería"}
+                tipo_map     = {"CC": "Cédula de ciudadanía", "NIT": "NIT", "CE": "Cédula de extranjería"}
                 tipo_legible = tipo_map.get(en_proceso.get("tipo_id", ""), en_proceso.get("tipo_id", ""))
                 await update.message.reply_text(
                     f"✅ Cliente creado exitosamente:\n\n"
@@ -156,8 +155,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 await update.message.reply_text("⚠️ No pude guardar el cliente. Intenta de nuevo.")
             return
 
-    # Si el usuario esta en flujo de cliente pero llega aqui, continuar normal
-
     # ── Excel cargado por el usuario ──
     excel_temp   = context.user_data.get("excel_temp")
     excel_nombre = context.user_data.get("excel_nombre")
@@ -167,12 +164,11 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             codigo = await editar_excel_con_claude(mensaje, excel_temp, excel_nombre, vendedor, chat_id)
 
             if codigo.strip() == "IMPOSIBLE":
-                await update.message.reply_text("No pude hacer eso con el Excel. Intenta con otra instruccion.")
+                await update.message.reply_text("No pude hacer eso con el Excel. Intenta con otra instrucción.")
                 return
 
-            # Validación de seguridad: el código solo puede tocar archivos del directorio de trabajo
             import re as _re
-            rutas_sospechosas = _re.findall(r'''load_workbook\s*\(\s*['"]([^'"]+)['"]''', codigo)
+            rutas_sospechosas  = _re.findall(r'''load_workbook\s*\(\s*['"]([^'"]+)['"]''', codigo)
             rutas_sospechosas += _re.findall(r'''\.save\s*\(\s*['"]([^'"]+)['"]''', codigo)
             for ruta_en_codigo in rutas_sospechosas:
                 if ruta_en_codigo != excel_temp and ruta_en_codigo not in (excel_nombre, f"modificado_{excel_nombre}"):
@@ -191,11 +187,11 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                     "TypeError": TypeError, "KeyError": KeyError,
                 },
                 "openpyxl": openpyxl,
-                "json": __import__("json"),
+                "json":     __import__("json"),
             }
             await asyncio.to_thread(exec, compile(codigo, "<string>", "exec"), namespace_seguro)
 
-            await update.message.reply_text("✅ Excel modificado. Aqui esta el resultado:")
+            await update.message.reply_text("✅ Excel modificado. Aquí está el resultado:")
             with open(excel_temp, "rb") as f:
                 await update.message.reply_document(document=f, filename=f"modificado_{excel_nombre}")
 
@@ -206,15 +202,14 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             return
         except Exception:
             print(f"Error editando Excel: {traceback.format_exc()}")
-            await update.message.reply_text("Tuve un problema editando el Excel. Intenta con una instruccion diferente.")
+            await update.message.reply_text("Tuve un problema editando el Excel. Intenta con una instrucción diferente.")
             return
 
-    # ── Interceptar metodo de pago escrito como texto ──
+    # ── Interceptar método de pago escrito como texto ──
     with _estado_lock:
         _ventas_pend = list(ventas_pendientes.get(chat_id, []))
 
     if _ventas_pend:
-        # Detectar si el usuario quiere cancelar/olvidar la venta pendiente
         _cancelar_palabras = {"olvida", "olvidala", "olvídala", "cancela", "cancelar",
                               "no registres", "borra", "descarta"}
         _msg_norm = mensaje.strip().lower()
@@ -224,13 +219,12 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 standby_pendiente = mensajes_standby.pop(chat_id, [])
             await update.message.reply_text("🗑️ Venta cancelada.")
 
-            # Si habia mensajes en standby, procesarlos ahora que se liberó el bloqueo
             for standby_msg in standby_pendiente:
                 await update.message.reply_text(f"📋 Procesando venta pendiente: {standby_msg}")
                 historial = get_historial(chat_id)
                 agregar_al_historial(chat_id, "user", f"{vendedor}: {standby_msg}")
-                respuesta_raw = await procesar_con_claude(f"{vendedor}: {standby_msg}", vendedor, historial)
-                texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
+                respuesta_raw               = await procesar_con_claude(f"{vendedor}: {standby_msg}", vendedor, historial)
+                texto_resp, acciones2, _    = procesar_acciones(respuesta_raw, vendedor, chat_id)
                 agregar_al_historial(chat_id, "assistant", texto_resp)
                 if texto_resp:
                     await update.message.reply_text(texto_resp)
@@ -263,15 +257,14 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 await update.message.reply_text(
                     f"✅ Venta registrada — {emoji} {metodo_detectado.capitalize()}\n\n" + "\n".join(confirmaciones)
                 )
-            # Procesar mensaje en standby si hay uno esperando
             with _estado_lock:
                 standby_list = mensajes_standby.pop(chat_id, [])
             for standby_msg in standby_list:
                 await update.message.reply_text(f"📋 Procesando venta pendiente: {standby_msg}")
                 historial = get_historial(chat_id)
                 agregar_al_historial(chat_id, "user", f"{vendedor}: {standby_msg}")
-                respuesta_raw = await procesar_con_claude(f"{vendedor}: {standby_msg}", vendedor, historial)
-                texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
+                respuesta_raw               = await procesar_con_claude(f"{vendedor}: {standby_msg}", vendedor, historial)
+                texto_resp, acciones2, _    = procesar_acciones(respuesta_raw, vendedor, chat_id)
                 agregar_al_historial(chat_id, "assistant", texto_resp)
                 if texto_resp:
                     await update.message.reply_text(texto_resp)
@@ -282,7 +275,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                     with _estado_lock:
                         ventas2 = list(ventas_pendientes.get(chat_id, []))
                     if ventas2:
-                        # Usar botones completos (con opcion cancelar) desde callbacks
                         from handlers.callbacks import _enviar_botones_pago as _botones_cb
                         await _botones_cb(update.message, chat_id, ventas2)
             return
@@ -292,12 +284,9 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         en_correccion = esperando_correccion.pop(chat_id, False)
 
     if en_correccion == "modificar":
-        # El usuario quiere modificar la venta pendiente con instrucciones en texto libre.
-        # Le pasamos a Claude la venta actual + la instrucción de cambio para que la edite.
         with _estado_lock:
             ventas_actuales = list(ventas_pendientes.get(chat_id, []))
 
-        # Guardar el metodo original antes de limpiar ventas_pendientes
         metodo_original = None
         if ventas_actuales and ventas_actuales[0].get("metodo_pago"):
             metodo_original = ventas_actuales[0]["metodo_pago"]
@@ -308,10 +297,10 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         prompt_modificacion = (
             "El vendedor tiene esta venta pendiente de confirmar:\n"
             + resumen_venta
-            + "\n\nEl vendedor quiere modificarla con esta instruccion: "
+            + "\n\nEl vendedor quiere modificarla con esta instrucción: "
             + mensaje
             + "\n\nAplica EXACTAMENTE los cambios pedidos a la venta (modifica cantidad, precio, "
-            "quita o agrega productos segun corresponda). "
+            "quita o agrega productos según corresponda). "
             "Luego emite los [VENTA] actualizados con los datos correctos y confirma los cambios en texto. "
             "IMPORTANTE: emite [VENTA] para TODOS los productos que quedan en la venta (no solo el modificado). "
             + (f"IMPORTANTE: mantén metodo_pago={metodo_original} en todos los [VENTA]." if metodo_original else "")
@@ -319,17 +308,15 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         historial = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", prompt_modificacion)
 
-        # Limpiar ventas anteriores para que las nuevas [VENTA] las reemplacen
         with _estado_lock:
             ventas_pendientes.pop(chat_id, None)
 
-        respuesta_raw = await procesar_con_claude(prompt_modificacion, vendedor, historial)
+        respuesta_raw                         = await procesar_con_claude(prompt_modificacion, vendedor, historial)
         texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
         if texto_respuesta:
             await update.message.reply_text(texto_respuesta)
 
-        # Mostrar botones según si el método ya se conoce o no
         confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
         with _estado_lock:
             ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
@@ -340,7 +327,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 from handlers.callbacks import _enviar_confirmacion_con_metodo
                 await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido)
             elif metodo_original:
-                # Las [VENTA] nuevas no traen metodo_pago — restaurar el original y mostrar confirmacion
                 with _estado_lock:
                     for v in ventas_pendientes.get(chat_id, []):
                         v["metodo_pago"] = metodo_original
@@ -351,10 +337,9 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         return
 
     elif en_correccion:
-        # Modo reescritura completa (fallback)
         historial = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
-        respuesta_raw = await procesar_con_claude(f"{vendedor}: {mensaje}", vendedor, historial)
+        respuesta_raw                         = await procesar_con_claude(f"{vendedor}: {mensaje}", vendedor, historial)
         texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
         if texto_respuesta:
@@ -371,16 +356,13 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         return
 
     # ── Respuesta "no" a la pregunta de crear cliente ──
-    # Claude pregunta "¿Quieres crear el cliente antes de registrar?"
-    # Si el usuario dice no, registramos la venta pendiente con el nombre tal cual
     with _estado_lock:
         _esperando_cliente_yn = ventas_pendientes.get(chat_id) and not clientes_en_proceso.get(chat_id)
 
     if _esperando_cliente_yn:
-        _msg_lower = mensaje.strip().lower()
+        _msg_lower    = mensaje.strip().lower()
         _respuesta_no = {"no", "nop", "nope", "nel", "sin cliente", "registra sin cliente", "registra asi"}
         if _msg_lower in _respuesta_no or _msg_lower.startswith("no "):
-            # El usuario no quiere crear el cliente — registrar la venta con el nombre que ya tiene
             with _estado_lock:
                 ventas_para_registrar = list(ventas_pendientes.get(chat_id, []))
             if ventas_para_registrar:
@@ -390,23 +372,21 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
     # ── Flujo normal con Claude ──
     try:
-        historial    = get_historial(chat_id)
+        historial     = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
         respuesta_raw = await procesar_con_claude(f"{vendedor}: {mensaje}", vendedor, historial)
         texto_respuesta, acciones, archivos_excel = procesar_acciones(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
-        pedir_metodo    = "PEDIR_METODO_PAGO"    in acciones
-        iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
-        pago_pend_aviso = "PAGO_PENDIENTE_AVISO"  in acciones
-        confirmacion_accion   = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
-        cliente_desconocido   = next((a for a in acciones if a.startswith("CLIENTE_DESCONOCIDO:")), None)
+        pedir_metodo        = "PEDIR_METODO_PAGO"    in acciones
+        iniciar_cliente     = "INICIAR_FLUJO_CLIENTE" in acciones
+        pago_pend_aviso     = "PAGO_PENDIENTE_AVISO"  in acciones
+        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+        cliente_desconocido = next((a for a in acciones if a.startswith("CLIENTE_DESCONOCIDO:")), None)
         logging.getLogger("ferrebot.mensajes").debug(f"[ACCIONES] acciones={acciones} | pedir_metodo={pedir_metodo}")
 
-        _acciones_internas = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE",
-                              "PAGO_PENDIENTE_AVISO")
+        _acciones_internas = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO")
 
-        # No mostrar texto de Claude si hay pago pendiente y bloqueó la venta
         if texto_respuesta and not pago_pend_aviso and not cliente_desconocido:
             await update.message.reply_text(texto_respuesta)
 
@@ -419,8 +399,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         # ── Cliente desconocido: preguntar si quiere crearlo ──
         if cliente_desconocido:
             nombre_cli = cliente_desconocido.split(":", 1)[1]
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            keyboard = InlineKeyboardMarkup([[
+            keyboard   = InlineKeyboardMarkup([[
                 InlineKeyboardButton("✅ Sí, crear cliente", callback_data=f"cli_crear_si_{chat_id}"),
                 InlineKeyboardButton("➡️ No, registrar así", callback_data=f"cli_crear_no_{chat_id}"),
             ]])
@@ -432,11 +411,8 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             )
 
         if pago_pend_aviso:
-            # Guardar este mensaje en standby para procesarlo tras confirmar pago
-            with _estado_lock:
-                if chat_id not in mensajes_standby:
-                    mensajes_standby[chat_id] = []
-                mensajes_standby[chat_id].append(mensaje)
+            # CORRECCIÓN: usar agregar_a_standby con cap en lugar de acceso directo al dict
+            agregar_a_standby(chat_id, mensaje)
             with _estado_lock:
                 ventas = ventas_pendientes.get(chat_id, [])
             await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
@@ -457,7 +433,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
         for archivo in archivos_excel:
             if os.path.exists(archivo):
-                await update.message.reply_text("📊 Aqui esta tu reporte:")
+                await update.message.reply_text("📊 Aquí está tu reporte:")
                 with open(archivo, "rb") as f:
                     await update.message.reply_document(document=f, filename=archivo)
                 os.remove(archivo)
@@ -471,18 +447,24 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vendedor = update.message.from_user.first_name or "Desconocido"
     chat_id  = update.message.chat_id
 
-    # Serializar por chat igual que manejar_mensaje para evitar race conditions
     async with get_chat_lock(chat_id):
         await _procesar_audio(update, context, vendedor, chat_id)
 
 
 async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, vendedor: str, chat_id: int):
     await update.message.reply_text("🎤 Escuchando...")
+
+    # CORRECCIÓN: inicializar ruta_audio ANTES del try para que el finally
+    # no tenga NameError si la descarga falla antes de asignar la variable
+    ruta_audio = None
+
     try:
         archivo_voz = await update.message.voice.get_file()
+
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
-            await archivo_voz.download_to_drive(tmp.name)
-            ruta_audio = tmp.name
+            ruta_audio = tmp.name  # asignamos aquí, ANTES de la descarga
+
+        await archivo_voz.download_to_drive(ruta_audio)
 
         def _transcribir():
             with open(ruta_audio, "rb") as audio_file:
@@ -490,14 +472,9 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                     model="whisper-1", file=audio_file, language="es"
                 )
 
-        try:
-            transcripcion = await asyncio.to_thread(_transcribir)
-        finally:
-            if os.path.exists(ruta_audio):
-                os.unlink(ruta_audio)
-
-        texto = corregir_texto_audio(transcripcion.text)
-        await update.message.reply_text(f"📝 Escuche: {texto}")
+        transcripcion = await asyncio.to_thread(_transcribir)
+        texto         = corregir_texto_audio(transcripcion.text)
+        await update.message.reply_text(f"📝 Escuché: {texto}")
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
         historial     = get_historial(chat_id)
@@ -530,7 +507,7 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
 
         for archivo in archivos_excel:
             if os.path.exists(archivo):
-                await update.message.reply_text("📊 Aqui esta tu reporte:")
+                await update.message.reply_text("📊 Aquí está tu reporte:")
                 with open(archivo, "rb") as f:
                     await update.message.reply_document(document=f, filename=archivo)
                 os.remove(archivo)
@@ -538,6 +515,13 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
     except Exception:
         logger.error("Error en audio: %s", traceback.format_exc())
         await update.message.reply_text("Problema con el audio. Intenta de nuevo.")
+    finally:
+        # CORRECCIÓN: verificar que ruta_audio fue asignada antes de intentar borrarla
+        if ruta_audio and os.path.exists(ruta_audio):
+            try:
+                os.unlink(ruta_audio)
+            except Exception:
+                pass
 
 
 async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -559,7 +543,6 @@ async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
 
     try:
-        # Eliminar archivo temporal anterior de este chat si existe (evita acumulación)
         excel_temp_anterior = context.user_data.get("excel_temp")
         if excel_temp_anterior and os.path.exists(excel_temp_anterior):
             try:
@@ -568,17 +551,19 @@ async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
         context.user_data.pop("excel_temp", None)
         context.user_data.pop("excel_nombre", None)
+
         archivo   = await doc.get_file()
         ruta_temp = f"temp_{chat_id}_{nombre}"
         await archivo.download_to_drive(ruta_temp)
 
         def _leer_excel():
-            wb = openpyxl.load_workbook(ruta_temp)
+            wb = openpyxl.load_workbook(ruta_temp, read_only=True)
             resumen_hojas = []
             for hoja_nombre in wb.sheetnames:
                 ws  = wb[hoja_nombre]
                 enc = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1) if ws.cell(row=1, column=c).value]
                 resumen_hojas.append(f"Hoja '{hoja_nombre}': {ws.max_row - 1} filas, columnas: {', '.join(str(e) for e in enc)}")
+            wb.close()
             return "\n".join(resumen_hojas)
 
         resumen = await asyncio.to_thread(_leer_excel)
@@ -587,7 +572,7 @@ async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(
             f"✅ Excel cargado correctamente.\n\n{resumen}\n\n"
-            f"Ahora dime que quieres hacer con el. Por ejemplo:\n"
+            f"Ahora dime qué quieres hacer con él. Por ejemplo:\n"
             f"- Agrega una columna de IVA del 19%\n"
             f"- Ordena de mayor a menor por total\n"
             f"- Cambia los encabezados a color rojo\n"
@@ -595,4 +580,4 @@ async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception:
         logger.error("Error leyendo Excel: %s", traceback.format_exc())
-        await update.message.reply_text("Tuve un problema leyendo el archivo. Asegurate de que sea un Excel valido.")
+        await update.message.reply_text("Tuve un problema leyendo el archivo. Asegúrate de que sea un Excel válido.")
