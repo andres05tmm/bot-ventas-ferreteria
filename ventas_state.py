@@ -88,15 +88,34 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         def _parsear_precio(clave):
             val = venta.get(clave, 0)
             if isinstance(val, str):
-                val = val.replace("$", "").replace(",", "").replace(".", "").strip()
-                # Si tenia punto decimal real (ej: "4000.5"), restaurarlo
+                val = val.replace("$", "").strip()
+                # Formato colombiano: punto como sep. de miles, coma como decimal
+                # Ej: "1.500" -> 1500 | "1.500,50" -> 1500.50
+                # Formato internacional: coma como sep. de miles, punto como decimal
+                # Ej: "1,500" -> 1500 | "1,500.50" -> 1500.50
+                if "," in val and "." in val:
+                    if val.rfind(".") > val.rfind(","):
+                        # Punto es decimal: "1,500.50"
+                        val = val.replace(",", "")
+                    else:
+                        # Coma es decimal: "1.500,50"
+                        val = val.replace(".", "").replace(",", ".")
+                elif "." in val:
+                    partes = val.split(".")
+                    if len(partes) == 2 and len(partes[1]) == 3:
+                        # Sep. de miles colombiano: "1.500" -> 1500
+                        val = val.replace(".", "")
+                    # else: decimal real "4000.5", dejar como está
+                elif "," in val:
+                    # Solo coma como sep. de miles: "1,500" -> 1500
+                    val = val.replace(",", "")
                 try:
                     return float(val)
-                except:
+                except Exception:
                     return 0.0
             try:
                 return float(val)
-            except:
+            except Exception:
                 return 0.0
 
         total                   = _parsear_precio("total")
