@@ -546,24 +546,31 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
             from datetime import timedelta
             ayer = (datetime.now(config.COLOMBIA_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
 
-            # Borrar solo las filas de ayer
-            filas_borrar = []
-            if col_fecha:
-                for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
-                    val = ws.cell(row=fila, column=col_fecha).value
-                    if val and str(val)[:10] == ayer:
-                        filas_borrar.append(fila)
+            total_borradas = 0
+            hojas_limpiar = [hoja, "Registro de Ventas-Acumulado"]
+            for nombre_ws in hojas_limpiar:
+                if nombre_ws not in wb.sheetnames:
+                    continue
+                ws_actual = wb[nombre_ws]
+                cols_actual = detectar_columnas(ws_actual)
+                col_f = next((v for k, v in cols_actual.items() if "fecha" in k), None)
+                if not col_f:
+                    continue
+                filas_borrar = [
+                    fila for fila in range(config.EXCEL_FILA_DATOS, ws_actual.max_row + 1)
+                    if str(ws_actual.cell(row=fila, column=col_f).value or "")[:10] == ayer
+                ]
+                for fila in reversed(filas_borrar):
+                    ws_actual.delete_rows(fila)
+                total_borradas += len(filas_borrar)
 
-            if not filas_borrar:
-                await update.message.reply_text(f"No hay ventas del {ayer} en la hoja '{hoja}'.")
+            if total_borradas == 0:
+                await update.message.reply_text(f"No hay ventas del {ayer} en el Excel.")
                 return
-
-            for fila in reversed(filas_borrar):
-                ws.delete_rows(fila)
 
             await asyncio.to_thread(wb.save, config.EXCEL_FILE)
             await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
-            await update.message.reply_text(f"✅ Eliminadas {len(filas_borrar)} ventas del {ayer} de la hoja '{hoja}'.")
+            await update.message.reply_text(f"✅ Eliminadas {total_borradas} filas del {ayer} (hoja del mes + acumulado).")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
         return
