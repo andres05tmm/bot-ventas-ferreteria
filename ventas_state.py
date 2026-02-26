@@ -53,6 +53,11 @@ def get_chat_lock(chat_id: int) -> asyncio.Lock:
 def agregar_al_historial(chat_id: int, role: str, content: str):
     with _estado_lock:
         if chat_id not in historiales:
+            # Limitar el total de chats en memoria (evita crecimiento infinito de RAM)
+            # Si hay más de 200 chats distintos, eliminar el más antiguo
+            if len(historiales) >= 200:
+                oldest_chat = next(iter(historiales))
+                del historiales[oldest_chat]
             historiales[chat_id] = []
         historiales[chat_id].append({"role": role, "content": content})
         if len(historiales[chat_id]) > 20:
