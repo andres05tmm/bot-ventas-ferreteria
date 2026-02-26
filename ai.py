@@ -356,11 +356,13 @@ Estos productos NO tienen fracciones — se venden de a 1, 2, 3 unidades complet
 Para calcular el total: total = precio_unidad × cantidad. SIEMPRE multiplica.
 Ejemplos OBLIGATORIOS:
   - "2 cuñetes vinilo t1 blanco"  → precio_unidad=220000 → total = 2 × 220000 = 440000
+  - "3 cuñetes vinilo t1 blanco"  → precio_unidad=220000 → total = 3 × 220000 = 660000
+  - "1 cuñete vinilo t1 blanco"   → precio_unidad=220000 → total = 1 × 220000 = 220000
   - "3 galones vinilo t3 blanco"  → precio_unidad=22000  → total = 3 × 22000  = 66000
-  - "5 galones vinilo t3 coral"   → precio_unidad=22000  → total = 5 × 22000  = 110000
   - "1 manija"                    → precio_unidad=2000   → total = 1 × 2000   = 2000
 NUNCA uses el precio_unidad como total directamente cuando cantidad > 1.
 NUNCA confundas "precio de 1 unidad" con "total de la venta" cuando hay varias unidades.
+CRITICO: "2 cuñetes" significa cantidad=2, total=2×precio. NUNCA total=precio_de_uno.
 
 REGLA ABSOLUTA MULTI-PRODUCTO — CRITICO:
 Cuando el mensaje contiene 3 o más productos (separados por comas, saltos de línea o enumeración):
