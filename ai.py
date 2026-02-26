@@ -409,6 +409,18 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    Ejemplo: "vendi 1/4 vinilo t1" → "¿De qué color?" (NO registres, NO preguntes precio)
    Ejemplo: "2 galones laca catalizada" → "¿De qué color es la laca?" (NO registres sin color)
 
+2c. BROCHAS SIN MEDIDA — REGLA CRITICA:
+   Las brochas existen en varias medidas: 1", 1.5", 2", 2.5", 3", 4" — cada una con precio distinto.
+   Si el usuario dice "brochas" o "una brocha" SIN especificar la medida:
+   → PREGUNTA la medida primero: "¿De qué medida son las brochas?"
+   → NUNCA asumas la medida ni registres sin ella.
+   → NUNCA preguntes el precio — usa el del catalogo una vez tengas la medida.
+   Precios del catalogo: 1"=$2,000 | 1.5"=$3,000 | 2"=$4,000 | 2.5"=$5,000 | 3"=$6,000 | 4"=$8,000
+   Si el usuario SÍ especifica la medida (ej: "2 brochas de 2"", "brocha 3 pulgadas"):
+   → registra directo con el precio del catalogo, sin preguntar nada.
+   Ejemplo: "vendi 2 brochas" → "¿De qué medida son las brochas?" (NO registres)
+   Ejemplo: "vendi 2 brochas de 2"" → registra directo: cantidad=2, total=8000
+
 3. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}}[/VENTA]
    - USA SIEMPRE y ÚNICAMENTE la llave "total" con el valor final pagado.
