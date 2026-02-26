@@ -282,3 +282,103 @@ def guardar_gasto(gasto: dict):
     hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
     mem.setdefault("gastos", {}).setdefault(hoy, []).append(gasto)
     guardar_memoria(mem)
+
+
+# ─────────────────────────────────────────────
+# FIADOS
+# ─────────────────────────────────────────────
+
+def cargar_fiados() -> dict:
+    """Retorna el dict completo de fiados: {nombre_cliente: {saldo, movimientos}}"""
+    return cargar_memoria().get("fiados", {})
+
+
+def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: float):
+    """
+    Registra un movimiento de fiado (cargo=lo que quedó debiendo, abono=lo que pagó).
+    Crea el cliente en fiados si no existe.
+    """
+    from datetime import datetime
+    mem = cargar_memoria()
+    fiados = mem.setdefault("fiados", {})
+    if cliente not in fiados:
+        fiados[cliente] = {"saldo": 0, "movimientos": []}
+
+    saldo_anterior = fiados[cliente]["saldo"]
+    saldo_nuevo    = saldo_anterior + cargo - abono
+    fiados[cliente]["saldo"] = saldo_nuevo
+    fiados[cliente]["movimientos"].append({
+        "fecha":    datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
+        "concepto": concepto,
+        "cargo":    cargo,
+        "abono":    abono,
+        "saldo":    saldo_nuevo,
+    })
+    guardar_memoria(mem)
+    return saldo_nuevo
+
+
+def abonar_fiado(cliente: str, monto: float, concepto: str = "Abono") -> tuple[bool, str]:
+    """
+    Registra un abono a la cuenta de un cliente.
+    Retorna (exito, mensaje).
+    """
+    mem    = cargar_memoria()
+    fiados = mem.get("fiados", {})
+
+    # Busqueda flexible del nombre
+    cliente_key = None
+    cliente_lower = cliente.strip().lower()
+    for k in fiados:
+        if k.lower() == cliente_lower or cliente_lower in k.lower() or k.lower() in cliente_lower:
+            cliente_key = k
+            break
+
+    if not cliente_key:
+        return False, f"No encontré a '{cliente}' en los fiados."
+
+    saldo_nuevo = guardar_fiado_movimiento(cliente_key, concepto, cargo=0, abono=monto)
+    if saldo_nuevo <= 0:
+        return True, f"✅ Abono registrado. {cliente_key} quedó a paz y salvo. 🎉"
+    return True, f"✅ Abono de ${monto:,.0f} registrado. {cliente_key} aún debe ${saldo_nuevo:,.0f}."
+
+
+def resumen_fiados() -> str:
+    """Texto con todos los clientes que deben algo."""
+    fiados = cargar_fiados()
+    pendientes = {k: v for k, v in fiados.items() if v.get("saldo", 0) > 0}
+    if not pendientes:
+        return "No hay fiados pendientes. ✅"
+    lineas = ["💳 *Fiados pendientes:*\n"]
+    total = 0
+    for cliente, datos in sorted(pendientes.items()):
+        saldo = datos["saldo"]
+        total += saldo
+        lineas.append(f"• {cliente}: ${saldo:,.0f}")
+    lineas.append(f"\n*Total por cobrar: ${total:,.0f}*")
+    return "\n".join(lineas)
+
+
+def detalle_fiado_cliente(cliente: str) -> str:
+    """Retorna el detalle de movimientos de un cliente."""
+    fiados = cargar_fiados()
+    cliente_lower = cliente.strip().lower()
+    cliente_key   = None
+    for k in fiados:
+        if k.lower() == cliente_lower or cliente_lower in k.lower() or k.lower() in cliente_lower:
+            cliente_key = k
+            break
+    if not cliente_key:
+        return f"No encontré a '{cliente}' en los fiados."
+    datos = fiados[cliente_key]
+    saldo = datos.get("saldo", 0)
+    movs  = datos.get("movimientos", [])
+    lineas = [f"📋 Cuenta de {cliente_key} — Saldo: ${saldo:,.0f}\n"]
+    for m in movs[-10:]:  # ultimos 10 movimientos
+        if m["cargo"] > 0 and m["abono"] > 0:
+            lineas.append(f"  {m['fecha']} | {m['concepto']} | Cargo: ${m['cargo']:,.0f} | Abono: ${m['abono']:,.0f} | Saldo: ${m['saldo']:,.0f}")
+        elif m["cargo"] > 0:
+            lineas.append(f"  {m['fecha']} | {m['concepto']} | Fiado: ${m['cargo']:,.0f} | Saldo: ${m['saldo']:,.0f}")
+        else:
+            lineas.append(f"  {m['fecha']} | {m['concepto']} | Abono: ${m['abono']:,.0f} | Saldo: ${m['saldo']:,.0f}")
+    return "\n".join(lineas)
