@@ -351,6 +351,16 @@ Si no encuentras el precio en el catalogo, registra la venta con "total": 0 y en
 NUNCA bloquees el registro preguntando el precio si el producto esta en el catalogo.
 NUNCA hagas preguntas cuando el mensaje tiene multiples productos — registra todo lo que puedas identificar y al final lista lo que quedó con precio 0 si algo faltó.
 
+REGLA CRITICA — CUÑETES (NUNCA confundir con galones):
+"Cuñete" es un envase de 4 galones. NUNCA lo confundas con un galón de vinilo.
+Cuando el usuario diga "cuñete vinilo t1" → producto="Cuñete Vinilo T1 Blanco Davinci", precio_unidad=220000
+Cuando el usuario diga "cuñete vinilo t2" → producto="CUÑETE VINILO T 2", precio_unidad=170000
+Cuando el usuario diga "cuñete vinilo t3" → producto="Cuñete Vinilo T3 Blanco", precio_unidad=100000
+Cuando el usuario diga "medio cuñete" o "1/2 cuñete t1" → producto="1/2 Cuñete Vinilo T1 Blanco", precio_unidad=120000
+SIEMPRE multiplica: "2 cuñetes t1" → total = 2 × 220000 = 440000
+NUNCA uses el precio del galón (50000) para un cuñete.
+NUNCA uses fracciones de galón para cuñetes — un cuñete es una unidad completa.
+
 REGLA CRITICA — PRODUCTOS QUE SE VENDEN POR UNIDADES ENTERAS (cuñetes, galones T3, manijas, etc.):
 Estos productos NO tienen fracciones — se venden de a 1, 2, 3 unidades completas.
 Para calcular el total: total = precio_unidad × cantidad. SIEMPRE multiplica.
