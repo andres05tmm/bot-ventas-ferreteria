@@ -149,38 +149,48 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
             print(f"Error clientes recientes: {e}")
 
     # ── CLIENTES BUSQUEDA ──
+    # Solo buscar cliente si el usuario menciona explícitamente un nombre de persona
+    # o palabras que indiquen que hay un cliente en la venta.
+    # Si el mensaje NO contiene indicadores de cliente, NO buscar — evita falsos positivos
+    # donde palabras del producto (ej: "colbon") coinciden con nombres de clientes.
     clientes_texto = ""
-    try:
-        from excel import buscar_cliente_con_resultado
-        palabras_cliente = [p for p in mensaje_usuario.lower().split()
-                            if len(p) > 3 and p not in stopwords]
-        if palabras_cliente:
-            termino_cliente = " ".join(palabras_cliente[:4])
-            cliente_unico, candidatos_cli = buscar_cliente_con_resultado(termino_cliente)
+    _indicadores_cliente = [
+        "cliente", "para ", "de parte", "a nombre", "factura", "facturar",
+        "a credito", "fiado", "cuenta de",
+    ]
+    _menciona_cliente = any(ind in mensaje_usuario.lower() for ind in _indicadores_cliente)
+    if _menciona_cliente:
+        try:
+            from excel import buscar_cliente_con_resultado
+            palabras_cliente = [p for p in mensaje_usuario.lower().split()
+                                if len(p) > 3 and p not in stopwords]
+            if palabras_cliente:
+                termino_cliente = " ".join(palabras_cliente[:4])
+                cliente_unico, candidatos_cli = buscar_cliente_con_resultado(termino_cliente)
 
-            if len(candidatos_cli) == 1:
-                c      = candidatos_cli[0]
-                nombre = c.get("Nombre tercero", "")
-                id_c   = c.get("Identificación", "")
-                tipo   = c.get("Tipo de identificación", "")
-                clientes_texto = (
-                    f"CLIENTE ENCONTRADO EN EL SISTEMA (usar este directamente):\n"
-                    f"  - {nombre} ({tipo}: {id_c})"
-                )
-            elif len(candidatos_cli) > 1:
-                lineas_cli = []
-                for c in candidatos_cli:
+                if len(candidatos_cli) == 1:
+                    c      = candidatos_cli[0]
                     nombre = c.get("Nombre tercero", "")
                     id_c   = c.get("Identificación", "")
                     tipo   = c.get("Tipo de identificación", "")
-                    lineas_cli.append(f"  - {nombre} ({tipo}: {id_c})")
-                clientes_texto = (
-                    "MULTIPLES CLIENTES ENCONTRADOS — pregunta al usuario cual es:\n"
-                    + "\n".join(lineas_cli)
-                    + "\nEjemplo: '¿Te refieres a NOMBRE1 (CC: 123) o NOMBRE2 (CC: 456)?'"
-                )
-    except Exception:
-        clientes_texto = ""
+                    clientes_texto = (
+                        f"CLIENTE ENCONTRADO EN EL SISTEMA (usar este directamente):\n"
+                        f"  - {nombre} ({tipo}: {id_c})"
+                    )
+                elif len(candidatos_cli) > 1:
+                    lineas_cli = []
+                    for c in candidatos_cli:
+                        nombre = c.get("Nombre tercero", "")
+                        id_c   = c.get("Identificación", "")
+                        tipo   = c.get("Tipo de identificación", "")
+                        lineas_cli.append(f"  - {nombre} ({tipo}: {id_c})")
+                    clientes_texto = (
+                        "MULTIPLES CLIENTES ENCONTRADOS — pregunta al usuario cual es:\n"
+                        + "\n".join(lineas_cli)
+                        + "\nEjemplo: '¿Te refieres a NOMBRE1 (CC: 123) o NOMBRE2 (CC: 456)?'"
+                    )
+        except Exception:
+            clientes_texto = ""
 
     aviso_drive = ""
     if not config.DRIVE_DISPONIBLE:
@@ -360,6 +370,7 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    - Para cantidad > 1: total = precio_unitario × cantidad. Ej: 2 galones laca miel → total: 130000
    - Para fracciones: total = precio de esa fraccion en catalogo. Ej: 1/4 vinilo T1 → total: 15000 (NUNCA multipliques)
    - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
+     CRITICO: palabras como "colbon", "vinilo", "thinner" son PRODUCTOS, no clientes. NUNCA preguntes por cliente si el usuario solo nombro un producto.
    - Si menciona cliente y esta en la base: incluye "cliente": "Nombre" en el JSON.
    - Si menciona cliente y NO esta en la base: usa [INICIAR_CLIENTE]{{"nombre":"Nombre"}}[/INICIAR_CLIENTE]. NUNCA preguntes el documento tu.
    FORMATO JSON ESTRICTO:
