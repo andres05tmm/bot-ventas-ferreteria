@@ -252,7 +252,7 @@ async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, m
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
     """Muestra botones de metodo de pago con opcion de modificar/cancelar."""
     lineas = []
-    logging.getLogger("ferrebot.callbacks").debug("[BOTONES] ventas recibidas: {ventas}")
+    logging.getLogger("ferrebot.callbacks").debug(f"[BOTONES] ventas recibidas: {ventas}")
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
