@@ -194,8 +194,16 @@ def sincronizar_archivos():
     from memoria import invalidar_cache_memoria, bloquear_subida_drive
 
     # Bloquear subidas a Drive durante la sincronizacion
-    # para que nada sobreescriba el JSON correcto mientras descargamos
     bloquear_subida_drive(True)
+
+    # Cancelar TODOS los timers de debounce pendientes para que no
+    # sobreescriban los archivos que vamos a descargar de Drive
+    with _debounce_lock:
+        for nombre, timer in list(_debounce_timers.items()):
+            timer.cancel()
+            logging.getLogger("ferrebot.drive").info(f"Timer cancelado para '{nombre}'")
+        _debounce_timers.clear()
+        _debounce_pendiente.clear()
 
     try:
         # Limpiar cache RAM
