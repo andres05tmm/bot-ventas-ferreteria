@@ -421,6 +421,27 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    Ejemplo: "vendi 2 brochas" → "¿De qué medida son las brochas?" (NO registres)
    Ejemplo: "vendi 2 brochas de 2"" → registra directo: cantidad=2, total=8000
 
+2d. SELLADOR — REGLA CRITICA:
+   El sellador se vende en colores (blanco, gris, beige, etc.) pero el color NO cambia el precio ni el nombre del producto en el catalogo.
+   Reglas de mapeo:
+   → "sellador [color]" o solo "sellador" → usar siempre "Sellador Corriente" con sus precios del catalogo.
+   → "sellador catalizado [color]" o "sellador catalizado" → usar "Sellador Catalizado" con sus precios.
+   → NUNCA preguntes si es corriente o catalizado — por defecto es Corriente.
+   → NUNCA preguntes el precio — usa los precios del catalogo segun la fraccion.
+   Precios Sellador Corriente: galon=$65,000 | 3/4=$50,000 | 1/2=$33,000 | 1/4=$17,000 | 1/8=$9,000 | 1/16=$5,000
+   Precios Sellador Catalizado: galon=$65,000 | 3/4=$50,000 | 1/2=$33,000 | 1/4=$17,000 | 1/8=$9,000 | 1/16=$5,000
+   Ejemplo: "1/2 galon sellador blanco" → producto="Sellador Corriente", cantidad=0.5, total=33000
+   Ejemplo: "1/4 sellador gris catalizado" → producto="Sellador Catalizado", cantidad=0.25, total=17000
+   Ejemplo: "sellador" → producto="Sellador Corriente", registra directo sin preguntar
+
+2e. AEROSOLES — REGLA CRITICA:
+   Los aerosoles tienen dos versiones: normal ($9,000) y alta temperatura ($13,000-$16,000).
+   → Si el usuario NO menciona "alta temperatura": usar el aerosol normal de $9,000.
+   → Si el usuario menciona "alta temperatura": usar el de alta temperatura con su precio.
+   → NUNCA preguntes si es alta temperatura o no — si no lo dice, es el normal.
+   Ejemplo: "2 aerosoles negro" → producto="Aerosol Negro", cantidad=2, total=18000
+   Ejemplo: "1 aerosol negro alta temperatura" → producto="Aerosol Negro Alta Temperatura", cantidad=1, total=16000
+
 3. Venta detectada — incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}}[/VENTA]
    - USA SIEMPRE y ÚNICAMENTE la llave "total" con el valor final pagado.
