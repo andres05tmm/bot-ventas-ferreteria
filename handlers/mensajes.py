@@ -399,20 +399,37 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         pedir_metodo    = "PEDIR_METODO_PAGO"    in acciones
         iniciar_cliente = "INICIAR_FLUJO_CLIENTE" in acciones
         pago_pend_aviso = "PAGO_PENDIENTE_AVISO"  in acciones
-        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+        confirmacion_accion   = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+        cliente_desconocido   = next((a for a in acciones if a.startswith("CLIENTE_DESCONOCIDO:")), None)
         logging.getLogger("ferrebot.mensajes").debug(f"[ACCIONES] acciones={acciones} | pedir_metodo={pedir_metodo}")
 
         _acciones_internas = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE",
                               "PAGO_PENDIENTE_AVISO")
 
         # No mostrar texto de Claude si hay pago pendiente y bloqueó la venta
-        # (evita el "Registré la venta..." cuando en realidad no la registró)
-        if texto_respuesta and not pago_pend_aviso:
+        if texto_respuesta and not pago_pend_aviso and not cliente_desconocido:
             await update.message.reply_text(texto_respuesta)
 
         for accion in acciones:
-            if not accion.startswith("PEDIR_CONFIRMACION:") and accion not in _acciones_internas:
+            if (not accion.startswith("PEDIR_CONFIRMACION:")
+                    and not accion.startswith("CLIENTE_DESCONOCIDO:")
+                    and accion not in _acciones_internas):
                 await update.message.reply_text(accion)
+
+        # ── Cliente desconocido: preguntar si quiere crearlo ──
+        if cliente_desconocido:
+            nombre_cli = cliente_desconocido.split(":", 1)[1]
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Sí, crear cliente", callback_data=f"cli_crear_si_{chat_id}"),
+                InlineKeyboardButton("➡️ No, registrar así", callback_data=f"cli_crear_no_{chat_id}"),
+            ]])
+            await update.message.reply_text(
+                f"👤 El cliente *{nombre_cli}* no está en la base de datos.\n"
+                f"¿Quieres crearlo antes de registrar la venta?",
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
 
         if pago_pend_aviso:
             # Guardar este mensaje en standby para procesarlo tras confirmar pago
