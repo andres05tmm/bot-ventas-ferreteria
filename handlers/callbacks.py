@@ -205,7 +205,6 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         ],
         [
             InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"),
-            InlineKeyboardButton("🗑️ Cancelar venta", callback_data=f"pago_cancelar_{chat_id}"),
         ]
     ])
     await message.reply_text(
