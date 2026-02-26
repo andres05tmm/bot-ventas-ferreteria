@@ -353,10 +353,8 @@ async def comando_sheets(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def comando_grafica(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("📅 Ventas por día",   callback_data="grafica_dias"),
-        InlineKeyboardButton("📦 Productos",         callback_data="grafica_productos"),
-    ], [
-        InlineKeyboardButton("💳 Métodos de pago",  callback_data="grafica_pagos"),
+        InlineKeyboardButton("📅 Ventas por día", callback_data="grafica_dias"),
+        InlineKeyboardButton("📦 Productos",      callback_data="grafica_productos"),
     ]])
     await update.message.reply_text("¿Qué gráfica quieres ver?", reply_markup=keyboard)
 
@@ -365,7 +363,6 @@ async def manejar_callback_grafica(update: Update, context: ContextTypes.DEFAULT
     from graficas import (
         generar_grafica_ventas_por_dia_async,
         generar_grafica_productos_async,
-        generar_grafica_metodos_pago_async,
     )
     query = update.callback_query
     await query.answer()
@@ -381,9 +378,6 @@ async def manejar_callback_grafica(update: Update, context: ContextTypes.DEFAULT
         elif tipo == "grafica_productos":
             ruta   = await generar_grafica_productos_async()
             titulo = "productos_mas_vendidos.png"
-        elif tipo == "grafica_pagos":
-            ruta   = await generar_grafica_metodos_pago_async()
-            titulo = "metodos_de_pago.png"
         else:
             return
 
