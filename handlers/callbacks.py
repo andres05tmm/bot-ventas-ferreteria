@@ -1,7 +1,8 @@
-import logging
 """
 Manejo de botones (callbacks) de Telegram y flujos de texto interactivos (como crear clientes).
 """
+
+import logging
 
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -98,10 +99,7 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
                     with _estado_lock:
                         ventas2 = list(ventas_pendientes.get(chat_id, []))
                     if ventas2:
-                        await _enviar_botones_pago(
-                            type("Msg", (), {"reply_text": lambda self, t, **kw: context.bot.send_message(chat_id=chat_id, text=t, **kw)})(),
-                            chat_id, ventas2
-                        )
+                        await _enviar_botones_pago_por_chat(context.bot, chat_id, ventas2)
         return
 
     # ── Confirmar venta con metodo ya conocido ──
@@ -382,3 +380,113 @@ async def manejar_texto_cliente(chat_id: int, texto: str, message, vendedor: str
         return True
 
     return False
+
+
+# ─────────────────────────────────────────────
+# HELPER: botones de pago sin objeto message (via bot directo)
+# Reemplaza el patrón fake-object que generaba TypeError en async
+# ─────────────────────────────────────────────
+
+async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
+    """
+    Versión de _enviar_botones_pago que usa bot.send_message directamente.
+    Úsala cuando no tienes un objeto message disponible (ej: desde callbacks).
+    """
+    from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
+    lineas = []
+    for v in ventas:
+        cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
+        producto = v.get("producto", "")
+        total = v.get("total", 0)
+        try:
+            total = float(str(total).replace("$", "").replace(",", ""))
+        except Exception:
+            total = 0
+        cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
+        lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("💵 Efectivo",       callback_data=f"pago_efectivo_{chat_id}"),
+            InlineKeyboardButton("📱 Transf.",         callback_data=f"pago_transferencia_{chat_id}"),
+            InlineKeyboardButton("💳 Datáfono",        callback_data=f"pago_datafono_{chat_id}"),
+        ],
+        [
+            InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"),
+        ]
+    ])
+    await bot.send_message(
+        chat_id=chat_id,
+        text="¿Cómo fue el pago?\n\n" + "\n".join(lineas),
+        reply_markup=keyboard,
+    )
+
+
+# ─────────────────────────────────────────────
+# HANDLER: botones de creación de cliente (cli_tipoid_ y cli_persona_)
+# Estos callbacks son emitidos por _enviar_pregunta_cliente en mensajes.py
+# ─────────────────────────────────────────────
+
+async def manejar_callback_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Maneja los botones inline del flujo de creación de cliente:
+      - cli_tipoid_CC_{chat_id}     → tipo de identificación CC / NIT / CE
+      - cli_persona_Natural_{chat_id}  → tipo de persona Natural / Juridica
+    """
+    query   = update.callback_query
+    data    = query.data
+    chat_id = query.message.chat_id
+    await query.answer()
+
+    # ── Tipo de identificación ──
+    if data.startswith("cli_tipoid_"):
+        # formato: cli_tipoid_{TIPO}_{chat_id}
+        sin_prefijo = data[len("cli_tipoid_"):]
+        ultimo      = sin_prefijo.rfind("_")
+        tipo_id     = sin_prefijo[:ultimo]   # "CC", "NIT", "CE"
+
+        with _estado_lock:
+            datos = clientes_en_proceso.get(chat_id)
+
+        if not datos:
+            await query.edit_message_text("El proceso de creación de cliente expiró. Inicia de nuevo.")
+            return
+
+        tipo_map_legible = {"CC": "Cédula de ciudadanía", "NIT": "NIT", "CE": "Cédula de extranjería"}
+        datos["tipo_id"] = tipo_id
+        datos["paso"]    = "identificacion"
+        with _estado_lock:
+            clientes_en_proceso[chat_id] = datos
+
+        await query.edit_message_text(
+            f"Tipo de documento: {tipo_map_legible.get(tipo_id, tipo_id)}\n"
+            f"¿Cuál es el número de {tipo_map_legible.get(tipo_id, 'identificación')}?"
+        )
+        return
+
+    # ── Tipo de persona ──
+    if data.startswith("cli_persona_"):
+        # formato: cli_persona_{TIPO}_{chat_id}
+        sin_prefijo  = data[len("cli_persona_"):]
+        ultimo       = sin_prefijo.rfind("_")
+        tipo_persona = sin_prefijo[:ultimo]   # "Natural", "Juridica"
+
+        with _estado_lock:
+            datos = clientes_en_proceso.get(chat_id)
+
+        if not datos:
+            await query.edit_message_text("El proceso de creación de cliente expiró. Inicia de nuevo.")
+            return
+
+        datos["tipo_persona"] = tipo_persona
+        datos["paso"]         = "correo"
+        with _estado_lock:
+            clientes_en_proceso[chat_id] = datos
+
+        await query.edit_message_text(
+            f"Tipo de persona: {tipo_persona}\n"
+            f"¿Cuál es el correo electrónico de {datos.get('nombre', 'el cliente')}? "
+            f"(escribe 'no tiene' si no aplica)"
+        )
+        return
