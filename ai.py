@@ -255,7 +255,11 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
      Si el usuario NO menciona el metodo: NO pongas "metodo_pago" en el JSON.
    - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
    - Si menciona cliente y esta en la base: incluye "cliente": "Nombre" en el JSON.
-   - Si menciona cliente y NO esta en la base: registra la venta con el nombre tal cual.
+   - Si menciona cliente y NO esta en la base:
+     NO registres la venta todavia. Pregunta primero:
+     "El cliente [Nombre] no esta en la base. Quieres crearlo antes de registrar la venta? (si / no)"
+     -> Si el usuario responde "si": emite [INICIAR_CLIENTE]{"nombre": "Nombre"}[/INICIAR_CLIENTE] y NO emitas [VENTA] todavia. La venta se registrara automaticamente despues de crear el cliente.
+     -> Si el usuario responde "no": registra la venta normalmente con el nombre tal cual sin datos de cliente.
    FORMATO JSON ESTRICTO:
    CORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000, "metodo_pago": "efectivo"}}
    CORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000}}
