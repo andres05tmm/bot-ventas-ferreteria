@@ -222,13 +222,33 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     if _ventas_pend:
         # Detectar si el usuario quiere cancelar/olvidar la venta pendiente
         _cancelar_palabras = {"olvida", "olvidala", "olvídala", "cancela", "cancelar",
-                              "no", "no registres", "borra", "descarta", "dale"}
+                              "no registres", "borra", "descarta"}
         _msg_norm = mensaje.strip().lower()
         if any(p in _msg_norm for p in _cancelar_palabras):
             with _estado_lock:
                 ventas_pendientes.pop(chat_id, None)
-                mensajes_standby.pop(chat_id, None)
-            await update.message.reply_text("🗑️ Venta cancelada. ¿Qué más necesitas?")
+                standby_pendiente = mensajes_standby.pop(chat_id, [])
+            await update.message.reply_text("🗑️ Venta cancelada.")
+
+            # Si habia mensajes en standby, procesarlos ahora que se liberó el bloqueo
+            for standby_msg in standby_pendiente:
+                await update.message.reply_text(f"📋 Procesando venta pendiente: {standby_msg}")
+                historial = get_historial(chat_id)
+                agregar_al_historial(chat_id, "user", f"{vendedor}: {standby_msg}")
+                respuesta_raw = await procesar_con_claude(f"{vendedor}: {standby_msg}", vendedor, historial)
+                texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
+                agregar_al_historial(chat_id, "assistant", texto_resp)
+                if texto_resp:
+                    await update.message.reply_text(texto_resp)
+                for accion2 in acciones2:
+                    if accion2 not in ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO"):
+                        await update.message.reply_text(accion2)
+                if "PEDIR_METODO_PAGO" in acciones2:
+                    with _estado_lock:
+                        ventas2 = list(ventas_pendientes.get(chat_id, []))
+                    if ventas2:
+                        from handlers.callbacks import _enviar_botones_pago as _botones_cb
+                        await _botones_cb(update.message, chat_id, ventas2)
             return
 
         _metodos_texto = {
