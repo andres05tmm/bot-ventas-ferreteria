@@ -588,6 +588,37 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     if esperando_pago and ventas_con_metodo:
         ventas_con_metodo.clear()
 
+    # ── Verificar cliente desconocido ANTES de encolar la venta ──
+    # Si alguna venta menciona un cliente que no existe en la base,
+    # pausamos el flujo y preguntamos si quiere crearlo.
+    # Esto es más confiable que depender de que el modelo siga la instrucción del prompt.
+    def _tiene_cliente_desconocido(ventas: list) -> str | None:
+        """Retorna el nombre del primer cliente desconocido encontrado, o None."""
+        from excel import buscar_cliente_con_resultado
+        for v in ventas:
+            nombre_cliente = v.get("cliente", "").strip()
+            if not nombre_cliente or nombre_cliente.lower() in ("consumidor final", "cf", ""):
+                continue
+            try:
+                _, candidatos = buscar_cliente_con_resultado(nombre_cliente)
+                if not candidatos:
+                    return nombre_cliente
+            except Exception:
+                pass
+        return None
+
+    todas_las_ventas_nuevas = ventas_con_metodo + ventas_sin_metodo
+    cliente_desconocido = _tiene_cliente_desconocido(todas_las_ventas_nuevas) if todas_las_ventas_nuevas else None
+
+    if cliente_desconocido and not esperando_pago:
+        # Guardar las ventas en pendientes pero emitir acción especial en lugar de pedir pago
+        with _estado_lock:
+            ventas_pendientes[chat_id] = todas_las_ventas_nuevas
+        acciones.append(f"CLIENTE_DESCONOCIDO:{cliente_desconocido}")
+        # Limpiar para que no se procesen por los flujos normales abajo
+        ventas_con_metodo.clear()
+        ventas_sin_metodo.clear()
+
     if ventas_con_metodo:
         metodo_conocido = ventas_con_metodo[0].get("metodo_pago", "efectivo").lower()
         with _estado_lock:
