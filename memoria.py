@@ -293,6 +293,36 @@ def cargar_fiados() -> dict:
     return cargar_memoria().get("fiados", {})
 
 
+def _normalizar(texto: str) -> str:
+    """Elimina tildes y pasa a minusculas para busqueda flexible."""
+    import unicodedata
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', texto.lower())
+        if unicodedata.category(c) != 'Mn'
+    )
+
+
+def _buscar_cliente_fiado(nombre: str, fiados: dict) -> str | None:
+    """Busca el key del cliente en fiados de forma flexible (sin tildes, parcial)."""
+    busqueda = _normalizar(nombre.strip())
+    # 1. Coincidencia exacta normalizada
+    for k in fiados:
+        if _normalizar(k) == busqueda:
+            return k
+    # 2. La busqueda esta contenida en el nombre o viceversa
+    for k in fiados:
+        kn = _normalizar(k)
+        if busqueda in kn or kn in busqueda:
+            return k
+    # 3. Todas las palabras de la busqueda aparecen en el nombre
+    palabras = busqueda.split()
+    for k in fiados:
+        kn = _normalizar(k)
+        if all(p in kn for p in palabras):
+            return k
+    return None
+
+
 def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: float):
     """
     Registra un movimiento de fiado (cargo=lo que quedó debiendo, abono=lo que pagó).
@@ -327,12 +357,7 @@ def abonar_fiado(cliente: str, monto: float, concepto: str = "Abono") -> tuple[b
     fiados = mem.get("fiados", {})
 
     # Busqueda flexible del nombre
-    cliente_key = None
-    cliente_lower = cliente.strip().lower()
-    for k in fiados:
-        if k.lower() == cliente_lower or cliente_lower in k.lower() or k.lower() in cliente_lower:
-            cliente_key = k
-            break
+    cliente_key = _buscar_cliente_fiado(cliente, fiados)
 
     if not cliente_key:
         return False, f"No encontré a '{cliente}' en los fiados."
@@ -362,12 +387,7 @@ def resumen_fiados() -> str:
 def detalle_fiado_cliente(cliente: str) -> str:
     """Retorna el detalle de movimientos de un cliente."""
     fiados = cargar_fiados()
-    cliente_lower = cliente.strip().lower()
-    cliente_key   = None
-    for k in fiados:
-        if k.lower() == cliente_lower or cliente_lower in k.lower() or k.lower() in cliente_lower:
-            cliente_key = k
-            break
+    cliente_key = _buscar_cliente_fiado(cliente, fiados)
     if not cliente_key:
         return f"No encontré a '{cliente}' en los fiados."
     datos = fiados[cliente_key]
