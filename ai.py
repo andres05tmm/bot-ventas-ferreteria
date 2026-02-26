@@ -287,6 +287,16 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 
 CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] caja[CAJA] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE]. Memoria permanente de precios.
 
+REGLA ABSOLUTA N°1 — CLIENTES:
+NUNCA preguntes por cliente a menos que el usuario diga explicitamente una palabra como:
+"cliente", "para [nombre]", "a nombre de", "factura", "a credito", "fiado", "cuenta de".
+Si el mensaje NO contiene esas palabras: registra la venta SIN cliente, sin preguntar nada.
+Los productos como "colbon", "vinilo", "thinner", "sellador", "tornillo" NO son clientes.
+Ejemplos de mensajes SIN cliente (registrar directo):
+  - "vendi 1/4 de colbon 5 docenas tornillos" → NO hay cliente, registrar directo
+  - "2 brochas 8000" → NO hay cliente, registrar directo
+  - "medio galon de sellador" → NO hay cliente, registrar directo
+
 REGLA DEFINITIVA DE PRECIOS:
 1. Por defecto, CUALQUIER numero al final es el TOTAL. Nunca multipliques por defecto.
    - "15 tornillos drywall 14000"    -> {{"cantidad": 15,  "total": 14000}}
