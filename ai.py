@@ -97,32 +97,39 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 
     info_candidatos_extra = ""
     palabras_clave = [p for p in mensaje_usuario.lower().split() if p not in stopwords]
+
+    def _linea_candidato(p: dict) -> str:
+        fracs = p.get("precios_fraccion", {})
+        pxc   = p.get("precio_por_cantidad")
+        if fracs:
+            precios_str = " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
+            return f"  - {p['nombre']}: {precios_str}"
+        elif pxc:
+            return (f"  - {p['nombre']}: "
+                    f"c/u=${pxc['precio_bajo_umbral']:,} | "
+                    f"x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
+        else:
+            return f"  - {p['nombre']}: ${p['precio_unidad']:,}"
+
     if palabras_clave:
-        termino    = " ".join(palabras_clave[:5])
-        candidatos = buscar_multiples_en_catalogo(termino, limite=8)
+        # Buscar con ventanas deslizantes de 1-4 palabras para capturar TODOS los productos
+        # en mensajes con multiples ventas (ej: "tornillos... aerosoles... sellador...")
+        todos_candidatos = {}  # nombre_lower -> prod (evita duplicados)
+        for largo in [4, 3, 2, 1]:
+            for i in range(len(palabras_clave) - largo + 1):
+                fragmento = " ".join(palabras_clave[i:i + largo])
+                if len(fragmento) < 4:
+                    continue
+                for prod in buscar_multiples_en_catalogo(fragmento, limite=3):
+                    todos_candidatos[prod["nombre_lower"]] = prod
 
-        def _linea_candidato(p: dict) -> str:
-            fracs = p.get("precios_fraccion", {})
-            pxc   = p.get("precio_por_cantidad")
-            if fracs:
-                precios_str = " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
-                return f"  - {p['nombre']}: {precios_str}"
-            elif pxc:
-                return (f"  - {p['nombre']}: "
-                        f"c/u=${pxc['precio_bajo_umbral']:,} | "
-                        f"x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
-            else:
-                return f"  - {p['nombre']}: ${p['precio_unidad']:,}"
+        candidatos = list(todos_candidatos.values())[:12]
 
-        if len(candidatos) > 1:
+        if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = (
-                "\nPRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE (con precios de fraccion):\n"
+                "\nPRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE (con precios):\n"
                 + "\n".join(lineas)
-            )
-        elif len(candidatos) == 1:
-            info_candidatos_extra = (
-                "\nPRODUCTO ENCONTRADO EN CATALOGO:\n" + _linea_candidato(candidatos[0])
             )
 
     # ── CLIENTES RECIENTES ──
@@ -317,6 +324,25 @@ REGLA DEFINITIVA DE PRECIOS:
    - En tu texto de confirmacion: usa la fraccion legible. Ej: "1/4 Thinner $8,000" (NO "8000 Thinner" NI "0.25 Thinner")
 
 CRITICO: En [VENTA] usa SIEMPRE la llave "total". NUNCA uses "precio_unitario".
+CRITICO: Si el usuario menciona un producto pero NO dice su precio, usa el precio del catalogo que tienes arriba.
+Si no encuentras el precio en el catalogo, registra la venta con "total": 0 y en tu texto di "⚠️ registré [producto] con precio pendiente, confirma el valor".
+NUNCA bloquees el registro preguntando el precio si el producto esta en el catalogo.
+NUNCA hagas preguntas cuando el mensaje tiene multiples productos — registra todo lo que puedas identificar y al final lista lo que quedó con precio 0 si algo faltó.
+
+TORNILLOS — MAPEO DE MEDIDAS (CRITICO):
+El usuario puede decir la medida de varias formas, todas significan lo mismo:
+  "6 por 1"       → 6X1      | "6 por 1 y cuarto"  → 6X1-1/4 | "6 por 1 y media" → 6X1-1/2
+  "6 por 3/4"     → 6X3/4    | "6 por 1/2"         → 6X1/2   | "6 por 2"         → 6X2
+  "8 por 1"       → 8X1      | "8 por 1 y media"   → 8X1-1/2 | "8 por 3/4"       → 8X3/4
+  "10 por 1"      → 10X1     | "10 por 1 y media"  → 10X1-1/2| "10 por 2"        → 10X2
+Usa SIEMPRE el nombre del catalogo con formato NUMEROxMEDIDA (ej: "TORNILLO DRYWALL 6X1-1/2").
+
+DOCENAS Y OTRAS UNIDADES DE CONTEO:
+  "1 docena"  = 12 unidades  | "media docena" = 6 unidades
+  "2 docenas" = 24 unidades  | "5 docenas"    = 60 unidades
+  "1 ciento"  = 100 unidades | "medio ciento" = 50 unidades
+  Para tornillos vendidos por docena: cantidad = docenas × 12, total = cantidad × precio_unitario_catalogo
+  Ejemplo: "5 docenas tornillo drywall 6x1-1/2" a $58 c/u → cantidad: 60, total: 3480
 
 {info_fracciones_extra}
 {info_candidatos_extra}
