@@ -1,8 +1,9 @@
-import logging
 """
 Operaciones sobre el archivo Excel de ventas (openpyxl).
 El Excel es la fuente de verdad historica; el Sheets es la pizarra del dia.
 """
+
+import logging
 
 import asyncio
 import os
