@@ -528,23 +528,26 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = [a.upper() for a in (context.args or [])]
     if args and args[0] == "EXCEL":
-        if len(args) < 2 or args[1] != "CONFIRMAR":
-            await update.message.reply_text("⚠️ Escribe `/resetventas excel CONFIRMAR` para borrar las ventas de ayer.", parse_mode="Markdown")
+        # Formato: /resetventas excel CONFIRMAR DD/MM/YYYY
+        if len(args) < 3 or args[1] != "CONFIRMAR":
+            await update.message.reply_text(
+                "⚠️ Uso: `/resetventas excel CONFIRMAR DD/MM/YYYY`\nEjemplo: `/resetventas excel CONFIRMAR 24/02/2026`",
+                parse_mode="Markdown"
+            )
+            return
+        # Parsear fecha
+        from datetime import timedelta
+        try:
+            fecha_str_raw = context.args[2]  # conservar original con barras
+            fecha_obj = datetime.strptime(fecha_str_raw, "%d/%m/%Y")
+            fecha_iso = fecha_obj.strftime("%Y-%m-%d")
+        except (ValueError, IndexError):
+            await update.message.reply_text("❌ Fecha inválida. Usa el formato DD/MM/YYYY, ej: 24/02/2026")
             return
         try:
             inicializar_excel()
             wb = await asyncio.to_thread(openpyxl.load_workbook, config.EXCEL_FILE)
             hoja = obtener_nombre_hoja()
-            if hoja not in wb.sheetnames:
-                await update.message.reply_text(f"No hay hoja '{hoja}' en el Excel.")
-                return
-            ws   = wb[hoja]
-            cols = detectar_columnas(ws)
-            col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
-
-            # Calcular fecha de ayer en zona Colombia
-            from datetime import timedelta
-            ayer = (datetime.now(config.COLOMBIA_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
 
             total_borradas = 0
             hojas_limpiar = [hoja, "Registro de Ventas-Acumulado"]
@@ -558,19 +561,19 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
                     continue
                 filas_borrar = [
                     fila for fila in range(config.EXCEL_FILA_DATOS, ws_actual.max_row + 1)
-                    if str(ws_actual.cell(row=fila, column=col_f).value or "")[:10] == ayer
+                    if str(ws_actual.cell(row=fila, column=col_f).value or "")[:10] == fecha_iso
                 ]
                 for fila in reversed(filas_borrar):
                     ws_actual.delete_rows(fila)
                 total_borradas += len(filas_borrar)
 
             if total_borradas == 0:
-                await update.message.reply_text(f"No hay ventas del {ayer} en el Excel.")
+                await update.message.reply_text(f"No hay ventas del {fecha_str_raw} en el Excel.")
                 return
 
             await asyncio.to_thread(wb.save, config.EXCEL_FILE)
             await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
-            await update.message.reply_text(f"✅ Eliminadas {total_borradas} filas del {ayer} (hoja del mes + acumulado).")
+            await update.message.reply_text(f"✅ Eliminadas {total_borradas} filas del {fecha_str_raw} (hoja del mes + acumulado).")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
         return
