@@ -18,6 +18,7 @@ from memoria import (
     obtener_precios_como_texto, obtener_info_fraccion_producto,
     cargar_inventario, cargar_caja, cargar_gastos_hoy,
     obtener_resumen_caja, guardar_gasto,
+    guardar_fiado_movimiento, abonar_fiado,
 )
 from excel import (
     obtener_todos_los_datos, obtener_resumen_ventas,
@@ -285,7 +286,7 @@ def _construir_system_prompt(mensaje_usuario: str, nombre_usuario: str) -> str:
 
     return f"""Eres FerreBot, asistente inteligente de una ferreteria colombiana.
 
-CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] caja[CAJA] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE]. Memoria permanente de precios.
+CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] caja[CAJA] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE] fiados[FIADO][ABONO_FIADO]. Memoria permanente de precios.
 
 REGLA ABSOLUTA N°1 — CLIENTES:
 NUNCA preguntes por cliente a menos que el usuario diga explicitamente una palabra como:
@@ -478,7 +479,24 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
 9. Apertura caja: [CAJA]{{"accion": "apertura", "monto": 50000}}[/CAJA]
 10. Cierre caja: [CAJA]{{"accion": "cierre"}}[/CAJA]
 11. Gasto: [GASTO]{{"concepto": "nombre", "monto": 50000, "categoria": "varios", "origen": "caja"}}[/GASTO]
-12. Inventario: [INVENTARIO]{{"producto": "nombre", "cantidad": 10, "minimo": 2, "unidad": "galones", "accion": "actualizar"}}[/INVENTARIO]
+12. Fiado — cuando el cliente no paga todo o no paga nada:
+    [FIADO]{{"cliente": "Nombre Cliente", "concepto": "descripcion productos", "cargo": 50000, "abono": 0}}[/FIADO]
+    - "cargo" = monto que quedó debiendo (lo que NO pagó)
+    - "abono" = monto que SÍ pagó en este momento (puede ser 0 si no pagó nada)
+    - Si vendiste por $100.000 y pagó $40.000: cargo=60000, abono=40000
+    - Si no pagó nada: cargo=total_venta, abono=0
+    - SIEMPRE emite también los [VENTA] normales para registrar los productos vendidos.
+    - El metodo_pago del [VENTA] debe reflejar lo que SÍ pagó (si pagó algo).
+    - Ejemplo: "vendí 6 galones vinilo a Pedro, pagó 3 efectivo y fió los otros 3"
+      → [VENTA] para los 6 galones con metodo_pago="efectivo"
+      → [FIADO]{{"cliente":"Pedro","concepto":"6 gal Vinilo T1 Blanco","cargo":150000,"abono":150000}}
+      (cargo=lo que fió=3 galones, abono=lo que pagó=3 galones)
+13. Abono a fiado — cuando el cliente viene a pagar lo que debía:
+    [ABONO_FIADO]{{"cliente": "Nombre Cliente", "monto": 50000}}[/ABONO_FIADO]
+    - Usa esto cuando el cliente paga una deuda anterior, NO una venta nueva.
+    - Ejemplo: "Pedro vino a pagar 50000 de lo que debía"
+      → [ABONO_FIADO]{{"cliente":"Pedro","monto":50000}}[/ABONO_FIADO]
+14. Inventario: [INVENTARIO]{{"producto": "nombre", "cantidad": 10, "minimo": 2, "unidad": "galones", "accion": "actualizar"}}[/INVENTARIO]
 13. Borrar cliente: [BORRAR_CLIENTE]{{"nombre": "nombre o identificacion del cliente"}}[/BORRAR_CLIENTE]
 
 Usuario actual: {nombre_usuario}"""
@@ -735,6 +753,43 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             print(f"Error gasto: {e}")
         texto_limpio = texto_limpio.replace(f'[GASTO]{gasto_json}[/GASTO]', '')
+
+    # ── Fiado ──
+    for fiado_json in re.findall(r'\[FIADO\](.*?)\[/FIADO\]', texto_respuesta, re.DOTALL):
+        try:
+            datos    = json.loads(fiado_json.strip())
+            cliente  = datos.get("cliente", "").strip()
+            concepto = datos.get("concepto", "")
+            cargo    = float(datos.get("cargo", 0))
+            abono    = float(datos.get("abono", 0))
+            if cliente and cargo > 0:
+                saldo = guardar_fiado_movimiento(cliente, concepto, cargo, abono)
+                from excel import registrar_fiado_en_excel
+                registrar_fiado_en_excel(cliente, concepto, cargo, abono, saldo)
+                acciones.append(f"💳 Fiado registrado: {cliente} debe ${saldo:,.0f}")
+        except Exception as e:
+            print(f"Error fiado: {e}")
+        texto_limpio = texto_limpio.replace(f'[FIADO]{fiado_json}[/FIADO]', '')
+
+    # ── Abono fiado ──
+    for abono_json in re.findall(r'\[ABONO_FIADO\](.*?)\[/ABONO_FIADO\]', texto_respuesta, re.DOTALL):
+        try:
+            datos   = json.loads(abono_json.strip())
+            cliente = datos.get("cliente", "").strip()
+            monto   = float(datos.get("monto", 0))
+            if cliente and monto > 0:
+                ok, msg = abonar_fiado(cliente, monto)
+                if ok:
+                    from excel import registrar_fiado_en_excel
+                    from memoria import cargar_fiados
+                    fiados = cargar_fiados()
+                    cliente_key = next((k for k in fiados if k.lower() in cliente.lower() or cliente.lower() in k.lower()), cliente)
+                    saldo = fiados.get(cliente_key, {}).get("saldo", 0)
+                    registrar_fiado_en_excel(cliente_key, "Abono", 0, monto, saldo)
+                acciones.append(msg)
+        except Exception as e:
+            print(f"Error abono fiado: {e}")
+        texto_limpio = texto_limpio.replace(f'[ABONO_FIADO]{abono_json}[/ABONO_FIADO]', '')
 
     # ── Inventario ──
     for inv_json in re.findall(r'\[INVENTARIO\](.*?)\[/INVENTARIO\]', texto_respuesta, re.DOTALL):
