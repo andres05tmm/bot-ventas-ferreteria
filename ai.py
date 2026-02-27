@@ -191,44 +191,24 @@ Cuando el mensaje contiene 3 o mas productos (separados por comas, saltos de lin
 -> "3 galones de thinner" -> 3 galones, total = 3 x 26000 = 78000 (precio galon del catalogo).
 NUNCA uses la regla 2b (preguntar color) en mensajes con multiples productos.
 
-TORNILLOS - MAPEO DE MEDIDAS (CRITICO):
-El usuario puede decir la medida de varias formas, todas significan lo mismo:
-  "6 por 1"   -> 6X1    | "6 por 1 y cuarto" -> 6X1-1/4 | "6 por 1 y media" -> 6X1-1/2
-  "6 por 3/4" -> 6X3/4  | "6 por 1/2"        -> 6X1/2   | "6 por 2"         -> 6X2
-  "8 por 1"   -> 8X1    | "8 por 1 y media"  -> 8X1-1/2  | "8 por 3/4"       -> 8X3/4
-  "10 por 1"  -> 10X1   | "10 por 1 y media" -> 10X1-1/2 | "10 por 2"        -> 10X2
-Usa SIEMPRE el nombre del catalogo con formato NUMEROxMEDIDA (ej: "TORNILLO DRYWALL 6X1-1/2").
-PRECIOS TORNILLOS DRYWALL — UMBRAL 50 UNIDADES:
-Si la cantidad es MENOR de 50: usar precio_unidad. Si es 50 o MAS: usar precio_x50.
-Redondea siempre al entero. total = cantidad x precio_correspondiente.
+TORNILLOS DRYWALL — PRECIOS EXACTOS (CRITICO: cada medida es un producto distinto, no los confundas):
+Umbral: <50 uds usa precio A / >=50 uds usa precio B. Total = cantidad x precio.
+Voz->medida: "por 1"->X1 | "por 1 y cuarto"->X1-1/4 | "por 1 y medio"->X1-1/2 | "por 3/4"->X3/4 | "por 2"->X2 | "por 3"->X3
+Usa formato "TORNILLO DRYWALL CALIBRExMEDIDA" (ej: "TORNILLO DRYWALL 8X2").
 
-  Producto                    | precio_unidad | precio_x50 (>=50)
-  TORNILLO DRYWALL 6X1/2      |  25           |  25
-  TORNILLO DRYWALL 6X3/4      |  58           |  30
-  TORNILLO DRYWALL 6X1        |  38           |  35
-  TORNILLO DRYWALL 6X1-1/4    |  42           |  40
-  TORNILLO DRYWALL 6X1-1/2    |  58           |  55
-  TORNILLO DRYWALL 6X2        |  67           |  60
-  TORNILLO DRYWALL 6X2-1/2    |  75           |  70
-  TORNILLO DRYWALL 6X3        |  83           |  80
-  TORNILLO DRYWALL 8X3/4      |  33           |  30
-  TORNILLO DRYWALL 8X1        |  38           |  35
-  TORNILLO DRYWALL 8X1-1/2    |  58           |  55
-  TORNILLO DRYWALL 8X2        |  67           |  60
-  TORNILLO DRYWALL 8X3        |  83           |  80
-  TORNILLO DRYWALL 10X1       |  83           |  70
-  TORNILLO DRYWALL 10X1-1/2   | 125           | 100
-  TORNILLO DRYWALL 10X2       | 150           | 120
-  TORNILLO DRYWALL 10X2-1/2   | 167           | 160
-  TORNILLO DRYWALL 10X3       | 167           | 160
-  TORNILLO DRYWALL 10X4       | 208           | 200
+TABLA [medida: precioA/precioB]:
+  6X1/2:25/25 | 6X3/4:58/30 | 6X1:38/35 | 6X1-1/4:42/40 | 6X1-1/2:58/55 | 6X2:67/60 | 6X2-1/2:75/70 | 6X3:83/80
+  8X3/4:33/30 | 8X1:38/35   | 8X1-1/2:58/55 | 8X2:67/60 | 8X3:83/80
+  10X1:83/70  | 10X1-1/2:125/100 | 10X2:150/120 | 10X2-1/2:167/160 | 10X3:167/160 | 10X4:208/200
 
-Ejemplos:
-  "12 tornillos drywall 6x1"   -> 12 < 50 -> total = 12 x 38  = 456
-  "50 tornillos drywall 6x1"   -> 50 >= 50 -> total = 50 x 35 = 1750
-  "100 tornillos drywall 8x2"  -> 100 >= 50 -> total = 100 x 60 = 6000
-  "200 tornillos drywall 10x2" -> 200 >= 50 -> total = 200 x 120 = 24000
-NUNCA confundas "6x1" con "6x1-1/2" — son productos distintos.
+ADVERTENCIA MEDIDAS CON PRECIO SIMILAR — NO CONFUNDIR:
+  8X1-1/2 precio=58 (distinto a) 8X2 precio=67  <- ERROR FRECUENTE
+  6X3/4 precio=58  (distinto a) 6X1-1/2 precio=58 (distinto a) 8X1-1/2 precio=58
+
+Ejemplos con resultado:
+  12 drywall 6x1   -> 12<50  -> 12x38=456   | 49 drywall 8x2 -> 49<50  -> 49x67=3283
+  50 drywall 6x1   -> 50>=50 -> 50x35=1750  | 50 drywall 8x2 -> 50>=50 -> 50x60=3000
+  100 drywall 8x2  -> >=50   -> 100x60=6000 | 200 drywall 10x2 -> >=50 -> 200x120=24000
 
 CHAZOS Y PRODUCTOS CON PRECIO UNITARIO BAJO - REGLA CRITICA:
 Los chazos tienen precio unitario muy bajo ($42-$208 por unidad). SIEMPRE multiplica cantidad x precio_unidad.
@@ -373,7 +353,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     # ── Resumen de ventas ──
     resumen_sheets_total    = 0
     resumen_sheets_cantidad = 0
-    if config.SHEETS_ID and config._get_sheets_disponible():
+    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
         try:
             from sheets import sheets_leer_ventas_del_dia
             ventas_hoy = sheets_leer_ventas_del_dia()
@@ -399,14 +379,12 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     ) if cantidad_mes > 0 else "Sin ventas este mes"
 
     # ── Datos históricos (solo si piden análisis) ──
-    # OPTIMIZACIÓN: limitado a 30 registros recientes (era 100) — suficiente para
-    # responder "qué vendimos hoy/esta semana" sin enviar miles de tokens innecesarios.
     palabras_analisis = ["cuanto", "vendimos", "reporte", "analiz", "total",
                          "resumen", "estadistica", "top", "mas vendido"]
     if any(p in mensaje_usuario.lower() for p in palabras_analisis):
         try:
             todos       = obtener_todos_los_datos()
-            datos_texto = json.dumps(todos[-30:], ensure_ascii=False, default=str) if todos else "Sin datos aun"
+            datos_texto = json.dumps(todos[-100:], ensure_ascii=False, default=str) if todos else "Sin datos aun"
         except Exception:
             datos_texto = "Sin datos aun"
     else:
@@ -461,8 +439,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 for prod in buscar_multiples_en_catalogo(fragmento, limite=3):
                     todos_candidatos[prod["nombre_lower"]] = prod
 
-        # OPTIMIZACIÓN: 8 candidatos (era 12) — suficiente para identificar el producto correcto
-        candidatos = list(todos_candidatos.values())[:8]
+        candidatos = list(todos_candidatos.values())[:12]
         if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = (
@@ -550,7 +527,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     aviso_drive = (
         "AVISO: Google Drive no disponible. Los datos se guardan localmente."
-        if not config._get_drive_disponible() else ""
+        if not config.DRIVE_DISPONIBLE else ""
     )
 
     partes = [
@@ -580,33 +557,14 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
 
-    # ── OPTIMIZACIÓN DE TOKENS ──
-    # Historial reducido: solo los últimos 3 mensajes (era 4) para ahorrar input tokens
     messages = []
-    for msg in historial_chat[-3:]:
+    for msg in historial_chat[-4:]:
         if isinstance(msg, dict) and "role" in msg and "content" in msg:
             messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
     messages.append({"role": "user", "content": str(mensaje_usuario)})
 
-    # Calcular max_tokens según complejidad del mensaje:
-    # Cada [VENTA] JSON ocupa ~80 tokens + ~50 tokens de texto de confirmación = ~130 tokens por producto.
-    # Con 9 productos: ~1170 tokens de output. Se usa 1400 como techo seguro para hasta 12 productos.
-    # Mensajes simples (1-2 productos, sin comas/saltos): 700 tokens son más que suficientes.
-    # NOTA: num_items cuenta comas + saltos de línea en el mensaje del usuario, que es
-    # un buen indicador de cuántos productos viene en el mensaje.
-    num_items = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
-    palabras_analisis_presentes = any(
-        p in mensaje_usuario.lower()
-        for p in ("cuanto", "vendimos", "reporte", "analiz", "resumen", "estadistica", "top")
-    )
-    if palabras_analisis_presentes:
-        max_tokens = 1500
-    elif num_items >= 5:
-        max_tokens = 1400   # hasta 12 productos con margen (~130 tokens/producto)
-    elif num_items >= 3:
-        max_tokens = 1000   # 3-4 productos con margen
-    else:
-        max_tokens = 700    # 1-2 productos (era 600, subido por seguridad)
+    num_lineas = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
+    max_tokens = min(2000, max(1000, num_lineas * 200))
 
     loop = asyncio.get_event_loop()
     try:
@@ -642,29 +600,6 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
 # PARSEO Y EJECUCIÓN DE ACCIONES
 # ─────────────────────────────────────────────
 
-def _tiene_cliente_desconocido(ventas: list) -> str | None:
-    """
-    Verifica si alguna venta menciona un cliente que no existe en la base de datos.
-    Retorna el nombre del primer cliente desconocido encontrado, o None.
-
-    CORRECCIÓN punto 8: es función de módulo (no closure dentro de procesar_acciones)
-    para poder ser reutilizada y para que quede claro que hace I/O (lee el Excel).
-    Debe llamarse siempre dentro de un hilo de executor, no en el event loop principal.
-    """
-    from excel import buscar_cliente_con_resultado
-    for v in ventas:
-        nombre_cliente = v.get("cliente", "").strip()
-        if not nombre_cliente or nombre_cliente.lower() in ("consumidor final", "cf", ""):
-            continue
-        try:
-            _, candidatos = buscar_cliente_con_resultado(nombre_cliente)
-            if not candidatos:
-                return nombre_cliente
-        except Exception:
-            pass
-    return None
-
-
 def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
     from ventas_state import ventas_pendientes, registrar_ventas_con_metodo, _estado_lock, mensajes_standby
 
@@ -697,11 +632,22 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     if esperando_pago and ventas_con_metodo:
         ventas_con_metodo.clear()
 
+    def _tiene_cliente_desconocido(ventas: list) -> str | None:
+        from excel import buscar_cliente_con_resultado
+        for v in ventas:
+            nombre_cliente = v.get("cliente", "").strip()
+            if not nombre_cliente or nombre_cliente.lower() in ("consumidor final", "cf", ""):
+                continue
+            try:
+                _, candidatos = buscar_cliente_con_resultado(nombre_cliente)
+                if not candidatos:
+                    return nombre_cliente
+            except Exception:
+                pass
+        return None
+
     todas_las_ventas_nuevas = ventas_con_metodo + ventas_sin_metodo
-    # CORRECCIÓN punto 8: llamar a _tiene_cliente_desconocido como función de módulo.
-    # procesar_acciones() se ejecuta siempre dentro de asyncio.to_thread() desde los
-    # handlers, por lo que el I/O de buscar_cliente_con_resultado es seguro aquí.
-    cliente_desconocido = _tiene_cliente_desconocido(todas_las_ventas_nuevas) if todas_las_ventas_nuevas else None
+    cliente_desconocido     = _tiene_cliente_desconocido(todas_las_ventas_nuevas) if todas_las_ventas_nuevas else None
 
     if cliente_desconocido and not esperando_pago:
         with _estado_lock:
@@ -914,16 +860,12 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             cargo    = float(datos.get("cargo", 0))
             abono    = float(datos.get("abono", 0))
             if cliente and cargo > 0:
-                # CORRECCIÓN punto 9: capturar el retorno de guardar_fiado_movimiento
-                # por separado para detectar si falló antes de llamar a registrar_fiado_en_excel
                 saldo = guardar_fiado_movimiento(cliente, concepto, cargo, abono)
-                if saldo is None:
-                    raise ValueError(f"guardar_fiado_movimiento retornó None para cliente '{cliente}'")
                 from excel import registrar_fiado_en_excel
                 registrar_fiado_en_excel(cliente, concepto, cargo, abono, saldo)
                 acciones.append(f"Fiado registrado: {cliente} debe ${saldo:,.0f}")
         except Exception as e:
-            logging.getLogger("ferrebot.ai").error(f"Error fiado: {e}")
+            print(f"Error fiado: {e}")
         texto_limpio = texto_limpio.replace(f'[FIADO]{fiado_json}[/FIADO]', '')
 
     # ── Abono fiado ──
@@ -992,23 +934,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         texto_limpio = texto_limpio.replace(f'[EXCEL]{excel_json}[/EXCEL]', '')
 
     return texto_limpio.strip(), acciones, archivos_excel
-
-
-# ─────────────────────────────────────────────
-# WRAPPER ASYNC DE procesar_acciones
-# ─────────────────────────────────────────────
-
-async def procesar_acciones_async(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
-    """
-    Wrapper async de procesar_acciones.
-    CORRECCIÓN punto 8: ejecuta procesar_acciones en un thread del executor para no
-    bloquear el event loop mientras hace I/O (lectura de Excel para verificar clientes).
-    Usar este wrapper en todos los handlers en lugar de llamar procesar_acciones directamente.
-    """
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        None, lambda: procesar_acciones(texto_respuesta, vendedor, chat_id)
-    )
 
 
 # ─────────────────────────────────────────────
