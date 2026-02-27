@@ -45,7 +45,7 @@ async def _procesar_siguiente_standby(bot, message, chat_id: int, pendientes: li
     - El resto de los mensajes se guarda de vuelta en mensajes_standby antes de procesar,
       para que no se pierdan si hay un error.
     """
-    from ai import procesar_con_claude, procesar_acciones_async
+    from ai import procesar_con_claude, procesar_acciones
     from ventas_state import agregar_al_historial, get_historial
 
     if not pendientes:
@@ -62,7 +62,7 @@ async def _procesar_siguiente_standby(bot, message, chat_id: int, pendientes: li
     historial     = get_historial(chat_id)
     agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
     respuesta_raw            = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
-    texto_resp, acciones2, _ = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
+    texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
     agregar_al_historial(chat_id, "assistant", texto_resp)
 
     confirmacion_accion = next((a for a in acciones2 if a.startswith("PEDIR_CONFIRMACION:")), None)
@@ -270,7 +270,19 @@ async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, m
 
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
-    """Muestra botones de método de pago con opción de modificar."""
+    """Muestra botones de método de pago con opción de modificar.
+    Si todas las ventas ya tienen metodo_pago, usa confirmación directa."""
+
+    # Si Claude ya detectó el método, pre-seleccionarlo
+    metodos = {v.get("metodo_pago", "").lower() for v in ventas if v.get("metodo_pago")}
+    if len(metodos) == 1:
+        metodo = metodos.pop()
+        if metodo in ("efectivo", "transferencia", "datafono"):
+            with _estado_lock:
+                ventas_pendientes[chat_id] = ventas
+            await _enviar_confirmacion_con_metodo(message, chat_id, ventas, metodo)
+            return
+
     lineas = []
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
