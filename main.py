@@ -19,7 +19,7 @@ from handlers.comandos import (
     comando_borrar, comando_precios, comando_caja, comando_gastos,
     comando_inventario, comando_clientes, comando_grafica, comando_fiados,
     manejar_callback_grafica, comando_sheets, comando_cerrar_dia,
-    comando_reset_ventas,
+    comando_reset_ventas, comando_actualizar_catalogo,
 )
 from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento
 from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente
@@ -59,6 +59,7 @@ def main():
     app.add_handler(CommandHandler("sheets",     comando_sheets))
     app.add_handler(CommandHandler("cerrar",     comando_cerrar_dia))
     app.add_handler(CommandHandler("resetventas", comando_reset_ventas))
+    app.add_handler(CommandHandler("catalogo",   comando_actualizar_catalogo))
 
     # Mensajes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))
