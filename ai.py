@@ -217,6 +217,41 @@ DOCENAS Y OTRAS UNIDADES DE CONTEO:
     - cantidad = 5 x 12 = 60, precio unitario = 67, total = 60 x 67 = 4020
     - JSON: {{"producto": "TORNILLO DRYWALL 8X 2", "cantidad": 60, "total": 4020}}
 
+SOLDADURA Y PRODUCTOS CON ESPECIFICACION TECNICA EN EL NOMBRE - REGLA CRITICA:
+Algunos productos tienen fracciones o numeros en su NOMBRE que son especificaciones tecnicas, NO precios ni cantidades de venta.
+  Especificaciones tecnicas comunes que forman parte del nombre del producto:
+    "Soldadura 60/11 1/32"  -> "60/11" = tipo de electrodo, "1/32" = diametro. Ambos son el NOMBRE.
+    "Soldadura 60/11 3/32"  -> igual, "3/32" es el diametro del electrodo.
+    "Soldadura 7018 1/8"    -> "7018" = clasificacion AWS, "1/8" = diametro.
+    "Broca 1/4", "Broca 3/8" -> la fraccion es el diametro, no cantidad.
+  REGLA: Los numeros/fracciones que estan dentro del nombre tecnico del producto NO son precio ni cantidad.
+  La CANTIDAD la dice el usuario al principio: "2 kilos", "1 libra", "media libra".
+  El PRECIO lo dice al final, despues del nombre completo del producto.
+  Ejemplos:
+    "2 kilos soldadura 60/11 1/32 ocho mil"      -> cantidad: 2,   producto: "Soldadura 60/11 1/32",  total: 8000
+    "media libra soldadura 7018 3/32 cinco mil"  -> cantidad: 0.5, producto: "Soldadura 7018 3/32",   total: 5000
+    "1 libra soldadura 60/11 1/32"               -> cantidad: 1,   producto: "Soldadura 60/11 1/32",  busca precio en catalogo
+  NUNCA interpretes "60/11", "1/32", "3/32", "1/8" de la soldadura como fraccion de cantidad.
+
+PRODUCTOS VENDIDOS POR PESO (KILOS) - REGLA CRITICA:
+Algunos productos se venden por kilo, no por unidades ni galones.
+  Palabras clave que indican venta por peso: "kilo", "kilos", "kg", "medio kilo", "media kilo", "kilo y medio"
+  La cantidad en el JSON va en kilos:
+    "2 kilos soldadura"          -> cantidad: 2
+    "1 kilo soldadura"           -> cantidad: 1
+    "medio kilo soldadura"       -> cantidad: 0.5
+    "1 kilo y medio soldadura"   -> cantidad: 1.5
+    "2 kilos y medio soldadura"  -> cantidad: 2.5
+  Patron general: "N kilos y medio" -> cantidad: N + 0.5
+  El precio sigue siendo el TOTAL pagado (regla general de precios).
+  Ejemplos completos:
+    "2 kilos soldadura 60/11 1/32 16000"        -> {{"producto": "Soldadura 60/11 1/32", "cantidad": 2,   "total": 16000}}
+    "1 kilo soldadura 7018 3/32 ocho mil"       -> {{"producto": "Soldadura 7018 3/32",  "cantidad": 1,   "total": 8000}}
+    "medio kilo soldadura 4000"                 -> {{"producto": "Soldadura",            "cantidad": 0.5, "total": 4000}}
+    "1 kilo y medio soldadura 60-11 1/32 12000" -> {{"producto": "Soldadura 60/11 1/32", "cantidad": 1.5, "total": 12000}}
+  En el texto de confirmacion muestra el peso de forma legible:
+    1 -> "1 kilo" | 2 -> "2 kilos" | 0.5 -> "1/2 kilo" | 1.5 -> "1 kilo y medio" | 2.5 -> "2 kilos y medio"
+
 INFORMACION DEL NEGOCIO:
 {negocio_json}
 
