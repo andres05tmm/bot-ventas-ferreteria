@@ -169,8 +169,14 @@ REGLA CRITICA - CUNETES (NUNCA confundir con galones):
 Cuando el usuario diga "cunete vinilo t1" -> producto="Cunete Vinilo T1 Blanco Davinci", precio_unidad=220000
 Cuando el usuario diga "cunete vinilo t2" -> producto="CUNETE VINILO T 2", precio_unidad=170000
 Cuando el usuario diga "cunete vinilo t3" -> producto="Cunete Vinilo T3 Blanco", precio_unidad=100000
-Cuando el usuario diga "medio cunete" o "1/2 cunete t1" -> producto="1/2 Cunete Vinilo T1 Blanco", precio_unidad=120000
-SIEMPRE multiplica: "2 cunetes t1" -> total = 2 x 220000 = 440000
+MEDIO CUNETE — REGLA CRITICA DE DISPLAY:
+  "medio cunete t1" o "1/2 cunete t1" -> producto="1/2 Cunete Vinilo T1 Blanco", cantidad=1, total=120000
+  "medio cunete t2" o "1/2 cunete t2" -> producto="1/2 Cunete Vinilo T2",         cantidad=1, total=85000
+  "medio cunete t3" o "1/2 cunete t3" -> producto="1/2 Cunete Vinilo T3",         cantidad=1, total=55000
+  CRITICO: cantidad=1 (NO 0.5) porque "1/2" ya esta en el NOMBRE del producto.
+  En confirmacion muestra: "1 1/2 Cunete Vinilo T2 $85,000" -> INCORRECTO
+  En confirmacion muestra: "1/2 Cunete Vinilo T2 $85,000"   -> CORRECTO
+SIEMPRE multiplica cunetes enteros: "2 cunetes t1" -> total = 2 x 220000 = 440000
 NUNCA uses el precio del galon (50000) para un cunete.
 
 REGLA CRITICA - PRODUCTOS QUE SE VENDEN POR UNIDADES ENTERAS (cunetes, galones T3, manijas, etc.):
