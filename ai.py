@@ -589,10 +589,11 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     messages.append({"role": "user", "content": str(mensaje_usuario)})
 
     # Calcular max_tokens según complejidad del mensaje:
-    # - Mensajes simples (1 producto, sin comas/saltos): 600 tokens bastan
-    # - Mensajes medianos (2-4 productos): 900 tokens
-    # - Mensajes complejos (5+ productos o análisis): hasta 1500 tokens
-    # Esto reduce ~40% el gasto en max_tokens respecto al techo anterior de 2000.
+    # Cada [VENTA] JSON ocupa ~80 tokens + ~50 tokens de texto de confirmación = ~130 tokens por producto.
+    # Con 9 productos: ~1170 tokens de output. Se usa 1400 como techo seguro para hasta 12 productos.
+    # Mensajes simples (1-2 productos, sin comas/saltos): 700 tokens son más que suficientes.
+    # NOTA: num_items cuenta comas + saltos de línea en el mensaje del usuario, que es
+    # un buen indicador de cuántos productos viene en el mensaje.
     num_items = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
     palabras_analisis_presentes = any(
         p in mensaje_usuario.lower()
@@ -601,11 +602,11 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     if palabras_analisis_presentes:
         max_tokens = 1500
     elif num_items >= 5:
-        max_tokens = 1200
+        max_tokens = 1400   # hasta 12 productos con margen (~130 tokens/producto)
     elif num_items >= 3:
-        max_tokens = 900
+        max_tokens = 1000   # 3-4 productos con margen
     else:
-        max_tokens = 600
+        max_tokens = 700    # 1-2 productos (era 600, subido por seguridad)
 
     loop = asyncio.get_event_loop()
     try:
