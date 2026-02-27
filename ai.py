@@ -373,7 +373,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     # ── Resumen de ventas ──
     resumen_sheets_total    = 0
     resumen_sheets_cantidad = 0
-    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+    if config.SHEETS_ID and config._get_sheets_disponible():
         try:
             from sheets import sheets_leer_ventas_del_dia
             ventas_hoy = sheets_leer_ventas_del_dia()
@@ -399,12 +399,14 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     ) if cantidad_mes > 0 else "Sin ventas este mes"
 
     # ── Datos históricos (solo si piden análisis) ──
+    # OPTIMIZACIÓN: limitado a 30 registros recientes (era 100) — suficiente para
+    # responder "qué vendimos hoy/esta semana" sin enviar miles de tokens innecesarios.
     palabras_analisis = ["cuanto", "vendimos", "reporte", "analiz", "total",
                          "resumen", "estadistica", "top", "mas vendido"]
     if any(p in mensaje_usuario.lower() for p in palabras_analisis):
         try:
             todos       = obtener_todos_los_datos()
-            datos_texto = json.dumps(todos[-100:], ensure_ascii=False, default=str) if todos else "Sin datos aun"
+            datos_texto = json.dumps(todos[-30:], ensure_ascii=False, default=str) if todos else "Sin datos aun"
         except Exception:
             datos_texto = "Sin datos aun"
     else:
@@ -459,7 +461,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 for prod in buscar_multiples_en_catalogo(fragmento, limite=3):
                     todos_candidatos[prod["nombre_lower"]] = prod
 
-        candidatos = list(todos_candidatos.values())[:12]
+        # OPTIMIZACIÓN: 8 candidatos (era 12) — suficiente para identificar el producto correcto
+        candidatos = list(todos_candidatos.values())[:8]
         if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = (
@@ -547,7 +550,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     aviso_drive = (
         "AVISO: Google Drive no disponible. Los datos se guardan localmente."
-        if not config.DRIVE_DISPONIBLE else ""
+        if not config._get_drive_disponible() else ""
     )
 
     partes = [
@@ -577,14 +580,32 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
 
+    # ── OPTIMIZACIÓN DE TOKENS ──
+    # Historial reducido: solo los últimos 3 mensajes (era 4) para ahorrar input tokens
     messages = []
-    for msg in historial_chat[-4:]:
+    for msg in historial_chat[-3:]:
         if isinstance(msg, dict) and "role" in msg and "content" in msg:
             messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
     messages.append({"role": "user", "content": str(mensaje_usuario)})
 
-    num_lineas = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
-    max_tokens = min(2000, max(1000, num_lineas * 200))
+    # Calcular max_tokens según complejidad del mensaje:
+    # - Mensajes simples (1 producto, sin comas/saltos): 600 tokens bastan
+    # - Mensajes medianos (2-4 productos): 900 tokens
+    # - Mensajes complejos (5+ productos o análisis): hasta 1500 tokens
+    # Esto reduce ~40% el gasto en max_tokens respecto al techo anterior de 2000.
+    num_items = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
+    palabras_analisis_presentes = any(
+        p in mensaje_usuario.lower()
+        for p in ("cuanto", "vendimos", "reporte", "analiz", "resumen", "estadistica", "top")
+    )
+    if palabras_analisis_presentes:
+        max_tokens = 1500
+    elif num_items >= 5:
+        max_tokens = 1200
+    elif num_items >= 3:
+        max_tokens = 900
+    else:
+        max_tokens = 600
 
     loop = asyncio.get_event_loop()
     try:
@@ -620,6 +641,29 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
 # PARSEO Y EJECUCIÓN DE ACCIONES
 # ─────────────────────────────────────────────
 
+def _tiene_cliente_desconocido(ventas: list) -> str | None:
+    """
+    Verifica si alguna venta menciona un cliente que no existe en la base de datos.
+    Retorna el nombre del primer cliente desconocido encontrado, o None.
+
+    CORRECCIÓN punto 8: es función de módulo (no closure dentro de procesar_acciones)
+    para poder ser reutilizada y para que quede claro que hace I/O (lee el Excel).
+    Debe llamarse siempre dentro de un hilo de executor, no en el event loop principal.
+    """
+    from excel import buscar_cliente_con_resultado
+    for v in ventas:
+        nombre_cliente = v.get("cliente", "").strip()
+        if not nombre_cliente or nombre_cliente.lower() in ("consumidor final", "cf", ""):
+            continue
+        try:
+            _, candidatos = buscar_cliente_con_resultado(nombre_cliente)
+            if not candidatos:
+                return nombre_cliente
+        except Exception:
+            pass
+    return None
+
+
 def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
     from ventas_state import ventas_pendientes, registrar_ventas_con_metodo, _estado_lock, mensajes_standby
 
@@ -652,22 +696,11 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     if esperando_pago and ventas_con_metodo:
         ventas_con_metodo.clear()
 
-    def _tiene_cliente_desconocido(ventas: list) -> str | None:
-        from excel import buscar_cliente_con_resultado
-        for v in ventas:
-            nombre_cliente = v.get("cliente", "").strip()
-            if not nombre_cliente or nombre_cliente.lower() in ("consumidor final", "cf", ""):
-                continue
-            try:
-                _, candidatos = buscar_cliente_con_resultado(nombre_cliente)
-                if not candidatos:
-                    return nombre_cliente
-            except Exception:
-                pass
-        return None
-
     todas_las_ventas_nuevas = ventas_con_metodo + ventas_sin_metodo
-    cliente_desconocido     = _tiene_cliente_desconocido(todas_las_ventas_nuevas) if todas_las_ventas_nuevas else None
+    # CORRECCIÓN punto 8: llamar a _tiene_cliente_desconocido como función de módulo.
+    # procesar_acciones() se ejecuta siempre dentro de asyncio.to_thread() desde los
+    # handlers, por lo que el I/O de buscar_cliente_con_resultado es seguro aquí.
+    cliente_desconocido = _tiene_cliente_desconocido(todas_las_ventas_nuevas) if todas_las_ventas_nuevas else None
 
     if cliente_desconocido and not esperando_pago:
         with _estado_lock:
@@ -880,12 +913,16 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             cargo    = float(datos.get("cargo", 0))
             abono    = float(datos.get("abono", 0))
             if cliente and cargo > 0:
+                # CORRECCIÓN punto 9: capturar el retorno de guardar_fiado_movimiento
+                # por separado para detectar si falló antes de llamar a registrar_fiado_en_excel
                 saldo = guardar_fiado_movimiento(cliente, concepto, cargo, abono)
+                if saldo is None:
+                    raise ValueError(f"guardar_fiado_movimiento retornó None para cliente '{cliente}'")
                 from excel import registrar_fiado_en_excel
                 registrar_fiado_en_excel(cliente, concepto, cargo, abono, saldo)
                 acciones.append(f"Fiado registrado: {cliente} debe ${saldo:,.0f}")
         except Exception as e:
-            print(f"Error fiado: {e}")
+            logging.getLogger("ferrebot.ai").error(f"Error fiado: {e}")
         texto_limpio = texto_limpio.replace(f'[FIADO]{fiado_json}[/FIADO]', '')
 
     # ── Abono fiado ──
@@ -954,6 +991,23 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         texto_limpio = texto_limpio.replace(f'[EXCEL]{excel_json}[/EXCEL]', '')
 
     return texto_limpio.strip(), acciones, archivos_excel
+
+
+# ─────────────────────────────────────────────
+# WRAPPER ASYNC DE procesar_acciones
+# ─────────────────────────────────────────────
+
+async def procesar_acciones_async(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
+    """
+    Wrapper async de procesar_acciones.
+    CORRECCIÓN punto 8: ejecuta procesar_acciones en un thread del executor para no
+    bloquear el event loop mientras hace I/O (lectura de Excel para verificar clientes).
+    Usar este wrapper en todos los handlers en lugar de llamar procesar_acciones directamente.
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None, lambda: procesar_acciones(texto_respuesta, vendedor, chat_id)
+    )
 
 
 # ─────────────────────────────────────────────
