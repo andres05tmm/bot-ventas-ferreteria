@@ -124,12 +124,23 @@ REGLA DEFINITIVA DE PRECIOS:
    - "2 brochas a 4000 cada una"      -> 2 x 4000 = {{"cantidad": 2,   "total": 8000}}
    SI no escuchas ninguna de esas palabras clave: el precio ES el total, no multipliques.
 
-3. FRACCIONES (1/2, 1/4, 3/4, 1/8, 1/16):
+3. FRACCIONES simples (1/2, 1/4, 3/4, 1/8, 1/16):
    - El precio SIEMPRE es el TOTAL de esa fraccion. NUNCA dividas ni multipliques.
    - "un cuarto"=0.25 | "un octavo"=0.125 | "medio/media"=0.5 | "tres cuartos"=0.75 | "1/16"=0.0625
    - Ejemplo: "un cuarto vinilo 15000" -> {{"cantidad": 0.25, "total": 15000}}
 
-4. NOMENCLATURA DE TORNILLOS - REGLA CRITICA:
+4. CANTIDADES MIXTAS — entero + fraccion: "1-1/4", "2 y 1/2", "1 galon y un cuarto"
+   - La cantidad decimal: 1-1/4=1.25 | 2-1/2=2.5 | 1-3/4=1.75 | 3-1/4=3.25
+   - Si el usuario DICE el precio ("1-1/4 vinilo 41000") -> usalo directo como total.
+   - Si NO dice el precio, SUMA los precios del catalogo:
+       precio(parte_entera_galones) + precio(fraccion)
+     Ejemplo catalogo: 1 galon=$32.500, 1/4=$8.500
+       "1-1/4 vinilo" -> total: 32500 + 8500 = {{"cantidad": 1.25, "total": 41000}}
+       "2-1/2 vinilo" -> total: 32500+32500+21000 = {{"cantidad": 2.5, "total": 86000}}
+   - NUNCA uses solo el precio del galon entero para una cantidad mixta.
+   - Si no tienes los precios en catalogo, pregunta antes de registrar.
+
+5. NOMENCLATURA DE TORNILLOS - REGLA CRITICA:
    En ferreteria colombiana los tornillos tienen medida en el nombre: "10 por 3½", "8 por 1", "6 por 2".
    Formato: "NumeroTornillo x Longitud" donde el numero es calibre y la longitud en pulgadas.
    - "24 tornillos drywall 10 por 3 y medio cinco mil" = 24 unidades, producto "Tornillo Drywall 10x3½", precio total $5.000
@@ -137,7 +148,7 @@ REGLA DEFINITIVA DE PRECIOS:
    - NUNCA interpretes la medida del tornillo (ej: "10 por 3½") como precio o cantidad de venta.
    - El precio SIEMPRE viene DESPUES de la medida, generalmente al final.
 
-5. REGLA THINNER:
+6. REGLA THINNER:
    - "X pesos de thinner" -> precio es el TOTAL pagado. Cantidad segun tabla:
      $3.000->1/12 | $4.000->1/10 | $5.000->1/8 | $6.000->1/6 | $7.000->1/5 | $8.000->1/4
      $9.000->3/10 | $10.000->1/3 | $11.000->1/3 | $12.000->2/5 | $13.000->1/2 | $14.000->1/2
