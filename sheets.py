@@ -56,11 +56,11 @@ def _obtener_hoja_sheets():
                 },
                 "horizontalAlignment": "CENTER",
             })
-        config.SHEETS_DISPONIBLE = True
+        config._set_sheets_disponible(True)
         return ws
     except Exception as e:
         print(f"⚠️ Error accediendo a Sheets: {e}")
-        config.SHEETS_DISPONIBLE = False
+        config._set_sheets_disponible(False)
         config.reset_google_clients()
         return None
 
@@ -107,11 +107,11 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
                 "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0}
             })
 
-        config.SHEETS_DISPONIBLE = True
+        config._set_sheets_disponible(True)
         return True
     except Exception as e:
         print(f"⚠️ Error agregando al Sheets: {e}")
-        config.SHEETS_DISPONIBLE = False
+        config._set_sheets_disponible(False)
         config.reset_google_clients()
         return False
 
@@ -194,7 +194,7 @@ def sheets_detectar_ediciones_vs_excel() -> list[str]:
     inicializar_excel()
 
     import openpyxl
-    wb           = openpyxl.load_workbook(EXCEL_FILE)
+    wb           = openpyxl.load_workbook(EXCEL_FILE, read_only=True)  # solo lectura
     nombre_hoja  = obtener_nombre_hoja()
     ventas_excel = {}
 
