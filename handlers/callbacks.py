@@ -252,19 +252,28 @@ async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, m
     """
     emoji_metodo = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
     lineas = []
+    cliente = None
     for v in ventas:
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
         total        = parsear_precio(v.get("total", 0))
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
+        if not cliente and v.get("cliente"):
+            cliente = v.get("cliente")
+
+    total_general = sum(parsear_precio(v.get("total", 0)) for v in ventas)
+    encabezado = f"✓ Venta — {emoji_metodo} {metodo.capitalize()}"
+    if cliente:
+        encabezado += f" | 👤 {cliente}"
+    encabezado += f"\n\n"
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Confirmar",       callback_data=f"pago_confirmar_{metodo}_{chat_id}"),
         InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"),
     ]])
     await message.reply_text(
-        f"✓ Venta — {emoji_metodo} {metodo.capitalize()}\n\n" + "\n".join(lineas),
+        encabezado + "\n".join(lineas) + f"\n\nTotal: ${total_general:,.0f}",
         reply_markup=keyboard,
     )
 
