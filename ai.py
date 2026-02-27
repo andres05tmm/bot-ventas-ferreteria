@@ -338,6 +338,7 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    CORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000}}
    INCORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "precio_unitario": 15000}}
    NUNCA incluyas el simbolo $ ni comas en los numeros.
+   RESPUESTA CORTA — CRITICO: cuando hay multiples productos NO hagas calculos matematicos en el texto (ej: "2 x $50,000 = $100,000"). Solo emite los [VENTA] y un resumen de una linea. El sistema muestra el detalle automaticamente.
 
 4. Cambiar precio (permanente): [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
    - Usar cuando el usuario diga "cambia el precio de X a Y", "el X ahora vale Y", "actualiza precio X".
@@ -592,7 +593,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     messages.append({"role": "user", "content": str(mensaje_usuario)})
 
     num_lineas = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
-    max_tokens = min(2000, max(1000, num_lineas * 200))
+    max_tokens = min(4000, max(1500, num_lineas * 250))
 
     loop = asyncio.get_event_loop()
     try:
