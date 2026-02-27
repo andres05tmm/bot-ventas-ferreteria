@@ -197,10 +197,37 @@ El usuario puede decir la medida de varias formas, todas significan lo mismo:
   "8 por 1"   -> 8X1    | "8 por 1 y media"  -> 8X1-1/2  | "8 por 3/4"       -> 8X3/4
   "10 por 1"  -> 10X1   | "10 por 1 y media" -> 10X1-1/2 | "10 por 2"        -> 10X2
 Usa SIEMPRE el nombre del catalogo con formato NUMEROxMEDIDA (ej: "TORNILLO DRYWALL 6X1-1/2").
-CRITICO - TORNILLO 6X1 vs 6X1-1/2:
-  "tornillo drywall 6x1" SIN fraccion adicional -> producto EXACTO "TORNILLO DRYWALL 6X1", precio_unidad=38
-  "tornillo drywall 6x1-1/2" -> producto "TORNILLO DRYWALL 6X1-1/2", precio_unidad=58
-  NUNCA confundas "6x1" con "6x1-1/2" - son productos distintos con precios distintos.
+PRECIOS TORNILLOS DRYWALL — UMBRAL 50 UNIDADES:
+Si la cantidad es MENOR de 50: usar precio_unidad. Si es 50 o MAS: usar precio_x50.
+Redondea siempre al entero. total = cantidad x precio_correspondiente.
+
+  Producto                    | precio_unidad | precio_x50 (>=50)
+  TORNILLO DRYWALL 6X1/2      |  25           |  25
+  TORNILLO DRYWALL 6X3/4      |  58           |  30
+  TORNILLO DRYWALL 6X1        |  38           |  35
+  TORNILLO DRYWALL 6X1-1/4    |  42           |  40
+  TORNILLO DRYWALL 6X1-1/2    |  58           |  55
+  TORNILLO DRYWALL 6X2        |  67           |  60
+  TORNILLO DRYWALL 6X2-1/2    |  75           |  70
+  TORNILLO DRYWALL 6X3        |  83           |  80
+  TORNILLO DRYWALL 8X3/4      |  33           |  30
+  TORNILLO DRYWALL 8X1        |  38           |  35
+  TORNILLO DRYWALL 8X1-1/2    |  58           |  55
+  TORNILLO DRYWALL 8X2        |  67           |  60
+  TORNILLO DRYWALL 8X3        |  83           |  80
+  TORNILLO DRYWALL 10X1       |  83           |  70
+  TORNILLO DRYWALL 10X1-1/2   | 125           | 100
+  TORNILLO DRYWALL 10X2       | 150           | 120
+  TORNILLO DRYWALL 10X2-1/2   | 167           | 160
+  TORNILLO DRYWALL 10X3       | 167           | 160
+  TORNILLO DRYWALL 10X4       | 208           | 200
+
+Ejemplos:
+  "12 tornillos drywall 6x1"   -> 12 < 50 -> total = 12 x 38  = 456
+  "50 tornillos drywall 6x1"   -> 50 >= 50 -> total = 50 x 35 = 1750
+  "100 tornillos drywall 8x2"  -> 100 >= 50 -> total = 100 x 60 = 6000
+  "200 tornillos drywall 10x2" -> 200 >= 50 -> total = 200 x 120 = 24000
+NUNCA confundas "6x1" con "6x1-1/2" — son productos distintos.
 
 CHAZOS Y PRODUCTOS CON PRECIO UNITARIO BAJO - REGLA CRITICA:
 Los chazos tienen precio unitario muy bajo ($42-$208 por unidad). SIEMPRE multiplica cantidad x precio_unidad.
