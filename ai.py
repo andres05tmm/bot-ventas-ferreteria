@@ -342,6 +342,15 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
 12. Fiado: [FIADO]{{"cliente": "Nombre Cliente", "concepto": "descripcion productos", "cargo": 50000, "abono": 0}}[/FIADO]
     - "cargo" = monto que quedo debiendo | "abono" = monto que SI pago ahora
     - SIEMPRE emite tambien los [VENTA] normales para registrar los productos vendidos.
+    - FIADO + METODO DE PAGO JUNTOS — REGLA CRITICA:
+      Si el usuario dice "a credito" o "fiado" Y ademas menciona un metodo de pago (transferencia, nequi, efectivo):
+      -> El metodo de pago indica COMO se pagara el fiado cuando lo cancele, NO que pago ahora.
+      -> Registra el fiado normalmente (cargo=total, abono=0).
+      -> Incluye "metodo_pago" en el [VENTA] con el metodo mencionado.
+      -> NUNCA preguntes si es fiada o no cuando el usuario ya dijo "a credito" o "fiado" explicitamente.
+      Ejemplo: "vendi 2 galones vinilo t2 80000 en transferencia a credito para Pedro"
+        -> [VENTA]..metodo_pago: transferencia..[/VENTA] + [FIADO]..cargo: 80000, abono: 0..[/FIADO]
+        -> NO preguntes nada, registra directo.
 13. Abono a fiado: [ABONO_FIADO]{{"cliente": "Nombre Cliente", "monto": 50000}}[/ABONO_FIADO]
 14. Inventario: [INVENTARIO]{{"producto": "nombre", "cantidad": 10, "minimo": 2, "unidad": "galones", "accion": "actualizar"}}[/INVENTARIO]
 15. Borrar cliente: [BORRAR_CLIENTE]{{"nombre": "nombre o identificacion del cliente"}}[/BORRAR_CLIENTE]"""
