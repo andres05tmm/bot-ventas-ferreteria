@@ -989,3 +989,19 @@ Genera SOLO el código Python necesario para modificar el archivo usando openpyx
     elif "```" in codigo:
         codigo = codigo.split("```")[1].split("```")[0].strip()
     return codigo
+
+
+# ─────────────────────────────────────────────
+# VERSIÓN ASYNC DE PROCESAR_ACCIONES
+# ─────────────────────────────────────────────
+
+async def procesar_acciones_async(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
+    """
+    Wrapper async de procesar_acciones para compatibilidad con handlers async.
+    Ejecuta procesar_acciones en un executor para no bloquear el event loop.
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: procesar_acciones(texto_respuesta, vendedor, chat_id)
+    )
