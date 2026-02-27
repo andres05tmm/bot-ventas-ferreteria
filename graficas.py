@@ -19,7 +19,7 @@ import openpyxl
 def _cargar_ws():
     """Helper: carga y retorna (ws, cols, nombre_hoja) o None si no hay datos."""
     inicializar_excel()
-    wb          = openpyxl.load_workbook(config.EXCEL_FILE)
+    wb          = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)  # solo lectura
     nombre_hoja = obtener_nombre_hoja()
     if nombre_hoja not in wb.sheetnames:
         return None, None, nombre_hoja
