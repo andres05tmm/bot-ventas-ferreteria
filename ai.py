@@ -29,6 +29,7 @@ from memoria import (
     cargar_inventario, cargar_caja, cargar_gastos_hoy,
     obtener_resumen_caja, guardar_gasto,
     guardar_fiado_movimiento, abonar_fiado,
+    actualizar_precio_en_catalogo,
 )
 from excel import (
     obtener_todos_los_datos, obtener_resumen_ventas,
@@ -339,7 +340,12 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    INCORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "precio_unitario": 15000}}
    NUNCA incluyas el simbolo $ ni comas en los numeros.
 
-4. Precio nuevo: [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
+4. Cambiar precio (permanente): [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
+   - Usar cuando el usuario diga "cambia el precio de X a Y", "el X ahora vale Y", "actualiza precio X".
+   - Este precio reemplaza el anterior de forma PERMANENTE en el catálogo.
+   - Para fraccion especifica: [PRECIO]{{"producto": "nombre", "precio": 15000, "fraccion": "1/4"}}[/PRECIO]
+   - Confirma siempre: "Listo, [producto] queda en $X,000 de ahora en adelante."
+   - Si el producto no existe en catálogo, el precio queda guardado igual para ventas futuras.
 5. Codigo producto: [CODIGO_PRODUCTO]{{"producto": "nombre exacto del producto", "codigo": "COD123"}}[/CODIGO_PRODUCTO]
 6. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
 7. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
@@ -772,11 +778,21 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     # ── Precio ──
     for precio_json in re.findall(r'\[PRECIO\](.*?)\[/PRECIO\]', texto_respuesta, re.DOTALL):
         try:
-            datos = json.loads(precio_json.strip())
-            mem   = cargar_memoria()
-            mem["precios"][datos["producto"].lower()] = float(datos["precio"])
+            datos    = json.loads(precio_json.strip())
+            producto = datos["producto"]
+            precio   = float(datos["precio"])
+            fraccion = datos.get("fraccion")  # opcional: "1/4", "1/2", etc.
+
+            # Actualizar en catálogo (permanente) y en precios simples (fallback)
+            en_catalogo = actualizar_precio_en_catalogo(producto, precio, fraccion)
+            mem = cargar_memoria()
+            mem.setdefault("precios", {})[producto.lower()] = precio
             guardar_memoria(mem)
-            acciones.append(f"Precio guardado: {datos['producto']} = ${float(datos['precio']):,.0f}")
+
+            if fraccion:
+                acciones.append(f"🧠 Precio actualizado: {producto} {fraccion} = ${precio:,.0f}")
+            else:
+                acciones.append(f"🧠 Precio actualizado: {producto} = ${precio:,.0f}")
         except Exception as e:
             print(f"Error precio: {e}")
         texto_limpio = texto_limpio.replace(f'[PRECIO]{precio_json}[/PRECIO]', '')
