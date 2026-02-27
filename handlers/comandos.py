@@ -17,7 +17,7 @@ from telegram.ext import ContextTypes
 
 import config
 from excel import (
-    inicializar_excel, obtener_nombre_hoja, obtener_o_crear_hoja,
+    inicializar_excel, obtener_o_crear_hoja,
     detectar_columnas, buscar_ventas, obtener_ventas_recientes,
     buscar_clientes_multiples, cargar_clientes,
 )
@@ -41,9 +41,9 @@ from ventas_state import borrados_pendientes, _estado_lock
 # ─────────────────────────────────────────────
 
 async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    estado_drive  = "✅ Drive conectado" if config.DRIVE_DISPONIBLE else "⚠️ Drive offline"
+    estado_drive  = "✅ Drive conectado" if config._get_drive_disponible() else "⚠️ Drive offline"
     estado_sheets = (
-        "✅ Sheets conectado" if config.SHEETS_DISPONIBLE else
+        "✅ Sheets conectado" if config._get_sheets_disponible() else
         ("⚠️ Sheets no configurado" if not config.SHEETS_ID else "⚠️ Sheets sin conexion")
     )
     await update.message.reply_text(
@@ -89,7 +89,7 @@ async def comando_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────────
 
 async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+    if config.SHEETS_ID and config._get_sheets_disponible():
         ventas_raw = await asyncio.to_thread(sheets_leer_ventas_del_dia)
         if ventas_raw:
             total_dia = 0
@@ -178,7 +178,7 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.message.chat_id
     venta = None
-    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+    if config.SHEETS_ID and config._get_sheets_disponible():
         ventas_sheets = await asyncio.to_thread(sheets_leer_ventas_del_dia)
         for v in ventas_sheets:
             try:
@@ -329,8 +329,8 @@ async def comando_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto = f"👥 Clientes encontrados para '{termino}':\n\n"
         for c in resultados:
             nombre = c.get("Nombre tercero", "")
-            id_c   = c.get("Identificación", "")
-            tipo   = c.get("Tipo de identificación", "")
+            id_c   = c.get("Identificacion", "")
+            tipo   = c.get("Tipo de identificacion", "")
             texto += f"• {nombre} — {tipo}: {id_c}\n"
         await update.message.reply_text(texto)
     else:
@@ -360,7 +360,7 @@ async def comando_sheets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Google Sheets no configurado.")
         return
     ventas = await asyncio.to_thread(sheets_leer_ventas_del_dia)
-    estado = "✅ Conectado" if config.SHEETS_DISPONIBLE else "⚠️ Sin conexion"
+    estado = "✅ Conectado" if config._get_sheets_disponible() else "⚠️ Sin conexion"
     url    = f"https://docs.google.com/spreadsheets/d/{config.SHEETS_ID}/edit"
     total_dia = sum(float(v.get("total", 0) or 0) for v in ventas)
     texto = (
