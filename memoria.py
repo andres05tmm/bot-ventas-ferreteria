@@ -395,3 +395,164 @@ def detalle_fiado_cliente(cliente: str) -> str:
         else:
             lineas.append(f"  {m['fecha']} | {m['concepto']} | Abono: ${m['abono']:,.0f} | Saldo: ${m['saldo']:,.0f}")
     return "\n".join(lineas)
+
+
+# ─────────────────────────────────────────────
+# GESTION DE CATALOGO DESDE EXCEL
+# ─────────────────────────────────────────────
+
+# Categorias que se venden por fracciones de galon
+_CATEGORIAS_CON_FRACCIONES = {
+    "2 pinturas y disolventes",
+    "4 impermeabilizantes y materiales de construcción",
+    "4 impermeabilizantes y materiales de construccion",
+}
+
+# Palabras clave de productos que se venden por fracciones
+_KEYWORDS_FRACCIONES = (
+    "vinilo", "laca", "esmalte", "sellador", "base", "imprimante",
+    "impermeabilizante", "thinner", "disolvente", "barniz", "aceite",
+)
+
+# Tornillos drywall — tienen precio especial por volumen (umbral 50)
+_KEYWORDS_PRECIO_UMBRAL = ("tornillo drywall",)
+
+
+def _es_producto_con_fracciones(nombre: str, categoria: str) -> bool:
+    n = nombre.lower()
+    c = categoria.lower()
+    if c in _CATEGORIAS_CON_FRACCIONES:
+        return True
+    return any(k in n for k in _KEYWORDS_FRACCIONES)
+
+
+def _es_tornillo_drywall(nombre: str) -> bool:
+    n = nombre.lower()
+    return all(k in n for k in ("tornillo", "drywall"))
+
+
+def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fraccion: str = None) -> bool:
+    """
+    Actualiza el precio de un producto existente en el catálogo de forma permanente.
+    - Si fraccion es None: actualiza precio_unidad (galon completo / precio base).
+    - Si fraccion es "1/4", "1/2", etc.: actualiza ese precio de fraccion.
+    Retorna True si encontró y actualizó el producto, False si no lo encontró.
+    """
+    mem      = cargar_memoria()
+    catalogo = mem.get("catalogo", {})
+    prod     = buscar_producto_en_catalogo(nombre_producto)
+
+    if not prod:
+        # Guardar en precios simples como fallback
+        mem.setdefault("precios", {})[nombre_producto.lower()] = nuevo_precio
+        guardar_memoria(mem)
+        return False
+
+    # Encontrar la clave exacta en el catálogo
+    clave = None
+    for k, v in catalogo.items():
+        if v.get("nombre_lower") == prod.get("nombre_lower"):
+            clave = k
+            break
+
+    if not clave:
+        return False
+
+    if fraccion:
+        catalogo[clave].setdefault("precios_fraccion", {})
+        catalogo[clave]["precios_fraccion"][fraccion] = {"precio": round(nuevo_precio)}
+    else:
+        catalogo[clave]["precio_unidad"] = round(nuevo_precio)
+        # Si tiene precio_por_cantidad, actualizar también el precio bajo umbral
+        if catalogo[clave].get("precio_por_cantidad"):
+            catalogo[clave]["precio_por_cantidad"]["precio_bajo_umbral"] = round(nuevo_precio)
+
+    mem["catalogo"] = catalogo
+    guardar_memoria(mem)
+    invalidar_cache_memoria()
+    return True
+
+
+def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
+    """
+    Lee BASE_DE_DATOS_PRODUCTOS.xlsx e importa todos los productos al catálogo en memoria.
+    Retorna {"importados": N, "omitidos": N, "errores": [...]}
+    """
+    import openpyxl
+    try:
+        wb = openpyxl.load_workbook(ruta_excel, data_only=True)
+        ws = wb['Datos']
+    except Exception as e:
+        return {"importados": 0, "omitidos": 0, "errores": [str(e)]}
+
+    mem      = cargar_memoria()
+    catalogo = mem.get("catalogo", {})
+
+    importados = 0
+    omitidos   = 0
+    errores    = []
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        try:
+            nombre    = str(row[1] or "").strip()
+            categoria = str(row[3] or "").strip()
+            p_unidad  = row[16]   # COL 17 — precio 1 unidad / galon
+            p_075     = row[17]   # COL 18 — precio unitario para 3/4
+            p_05      = row[18]   # COL 19 — precio unitario para 1/2
+            p_025     = row[19]   # COL 20 — precio unitario para 1/4
+            p_013     = row[20]   # COL 21 — precio unitario para 1/8
+            p_006     = row[21]   # COL 22 — precio unitario para 1/16
+
+            if not nombre or nombre == "nan":
+                omitidos += 1
+                continue
+            if not p_unidad or not isinstance(p_unidad, (int, float)) or p_unidad <= 0:
+                omitidos += 1
+                continue
+
+            nombre_lower = _normalizar(nombre)
+            clave        = nombre_lower.replace(" ", "_")
+
+            prod_base = {
+                "nombre":      nombre,
+                "nombre_lower": nombre_lower,
+                "categoria":   categoria,
+                "precio_unidad": round(float(p_unidad)),
+            }
+
+            if _es_tornillo_drywall(nombre):
+                # Precio especial cuando compra >= 50 unidades
+                precio_x50 = round(float(p_075)) if p_075 and isinstance(p_075, (int, float)) and p_075 > 0 else round(float(p_unidad))
+                prod_base["precio_por_cantidad"] = {
+                    "umbral":               50,
+                    "precio_bajo_umbral":   round(float(p_unidad)),
+                    "precio_sobre_umbral":  precio_x50,
+                }
+
+            elif _es_producto_con_fracciones(nombre, categoria):
+                # Calcular precios totales por fraccion multiplicando precio_unitario x fraccion
+                fracs = {}
+                if p_075 and isinstance(p_075, (int, float)) and p_075 > 0:
+                    fracs["3/4"]  = {"precio": round(float(p_075) * 0.75)}
+                if p_05 and isinstance(p_05, (int, float)) and p_05 > 0:
+                    fracs["1/2"]  = {"precio": round(float(p_05)  * 0.5)}
+                if p_025 and isinstance(p_025, (int, float)) and p_025 > 0:
+                    fracs["1/4"]  = {"precio": round(float(p_025) * 0.25)}
+                if p_013 and isinstance(p_013, (int, float)) and p_013 > 0:
+                    fracs["1/8"]  = {"precio": round(float(p_013) * 0.125)}
+                if p_006 and isinstance(p_006, (int, float)) and p_006 > 0:
+                    fracs["1/16"] = {"precio": round(float(p_006) * 0.0625)}
+                if fracs:
+                    prod_base["precios_fraccion"] = fracs
+
+            catalogo[clave] = prod_base
+            importados += 1
+
+        except Exception as e:
+            errores.append(f"{row[1]}: {e}")
+
+    mem["catalogo"] = catalogo
+    guardar_memoria(mem)
+    invalidar_cache_memoria()
+
+    return {"importados": importados, "omitidos": omitidos, "errores": errores[:10]}
