@@ -37,11 +37,11 @@ def _ejecutar_subida_real(nombre_archivo: str):
     try:
         service = config.get_drive_service()
         _subir_con_service(service, nombre_archivo)
-        config.DRIVE_DISPONIBLE = True
+        config._set_drive_disponible(True)
         _reintentar_pendientes()
     except Exception as e:
         logging.getLogger("ferrebot.drive").warning(f"⚠️ Error subiendo '{nombre_archivo}' a Drive: {e}. Guardando en cola local.")
-        config.DRIVE_DISPONIBLE = False
+        config._set_drive_disponible(False)
         config.reset_google_clients()
         _encolar_para_subir(nombre_archivo)
 
@@ -88,8 +88,14 @@ def _subir_con_service(service, nombre_archivo: str) -> bool:
     return True
 
 
-def descargar_de_drive(nombre_archivo: str) -> bool:
-    """Descarga un archivo de Drive al servidor. Retorna False si falla."""
+def descargar_de_drive(nombre_archivo: str, ruta_destino: str = None) -> bool:
+    """
+    Descarga un archivo de Drive al servidor. Retorna False si falla.
+    - nombre_archivo: nombre del archivo tal como está en Drive.
+    - ruta_destino:   ruta local donde guardar el archivo.
+                      Si es None, se guarda con el mismo nombre en el directorio actual.
+    """
+    ruta_local = ruta_destino or nombre_archivo
     try:
         service = config.get_drive_service()
         file_id = _buscar_archivo(service, nombre_archivo)
@@ -104,15 +110,15 @@ def descargar_de_drive(nombre_archivo: str) -> bool:
             _, done = downloader.next_chunk()
 
         buffer.seek(0)
-        with open(nombre_archivo, "wb") as f:
+        with open(ruta_local, "wb") as f:
             f.write(buffer.read())
 
-        config.DRIVE_DISPONIBLE = True
+        config._set_drive_disponible(True)
         return True
 
     except Exception as e:
         logging.getLogger("ferrebot.drive").warning(f"⚠️ Error descargando '{nombre_archivo}' de Drive (modo offline): {e}")
-        config.DRIVE_DISPONIBLE = False
+        config._set_drive_disponible(False)
         config.reset_google_clients()
         return False
 
