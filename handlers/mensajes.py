@@ -345,7 +345,12 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 ventas_para_registrar = list(ventas_pendientes.get(chat_id, []))
             if ventas_para_registrar:
                 await update.message.reply_text("👍 Registrando la venta sin crear el cliente...")
-                await _enviar_botones_pago(update.message, chat_id, ventas_para_registrar)
+                metodo_conocido = ventas_para_registrar[0].get("metodo_pago", "").lower()
+                if metodo_conocido:
+                    from handlers.callbacks import _enviar_confirmacion_con_metodo
+                    await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_para_registrar, metodo_conocido)
+                else:
+                    await _enviar_botones_pago(update.message, chat_id, ventas_para_registrar)
                 return
 
     # ── Flujo normal con Claude ──
