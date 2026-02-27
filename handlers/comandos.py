@@ -25,6 +25,7 @@ from memoria import (
     cargar_memoria, obtener_resumen_caja, cargar_gastos_hoy,
     cargar_inventario, verificar_alertas_inventario,
     resumen_fiados, detalle_fiado_cliente,
+    importar_catalogo_desde_excel,
 )
 from sheets import (
     sheets_leer_ventas_del_dia, sheets_detectar_ediciones_vs_excel,
@@ -609,3 +610,58 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
         print(f"Error limpiando memoria interna: {e}")
 
     await update.message.reply_text("✅ Reset del dia completado. Todos los procesos en standby fueron cancelados.")
+
+
+async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /catalogo — Reimporta todos los productos desde BASE_DE_DATOS_PRODUCTOS.xlsx.
+    El archivo debe estar en Google Drive o enviarse como documento al bot.
+    """
+    await update.message.reply_text(
+        "📦 Actualizando catálogo de productos...\n"
+        "Buscando BASE_DE_DATOS_PRODUCTOS.xlsx en Drive..."
+    )
+
+    # Intentar descargar desde Drive
+    ruta_local = "BASE_DE_DATOS_PRODUCTOS.xlsx"
+    descargado = False
+
+    try:
+        from drive import descargar_de_drive
+        descargado = await asyncio.to_thread(
+            descargar_de_drive, "BASE_DE_DATOS_PRODUCTOS.xlsx", ruta_local
+        )
+    except Exception as e:
+        print(f"Error descargando de Drive: {e}")
+
+    if not descargado:
+        await update.message.reply_text(
+            "⚠️ No encontré el archivo en Drive.\n\n"
+            "Envíame el archivo BASE_DE_DATOS_PRODUCTOS.xlsx directamente en este chat "
+            "y lo importaré automáticamente."
+        )
+        return
+
+    # Importar el catalogo
+    try:
+        resultado = await asyncio.to_thread(importar_catalogo_desde_excel, ruta_local)
+        importados = resultado["importados"]
+        omitidos   = resultado["omitidos"]
+        errores    = resultado["errores"]
+
+        texto = (
+            f"✅ Catálogo actualizado exitosamente\n\n"
+            f"📦 {importados} productos importados\n"
+            f"⏭️ {omitidos} filas omitidas (sin nombre o precio)"
+        )
+        if errores:
+            texto += f"\n⚠️ {len(errores)} errores:\n" + "\n".join(f"  • {e}" for e in errores[:5])
+
+        await update.message.reply_text(texto)
+
+        import os
+        if os.path.exists(ruta_local):
+            os.remove(ruta_local)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error importando: {e}")
