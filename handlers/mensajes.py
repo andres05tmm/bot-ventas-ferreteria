@@ -549,6 +549,36 @@ async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # ── Si es BASE_DE_DATOS_PRODUCTOS, importar catálogo automáticamente ──
+    if "base_de_datos_productos" in nombre.lower() or "base de datos" in nombre.lower():
+        await update.message.reply_text("📦 Detecté el catálogo de productos. Importando...")
+        try:
+            ruta_temp = f"temp_catalogo_{update.message.chat_id}.xlsx"
+            archivo   = await doc.get_file()
+            await archivo.download_to_drive(ruta_temp)
+
+            from memoria import importar_catalogo_desde_excel
+            resultado  = await asyncio.to_thread(importar_catalogo_desde_excel, ruta_temp)
+            importados = resultado["importados"]
+            omitidos   = resultado["omitidos"]
+            errores    = resultado["errores"]
+
+            texto = (
+                f"✅ Catálogo actualizado exitosamente\n\n"
+                f"📦 {importados} productos importados\n"
+                f"⏭️ {omitidos} filas omitidas (sin nombre o precio)"
+            )
+            if errores:
+                texto += f"\n⚠️ {len(errores)} errores:\n" + "\n".join(f"  • {e}" for e in errores[:5])
+            await update.message.reply_text(texto)
+
+            import os
+            if os.path.exists(ruta_temp):
+                os.remove(ruta_temp)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error importando catálogo: {e}")
+        return
+
     await update.message.reply_text(f"📂 Recibí tu archivo '{nombre}'. Leyendo contenido...")
     chat_id = update.message.chat_id
 
