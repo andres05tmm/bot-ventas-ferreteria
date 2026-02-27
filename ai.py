@@ -303,6 +303,22 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    -> Si el usuario NO menciona "alta temperatura": usar el aerosol normal de $9,000.
    -> Si menciona "alta temperatura": usar el de alta temperatura con su precio.
 
+2f. PRODUCTOS A GRANEL (por kilo) - REGLA CRITICA:
+   Estos productos se venden por kilo O por bolsa completa:
+   - Cemento Blanco: $2,500/kg
+   - Yeso: $1,500/kg
+   - Talco: $1,500/kg
+   - Marmolina: $1,500/kg
+   - Granito N°1: $1,000/kg
+   - Carbonato X 25 Kg: $18,000 la bolsa completa ($720/kg)
+
+   Reglas:
+   -> Si el usuario dice "X kilos de [producto]": total = precio_por_kg × X
+      Ejemplo: "15 kilos de yeso" → cantidad=15, total=22500 (1500 × 15)
+   -> El precio del catalogo para estos productos YA ES por kilo — multiplicar directo por los kilos.
+   -> Carbonato: se vende SOLO por bolsa completa de 25 kg. total=18000, cantidad=1 siempre.
+      NUNCA vendas kilos sueltos de carbonato.
+
 3. Venta detectada - incluye al FINAL uno por producto:
    [VENTA]{{"producto": "nombre completo", "cantidad": 1, "total": 21000}}[/VENTA]
    - USA SIEMPRE y UNICAMENTE la llave "total" con el valor final pagado.
