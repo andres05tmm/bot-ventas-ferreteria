@@ -120,23 +120,43 @@ _TOL = 0.013  # ~50 ml en un galón, suficiente para cubrir aproximaciones
 
 
 def convertir_fraccion_a_decimal(valor) -> float:
-    """Convierte fracciones como '1/4', '1/3', '1/12', '3 y 1/4' o números a float."""
+    """
+    Convierte fracciones a float. Soporta todos estos formatos:
+      - Fraccion pura:    '1/4', '3/4', '1/3'
+      - Con espacio:      '1 y 1/4', '2 1/2', '1 y 3/4'
+      - Con guion:        '1-1/4', '2-1/2', '3-3/4'  <- formato comun del usuario
+      - Decimal directo:  '1.25', '0.5'
+      - Entero:           '2', 3
+    """
     if isinstance(valor, (int, float)):
         return float(valor)
     valor = str(valor).strip()
+
     if valor in _FRAC_A_DEC:
         return _FRAC_A_DEC[valor]
+
     if "/" in valor:
+        # Formato con guion: "1-1/4", "2-3/4"
+        match_guion = re.match(r'^(\d+)-(\d+/\d+)$', valor)
+        if match_guion:
+            entero   = float(match_guion.group(1))
+            frac_str = match_guion.group(2)
+            fraccion = _FRAC_A_DEC.get(frac_str) or _dividir(frac_str)
+            return entero + fraccion
+
+        # Formato con espacio: "1 y 1/4", "2 1/2", "1 y 3/4"
         if " " in valor:
             try:
-                partes   = valor.split()
+                partes   = [p for p in valor.split() if p.lower() != "y"]
                 entero   = float(partes[0])
                 frac_str = partes[-1]
                 fraccion = _FRAC_A_DEC.get(frac_str) or _dividir(frac_str)
                 return entero + fraccion
             except Exception:
                 pass
+
         return _dividir(valor)
+
     try:
         return float(valor)
     except Exception:
