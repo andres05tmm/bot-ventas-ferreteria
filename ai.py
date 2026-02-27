@@ -331,8 +331,8 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
      Si el usuario NO menciona el metodo: NO pongas "metodo_pago" en el JSON.
    - Si NO menciona cliente: NO preguntes, registra directo sin campo "cliente".
    - Si menciona cliente y esta en la base: incluye "cliente": "Nombre" en el JSON.
-   - Si menciona cliente y NO esta en la base: registra la venta directo con el nombre tal cual — NO preguntes nada, NO uses [INICIAR_CLIENTE]. Los datos del cliente solo se necesitan cuando el usuario pide explicitamente hacer una factura electronica.
-   - NUNCA uses [INICIAR_CLIENTE] para ventas normales ni fiados.
+   - Si menciona cliente y NO esta en la base: incluye igual "cliente": "Nombre" en el JSON y registra la venta normalmente. El sistema se encargara de preguntar si quiere crearlo — TU no preguntes nada ni uses [INICIAR_CLIENTE].
+   - NUNCA uses [INICIAR_CLIENTE]. SIEMPRE emite [VENTA] con el campo "cliente" si se menciono un nombre.
    FORMATO JSON ESTRICTO:
    CORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000, "metodo_pago": "efectivo"}}
    CORRECTO: {{"producto": "Vinilo T1 Blanco", "cantidad": 0.25, "total": 15000}}
