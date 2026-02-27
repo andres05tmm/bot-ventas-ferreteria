@@ -151,6 +151,41 @@ def reset_google_clients():
 
 # ─────────────────────────────────────────────
 # FLAGS DE DISPONIBILIDAD (estado de servicios)
+# Protegidos con lock para evitar condiciones de carrera entre hilos
 # ─────────────────────────────────────────────
-DRIVE_DISPONIBLE   = True
-SHEETS_DISPONIBLE  = bool(SHEETS_ID)
+import threading as _threading
+
+_flags_lock        = _threading.Lock()
+_DRIVE_DISPONIBLE  = True
+_SHEETS_DISPONIBLE = bool(SHEETS_ID)
+
+
+def _get_drive_disponible() -> bool:
+    with _flags_lock:
+        return _DRIVE_DISPONIBLE
+
+
+def _set_drive_disponible(valor: bool):
+    global _DRIVE_DISPONIBLE
+    with _flags_lock:
+        _DRIVE_DISPONIBLE = valor
+
+
+def _get_sheets_disponible() -> bool:
+    with _flags_lock:
+        return _SHEETS_DISPONIBLE
+
+
+def _set_sheets_disponible(valor: bool):
+    global _SHEETS_DISPONIBLE
+    with _flags_lock:
+        _SHEETS_DISPONIBLE = valor
+
+
+# Propiedades de compatibilidad: el resto del código puede seguir leyendo
+# config.DRIVE_DISPONIBLE / config.SHEETS_DISPONIBLE sin cambios,
+# pero AHORA las asignaciones directas también deben usar los setters.
+# Para compatibilidad total con código existente, mantenemos los atributos
+# de módulo pero las funciones anteriores son la vía recomendada para mutar.
+DRIVE_DISPONIBLE   = _DRIVE_DISPONIBLE
+SHEETS_DISPONIBLE  = _SHEETS_DISPONIBLE
