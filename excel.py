@@ -281,7 +281,7 @@ def buscar_cliente(termino: str) -> dict | None:
     termino_norm = _normalizar(termino)
 
     for c in clientes:
-        if _normalizar(c.get("Identificación", "") or "") == termino_norm:
+        if _normalizar(c.get("Identificacion", "") or "") == termino_norm:
             return c
 
     palabras = [p for p in termino_norm.split() if len(p) > 2]
@@ -305,7 +305,7 @@ def buscar_cliente_con_resultado(termino: str) -> tuple[dict | None, list]:
     termino_norm = _normalizar(termino)
 
     for c in clientes:
-        if _normalizar(c.get("Identificación", "") or "") == termino_norm:
+        if _normalizar(c.get("Identificacion", "") or "") == termino_norm:
             return c, [c]
 
     palabras = [p for p in termino_norm.split() if len(p) > 2]
@@ -339,7 +339,7 @@ def obtener_clientes_recientes(limite: int = 5) -> list:
 def obtener_nombre_id_cliente(termino: str) -> tuple[str, str]:
     cliente = buscar_cliente(termino)
     if cliente:
-        id_c     = cliente.get("Identificación") or "CF"
+        id_c     = cliente.get("Identificacion") or "CF"
         nombre_c = cliente.get("Nombre tercero") or "Consumidor Final"
         return str(id_c), str(nombre_c)
     return "CF", "Consumidor Final"
@@ -352,9 +352,9 @@ def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural
         if "Clientes" not in wb.sheetnames:
             ws_c    = wb.create_sheet("Clientes")
             headers = [
-                "Nombre tercero", "Es Juridica o Persona", "Tipo de identificación",
-                "Identificación", "Digito verificación", "Correo electrónico",
-                "Dirección", "Teléfono.", "Nombres contacto", "Fecha registro",
+                "Nombre tercero", "Es Juridica o Persona", "Tipo de identificacion",
+                "Identificacion", "Digito verificacion", "Correo electronico",
+                "Direccion", "Telefono", "Nombres contacto", "Fecha registro",
             ]
             for col, h in enumerate(headers, 1):
                 celda      = ws_c.cell(row=1, column=col, value=h)
