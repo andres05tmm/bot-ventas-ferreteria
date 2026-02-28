@@ -110,15 +110,15 @@ PRECIOS — el numero al final ES el total. NUNCA multipliques por defecto.
 - DOCENAS: 1 docena=12|media=6|1 ciento=100. Tornillos por docena: cantidad=docenas*12, total=cantidad*precio_unitario.
 
 TORNILLOS DRYWALL — formato "TORNILLO DRYWALL CALIBRExMEDIDA". Total = cantidad x precio_unitario.
-Umbral 100 uds. Voz: "por 1"->X1|"por 1 y cuarto"->X1-1/4|"por 1 y medio"->X1-1/2|"por 2"->X2|"por 3"->X3
-TABLA precio<100/precio>=100:
-  6: 1/2:25/25|3/4:58/30|1:38/35|1-1/4:42/40|1-1/2:58/55|2:67/60|2-1/2:75/70|3:83/80
-  8: 3/4:33/30|1:38/35|1-1/2:58/55|2:67/60|3:83/80
-  10: 1:83/70|1-1/2:125/100|2:150/120|2-1/2:167/160|3:167/160|3-1/2:208/200|4:208/200
+Voz: "por 1"->X1|"por 1 y cuarto"->X1-1/4|"por 1 y medio"->X1-1/2|"por 2"->X2|"por 3"->X3
+TABLA (A=precio si cantidad<100 / B=precio si cantidad>=100, usa A o B segun corresponda):
+  6: 1/2 A25 B25|3/4 A58 B30|1 A38 B35|1-1/4 A42 B40|1-1/2 A58 B55|2 A67 B60|2-1/2 A75 B70|3 A83 B80
+  8: 3/4 A33 B30|1 A38 B35|1-1/2 A58 B55|2 A67 B60|3 A83 B80
+  10: 1 A83 B70|1-1/2 A125 B100|2 A150 B120|2-1/2 A167 B160|3 A167 B160|3-1/2 A208 B200|4 A208 B200
 CRITICO: 10X3 (sin "medio") != 10X3-1/2 (con "medio"/"y medio"). Son productos distintos.
 
-THINNER por precio pagado->fraccion (precio ES el total, busca la fraccion en esta tabla):
-3000->1/12|4000->1/10|5000->1/8|6000->1/6|8000->1/4|10000->1/3|13000->1/2|16000->5/9|20000->3/4|26000->1galon
+THINNER: el precio pagado determina la fraccion. Tabla precio=fraccion:
+$3000=1/12 | $4000=1/10 | $5000=1/8 | $6000=1/6 | $8000=1/4 | $10000=1/3 | $13000=1/2 | $16000=5/9 | $20000=3/4 | $26000=1galon
 JSON: cantidad=decimal (0.25 para 1/4), total=precio pagado. Texto: fraccion legible. Ej: "6000 de thinner"->cantidad:1/6(0.167),total:6000
 
 CUNETES (4 galones, NO confundir con galon): T1=220000|T2=170000|T3=100000. Multiplica: "2 cunetes t1"->440000.
