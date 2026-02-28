@@ -1,5 +1,5 @@
 """
-Integración con Claude AI (modelo: claude-haiku-4-5-20251001):
+Integración con Claude AI (modelo: claude-3-haiku-20240307):
 - Construcción del system prompt con contexto del negocio
 - Llamada a la API de Claude con PROMPT CACHING (ahorro ~60% en tokens de input)
 - Parseo y ejecución de acciones embebidas en la respuesta ([VENTA]...[/VENTA], etc.)
@@ -11,7 +11,7 @@ OPTIMIZACIONES DE COSTO ACTIVAS:
   3. max_tokens cap  — techo de 2000 tokens de respuesta.
 
 CORRECCIONES v2:
-  - Comentario de modelo corregido: era "Claude 3.5", el modelo real es claude-haiku-4-5-20251001
+  - Comentario de modelo corregido: era "Claude 3.5", el modelo real es claude-3-haiku-20240307
 """
 
 import logging
@@ -51,11 +51,10 @@ def _construir_parte_estatica(memoria: dict) -> str:
     catalogo = memoria.get("catalogo", {})
 
     def _linea_producto(prod):
-        fracs = prod.get("precios_fraccion", {})
-        pxc   = prod.get("precio_por_cantidad")
-        if fracs:
-            return f"  - {prod['nombre']}: " + " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
-        elif pxc:
+        # En el catálogo completo solo mostramos precio base para ahorrar tokens.
+        # Las fracciones llegan via info_candidatos_extra cuando el producto es mencionado.
+        pxc = prod.get("precio_por_cantidad")
+        if pxc:
             return (f"  - {prod['nombre']}: "
                     f"c/u=${pxc['precio_bajo_umbral']:,} | x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
         else:
@@ -610,7 +609,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
             loop.run_in_executor(
                 None,
                 lambda: config.claude_client.messages.create(
-                    model="claude-haiku-4-5-20251001",
+                    model="claude-3-haiku-20240307",
                     max_tokens=max_tokens,
                     system=[
                         {
@@ -1030,7 +1029,7 @@ Genera SOLO el código Python necesario para modificar el archivo usando openpyx
     respuesta = await loop.run_in_executor(
         None,
         lambda: config.claude_client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-3-haiku-20240307",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
