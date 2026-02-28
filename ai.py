@@ -23,7 +23,7 @@ from datetime import datetime
 
 import config
 from memoria import (
-    cargar_memoria, guardar_memoria,
+    cargar_memoria, guardar_memoria, invalidar_cache_memoria,
     buscar_producto_en_catalogo, buscar_multiples_en_catalogo,
     obtener_precios_como_texto, obtener_info_fraccion_producto,
     cargar_inventario, cargar_caja, cargar_gastos_hoy,
@@ -341,11 +341,14 @@ INSTRUCCIONES DE FORMATO Y RESPUESTA:
    RESPUESTA CORTA — CRITICO: cuando hay multiples productos NO hagas calculos matematicos en el texto (ej: "2 x $50,000 = $100,000"). Solo emite los [VENTA] y un resumen de una linea. El sistema muestra el detalle automaticamente.
 
 4. Cambiar precio (permanente): [PRECIO]{{"producto": "nombre", "precio": 50000}}[/PRECIO]
-   - Usar cuando el usuario diga "cambia el precio de X a Y", "el X ahora vale Y", "actualiza precio X".
-   - Este precio reemplaza el anterior de forma PERMANENTE en el catálogo.
+   - Usar cuando el usuario diga "cambia el precio de X a Y", "el X ahora vale Y", "actualiza precio X",
+     "el X subio a Y", "el X bajo a Y", "el nuevo precio del X es Y", "el X cuesta Y ahora",
+     "modifica el precio del X", "el precio del X cambio a Y".
+   - Este precio REEMPLAZA el anterior COMPLETAMENTE. No queda rastro del precio viejo.
    - Para fraccion especifica: [PRECIO]{{"producto": "nombre", "precio": 15000, "fraccion": "1/4"}}[/PRECIO]
    - Confirma siempre: "Listo, [producto] queda en $X,000 de ahora en adelante."
    - Si el producto no existe en catálogo, el precio queda guardado igual para ventas futuras.
+   - NUNCA uses [VENTA] junto con [PRECIO] en el mismo mensaje — son acciones distintas.
 5. Codigo producto: [CODIGO_PRODUCTO]{{"producto": "nombre exacto del producto", "codigo": "COD123"}}[/CODIGO_PRODUCTO]
 6. Precio fraccion: [PRECIO_FRACCION]{{"producto": "nombre completo", "fraccion": "1/4", "precio": 15000}}[/PRECIO_FRACCION]
 7. Info negocio: [NEGOCIO]{{"clave": "valor"}}[/NEGOCIO]
@@ -792,11 +795,25 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             precio   = float(datos["precio"])
             fraccion = datos.get("fraccion")  # opcional: "1/4", "1/2", etc.
 
-            # Actualizar en catálogo (permanente) y en precios simples (fallback)
+            # Actualizar en catálogo (permanente)
             en_catalogo = actualizar_precio_en_catalogo(producto, precio, fraccion)
+
+            # Limpiar precio viejo de precios simples para que no haya conflicto
             mem = cargar_memoria()
-            mem.setdefault("precios", {})[producto.lower()] = precio
+            precios_simples = mem.get("precios", {})
+            # Borrar cualquier variante del nombre del producto en precios simples
+            from memoria import buscar_producto_en_catalogo as _bpc
+            prod_encontrado = _bpc(producto)
+            if prod_encontrado:
+                nombre_lower = prod_encontrado.get("nombre_lower", "")
+                claves_borrar = [k for k in precios_simples if k == nombre_lower or nombre_lower in k or k in nombre_lower]
+                for k in claves_borrar:
+                    del precios_simples[k]
+            # Guardar precio nuevo también en simples como referencia actualizada
+            precios_simples[producto.lower()] = precio
+            mem["precios"] = precios_simples
             guardar_memoria(mem)
+            invalidar_cache_memoria()  # Forzar recarga inmediata
 
             if fraccion:
                 acciones.append(f"🧠 Precio actualizado: {producto} {fraccion} = ${precio:,.0f}")
