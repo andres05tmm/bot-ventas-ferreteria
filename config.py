@@ -101,7 +101,10 @@ MESES = {
 # ─────────────────────────────────────────────
 # CLIENTES DE API (creados una sola vez)
 # ─────────────────────────────────────────────
-claude_client  = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+claude_client  = anthropic.Anthropic(
+    api_key=ANTHROPIC_API_KEY,
+    default_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+)
 openai_client  = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # ─────────────────────────────────────────────
