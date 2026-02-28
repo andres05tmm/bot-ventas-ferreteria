@@ -297,6 +297,9 @@ _CORRECCIONES_AUDIO: dict[str, str] = {
     # Chazos
     "dos hechazos": "doce chazos",
     "hechazos":     "chazos",
+    # Latecol
+    "la tecol":  "latecol",
+    "latecoll":  "latecol",
 }
 
 
@@ -310,4 +313,11 @@ def corregir_texto_audio(texto: str) -> str:
         return texto
     for error, correcto in _CORRECCIONES_AUDIO.items():
         texto = re.sub(rf'\b{error}\b', correcto, texto, flags=re.IGNORECASE)
+    # Brocas sin tipo especificado -> para metal
+    # "broca 1/8" -> "broca para metal 1/8" (solo si no dice "muro" ni "metal" cerca)
+    texto = re.sub(
+        r'\bbroca(s?)\s+(?!para\s+(?:metal|muro))(\d+[x/]\d+)',
+        lambda m: f'broca{m.group(1)} para metal {m.group(2)}',
+        texto, flags=re.IGNORECASE
+    )
     return texto
