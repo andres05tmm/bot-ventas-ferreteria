@@ -266,12 +266,31 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     info_candidatos_extra = ""
     palabras_clave        = [p for p in mensaje_usuario.lower().split() if p not in stopwords]
 
+    # Detectar fracciones y cantidades mixtas mencionadas en el mensaje
+    _fracs_mencionadas = set()
+    _msg_lower = mensaje_usuario.lower()
+    _mapa_palabras = {
+        "cuarto": "1/4", "un cuarto": "1/4",
+        "medio": "1/2",  "media": "1/2",  "un medio": "1/2",
+        "octavo": "1/8", "un octavo": "1/8",
+        "tres cuartos": "3/4",
+    }
+    for palabra, frac in _mapa_palabras.items():
+        if palabra in _msg_lower:
+            _fracs_mencionadas.add(frac)
+    for token in _msg_lower.split():
+        if token in ("1/4","1/2","3/4","1/8","1/16","3/8"):
+            _fracs_mencionadas.add(token)
+
     def _linea_candidato(p: dict) -> str:
         fracs = p.get("precios_fraccion", {})
         pxc   = p.get("precio_por_cantidad")
         if fracs:
-            precios_str = " | ".join(f"{k}=${v['precio']:,}" for k, v in fracs.items())
-            return f"  - {p['nombre']}: {precios_str}"
+            lineas_frac = []
+            for k, v in fracs.items():
+                marca = " ← USA ESTE" if k in _fracs_mencionadas else ""
+                lineas_frac.append(f"{k}=${v['precio']:,}{marca}")
+            return f"  - {p['nombre']}: " + " | ".join(lineas_frac)
         elif pxc:
             return (f"  - {p['nombre']}: "
                     f"c/u=${pxc['precio_bajo_umbral']:,} | "
