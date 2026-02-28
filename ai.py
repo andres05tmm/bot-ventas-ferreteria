@@ -111,10 +111,10 @@ PRECIOS — el numero al final ES el total. NUNCA multipliques por defecto.
 
 TORNILLOS DRYWALL — formato "TORNILLO DRYWALL CALIBRExMEDIDA". Total = cantidad x precio_unitario.
 Voz: "por 1"->X1|"por 1 y cuarto"->X1-1/4|"por 1 y medio"->X1-1/2|"por 2"->X2|"por 3"->X3
-TABLA (A=precio si cantidad<100 / B=precio si cantidad>=100, usa A o B segun corresponda):
-  6: 1/2 A25 B25|3/4 A58 B30|1 A38 B35|1-1/4 A42 B40|1-1/2 A58 B55|2 A67 B60|2-1/2 A75 B70|3 A83 B80
-  8: 3/4 A33 B30|1 A38 B35|1-1/2 A58 B55|2 A67 B60|3 A83 B80
-  10: 1 A83 B70|1-1/2 A125 B100|2 A150 B120|2-1/2 A167 B160|3 A167 B160|3-1/2 A208 B200|4 A208 B200
+Si cantidad<50 usa precio1, si cantidad>=50 usa precio2. Formato precio1/precio2:
+  6: X1/2=25/25|X3/4=58/30|X1=38/35|X1-1/4=42/40|X1-1/2=58/55|X2=67/60|X2-1/2=75/70|X3=83/80
+  8: X3/4=33/30|X1=38/35|X1-1/2=58/55|X2=67/60|X3=83/80
+  10: X1=83/70|X1-1/2=125/100|X2=150/120|X2-1/2=167/160|X3=167/160|X3-1/2=208/200|X4=208/200
 CRITICO: 10X3 (sin "medio") != 10X3-1/2 (con "medio"/"y medio"). Son productos distintos.
 
 THINNER: el precio pagado determina la fraccion. Tabla precio=fraccion:
@@ -381,9 +381,67 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if not config.DRIVE_DISPONIBLE else ""
     )
 
+    # ── Thinner: precalcular fraccion en Python ──
+    thinner_calculado = ""
+    msg_l = mensaje_usuario.lower()
+    if "thinner" in msg_l:
+        tabla_thinner = {3000:"1/12",4000:"1/10",5000:"1/8",6000:"1/6",8000:"1/4",
+                         10000:"1/3",13000:"1/2",16000:"5/9",20000:"3/4",26000:"1 galon"}
+        dec_thinner   = {3000:1/12,4000:0.1,5000:0.125,6000:1/6,8000:0.25,
+                         10000:1/3,13000:0.5,16000:5/9,20000:0.75,26000:1.0}
+        import re as _re
+        m = _re.search(r'(\d[\d\.]*)\s*(?:de\s+)?thinner|thinner\s+(\d[\d\.]*)', msg_l)
+        if m:
+            precio_t = int(float(m.group(1) or m.group(2)))
+            if precio_t in tabla_thinner:
+                frac_t = tabla_thinner[precio_t]
+                dec_t  = dec_thinner[precio_t]
+                thinner_calculado = (
+                    f"THINNER PRECALCULADO: ${precio_t:,} de thinner = {frac_t} galon "
+                    f"(cantidad={dec_t:.4f}, total={precio_t}). USA EXACTAMENTE estos valores."
+                )
+
+    # ── Tornillos drywall: precalcular precio correcto ──
+    tornillo_calculado = ""
+    if "drywall" in msg_l or "tornillo" in msg_l:
+        tabla_drywall = {
+            "6x1/2":(25,25),"6x3/4":(58,30),"6x1":(38,35),"6x1-1/4":(42,40),
+            "6x1-1/2":(58,55),"6x2":(67,60),"6x2-1/2":(75,70),"6x3":(83,80),
+            "8x3/4":(33,30),"8x1":(38,35),"8x1-1/2":(58,55),"8x2":(67,60),"8x3":(83,80),
+            "10x1":(83,70),"10x1-1/2":(125,100),"10x2":(150,120),"10x2-1/2":(167,160),
+            "10x3":(167,160),"10x3-1/2":(208,200),"10x4":(208,200),
+        }
+        voz_medida = [
+            ("3 y medio","3-1/2"),("3 y media","3-1/2"),("3½","3-1/2"),
+            ("2 y medio","2-1/2"),("2 y media","2-1/2"),
+            ("1 y medio","1-1/2"),("1 y media","1-1/2"),("1 y cuarto","1-1/4"),
+        ]
+        import re as _re
+        # Normalizar voz a fraccion
+        msg_norm = msg_l
+        for voz, frac in voz_medida:
+            msg_norm = msg_norm.replace(voz, frac)
+        m = _re.search(r'(\d+)\s+tornillo[s]?\s+drywall\s+(\d+)\s+[xXpor]+\s+([\d\-/½]+)', msg_norm)
+        if m:
+            cant   = int(m.group(1))
+            cal    = m.group(2)
+            medida = m.group(3).strip()
+            key    = f"{cal}x{medida}"
+            if key in tabla_drywall:
+                p1, p2 = tabla_drywall[key]
+                precio_u = p1 if cant < 50 else p2
+                total_t  = cant * precio_u
+                tornillo_calculado = (
+                    f"TORNILLO PRECALCULADO: {cant} TORNILLO DRYWALL {cal.upper()}X{medida.upper()} "
+                    f"({'<' if cant < 50 else '>='} 50 uds → ${precio_u}/u) = total {total_t}. "
+                    f"USA EXACTAMENTE estos valores."
+                )
+
     partes = [
         p for p in [
             info_fracciones_extra,
+            thinner_calculado,
+            tornillo_calculado,
             info_candidatos_extra,
             clientes_recientes_texto,
             clientes_texto,
