@@ -114,8 +114,8 @@ Umbral 100 uds. Voz: "por 1"->X1|"por 1 y cuarto"->X1-1/4|"por 1 y medio"->X1-1/
 TABLA precio<100/precio>=100:
   6: 1/2:25/25|3/4:58/30|1:38/35|1-1/4:42/40|1-1/2:58/55|2:67/60|2-1/2:75/70|3:83/80
   8: 3/4:33/30|1:38/35|1-1/2:58/55|2:67/60|3:83/80
-  10: 1:83/70|1-1/2:125/100|2:150/120|2-1/2:167/160|3:167/160|3.5:208/200|4:208/200
-CRITICO: 10X3 (sin "medio") != 10X3.5 (con "medio"/"y medio"). Son productos distintos.
+  10: 1:83/70|1-1/2:125/100|2:150/120|2-1/2:167/160|3:167/160|3-1/2:208/200|4:208/200
+CRITICO: 10X3 (sin "medio") != 10X3-1/2 (con "medio"/"y medio"). Son productos distintos.
 
 THINNER por precio pagado->fraccion (precio ES el total, busca la fraccion en esta tabla):
 3000->1/12|4000->1/10|5000->1/8|6000->1/6|8000->1/4|10000->1/3|13000->1/2|16000->5/9|20000->3/4|26000->1galon
