@@ -276,8 +276,35 @@ async def comando_precios(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────────
 
 async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    resumen = obtener_resumen_caja()
-    await update.message.reply_text(f"💰 {resumen}")
+    args = context.args  # palabras despues de /caja
+    
+    if args and args[0].lower() == "abrir":
+        # /caja abrir [monto]
+        from memoria import cargar_caja, guardar_caja
+        monto = 0
+        if len(args) > 1:
+            try:
+                monto = int(args[1].replace(",", "").replace(".", ""))
+            except ValueError:
+                await update.message.reply_text("Formato: /caja abrir 50000")
+                return
+        caja = cargar_caja()
+        if caja.get("abierta"):
+            await update.message.reply_text("⚠️ La caja ya está abierta.")
+            return
+        import datetime
+        caja["abierta"] = True
+        caja["fecha"] = datetime.date.today().isoformat()
+        caja["monto_apertura"] = monto
+        caja["efectivo"] = 0
+        caja["transferencia"] = 0
+        caja["datafono"] = 0
+        guardar_caja(caja)
+        await update.message.reply_text(f"💰 Caja abierta con ${monto:,} de base.")
+    else:
+        # /caja → ver estado
+        resumen = obtener_resumen_caja()
+        await update.message.reply_text(f"💰 {resumen}")
 
 
 async def comando_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -516,8 +543,20 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
     from sheets import sheets_limpiar
     ok = await asyncio.to_thread(sheets_limpiar)
 
+    # Cerrar caja automaticamente al cerrar el dia
+    from memoria import cargar_caja, guardar_caja
+    caja = cargar_caja()
+    resumen_caja = ""
+    if caja.get("abierta"):
+        resumen_caja = obtener_resumen_caja()
+        caja["abierta"] = False
+        guardar_caja(caja)
+
     if ok:
-        await update.message.reply_text("✅ Cierre completado.")
+        msg = "✅ Cierre completado."
+        if resumen_caja:
+            msg += f"\n\n💰 Caja cerrada:\n{resumen_caja}"
+        await update.message.reply_text(msg)
     else:
         await update.message.reply_text("⚠️ Excel actualizado, pero Sheets no se pudo limpiar.")
 
