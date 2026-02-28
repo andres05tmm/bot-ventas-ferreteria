@@ -32,7 +32,8 @@ from utils import (
 
 def inicializar_hoja(ws):
     """Crea el formato exacto: logo fila 1, banner rojo fila 1, separador fila 2, encabezados fila 3."""
-    if ws.max_row > 1:
+    # Solo saltar si ya existen los encabezados en fila 3
+    if ws.cell(row=3, column=1).value is not None:
         return
 
     from openpyxl.drawing.image import Image as XLImage
