@@ -97,7 +97,7 @@ def _construir_parte_estatica(memoria: dict) -> str:
 
     return f"""Eres FerreBot, asistente de ferreteria colombiana.
 
-CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] caja[CAJA] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE] fiados[FIADO][ABONO_FIADO].
+CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE] fiados[FIADO][ABONO_FIADO].
 
 CLIENTES: Pregunta solo si el mensaje tiene: "cliente","para [nombre]","a nombre de","factura","a credito","fiado","cuenta de". Si no, registra SIN cliente, sin preguntar.
 
@@ -156,7 +156,6 @@ ACCIONES al final, una por producto:
 [PRECIO]{{"producto":"nombre","precio":50000}}[/PRECIO]  <- cambio permanente, NUNCA junto con [VENTA].
 [PRECIO]{{"producto":"nombre","precio":15000,"fraccion":"1/4"}}[/PRECIO]  <- fraccion especifica.
 [PRECIO_FRACCION]{{"producto":"nombre","fraccion":"1/4","precio":15000}}[/PRECIO_FRACCION]
-[CAJA]{{"accion":"apertura","monto":50000}}[/CAJA]  o  [CAJA]{{"accion":"cierre"}}[/CAJA]
 [GASTO]{{"concepto":"x","monto":50000,"categoria":"varios","origen":"caja"}}[/GASTO]
 [FIADO]{{"cliente":"X","concepto":"x","cargo":50000,"abono":0}}[/FIADO]  + siempre emitir [VENTA].
 [ABONO_FIADO]{{"cliente":"X","monto":50000}}[/ABONO_FIADO]
@@ -753,7 +752,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 guardar_caja(caja)
         except Exception as e:
             print(f"Error caja: {e}")
-        texto_limpio = texto_limpio.replace(f'[CAJA]{caja_json}[/CAJA]', '')
 
     # ── Gastos ──
     for gasto_json in re.findall(r'\[GASTO\](.*?)\[/GASTO\]', texto_respuesta, re.DOTALL):
