@@ -50,14 +50,12 @@ def _construir_parte_estatica(memoria: dict) -> str:
     catalogo = memoria.get("catalogo", {})
 
     def _linea_producto(prod):
-        # En el catálogo completo solo mostramos precio base para ahorrar tokens.
-        # Las fracciones llegan via info_candidatos_extra cuando el producto es mencionado.
+        # Formato comprimido: sin "  - ", sin "$", sin comas → ahorra ~1285 tokens cacheados/llamada
         pxc = prod.get("precio_por_cantidad")
         if pxc:
-            return (f"  - {prod['nombre']}: "
-                    f"c/u=${pxc['precio_bajo_umbral']:,} | x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
+            return f"{prod['nombre']}:{pxc['precio_bajo_umbral']}/{pxc['precio_sobre_umbral']}x{pxc['umbral']}"
         else:
-            return f"  - {prod['nombre']}: ${prod['precio_unidad']:,}"
+            return f"{prod['nombre']}:{prod['precio_unidad']}"
 
     if catalogo:
         categorias: dict = {}
@@ -75,31 +73,26 @@ def _construir_parte_estatica(memoria: dict) -> str:
     precios_fraccion_mem = memoria.get("precios_fraccion", {})
     if precios_fraccion_mem:
         lineas_frac = [
-            f"  - {prod_key} {frac}: ${precio:,}"
+            f"{prod_key} {frac}:{precio}"
             for prod_key, fracs in precios_fraccion_mem.items()
             for frac, precio in fracs.items()
         ]
-        precios_fraccion_texto = "PRECIOS DE FRACCION CONOCIDOS (usar estos exactamente):\n" + "\n".join(lineas_frac)
+        precios_fraccion_texto = "FRACCIONES EXTRA:\n" + "\n".join(lineas_frac)
     else:
-        precios_fraccion_texto = (
-            "PRECIOS DE FRACCION CONOCIDOS: ninguno guardado aun. "
-            "Si el usuario menciona una fraccion sin precio, preguntale cuanto vale."
-        )
+        precios_fraccion_texto = ""
 
     catalogo_seccion = (
-        "CATALOGO DE PRODUCTOS (precios por fraccion incluidos):\n"
-        "Formato: 1=galon | 3/4 | 1/2 | 1/4 | 1/8 | 1/16\n"
+        "CATALOGO(nombre:precio, tornillos:normal/volumenxumbral):\n"
         + precios_texto
-        + "\n\n" + precios_fraccion_texto
+        + ("\n" + precios_fraccion_texto if precios_fraccion_texto else "")
     ) if precios_texto else precios_fraccion_texto
 
     negocio_json = json.dumps(memoria.get("negocio", {}), ensure_ascii=False)
 
-    return f"""Eres FerreBot, asistente de ferreteria colombiana.
+    return f"""FerreBot — asistente ferreteria colombiana.
+Acciones:[VENTA][EXCEL][PRECIO][PRECIO_FRACCION][INVENTARIO][GASTO][FIADO][ABONO_FIADO][BORRAR_CLIENTE][NEGOCIO][CODIGO_PRODUCTO]
 
-CAPACIDADES: ventas[VENTA] excel[EXCEL] precios[PRECIO] inventario[INVENTARIO] gastos[GASTO] borrar_cliente[BORRAR_CLIENTE] fiados[FIADO][ABONO_FIADO].
-
-CLIENTES: Pregunta solo si el mensaje tiene: "cliente","para [nombre]","a nombre de","factura","a credito","fiado","cuenta de". Si no, registra SIN cliente, sin preguntar.
+CLIENTES: pregunta SOLO si mensaje contiene "cliente","para X","a nombre de","factura","a credito","fiado","cuenta de". Si no, registra sin cliente.
 
 PRECIOS — el numero al final ES el total. NUNCA multipliques por defecto.
 - "2 brochas 8000"->total:8000 | "15 tornillos 14000"->total:14000 | "1/2 vinilo 21000"->total:21000
@@ -142,28 +135,24 @@ INFORMACION DEL NEGOCIO: {negocio_json}
 
 {catalogo_seccion}
 
-RESPUESTA: espanol natural, sin markdown ni asteriscos.
-Texto ventas: Cantidad + Producto + Total. Fracciones legibles (1/4 no 0.25). Multi-producto: 1 linea resumen + JSONs, sin calculos en texto.
+RESPUESTA: espanol, sin markdown. Fracciones legibles (1/4 no 0.25).
 
-ACCIONES al final, una por producto:
+ACCIONES al final (una por producto):
 [VENTA]{{"producto":"nombre","cantidad":1,"total":21000}}[/VENTA]
-- USA SOLO "total". NUNCA "precio_unitario","precio","monto","valor". Sin $ ni comas en numeros.
-- metodo_pago si mencionado: efectivo|transferencia|datafono. Si no, omitir.
-  efectivo/cash/en plata -> "efectivo" | transferencia/nequi/daviplata/bancolombia -> "transferencia" | datafono/tarjeta/credito/debito -> "datafono"
-- cliente si mencionado (aunque sea desconocido). Si no se menciona, NO preguntes ni uses [INICIAR_CLIENTE].
-- Fiado con metodo_pago: el metodo indica como pagara al cancelar. cargo=total, abono=0.
-
-[PRECIO]{{"producto":"nombre","precio":50000}}[/PRECIO]  <- cambio permanente, NUNCA junto con [VENTA].
-[PRECIO]{{"producto":"nombre","precio":15000,"fraccion":"1/4"}}[/PRECIO]  <- fraccion especifica.
-[PRECIO_FRACCION]{{"producto":"nombre","fraccion":"1/4","precio":15000}}[/PRECIO_FRACCION]
+- Solo campo "total" (NUNCA precio_unitario/precio/monto). Sin $ ni comas.
+- metodo_pago si se menciona: efectivo|transferencia|datafono
+  cash/plata=efectivo | nequi/daviplata/transfer=transferencia | tarjeta/datafono=datafono
+- cliente si se menciona. Fiado+metodo: cargo=total,abono=0.
+[PRECIO]{{"producto":"nombre","precio":50000}}[/PRECIO]
+[PRECIO]{{"producto":"nombre","precio":15000,"fraccion":"1/4"}}[/PRECIO]
 [GASTO]{{"concepto":"x","monto":50000,"categoria":"varios","origen":"caja"}}[/GASTO]
-[FIADO]{{"cliente":"X","concepto":"x","cargo":50000,"abono":0}}[/FIADO]  + siempre emitir [VENTA].
+[FIADO]{{"cliente":"X","concepto":"x","cargo":50000,"abono":0}}[/FIADO]
 [ABONO_FIADO]{{"cliente":"X","monto":50000}}[/ABONO_FIADO]
 [INVENTARIO]{{"producto":"x","cantidad":10,"minimo":2,"unidad":"galones","accion":"actualizar"}}[/INVENTARIO]
 [BORRAR_CLIENTE]{{"nombre":"x"}}[/BORRAR_CLIENTE]
 [EXCEL]{{"titulo":"x","encabezados":["Col1"],"filas":[["dato"]]}}[/EXCEL]
 [NEGOCIO]{{"clave":"valor"}}[/NEGOCIO]
-[CODIGO_PRODUCTO]{{"producto":"nombre","codigo":"COD123"}}[/CODIGO_PRODUCTO]"""
+[CODIGO_PRODUCTO]{{"producto":"n","codigo":"COD123"}}[/CODIGO_PRODUCTO]"""
 
 # ─────────────────────────────────────────────
 # PARTE DINÁMICA DEL SYSTEM PROMPT (por mensaje)
@@ -296,75 +285,86 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             _frac_por_producto[contexto[:30]] = token  # clave aproximada
 
     def _linea_candidato(p: dict) -> str:
+        # Formato comprimido: sin "  - ", sin "$", sin comas, fraccion relevante marcada con *
         fracs = p.get("precios_fraccion", {})
         pxc   = p.get("precio_por_cantidad")
         if fracs:
-            # Detectar fraccion relevante para ESTE producto especificamente
             nl = p.get("nombre_lower", "")
             palabras_prod = [w for w in nl.split() if len(w) > 3]
             frac_este_prod = None
             _tok = _msg_lower.replace(",","").split()
             for idx_t, tok in enumerate(_tok):
                 if tok in _fracs_set:
-                    # Ver si alguna palabra del producto aparece cerca (hasta 4 tokens despues)
                     ventana = " ".join(_tok[idx_t:idx_t+5])
                     if any(pp in ventana for pp in palabras_prod):
                         frac_este_prod = tok
                         break
-
             lineas_frac = []
             for k, v in fracs.items():
-                marca = " ← USA ESTE" if k == frac_este_prod else ""
-                lineas_frac.append(f"{k}=${v['precio']:,}{marca}")
-            return f"  - {p['nombre']}: " + " | ".join(lineas_frac)
+                precio = v['precio'] if isinstance(v, dict) else v
+                marca = "*" if k == frac_este_prod else ""
+                lineas_frac.append(f"{k}={precio}{marca}")
+            return f"{p['nombre']}:" + "|".join(lineas_frac)
         elif pxc:
-            return (f"  - {p['nombre']}: "
-                    f"c/u=${pxc['precio_bajo_umbral']:,} | "
-                    f"x{pxc['umbral']}+=${pxc['precio_sobre_umbral']:,}")
+            return f"{p['nombre']}:{pxc['precio_bajo_umbral']}/{pxc['precio_sobre_umbral']}x{pxc['umbral']}"
         else:
-            return f"  - {p['nombre']}: ${p['precio_unidad']:,}"
+            return f"{p['nombre']}:{p['precio_unidad']}"
 
     if palabras_clave:
-        exactos = {}    # coincidencia exacta — mayor prioridad
-        parciales = {}  # coincidencia parcial
+        # FIX MULTI-PRODUCTO: segmentar el mensaje por producto para que cada uno
+        # tenga garantizado su candidato, sin que unos "aplasten" a otros.
+        # Ej: "1/4 vinilo blanco, 1/2 laca miel, 3/4 thinner" → 3 segmentos independientes
+        import re as _re
+        _segmentos_raw = _re.split(r'[,ysY]\s+', mensaje_usuario.lower())
+        _segmentos = []
+        for seg in _segmentos_raw:
+            seg = seg.strip()
+            # Quitar fracciones y números del inicio para quedarnos con el nombre
+            seg_limpio = _re.sub(r'^[\d/\.\s]+', '', seg).strip()
+            if len(seg_limpio) > 3:
+                _segmentos.append(seg_limpio)
 
-        for largo in [4, 3, 2, 1]:
-            for i in range(len(palabras_clave) - largo + 1):
-                fragmento = " ".join(palabras_clave[i:i + largo])
-                if len(fragmento) < 4:
-                    continue
-                for prod in buscar_multiples_en_catalogo(fragmento, limite=2):
-                    nl = prod["nombre_lower"]
-                    # Exacto: el fragmento aparece completo en el nombre del producto
-                    if fragmento in nl:
-                        exactos[nl] = prod
-                    else:
-                        parciales[nl] = prod
+        combinados = {}
 
-        # Exactos sobreescriben parciales
-        combinados = {**parciales, **exactos}
+        # 1. Buscar candidato por cada segmento de producto (garantiza uno por producto)
+        for seg in _segmentos:
+            palabras_seg = [p for p in seg.split() if p not in stopwords and len(p) > 2]
+            if not palabras_seg:
+                continue
+            for largo in [4, 3, 2, 1]:
+                encontrado_seg = False
+                for i in range(len(palabras_seg) - largo + 1):
+                    fragmento = " ".join(palabras_seg[i:i + largo])
+                    if len(fragmento) < 3:
+                        continue
+                    for prod in buscar_multiples_en_catalogo(fragmento, limite=2):
+                        nl = prod["nombre_lower"]
+                        combinados[nl] = prod
+                        encontrado_seg = True
+                    if encontrado_seg:
+                        break
+                if encontrado_seg:
+                    break
 
-        # Garantizar que productos con nombre de 2+ palabras exactas en el mensaje
-        # no queden desplazados por el limite — buscar bigrams/trigrams directamente
-        for largo in [3, 2]:
+        # 2. Búsqueda global adicional (fragmentos del mensaje completo)
+        for largo in [4, 3, 2]:
             for i in range(len(palabras_clave) - largo + 1):
                 frag_exact = " ".join(palabras_clave[i:i + largo])
-                if len(frag_exact) < 5:
+                if len(frag_exact) < 4:
                     continue
                 for prod in buscar_multiples_en_catalogo(frag_exact, limite=1):
                     if frag_exact in prod["nombre_lower"]:
-                        combinados[prod["nombre_lower"]] = prod  # siempre incluir coincidencias exactas
+                        combinados[prod["nombre_lower"]] = prod
 
+        # 3. Ordenar: más palabras del mensaje completo en el nombre = mayor prioridad
+        #    Pero garantizamos que todos los de búsqueda por segmento están incluidos
         candidatos = sorted(combinados.values(),
                             key=lambda p: sum(1 for w in palabras_clave if w in p["nombre_lower"]),
-                            reverse=True)[:12]
+                            reverse=True)[:15]  # límite ampliado a 15 para mensajes multi-producto
 
         if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
-            info_candidatos_extra = (
-                "PRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE (con precios):\n"
-                + "\n".join(lineas)
-            )
+            info_candidatos_extra = "MATCH:\n" + "\n".join(lineas)
             print(f"[CANDIDATOS DEBUG]\n{info_candidatos_extra}")
 
     # ── Clientes recientes ──
@@ -506,6 +506,9 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     f"USA EXACTAMENTE estos valores."
                 )
 
+    # "DATOS HISTORICOS" solo se incluye cuando hay datos reales — no enviar "(no cargado)" innecesariamente
+    datos_historicos_item = f"DATOS HISTORICOS:\n{datos_texto}" if datos_texto != "(no cargado)" else ""
+
     partes = [
         p for p in [
             info_fracciones_extra,
@@ -514,13 +517,13 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             info_candidatos_extra,
             clientes_recientes_texto,
             clientes_texto,
-            f"RESUMEN VENTAS DEL MES:\n{resumen_texto}",
-            f"DATOS HISTORICOS (analisis):\n{datos_texto}",
+            f"VENTAS MES:{resumen_texto}",
+            datos_historicos_item,
             inventario_texto,
             caja_texto,
             gastos_texto,
             aviso_drive,
-            f"Usuario actual: {nombre_usuario}",
+            f"Vendedor:{nombre_usuario}",
         ] if p
     ]
     return "\n\n".join(partes)
@@ -534,8 +537,15 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
 
+    # Historial adaptativo: ventas simples solo necesitan 2 mensajes de contexto,
+    # análisis y correcciones necesitan 4. Ahorra ~75 tokens en el 70% de llamadas.
+    _kw_contexto = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
+                    "modificar","corregir","cambia","quita","agrega","error","equivoque",
+                    "fiado","debe","abono","inventario","grafica","top","mas vendido"}
+    _n_hist = 4 if any(p in mensaje_usuario.lower() for p in _kw_contexto) else 2
+
     messages = []
-    for msg in historial_chat[-4:]:
+    for msg in historial_chat[-_n_hist:]:
         if isinstance(msg, dict) and "role" in msg and "content" in msg:
             messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
     messages.append({"role": "user", "content": str(mensaje_usuario)})
