@@ -566,7 +566,6 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
                 lambda: config.claude_client.messages.create(
                     model="claude-haiku-4-5-20251001",
                     max_tokens=max_tokens,
-                    extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
                     system=[
                         {
                             "type": "text",
