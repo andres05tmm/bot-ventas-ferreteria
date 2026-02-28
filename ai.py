@@ -204,10 +204,11 @@ Umbral: <50 uds usa precio A / >=50 uds usa precio B. Total = cantidad x precio.
 Voz->medida: "por 1"->X1 | "por 1 y cuarto"->X1-1/4 | "por 1 y medio"->X1-1/2 | "por 3/4"->X3/4 | "por 2"->X2 | "por 3"->X3
 Usa formato "TORNILLO DRYWALL CALIBRExMEDIDA" (ej: "TORNILLO DRYWALL 8X2").
 
-TABLA [medida: precioA/precioB]:
+TABLA [medida: precio<100unds/precio>=100unds]:
   6X1/2:25/25 | 6X3/4:58/30 | 6X1:38/35 | 6X1-1/4:42/40 | 6X1-1/2:58/55 | 6X2:67/60 | 6X2-1/2:75/70 | 6X3:83/80
   8X3/4:33/30 | 8X1:38/35   | 8X1-1/2:58/55 | 8X2:67/60 | 8X3:83/80
-  10X1:83/70  | 10X1-1/2:125/100 | 10X2:150/120 | 10X2-1/2:167/160 | 10X3:167/160 | 10X4:208/200
+  10X1:83/70  | 10X1-1/2:125/100 | 10X2:150/120 | 10X2-1/2:167/160 | 10X3:167/160 | 10X3½:208/200 | 10X4:208/200
+  IMPORTANTE: 10X3 y 10X3½ son DISTINTOS. 10X3=$167 | 10X3½=$208. NO confundir.
 
 ADVERTENCIA MEDIDAS CON PRECIO SIMILAR — NO CONFUNDIR:
   8X1-1/2 precio=58 (distinto a) 8X2 precio=67  <- ERROR FRECUENTE
