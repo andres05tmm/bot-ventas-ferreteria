@@ -26,6 +26,25 @@ _debounce_timers: dict[str, threading.Timer] = {}   # nombre_archivo → Timer a
 _debounce_pendiente: set[str] = set()               # archivos esperando ser subidos
 
 
+def _crear_service_aislado():
+    """
+    Crea una instancia NUEVA del servicio Drive para uso en hilos de threading.
+    httplib2 NO es thread-safe — compartir una instancia cacheada entre hilos
+    causa segfault en Python 3.11 cuando dos subidas ocurren simultáneamente
+    (ej: ventas.xlsx y memoria.json en la misma ráfaga de ventas).
+    Cada hilo de subida necesita su propio objeto de conexión.
+    """
+    from google.oauth2.service_account import Credentials
+    from googleapiclient.discovery import build
+    import json as _json
+    creds_dict = _json.loads(config.GOOGLE_CREDENTIALS_JSON)
+    creds = Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    return build("drive", "v3", credentials=creds)
+
+
 def _ejecutar_subida_real(nombre_archivo: str):
     """Función que realmente llama a la API de Drive. Se ejecuta tras el debounce."""
     with _debounce_lock:
@@ -35,7 +54,8 @@ def _ejecutar_subida_real(nombre_archivo: str):
     if not os.path.exists(nombre_archivo):
         return
     try:
-        service = config.get_drive_service()
+        # Instancia aislada por hilo — evita segfault por httplib2 no thread-safe
+        service = _crear_service_aislado()
         _subir_con_service(service, nombre_archivo)
         config._set_drive_disponible(True)
         _reintentar_pendientes()
@@ -161,7 +181,8 @@ def _reintentar_pendientes():
 
     subidos = []
     try:
-        service = config.get_drive_service()
+        # Instancia aislada — se llama desde hilo de threading, no compartir el service cacheado
+        service = _crear_service_aislado()
         for nombre in cola:
             if not os.path.exists(nombre):
                 subidos.append(nombre)  # ya no existe, no tiene sentido reintentarlo
