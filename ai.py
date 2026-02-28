@@ -124,7 +124,7 @@ JSON: cantidad=decimal (0.25 para 1/4), total=precio pagado. Texto: fraccion leg
 CUNETES (4 galones, NO confundir con galon): T1=220000|T2=170000|T3=100000. Multiplica: "2 cunetes t1"->440000.
 MEDIO CUNETE: cantidad=1 (NO 0.5), nombre="1/2 Cunete Vinilo TX". T1=120000|T2=85000|T3=55000.
 
-CHAZOS: multiplica siempre cantidad x precio_unitario del catalogo.
+CHAZOS/PUNTILLAS/TORNILLOS: la medida en el nombre (1/4, 3/8, 6x1...) NO es cantidad. Total = cantidad x precio c/u del catalogo.
 
 SOLDADURA: fracciones en el nombre (60/11,1/32,7018) son especificacion tecnica, NO cantidad/precio.
 Cantidad=kilos: "medio kilo"->0.5|"kilo y medio"->1.5. Precio al final es el total.
