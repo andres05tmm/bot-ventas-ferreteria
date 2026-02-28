@@ -370,7 +370,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
         _acciones_internas = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO")
 
-        if texto_respuesta and not pago_pend_aviso and not cliente_desconocido:
+        if texto_respuesta and not pago_pend_aviso and not cliente_desconocido and not pedir_metodo and not confirmacion_accion:
             await update.message.reply_text(texto_respuesta)
 
         for accion in acciones:
