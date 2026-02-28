@@ -457,7 +457,8 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
 
         transcripcion = await asyncio.to_thread(_transcribir)
         texto         = corregir_texto_audio(transcripcion.text)
-        await update.message.reply_text(f"📝 Escuché: {texto}")
+        # Editar el mensaje "Escuchando..." con la transcripcion
+        await update.message.reply_text(f"📝 {texto}")
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
         # ── Chequeo de pago pendiente: si hay venta esperando, el audio va al standby ──
@@ -476,16 +477,34 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
         texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
-        if texto_respuesta:
-            await update.message.reply_text(texto_respuesta)
-
         pedir_metodo        = "PEDIR_METODO_PAGO" in acciones
         confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+        cliente_desconocido = next((a for a in acciones if a.startswith("CLIENTE_DESCONOCIDO:")), None)
+        pago_pend_aviso     = "PAGO_PENDIENTE_AVISO" in acciones
         _acciones_internas  = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO")
 
+        # En audio: mostrar texto de Claude solo si NO hay botones de venta (es una pregunta o error)
+        hay_botones_venta = confirmacion_accion or pedir_metodo
+        if texto_respuesta and (not hay_botones_venta or cliente_desconocido):
+            await update.message.reply_text(texto_respuesta)
+
         for accion in acciones:
-            if not accion.startswith("PEDIR_CONFIRMACION:") and accion not in _acciones_internas:
+            if (not accion.startswith("PEDIR_CONFIRMACION:")
+                    and not accion.startswith("CLIENTE_DESCONOCIDO:")
+                    and accion not in _acciones_internas):
                 await update.message.reply_text(accion)
+
+        if cliente_desconocido:
+            nombre_cli = cliente_desconocido.split(":", 1)[1]
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Sí, crear cliente", callback_data=f"cli_crear_si_{chat_id}"),
+                InlineKeyboardButton("➡️ No, registrar así", callback_data=f"cli_crear_no_{chat_id}"),
+            ]])
+            await update.message.reply_text(
+                f"👤 *{nombre_cli}* no está en la base. ¿Lo agrego como cliente?",
+                reply_markup=keyboard, parse_mode="Markdown",
+            )
 
         if confirmacion_accion:
             metodo_conocido = confirmacion_accion.split(":", 1)[1]
