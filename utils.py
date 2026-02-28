@@ -313,10 +313,29 @@ def corregir_texto_audio(texto: str) -> str:
         return texto
     for error, correcto in _CORRECCIONES_AUDIO.items():
         texto = re.sub(rf'\b{error}\b', correcto, texto, flags=re.IGNORECASE)
-    # Brocas sin tipo especificado -> para metal
-    # "broca 1/8" -> "broca para metal 1/8" (solo si no dice "muro" ni "metal" cerca)
+    # Normalizar medidas habladas de brocas antes del regex principal
+    _medidas_texto = {
+        r'un octavo':           '1/8',
+        r'1 octavo':            '1/8',
+        r'un cuarto':           '1/4',
+        r'1 cuarto':            '1/4',
+        r'tres diec[ié]seis':   '3/16',
+        r'cinco diec[ié]seis':  '5/16',
+        r'tres treintaidós':    '3/32',
+        r'cinco treintaidós':   '5/32',
+        r'532':                 '5/32',
+        r'316':                 '5/16',
+        r'132':                 '1/32',
+    }
+    for patron, fraccion in _medidas_texto.items():
+        texto = re.sub(
+            rf'\bbroca(s?)\s+(?:de\s+)?(?!para\s+(?:metal|muro)){patron}\b',
+            lambda m, f=fraccion: f'broca{m.group(1)} para metal {f}',
+            texto, flags=re.IGNORECASE
+        )
+    # Brocas con fraccion numerica sin tipo -> para metal
     texto = re.sub(
-        r'\bbroca(s?)\s+(?!para\s+(?:metal|muro))(\d+[x/]\d+)',
+        r'\bbroca(s?)\s+(?:de\s+)?(?!para\s+(?:metal|muro))(\d+/\d+)',
         lambda m: f'broca{m.group(1)} para metal {m.group(2)}',
         texto, flags=re.IGNORECASE
     )
