@@ -245,10 +245,11 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ENVÍO DE BOTONES DE PAGO
 # ─────────────────────────────────────────────
 
-async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, metodo: str):
+async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, metodo: str, nota: str = ""):
     """
     Cuando el usuario ya dijo el método de pago, muestra la venta con
     botones de Confirmar o Modificar.
+    nota: texto opcional que se muestra encima del resumen (ej: confirmación del cambio realizado).
     """
     emoji_metodo = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
     lineas = []
@@ -266,7 +267,9 @@ async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, m
     encabezado = f"✓ Venta — {emoji_metodo} {metodo.capitalize()}"
     if cliente:
         encabezado += f" | 👤 {cliente}"
-    encabezado += f"\n\n"
+    encabezado += "\n\n"
+    if nota:
+        encabezado = nota.split("\n")[0] + "\n\n" + encabezado
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Confirmar",       callback_data=f"pago_confirmar_{metodo}_{chat_id}"),
