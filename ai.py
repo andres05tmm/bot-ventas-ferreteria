@@ -38,7 +38,6 @@ from excel import (
 )
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
-
 # ─────────────────────────────────────────────
 # PARTE ESTÁTICA DEL SYSTEM PROMPT (cacheable)
 # ─────────────────────────────────────────────
@@ -106,7 +105,8 @@ PRECIOS — el numero al final ES el total. NUNCA multipliques por defecto.
 - "2 brochas 8000"->total:8000 | "15 tornillos 14000"->total:14000 | "1/2 vinilo 21000"->total:21000
 - EXCEPCION: solo si dice "c/u","cada uno/a","por unidad","cada unidad" -> multiplica.
 - FRACCIONES: 1/4=0.25|1/2=0.5|3/4=0.75|1/8=0.125|1/16=0.0625. Precio siempre es el total.
-- MIXTAS sin precio: suma partes del catalogo. "1-1/4 vinilo t1" -> precio(1)+precio(1/4).
+- MIXTAS (1-1/4, 2 y 1/2...): total = suma de precios por fraccion del catalogo, NUNCA precio_unidad x decimal.
+
 - DOCENAS: 1 docena=12|media=6|1 ciento=100. Tornillos por docena: cantidad=docenas*12, total=cantidad*precio_unitario.
 
 TORNILLOS DRYWALL — formato "TORNILLO DRYWALL CALIBRExMEDIDA". Total = cantidad x precio_unitario.
@@ -120,12 +120,11 @@ CRITICO: 10X3 (sin "medio") != 10X3-1/2 (con "medio"/"y medio"). Son productos d
 THINNER por precio pagado->fraccion (precio ES el total, busca la fraccion en esta tabla):
 3000->1/12|4000->1/10|5000->1/8|6000->1/6|8000->1/4|10000->1/3|13000->1/2|16000->5/9|20000->3/4|26000->1galon
 JSON: cantidad=decimal (0.25 para 1/4), total=precio pagado. Texto: fraccion legible. Ej: "6000 de thinner"->cantidad:1/6(0.167),total:6000
-JSON: cantidad=decimal (0.25 para 1/4), total=precio pagado. Texto: fraccion legible.
 
 CUNETES (4 galones, NO confundir con galon): T1=220000|T2=170000|T3=100000. Multiplica: "2 cunetes t1"->440000.
 MEDIO CUNETE: cantidad=1 (NO 0.5), nombre="1/2 Cunete Vinilo TX". T1=120000|T2=85000|T3=55000.
 
-CHAZOS: precio unitario bajo ($42-208). Siempre multiplica: 12 Chazo 5/16 x $83 = $996.
+CHAZOS: multiplica siempre cantidad x precio_unitario del catalogo.
 
 SOLDADURA: fracciones en el nombre (60/11,1/32,7018) son especificacion tecnica, NO cantidad/precio.
 Cantidad=kilos: "medio kilo"->0.5|"kilo y medio"->1.5. Precio al final es el total.
@@ -166,7 +165,6 @@ ACCIONES al final, una por producto:
 [EXCEL]{{"titulo":"x","encabezados":["Col1"],"filas":[["dato"]]}}[/EXCEL]
 [NEGOCIO]{{"clave":"valor"}}[/NEGOCIO]
 [CODIGO_PRODUCTO]{{"producto":"nombre","codigo":"COD123"}}[/CODIGO_PRODUCTO]"""
-
 
 # ─────────────────────────────────────────────
 # PARTE DINÁMICA DEL SYSTEM PROMPT (por mensaje)
@@ -374,7 +372,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     ]
     return "\n\n".join(partes)
 
-
 # ─────────────────────────────────────────────
 # LLAMADA A CLAUDE CON PROMPT CACHING
 # ─────────────────────────────────────────────
@@ -421,7 +418,6 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
         raise RuntimeError("La IA tardó demasiado en responder (>30s). Intenta de nuevo.")
 
     return respuesta.content[0].text
-
 
 # ─────────────────────────────────────────────
 # PARSEO Y EJECUCIÓN DE ACCIONES
@@ -776,7 +772,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
 
     return texto_limpio.strip(), acciones, archivos_excel
 
-
 # ─────────────────────────────────────────────
 # EDICIÓN DE EXCEL CON CLAUDE
 # ─────────────────────────────────────────────
@@ -830,7 +825,6 @@ Genera SOLO el código Python necesario para modificar el archivo usando openpyx
     elif "```" in codigo:
         codigo = codigo.split("```")[1].split("```")[0].strip()
     return codigo
-
 
 # ─────────────────────────────────────────────
 # VERSIÓN ASYNC DE PROCESAR_ACCIONES
