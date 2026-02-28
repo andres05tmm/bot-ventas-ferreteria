@@ -282,13 +282,39 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if token in ("1/4","1/2","3/4","1/8","1/16","3/8"):
             _fracs_mencionadas.add(token)
 
+    # Construir mapa: palabra_clave_producto -> fraccion adyacente en el mensaje
+    # Ej: "1/2 laca miel" -> laca miel tiene fraccion 1/2
+    _tokens = mensaje_usuario.lower().replace(",","").split()
+    _frac_por_producto = {}  # nombre_lower -> fraccion mas cercana
+    _fracs_set = {"1/4","1/2","3/4","1/8","1/16","3/8"}
+    for idx_t, token in enumerate(_tokens):
+        if token in _fracs_set:
+            # Buscar palabra de producto en los 3 tokens siguientes
+            contexto = " ".join(_tokens[idx_t+1:idx_t+5])
+            for prod in catalogo.values() if False else []:
+                pass
+            _frac_por_producto[contexto[:30]] = token  # clave aproximada
+
     def _linea_candidato(p: dict) -> str:
         fracs = p.get("precios_fraccion", {})
         pxc   = p.get("precio_por_cantidad")
         if fracs:
+            # Detectar fraccion relevante para ESTE producto especificamente
+            nl = p.get("nombre_lower", "")
+            palabras_prod = [w for w in nl.split() if len(w) > 3]
+            frac_este_prod = None
+            _tok = _msg_lower.replace(",","").split()
+            for idx_t, tok in enumerate(_tok):
+                if tok in _fracs_set:
+                    # Ver si alguna palabra del producto aparece cerca (hasta 4 tokens despues)
+                    ventana = " ".join(_tok[idx_t:idx_t+5])
+                    if any(pp in ventana for pp in palabras_prod):
+                        frac_este_prod = tok
+                        break
+
             lineas_frac = []
             for k, v in fracs.items():
-                marca = " ← USA ESTE" if k in _fracs_mencionadas else ""
+                marca = " ← USA ESTE" if k == frac_este_prod else ""
                 lineas_frac.append(f"{k}=${v['precio']:,}{marca}")
             return f"  - {p['nombre']}: " + " | ".join(lineas_frac)
         elif pxc:
@@ -315,11 +341,23 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     else:
                         parciales[nl] = prod
 
-        # Primero exactos, luego parciales, max 10 total
-        combinados = {**parciales, **exactos}  # exactos sobreescriben parciales
+        # Exactos sobreescriben parciales
+        combinados = {**parciales, **exactos}
+
+        # Garantizar que productos con nombre de 2+ palabras exactas en el mensaje
+        # no queden desplazados por el limite — buscar bigrams/trigrams directamente
+        for largo in [3, 2]:
+            for i in range(len(palabras_clave) - largo + 1):
+                frag_exact = " ".join(palabras_clave[i:i + largo])
+                if len(frag_exact) < 5:
+                    continue
+                for prod in buscar_multiples_en_catalogo(frag_exact, limite=1):
+                    if frag_exact in prod["nombre_lower"]:
+                        combinados[prod["nombre_lower"]] = prod  # siempre incluir coincidencias exactas
+
         candidatos = sorted(combinados.values(),
-                            key=lambda p: fragmento in p["nombre_lower"],
-                            reverse=True)[:10]
+                            key=lambda p: sum(1 for w in palabras_clave if w in p["nombre_lower"]),
+                            reverse=True)[:12]
 
         if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
