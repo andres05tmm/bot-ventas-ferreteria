@@ -140,6 +140,10 @@ RESPUESTA: espanol, sin markdown. Fracciones legibles (1/4 no 0.25).
 ACCIONES al final (una por producto):
 [VENTA]{{"producto":"nombre","cantidad":1,"total":21000}}[/VENTA]
 - Solo campo "total" (NUNCA precio_unitario/precio/monto). Sin $ ni comas.
+- "producto" = nombre limpio del catalogo SIN fraccion. La fraccion va SOLO en "cantidad".
+  CORRECTO: {{"producto":"Laca Miel Catalizada","cantidad":0.25,"total":17000}}
+  INCORRECTO: {{"producto":"Laca Miel Catalizada 1/4","cantidad":0.25,"total":17000}}
+  INCORRECTO: {{"producto":"1/4 Laca Miel Catalizada","cantidad":0.25,"total":17000}}
 - metodo_pago si se menciona: efectivo|transferencia|datafono
   cash/plata=efectivo | nequi/daviplata/transfer=transferencia | tarjeta/datafono=datafono
 - cliente si se menciona. Fiado+metodo: cargo=total,abono=0.
