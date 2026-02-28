@@ -232,6 +232,32 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     info = obtener_info_fraccion_producto(prod["nombre_lower"])
                     if info:
                         info_fracciones_extra = f"PRECIOS POR FRACCION DEL PRODUCTO MENCIONADO:\n{info}"
+
+                    # Calcular total mixto en Python para no depender de Claude
+                    fracs = prod.get("precios_fraccion", {})
+                    msg_lower = mensaje_usuario.lower()
+                    map_frac = {
+                        "un cuarto": "1/4", "1/4": "1/4",
+                        "medio": "1/2", "media": "1/2", "1/2": "1/2",
+                        "tres cuartos": "3/4", "3/4": "3/4",
+                        "un octavo": "1/8", "1/8": "1/8",
+                        "1/16": "1/16",
+                    }
+                    map_enteros = {"un ": 1, "uno ": 1, "1 ": 1, "dos ": 2, "2 ": 2, "tres ": 3, "3 ": 3}
+                    frac_key   = next((v for k, v in map_frac.items() if k in msg_lower), None)
+                    n_enteros  = next((v for k, v in map_enteros.items() if k in msg_lower), None)
+                    if frac_key and n_enteros and frac_key in fracs and "1" in fracs:
+                        p_galon   = fracs["1"]["precio"] if isinstance(fracs.get("1"), dict) else fracs.get("1", 0)
+                        p_frac    = fracs[frac_key]["precio"] if isinstance(fracs.get(frac_key), dict) else fracs.get(frac_key, 0)
+                        total_calc = p_galon * n_enteros + p_frac
+                        dec_map   = {"1/4": 0.25, "1/2": 0.5, "3/4": 0.75, "1/8": 0.125, "1/16": 0.0625}
+                        cantidad_calc = n_enteros + dec_map.get(frac_key, 0)
+                        info_fracciones_extra += (
+                            f"\nTOTAL YA CALCULADO: cantidad={cantidad_calc}, total={total_calc}"
+                            f" ({n_enteros}x${p_galon:,} + {frac_key}=${p_frac:,})"
+                            f"\nUSA EXACTAMENTE estos valores en el [VENTA], no calcules de nuevo."
+                        )
+
                     encontrado = True
                     break
             if encontrado:
