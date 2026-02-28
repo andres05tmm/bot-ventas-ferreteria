@@ -585,6 +585,29 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     except asyncio.TimeoutError:
         raise RuntimeError("La IA tardó demasiado en responder (>30s). Intenta de nuevo.")
 
+    # ── Log de uso de tokens y cache ──
+    uso = respuesta.usage
+    cache_read    = getattr(uso, "cache_read_input_tokens",    0) or 0
+    cache_created = getattr(uso, "cache_creation_input_tokens", 0) or 0
+    input_normal  = getattr(uso, "input_tokens",               0) or 0
+    output_tokens = getattr(uso, "output_tokens",              0) or 0
+
+    if cache_read > 0 or cache_created > 0:
+        costo_input   = (input_normal  / 1_000_000) * 1.00
+        costo_cached  = (cache_read    / 1_000_000) * 0.10
+        costo_created = (cache_created / 1_000_000) * 1.25
+        costo_output  = (output_tokens / 1_000_000) * 5.00
+        costo_total   = costo_input + costo_cached + costo_created + costo_output
+        logging.getLogger("ferrebot.cache").info(
+            f"[CACHE] ✅ hit={cache_read} tok | created={cache_created} tok | "
+            f"input={input_normal} tok | output={output_tokens} tok | "
+            f"costo≈${costo_total:.5f}"
+        )
+    else:
+        logging.getLogger("ferrebot.cache").warning(
+            f"[CACHE] ⚠️ SIN CACHE — input={input_normal} tok | output={output_tokens} tok"
+        )
+
     return respuesta.content[0].text
 
 # ─────────────────────────────────────────────
