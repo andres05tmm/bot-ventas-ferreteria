@@ -132,13 +132,15 @@ REGLA DEFINITIVA DE PRECIOS:
 
 4. CANTIDADES MIXTAS — entero + fraccion: "1-1/4", "2 y 1/2", "1 galon y un cuarto"
    - La cantidad decimal: 1-1/4=1.25 | 2-1/2=2.5 | 1-3/4=1.75 | 3-1/4=3.25
-   - Si el usuario DICE el precio ("1-1/4 vinilo 41000") -> usalo directo como total.
-   - Si NO dice el precio, SUMA los precios del catalogo:
-       precio(parte_entera_galones) + precio(fraccion)
-     Ejemplo catalogo: 1 galon=$32.500, 1/4=$8.500
-       "1-1/4 vinilo" -> total: 32500 + 8500 = {{"cantidad": 1.25, "total": 41000}}
-       "2-1/2 vinilo" -> total: 32500+32500+21000 = {{"cantidad": 2.5, "total": 86000}}
+   - Si el usuario DICE el precio ("1-1/4 vinilo 65000") -> usalo directo como total.
+   - Si NO dice el precio, SUMA EXACTAMENTE los precios del catalogo:
+       total = precio("1") + precio("1/4")   <- usa las llaves exactas de precios_fraccion
+     Ejemplo con Vinilo T1 Blanco (catalogo: 1 galon=$50.000, 1/4=$15.000, 1/2=$26.000):
+       "1 galon y un cuarto vinilo t1" -> 50000 + 15000 = {{"cantidad": 1.25, "total": 65000}}
+       "1 galon y medio vinilo t1"     -> 50000 + 26000 = {{"cantidad": 1.5,  "total": 76000}}
+       "2 galones y un cuarto vinilo t1"-> 50000+50000+15000 = {{"cantidad": 2.25, "total": 115000}}
    - NUNCA uses solo el precio del galon entero para una cantidad mixta.
+   - NUNCA inventes un precio intermedio — suma los del catalogo exactamente.
    - Si no tienes los precios en catalogo, pregunta antes de registrar.
 
 5. NOMENCLATURA DE TORNILLOS - REGLA CRITICA:
