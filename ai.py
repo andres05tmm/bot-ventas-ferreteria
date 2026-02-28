@@ -135,7 +135,7 @@ INFORMACION DEL NEGOCIO: {negocio_json}
 
 {catalogo_seccion}
 
-RESPUESTA: espanol, sin markdown. Fracciones legibles (1/4 no 0.25).
+RESPUESTA: espanol, sin markdown. Fracciones legibles (1/4 no 0.25). Si hay [VENTA], omite el resumen verbal — el sistema lo muestra automaticamente. Solo responde con texto si hay una pregunta, error o aclaracion necesaria.
 
 ACCIONES al final (una por producto):
 [VENTA]{{"producto":"nombre","cantidad":1,"total":21000}}[/VENTA]
