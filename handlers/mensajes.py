@@ -292,26 +292,30 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         respuesta_raw                         = await procesar_con_claude(prompt_modificacion, vendedor, historial)
         texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
-        if texto_respuesta:
-            await update.message.reply_text(texto_respuesta)
 
         confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
         with _estado_lock:
             ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
 
         if ventas_nuevas:
+            # Nota del cambio en una sola linea, sin el resumen completo
+            nota = texto_respuesta.split("\n")[0] if texto_respuesta else ""
             if confirmacion_accion:
                 metodo_conocido = confirmacion_accion.split(":", 1)[1]
                 from handlers.callbacks import _enviar_confirmacion_con_metodo
-                await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido)
+                await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido, nota=nota)
             elif metodo_original:
                 with _estado_lock:
                     for v in ventas_pendientes.get(chat_id, []):
                         v["metodo_pago"] = metodo_original
                 from handlers.callbacks import _enviar_confirmacion_con_metodo
-                await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_original)
+                await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_original, nota=nota)
             else:
+                if nota:
+                    await update.message.reply_text(nota)
                 await _enviar_botones_pago(update.message, chat_id, ventas_nuevas)
+        elif texto_respuesta:
+            await update.message.reply_text(texto_respuesta)
         return
 
     elif en_correccion:
@@ -435,7 +439,6 @@ async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, vendedor: str, chat_id: int):
-    await update.message.reply_text("🎤 Escuchando...")
 
     # CORRECCIÓN: inicializar ruta_audio ANTES del try para que el finally
     # no tenga NameError si la descarga falla antes de asignar la variable
@@ -457,7 +460,6 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
 
         transcripcion = await asyncio.to_thread(_transcribir)
         texto         = corregir_texto_audio(transcripcion.text)
-        # Editar el mensaje "Escuchando..." con la transcripcion
         await update.message.reply_text(f"📝 {texto}")
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
