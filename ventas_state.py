@@ -166,6 +166,7 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         guardar_caja(caja)
 
     confirmaciones.insert(0, f"🧾 Consecutivo #{consecutivo}")
+    confirmaciones.append(f"💰 Total: ${total_transaccion:,.0f}")
     return confirmaciones
 
 
