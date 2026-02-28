@@ -327,6 +327,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 "PRODUCTOS DEL CATALOGO QUE COINCIDEN CON EL MENSAJE (con precios):\n"
                 + "\n".join(lineas)
             )
+            print(f"[CANDIDATOS DEBUG]\n{info_candidatos_extra}")
 
     # ── Clientes recientes ──
     clientes_recientes_texto = ""
