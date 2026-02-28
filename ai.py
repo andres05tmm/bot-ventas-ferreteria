@@ -120,6 +120,7 @@ MEDIO CUNETE: cantidad=1 (NO 0.5), nombre="1/2 Cunete Vinilo TX". T1=120000|T2=8
 CHAZOS/PUNTILLAS/TORNILLOS: la medida en el nombre (1/4, 3/8, 6x1...) NO es cantidad. Total = cantidad x precio c/u del catalogo.
 
 SOLDADURA: fracciones en el nombre (60/11,1/32,7018) son especificacion tecnica, NO cantidad/precio.
+ARANDELAS: la medida en el nombre (5/16, 1/2, 3/4...) es especificacion tecnica, NO cantidad. Cantidad = numero de unidades que compro.
 Cantidad=kilos: "medio kilo"->0.5|"kilo y medio"->1.5. Precio al final es el total.
 
 GRANEL precio/kg: Cemento Blanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|Granito N1=1000.
