@@ -445,12 +445,34 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
     ruta_audio = None
 
     try:
-        archivo_voz = await update.message.voice.get_file()
+        # Reintentos ante timeout de red de Telegram (común en Railway con servidor frío)
+        _MAX_REINTENTOS = 3
+        _archivo_voz    = None
+        for _intento in range(_MAX_REINTENTOS):
+            try:
+                _archivo_voz = await update.message.voice.get_file()
+                break
+            except Exception as _e:
+                if _intento < _MAX_REINTENTOS - 1:
+                    await asyncio.sleep(1.5 * (_intento + 1))
+                else:
+                    raise _e
+
+        archivo_voz = _archivo_voz
 
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
             ruta_audio = tmp.name  # asignamos aquí, ANTES de la descarga
 
-        await archivo_voz.download_to_drive(ruta_audio)
+        # Reintentos también en la descarga del archivo
+        for _intento in range(_MAX_REINTENTOS):
+            try:
+                await archivo_voz.download_to_drive(ruta_audio)
+                break
+            except Exception as _e:
+                if _intento < _MAX_REINTENTOS - 1:
+                    await asyncio.sleep(1.5 * (_intento + 1))
+                else:
+                    raise _e
 
         def _transcribir():
             with open(ruta_audio, "rb") as audio_file:
