@@ -280,16 +280,28 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             return f"  - {p['nombre']}: ${p['precio_unidad']:,}"
 
     if palabras_clave:
-        todos_candidatos = {}
+        exactos = {}    # coincidencia exacta — mayor prioridad
+        parciales = {}  # coincidencia parcial
+
         for largo in [4, 3, 2, 1]:
             for i in range(len(palabras_clave) - largo + 1):
                 fragmento = " ".join(palabras_clave[i:i + largo])
                 if len(fragmento) < 4:
                     continue
-                for prod in buscar_multiples_en_catalogo(fragmento, limite=3):
-                    todos_candidatos[prod["nombre_lower"]] = prod
+                for prod in buscar_multiples_en_catalogo(fragmento, limite=2):
+                    nl = prod["nombre_lower"]
+                    # Exacto: el fragmento aparece completo en el nombre del producto
+                    if fragmento in nl:
+                        exactos[nl] = prod
+                    else:
+                        parciales[nl] = prod
 
-        candidatos = list(todos_candidatos.values())[:12]
+        # Primero exactos, luego parciales, max 10 total
+        combinados = {**parciales, **exactos}  # exactos sobreescriben parciales
+        candidatos = sorted(combinados.values(),
+                            key=lambda p: fragmento in p["nombre_lower"],
+                            reverse=True)[:10]
+
         if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = (
