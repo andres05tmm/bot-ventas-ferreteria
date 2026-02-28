@@ -452,7 +452,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     aviso_drive = (
         "AVISO: Google Drive no disponible. Los datos se guardan localmente."
-        if not config.DRIVE_DISPONIBLE else ""
+        if not config._get_drive_disponible() else ""
     )
 
     # ── Thinner: precalcular fraccion en Python ──
@@ -566,6 +566,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
                 lambda: config.claude_client.messages.create(
                     model="claude-haiku-4-5-20251001",
                     max_tokens=max_tokens,
+                    betas=["prompt-caching-2024-07-31"],
                     system=[
                         {
                             "type": "text",
@@ -837,6 +838,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 guardar_caja(caja)
         except Exception as e:
             print(f"Error caja: {e}")
+        texto_limpio = texto_limpio.replace(f'[CAJA]{caja_json}[/CAJA]', '')
 
     # ── Gastos ──
     for gasto_json in re.findall(r'\[GASTO\](.*?)\[/GASTO\]', texto_respuesta, re.DOTALL):
