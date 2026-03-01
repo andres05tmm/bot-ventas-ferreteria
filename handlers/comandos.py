@@ -68,7 +68,8 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/caja — Estado de caja\n"
         "/gastos — Gastos de hoy\n"
         "/inventario — Ver inventario\n"
-        "/fiados — Ver cuentas fiadas\n\n"
+        "/fiados — Ver cuentas fiadas\n"
+        "/keepalive — Cache activo (on/off para dias movidos)\n\n"
         f"{estado_drive} | {estado_sheets}"
     )
 
@@ -754,6 +755,7 @@ async def comando_keepalive(update, context):
     await update.message.reply_text(
         f"{estado_emoji} Keep-alive: {estado_texto}\n\n"
         f"Horario automático: 8:00am - 11:00am\n"
+        f"Apagado automático (si ON manual): L-S 5:00pm | D 1:00pm\n"
         f"Intervalo: cada 4 minutos\n\n"
         f"/keepalive on  → activar\n"
         f"/keepalive off → desactivar"
