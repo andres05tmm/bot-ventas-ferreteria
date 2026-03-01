@@ -326,7 +326,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         for seg in _segmentos_raw:
             seg = seg.strip()
             # Quitar fracciones y números del inicio para quedarnos con el nombre
-            seg_limpio = _re.sub(r'^[\d/\.\s]+', '', seg).strip()
+            seg_limpio = _re.sub(r'^[\d\-/\.\s]+', '', seg).strip()
             if len(seg_limpio) > 3:
                 _segmentos.append(seg_limpio)
 
