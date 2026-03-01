@@ -145,6 +145,7 @@ Carbonato: solo bolsa completa 25kg=18000, NUNCA kilos sueltos.
 PINTURAS sin color -> preguntar "De que color?" (NUNCA registres sin color).
 BROCHAS sin medida -> preguntar medida. Precios: 1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
 RODILLOS: "rodillo" solo (sin medida) = Rodillo Convencional $8000, NUNCA preguntar pulgadas. Solo usar "Rodillo de X\"" si el usuario especifica la medida (ej: "rodillo de 3 pulgadas").
+BISAGRAS: "bisagra 3x3" sin especificar material = BISAGRA 3X3 PAR (la comun). Solo usar BISAGRA 3X3 ACERO INOX si el usuario dice explicitamente "inox", "acero inox" o "inoxidable".
 SELLADOR sin calificar = Corriente. AEROSOL sin "alta temperatura" = normal $9000.
 
 MULTI-PRODUCTO (3+): registra TODO sin preguntar. Sin color en multi-producto->total:0, indica pendiente.
