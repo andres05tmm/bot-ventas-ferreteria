@@ -3,6 +3,8 @@ FerreBot — Entry point.
 Inicializa los servicios y arranca el bot en modo webhook (Railway) o polling (local).
 """
 
+import asyncio
+
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
