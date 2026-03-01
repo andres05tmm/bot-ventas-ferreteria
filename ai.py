@@ -152,7 +152,9 @@ INFORMACION DEL NEGOCIO: {negocio_json}
 
 {catalogo_seccion}
 
-RESPUESTA: espanol, sin markdown. Fracciones legibles (1/4 no 0.25). Si hay [VENTA], omite el resumen verbal — el sistema lo muestra automaticamente. Solo responde con texto si hay una pregunta, error o aclaracion necesaria.
+RESPUESTA: espanol, sin markdown. Fracciones legibles (1/4 no 0.25).
+SILENCIO TOTAL si es registro de venta sin ambiguedades: emite SOLO los JSON [VENTA], cero texto antes ni despues. El sistema ya muestra el resumen al cliente automaticamente.
+Texto SOLO en: (1) falta dato obligatorio como color o medida, (2) producto no encontrado en catalogo, (3) precio contradictorio, (4) el usuario hace una pregunta explicita.
 
 ACCIONES al final (una por producto):
 [VENTA]{{"producto":"nombre","cantidad":1,"total":21000}}[/VENTA]
@@ -338,7 +340,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # tenga garantizado su candidato, sin que unos "aplasten" a otros.
         # Ej: "1/4 vinilo blanco, 1/2 laca miel, 3/4 thinner" → 3 segmentos independientes
         import re as _re
-        _segmentos_raw = _re.split(r'[,ysY]\s+', mensaje_usuario.lower())
+        _segmentos_raw = _re.split(r',\s*|(?<!\w)\s+y\s+(?=\d)', mensaje_usuario.lower())
         _segmentos = []
         for seg in _segmentos_raw:
             seg = seg.strip()
@@ -348,21 +350,79 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 _segmentos.append(seg_limpio)
 
         combinados = {}
+        _candidatos_garantizados = {}  # nl → prod: el mejor hit por segmento, siempre incluido
+
+        # Familias donde hay múltiples tallas/variantes — necesitamos límite más alto
+        _familias_con_tallas = {"brocha", "rodillo", "lija", "disco", "tornillo", "chazo",
+                                 "tuerca", "arandela", "bisagra", "candado", "manguera",
+                                 "lampara", "foco", "cable", "codo", "tee", "reduccion"}
+
+        # Palabras de acción al inicio del mensaje que no son producto
+        _palabras_accion = {"vendi", "vende", "vendí", "vender", "cobré", "cobre", "cobrar",
+                             "dame", "deme", "dar", "quiero", "necesito", "compre", "compré"}
+
+        # Stemming mínimo: quitar 's' final para que "lijas"→"lija", "discos"→"disco"
+        def _stem(w):
+            return w[:-1] if w.endswith("s") and len(w) > 4 else w
 
         # 1. Buscar candidato por cada segmento de producto (garantiza uno por producto)
         for seg in _segmentos:
-            palabras_seg = [p for p in seg.split() if p not in stopwords and len(p) > 2]
+            # Quitar palabras de acción y cantidades iniciales del segmento
+            palabras_raw = seg.split()
+            # Saltar palabras de acción al inicio
+            while palabras_raw and palabras_raw[0] in _palabras_accion:
+                palabras_raw = palabras_raw[1:]
+            # Saltar números/fracciones iniciales (cantidades como "3", "1/2", "50")
+            while palabras_raw and _re.match(r'^[\d/\.]+$', palabras_raw[0]):
+                palabras_raw = palabras_raw[1:]
+            # Saltar palabras de volumen/unidad inmediatas tras la cantidad
+            _unidades_volumen = {"galon", "galones", "cuarto", "cuartos", "litro", "litros",
+                                  "kilo", "kilos", "gramo", "gramos", "metro", "metros",
+                                  "unidad", "unidades", "caja", "cajas", "bolsa", "bolsas",
+                                  "rollo", "rollos", "par", "pares"}
+            while palabras_raw and palabras_raw[0] in _unidades_volumen:
+                palabras_raw = palabras_raw[1:]
+
+            # Incluir: palabras del nombre del producto + números que son tallas (van DESPUÉS del nombre base)
+            # Los números como "3", "80", "100" solo se incluyen si no son la primera palabra
+            # (para evitar que "3 cuartos de vinilo T1" incluya "3" que matchearía T3)
+            palabras_seg = []
+            nombre_producto_encontrado = False
+            for p in palabras_raw:
+                if p in stopwords:
+                    continue
+                if len(p) > 2 and not p.replace('.','').replace(',','').isdigit():
+                    palabras_seg.append(_stem(p))  # con stemming
+                    nombre_producto_encontrado = True
+                elif _re.match(r'^\d+x\d+', p):  # formatos como 3x3, 8x1
+                    palabras_seg.append(p)
+                    nombre_producto_encontrado = True
+                elif nombre_producto_encontrado and p.isdigit() and 1 <= int(p) <= 999:
+                    # Número de talla SOLO después de haber encontrado el nombre del producto
+                    palabras_seg.append(p)
+
             if not palabras_seg:
                 continue
+
+            # Detectar si el segmento es de familia con tallas → usar límite más alto
+            es_familia = any(f in seg.lower() or _stem(f) in seg.lower() for f in _familias_con_tallas)
+            _limite_seg = 8 if es_familia else 3
+
             for largo in [4, 3, 2, 1]:
                 encontrado_seg = False
                 for i in range(len(palabras_seg) - largo + 1):
                     fragmento = " ".join(palabras_seg[i:i + largo])
                     if len(fragmento) < 3:
                         continue
-                    for prod in buscar_multiples_en_catalogo(fragmento, limite=2):
+                    resultados = buscar_multiples_en_catalogo(fragmento, limite=_limite_seg)
+                    primer = True
+                    for prod in resultados:
                         nl = prod["nombre_lower"]
                         combinados[nl] = prod
+                        if primer:
+                            # El primer resultado es el mejor match — garantizarlo en la lista final
+                            _candidatos_garantizados[nl] = prod
+                            primer = False
                         encontrado_seg = True
                     if encontrado_seg:
                         break
@@ -380,10 +440,17 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                         combinados[prod["nombre_lower"]] = prod
 
         # 3. Ordenar: más palabras del mensaje completo en el nombre = mayor prioridad
-        #    Pero garantizamos que todos los de búsqueda por segmento están incluidos
-        candidatos = sorted(combinados.values(),
-                            key=lambda p: sum(1 for w in palabras_clave if w in p["nombre_lower"]),
-                            reverse=True)[:15]  # límite ampliado a 15 para mensajes multi-producto
+        #    Los candidatos garantizados (mejor hit por segmento) siempre se incluyen primero.
+        #    Luego se agregan hasta 25 adicionales del pool general, ordenados por relevancia.
+        _garantizados_lista = list(_candidatos_garantizados.values())
+        _garantizados_nls   = set(_candidatos_garantizados.keys())
+        _resto = sorted(
+            [p for p in combinados.values() if p["nombre_lower"] not in _garantizados_nls],
+            key=lambda p: sum(1 for w in palabras_clave if w in p["nombre_lower"]),
+            reverse=True
+        )
+        candidatos = _garantizados_lista + _resto
+        candidatos = candidatos[:max(len(_garantizados_lista), 25)]
 
         if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
@@ -598,8 +665,25 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
             messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
     messages.append({"role": "user", "content": str(mensaje_usuario)})
 
+    # max_tokens adaptativo por tipo de mensaje:
+    # - Venta simple (1 producto, sin comas ni saltos): solo JSON → 400 tok
+    # - Venta multi-producto: JSON × N productos + posible texto → 250 × lineas
+    # - Consulta/reporte/modificacion: respuesta larga → 2000 mínimo
+    # Esto evita pagar por tokens que nunca se van a usar
+    _kw_reporte = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
+                   "grafica","top","mas vendido","gasto","caja","inventario"}
+    _kw_edicion = {"modificar","corregir","cambia","quita","agrega","error",
+                   "equivoque","fiado","debe","abono","borrar","eliminar"}
     num_lineas = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
-    max_tokens = min(4000, max(1500, num_lineas * 250))
+    _msg_low   = mensaje_usuario.lower()
+    if any(p in _msg_low for p in _kw_reporte):
+        max_tokens = 2000          # reportes necesitan espacio
+    elif any(p in _msg_low for p in _kw_edicion):
+        max_tokens = 1200          # ediciones: algo de texto + JSON
+    elif num_lineas == 1 and "," not in mensaje_usuario:
+        max_tokens = 450           # venta simple: solo JSON, ~150 tok reales
+    else:
+        max_tokens = min(3000, max(800, num_lineas * 220))  # multi-producto
 
     loop = asyncio.get_event_loop()
     try:
