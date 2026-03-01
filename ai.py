@@ -556,8 +556,12 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
             messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
     messages.append({"role": "user", "content": str(mensaje_usuario)})
 
-    num_lineas = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
-    max_tokens = min(4000, max(1500, num_lineas * 250))
+    num_lineas  = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
+    _kw_largo   = {"cuanto","vendimos","reporte","analiz","resumen","estadistica","top",
+                   "mas vendido","grafica","fiado","inventario","clientes"}
+    _es_largo   = any(p in mensaje_usuario.lower() for p in _kw_largo)
+    # Ventas simples: 600 tok | Análisis/reportes: 2000 tok | Multi-producto: escala
+    max_tokens  = 2000 if _es_largo else min(2000, max(600, num_lineas * 200))
 
     loop = asyncio.get_event_loop()
     try:
