@@ -120,8 +120,18 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
         return []
 
     nombre_lower = nombre_buscado.strip().lower()
-    # Incluir palabras largas (>2 chars) Y números de cualquier longitud para scoring de tallas
-    palabras_raw = [p for p in nombre_lower.split() if len(p) > 2 or p.isdigit()]
+    # Incluir palabras largas (>2 chars), números, Y códigos alfanuméricos cortos como t1, t2, t3, x1
+    def _es_token_relevante(p: str) -> bool:
+        if len(p) > 2:
+            return True
+        if p.isdigit():
+            return True
+        # Tokens de 2 chars con al menos un dígito: t1, t2, t3, x1, 6x, 8x, etc.
+        if len(p) == 2 and any(c.isdigit() for c in p):
+            return True
+        return False
+
+    palabras_raw = [p for p in nombre_lower.split() if _es_token_relevante(p)]
     if not palabras_raw:
         return []
 
@@ -156,6 +166,68 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
 
     candidatos.sort(key=lambda x: (-x[0], -x[1], x[2]))
     return [c[3] for c in candidatos[:limite]]
+
+
+# ─────────────────────────────────────────────
+# ALIAS / SINÓNIMOS DE BÚSQUEDA
+# ─────────────────────────────────────────────
+
+# Mapa de sinónimos: palabra que dice el usuario → palabra que está en el catálogo
+_ALIAS_SINONIMOS = {
+    "imprimante":     "primario",
+    "primante":       "primario",
+    "primate":        "primario",    # error Whisper frecuente
+    "pintura":        "vinilo",
+    "pinturas":       "vinilo",
+    "lija":           "lija",
+    "lijas":          "lija",
+    "silicona":       "silicona",
+    "silicon":        "silicona",
+    "cinta masking":  "cinta enmascarar",
+    "masking":        "cinta enmascarar",
+    "enmascarar":     "cinta enmascarar",
+    "vinipel":        "cinta",
+    "esquinero":      "perfil",
+    "angelina":       "lana de vidrio",
+    "fibra vidrio":   "lana de vidrio",
+    "emplaste":       "masilla",
+    "empaste":        "masilla",
+    "palustre":       "llana",
+    "boquillera":     "masilla",
+    "sika":           "impermeabilizante",
+    "impermeabilizante": "impermeabilizante",
+}
+
+
+def expandir_con_alias(termino: str) -> list[str]:
+    """
+    Dado un término de búsqueda, retorna variantes aplicando alias conocidos.
+    Ej: 'imprimante blanco' → ['imprimante blanco', 'primario blanco']
+    """
+    termino_lower = termino.lower().strip()
+    variantes = [termino_lower]
+    for alias_original, alias_destino in _ALIAS_SINONIMOS.items():
+        if alias_original in termino_lower and alias_destino not in termino_lower:
+            variante = termino_lower.replace(alias_original, alias_destino)
+            variantes.append(variante)
+    return variantes
+
+
+def buscar_multiples_con_alias(nombre_buscado: str, limite: int = 8) -> list:
+    """
+    Igual que buscar_multiples_en_catalogo pero expande el término con alias/sinónimos.
+    Úsala en lugar de buscar_multiples_en_catalogo cuando el MATCH falle frecuentemente.
+    """
+    variantes = expandir_con_alias(nombre_buscado)
+    vistos = set()
+    resultados_combinados = []
+    for variante in variantes:
+        for prod in buscar_multiples_en_catalogo(variante, limite=limite):
+            nl = prod.get("nombre_lower", "")
+            if nl not in vistos:
+                vistos.add(nl)
+                resultados_combinados.append(prod)
+    return resultados_combinados[:limite]
 
 
 def obtener_precio_para_cantidad(nombre_producto: str, cantidad_decimal: float) -> tuple[int, float]:
