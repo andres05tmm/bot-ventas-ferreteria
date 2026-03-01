@@ -704,3 +704,57 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
 
     except Exception as e:
         await update.message.reply_text(f"❌ Error importando: {e}")
+
+
+async def comando_keepalive(update, context):
+    """
+    /keepalive        → muestra estado actual
+    /keepalive on     → activa keep-alive (útil en tardes movidas)
+    /keepalive off    → desactiva (días de lluvia, festivos, etc.)
+    """
+    from keepalive import keepalive_activo, set_keepalive
+
+    args = context.args
+    if args:
+        arg = args[0].lower().strip()
+        if arg == "on":
+            set_keepalive(True)
+            await update.message.reply_text(
+                "✅ Keep-alive ACTIVADO\n"
+                "El cache se renovará cada 4 min mientras esté activo.\n"
+                "Úsalo en tardes movidas o días con muchas ventas seguidas."
+            )
+        elif arg == "off":
+            set_keepalive(False)
+            await update.message.reply_text(
+                "⏸ Keep-alive DESACTIVADO\n"
+                "Se reactiva automáticamente mañana de 8am-11am si lo dejas en ON."
+            )
+        else:
+            await update.message.reply_text("Uso: /keepalive on | /keepalive off")
+        return
+
+    # Sin argumentos → mostrar estado
+    from datetime import datetime, time
+    import config
+    activo  = keepalive_activo()
+    ahora   = datetime.now(config.COLOMBIA_TZ).time()
+    horario = time(8, 0) <= ahora <= time(11, 0)
+
+    if activo and horario:
+        estado_emoji = "🟢"
+        estado_texto = "ACTIVO y en horario (ping cada 4 min)"
+    elif activo and not horario:
+        estado_emoji = "🟡"
+        estado_texto = "ACTIVADO pero fuera de horario 8-11am"
+    else:
+        estado_emoji = "🔴"
+        estado_texto = "DESACTIVADO manualmente"
+
+    await update.message.reply_text(
+        f"{estado_emoji} Keep-alive: {estado_texto}\n\n"
+        f"Horario automático: 8:00am - 11:00am\n"
+        f"Intervalo: cada 4 minutos\n\n"
+        f"/keepalive on  → activar\n"
+        f"/keepalive off → desactivar"
+    )
