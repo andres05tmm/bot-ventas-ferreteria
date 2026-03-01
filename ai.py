@@ -27,6 +27,7 @@ import config
 from memoria import (
     cargar_memoria, guardar_memoria, invalidar_cache_memoria,
     buscar_producto_en_catalogo, buscar_multiples_en_catalogo,
+    buscar_multiples_con_alias,
     obtener_precios_como_texto, obtener_info_fraccion_producto,
     cargar_inventario, cargar_caja, cargar_gastos_hoy,
     obtener_resumen_caja, guardar_gasto,
@@ -231,7 +232,20 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                  "galon", "litro", "kilo", "metro", "pulgada", "pulgadas", "unidad", "unidades",
                  "vendi", "vendo", "vendimos", "dame", "quiero", "necesito", "par"}
 
-    # ── Info de fracciones del producto mencionado ──
+    def _es_keyword_relevante(p: str) -> bool:
+        """Determina si una palabra debe incluirse como keyword de búsqueda."""
+        if p in stopwords:
+            return False
+        if len(p) > 2:
+            return True
+        if p.isdigit():
+            return True
+        # Incluir códigos de variante de 2 chars: t1, t2, t3, x1, 6x, 8x, etc.
+        if len(p) == 2 and any(c.isdigit() for c in p):
+            return True
+        return False
+
+    palabras_clave = [p for p in mensaje_usuario.lower().split() if _es_keyword_relevante(p)]
     info_fracciones_extra = ""
     palabras_frac = ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"]
     if any(p in mensaje_usuario.lower() for p in palabras_frac):
@@ -278,7 +292,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     # ── Candidatos del catálogo para este mensaje específico ──
     info_candidatos_extra = ""
-    palabras_clave        = [p for p in mensaje_usuario.lower().split() if p not in stopwords]
+    # palabras_clave ya definida arriba con _es_keyword_relevante (incluye t1/t2/t3)
 
     # Detectar fracciones y cantidades mixtas mencionadas en el mensaje
     _fracs_mencionadas = set()
@@ -414,7 +428,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     fragmento = " ".join(palabras_seg[i:i + largo])
                     if len(fragmento) < 3:
                         continue
-                    resultados = buscar_multiples_en_catalogo(fragmento, limite=_limite_seg)
+                    resultados = buscar_multiples_con_alias(fragmento, limite=_limite_seg)
                     primer = True
                     for prod in resultados:
                         nl = prod["nombre_lower"]
