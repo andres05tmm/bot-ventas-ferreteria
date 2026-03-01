@@ -19,10 +19,11 @@ from handlers.comandos import (
     comando_borrar, comando_precios, comando_caja, comando_gastos,
     comando_inventario, comando_clientes, comando_grafica, comando_fiados,
     manejar_callback_grafica, comando_sheets, comando_cerrar_dia,
-    comando_reset_ventas, comando_actualizar_catalogo,
+    comando_reset_ventas, comando_actualizar_catalogo, comando_keepalive,
 )
 from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento
 from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente
+from keepalive import loop_keepalive
 
 
 def main():
@@ -60,6 +61,7 @@ def main():
     app.add_handler(CommandHandler("cerrar",     comando_cerrar_dia))
     app.add_handler(CommandHandler("resetventas", comando_reset_ventas))
     app.add_handler(CommandHandler("catalogo",   comando_actualizar_catalogo))
+    app.add_handler(CommandHandler("keepalive",  comando_keepalive))
 
     # Mensajes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))
@@ -76,6 +78,7 @@ def main():
 
     if config.WEBHOOK_URL:
         print(f"🌐 Iniciando en modo WEBHOOK: {config.WEBHOOK_URL}")
+        asyncio.get_event_loop().create_task(loop_keepalive())
         app.run_webhook(
             listen="0.0.0.0",
             port=config.WEBHOOK_PORT,
