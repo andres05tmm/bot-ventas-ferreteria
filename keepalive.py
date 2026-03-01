@@ -9,6 +9,10 @@ Control manual via Telegram:
   /keepalive off → desactiva (días de lluvia, festivos, etc.)
   /keepalive     → muestra el estado actual
 
+Si se activa manualmente, se apaga solo al cerrar la ferretería:
+  - Lunes a sábado: 5:00pm
+  - Domingos: 1:00pm
+
 El estado se guarda en memoria.json para sobrevivir reinicios.
 """
 
@@ -21,9 +25,14 @@ from memoria import cargar_memoria, guardar_memoria
 
 logger = logging.getLogger("ferrebot.keepalive")
 
-# Horario por defecto: 8:00 - 11:00 hora Colombia
-HORA_INICIO  = time(8, 0)
-HORA_FIN     = time(11, 0)
+# Horario automático: 8:00 - 11:00 hora Colombia
+HORA_INICIO   = time(8, 0)
+HORA_FIN      = time(11, 0)
+
+# Hora de cierre por día (apagado automático del modo manual)
+HORA_CIERRE_SEMANA  = time(17, 0)   # L-S: 5:00pm
+HORA_CIERRE_DOMINGO = time(13, 0)   # D:   1:00pm
+
 INTERVALO_SEG = 4 * 60  # 4 minutos
 
 # Mensaje mínimo para renovar cache sin generar respuesta visible
@@ -45,9 +54,22 @@ def set_keepalive(activo: bool):
 
 
 def _en_horario_keepalive() -> bool:
-    """Retorna True si estamos en el horario de keep-alive (8:00-11:00 Colombia)."""
+    """Retorna True si estamos en el horario automático (8:00-11:00 Colombia)."""
     ahora = datetime.now(config.COLOMBIA_TZ).time()
     return HORA_INICIO <= ahora <= HORA_FIN
+
+
+def _hora_cierre_hoy() -> time:
+    """Retorna la hora de cierre según el día de la semana."""
+    # weekday(): 0=lunes ... 5=sábado, 6=domingo
+    es_domingo = datetime.now(config.COLOMBIA_TZ).weekday() == 6
+    return HORA_CIERRE_DOMINGO if es_domingo else HORA_CIERRE_SEMANA
+
+
+def _pasada_hora_cierre() -> bool:
+    """Retorna True si ya pasó la hora de cierre del día."""
+    ahora = datetime.now(config.COLOMBIA_TZ).time()
+    return ahora >= _hora_cierre_hoy()
 
 
 async def _ping_cache():
@@ -103,17 +125,33 @@ async def _ping_cache():
 async def loop_keepalive():
     """
     Bucle principal del keep-alive. Corre indefinidamente en background.
-    Solo hace ping si: (1) está activado y (2) estamos en horario 8-11am.
+
+    Lógica:
+    - Horario automático 8-11am: pinguea siempre (independiente del estado manual)
+    - Modo manual (/keepalive on): pinguea fuera del horario automático,
+      pero se apaga solo a las 5pm (L-S) o 1pm (D)
     """
-    logger.info("[KEEPALIVE] Iniciado. Horario activo: 08:00-11:00 Colombia.")
+    logger.info("[KEEPALIVE] Iniciado. Horario automático: 08:00-11:00 Colombia.")
     while True:
         await asyncio.sleep(INTERVALO_SEG)
-        if keepalive_activo() and _en_horario_keepalive():
+
+        en_horario_auto = _en_horario_keepalive()
+        manual_activo   = keepalive_activo()
+        cierre_pasado   = _pasada_hora_cierre()
+
+        # Apagado automático del modo manual al llegar la hora de cierre
+        if manual_activo and cierre_pasado and not en_horario_auto:
+            set_keepalive(False)
+            hora_cierre = _hora_cierre_hoy().strftime("%I:%M%p")
+            logger.info(f"[KEEPALIVE] 🔴 Apagado automático — hora de cierre ({hora_cierre} Colombia)")
+            continue
+
+        # Hacer ping si: horario automático O manual activo (sin haber pasado cierre)
+        if en_horario_auto or (manual_activo and not cierre_pasado):
             await _ping_cache()
         else:
-            # Log silencioso cada 30 min para saber que sigue corriendo
             ahora = datetime.now(config.COLOMBIA_TZ)
             if ahora.minute % 30 == 0:
-                estado  = "ON" if keepalive_activo() else "OFF (manual)"
-                horario = "en horario" if _en_horario_keepalive() else "fuera de horario"
+                estado  = "ON" if manual_activo else "OFF"
+                horario = "en horario auto" if en_horario_auto else "fuera de horario"
                 logger.debug(f"[KEEPALIVE] Inactivo — estado:{estado} | {horario}")
