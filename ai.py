@@ -15,6 +15,7 @@ CORRECCIONES v2:
 """
 
 import logging
+import os
 import asyncio
 import json
 import re
@@ -81,11 +82,19 @@ def _construir_parte_estatica(memoria: dict) -> str:
     else:
         precios_fraccion_texto = ""
 
-    catalogo_seccion = (
-        "CATALOGO(nombre:precio, tornillos:normal/volumenxumbral):\n"
-        + precios_texto
-        + ("\n" + precios_fraccion_texto if precios_fraccion_texto else "")
-    ) if precios_texto else precios_fraccion_texto
+    # MODO_MATCH_ONLY=true → omite catálogo del prompt estático (ahorra ~6000 tokens cacheados)
+    # El MATCH en la parte dinámica provee los precios relevantes por mensaje
+    # Activar en Railway para probar; desactivar si el bot falla en productos no encontrados
+    _match_only = os.getenv("MODO_MATCH_ONLY", "false").lower() == "true"
+
+    if _match_only:
+        catalogo_seccion = precios_fraccion_texto  # solo fracciones extra si las hay
+    else:
+        catalogo_seccion = (
+            "CATALOGO(nombre:precio, tornillos:normal/volumenxumbral):\n"
+            + precios_texto
+            + ("\n" + precios_fraccion_texto if precios_fraccion_texto else "")
+        ) if precios_texto else precios_fraccion_texto
 
     negocio_json = json.dumps(memoria.get("negocio", {}), ensure_ascii=False)
 
@@ -543,6 +552,9 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
 
+    _modo = "MATCH-ONLY 🧪" if os.getenv("MODO_MATCH_ONLY","false").lower()=="true" else "NORMAL 📦"
+    logging.getLogger("ferrebot.cache").info(f"[MODO] {_modo}")
+
     # Historial adaptativo: ventas simples solo necesitan 2 mensajes de contexto,
     # análisis y correcciones necesitan 4. Ahorra ~75 tokens en el 70% de llamadas.
     _kw_contexto = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
@@ -556,12 +568,8 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
             messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
     messages.append({"role": "user", "content": str(mensaje_usuario)})
 
-    num_lineas  = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
-    _kw_largo   = {"cuanto","vendimos","reporte","analiz","resumen","estadistica","top",
-                   "mas vendido","grafica","fiado","inventario","clientes"}
-    _es_largo   = any(p in mensaje_usuario.lower() for p in _kw_largo)
-    # Ventas simples: 600 tok | Análisis/reportes: 2000 tok | Multi-producto: escala
-    max_tokens  = 2000 if _es_largo else min(2000, max(600, num_lineas * 200))
+    num_lineas = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
+    max_tokens = min(4000, max(1500, num_lineas * 250))
 
     loop = asyncio.get_event_loop()
     try:
