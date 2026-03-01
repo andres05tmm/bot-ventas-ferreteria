@@ -458,12 +458,13 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
     if not clave:
         return False
 
-    if fraccion:
-        catalogo[clave].setdefault("precios_fraccion", {})
+    # Si llega fraccion pero el producto no es fraccionable (ej: "1/2 Cunete"
+    # donde el 1/2 es parte del nombre), ignorar fraccion y actualizar precio_unidad
+    if fraccion and catalogo[clave].get("precios_fraccion"):
         catalogo[clave]["precios_fraccion"][fraccion] = {"precio": round(nuevo_precio)}
     else:
         catalogo[clave]["precio_unidad"] = round(nuevo_precio)
-        # Si tiene precio_por_cantidad, actualizar también el precio bajo umbral
+        # Si tiene precio_por_cantidad, actualizar tambien el precio bajo umbral
         if catalogo[clave].get("precio_por_cantidad"):
             catalogo[clave]["precio_por_cantidad"]["precio_bajo_umbral"] = round(nuevo_precio)
 
