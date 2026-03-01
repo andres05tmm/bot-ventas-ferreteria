@@ -219,7 +219,9 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         datos_texto = "(no cargado)"
 
     stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
-                 "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en"}
+                 "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en",
+                 "galon", "litro", "kilo", "metro", "pulgada", "pulgadas", "unidad", "unidades",
+                 "vendi", "vendo", "vendimos", "dame", "quiero", "necesito", "par"}
 
     # ── Info de fracciones del producto mencionado ──
     info_fracciones_extra = ""
