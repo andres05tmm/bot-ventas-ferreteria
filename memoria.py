@@ -106,27 +106,53 @@ def buscar_producto_en_catalogo(nombre_buscado: str) -> dict | None:
     return None
 
 
+def _stem_palabra(w: str) -> str:
+    """Stemming mínimo: quita 's' final para plurales (lijas→lija, discos→disco)."""
+    return w[:-1] if w.endswith("s") and len(w) > 4 else w
+
+
 def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
-    """Retorna todos los candidatos que coincidan con el término, ordenados por relevancia."""
+    """Retorna todos los candidatos que coincidan con el término, ordenados por relevancia.
+    Incluye stemming de plurales y bonus de score para números exactos (tallas).
+    """
     catalogo = cargar_memoria().get("catalogo", {})
     if not catalogo:
         return []
 
     nombre_lower = nombre_buscado.strip().lower()
-    palabras = [p for p in nombre_lower.split() if len(p) > 2]
-    if not palabras:
+    # Incluir palabras largas (>2 chars) Y números de cualquier longitud para scoring de tallas
+    palabras_raw = [p for p in nombre_lower.split() if len(p) > 2 or p.isdigit()]
+    if not palabras_raw:
         return []
+
+    # Separar palabras normales de números/tallas para scoring diferenciado
+    palabras_variantes = []
+    numeros_busqueda = set()
+    for p in palabras_raw:
+        stem = _stem_palabra(p)
+        palabras_variantes.append((p, stem))
+        if p.isdigit():
+            numeros_busqueda.add(p)
 
     candidatos = []
     for prod in catalogo.values():
         nl = prod.get("nombre_lower", "")
-        coincidencias = sum(1 for p in palabras if p in nl)
-        if coincidencias == len(palabras):
-            candidatos.append((3, coincidencias, len(nl), prod))
-        elif len(palabras) > 1 and coincidencias >= len(palabras) - 1:
-            candidatos.append((2, coincidencias, len(nl), prod))
+        coincidencias = sum(1 for (orig, stem) in palabras_variantes if orig in nl or stem in nl)
+        total = len(palabras_variantes)
+        # Bonus: si el número exacto de la búsqueda aparece en el nombre → prioridad alta
+        # Usa regex para extraer números del nombre_lower (maneja n°80, 3", etc.)
+        import re as _re_mem
+        nl_numeros = set(_re_mem.findall(r'\d+', nl))
+        bonus_numero = sum(1 for n in numeros_busqueda if n in nl_numeros)
+        score_base = 0
+        if coincidencias == total:
+            score_base = 3
+        elif total > 1 and coincidencias >= total - 1:
+            score_base = 2
         elif coincidencias >= 1:
-            candidatos.append((1, coincidencias, len(nl), prod))
+            score_base = 1
+        if score_base > 0:
+            candidatos.append((score_base + bonus_numero, coincidencias, len(nl), prod))
 
     candidatos.sort(key=lambda x: (-x[0], -x[1], x[2]))
     return [c[3] for c in candidatos[:limite]]
