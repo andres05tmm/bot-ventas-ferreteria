@@ -98,13 +98,19 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
         ]
         ws.append_row(fila, value_input_option="USER_ENTERED")
 
-        # Alternar color de fila
+        # Alternar color de fila — texto siempre negro para legibilidad
         num_filas = len(ws.get_all_values())
         num_cols  = len(config.SHEETS_HEADERS)
         col_letra = chr(ord('A') + num_cols - 1)
         if num_filas % 2 == 0:
             ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
-                "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0}
+                "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0},
+                "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
+            })
+        else:
+            ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
+                "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+                "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
             })
 
         config._set_sheets_disponible(True)
