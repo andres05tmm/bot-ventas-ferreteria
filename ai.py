@@ -9,6 +9,7 @@ OPTIMIZACIONES DE COSTO ACTIVAS:
                        Costo de tokens cacheados = 10% del precio normal.
   2. Historial corto — se envían solo los últimos 4 mensajes.
   3. max_tokens cap  — techo de 2000 tokens de respuesta.
+  4. Catálogo simplificado — parte estática solo precio base, fracciones vía MATCH dinámico (~26% menos tokens cacheados).
 
 CORRECCIONES v2:
   - Comentario de modelo corregido: era "Claude 3.5", el modelo real es claude-haiku-4-5-20251001
@@ -50,8 +51,9 @@ def _construir_parte_estatica(memoria: dict) -> str:
     """
     catalogo = memoria.get("catalogo", {})
 
-    def _linea_producto(prod):
-        # Formato comprimido: sin "  - ", sin "$", sin comas → ahorra ~1285 tokens cacheados/llamada
+    def _linea_producto_simple(prod):
+        # Solo nombre:precio_unidad — las fracciones llegan via MATCH en la parte dinámica
+        # Ahorra ~1960 tokens cacheados vs incluir fracciones completas
         pxc = prod.get("precio_por_cantidad")
         if pxc:
             return f"{prod['nombre']}:{pxc['precio_bajo_umbral']}/{pxc['precio_sobre_umbral']}x{pxc['umbral']}"
@@ -59,10 +61,13 @@ def _construir_parte_estatica(memoria: dict) -> str:
             return f"{prod['nombre']}:{prod['precio_unidad']}"
 
     if catalogo:
+        # Catálogo simplificado: precio_unidad solamente (sin fracciones)
+        # Las fracciones completas se inyectan en la parte dinámica via MATCH
+        # cuando el producto es mencionado en el mensaje
         categorias: dict = {}
         for prod in catalogo.values():
             cat = prod.get("categoria", "Otros")
-            categorias.setdefault(cat, []).append(_linea_producto(prod))
+            categorias.setdefault(cat, []).append(_linea_producto_simple(prod))
         lineas_cat = []
         for cat, items in sorted(categorias.items()):
             lineas_cat.append(f"{cat}:")
@@ -82,16 +87,17 @@ def _construir_parte_estatica(memoria: dict) -> str:
     else:
         precios_fraccion_texto = ""
 
-    # MODO_MATCH_ONLY=true → omite catálogo del prompt estático (ahorra ~6000 tokens cacheados)
-    # El MATCH en la parte dinámica provee los precios relevantes por mensaje
-    # Activar en Railway para probar; desactivar si el bot falla en productos no encontrados
+    # En MODO_MATCH_ONLY: catálogo se omite del estático — llega dinámicamente via MATCH
+    # o como fallback completo si MATCH no encuentra nada. Cache estable con ~1235 tokens (reglas).
+    # En modo normal: catálogo simplificado (solo precio base, sin fracciones) → 26% menos tokens
     _match_only = os.getenv("MODO_MATCH_ONLY", "false").lower() == "true"
 
     if _match_only:
-        catalogo_seccion = precios_fraccion_texto  # solo fracciones extra si las hay
+        # Solo fracciones extra si las hay — el catálogo llega en la parte dinámica
+        catalogo_seccion = precios_fraccion_texto
     else:
         catalogo_seccion = (
-            "CATALOGO(nombre:precio, tornillos:normal/volumenxumbral):\n"
+            "CATALOGO(nombre:precio_galon_o_unidad. Fracciones exactas en MATCH):\n"
             + precios_texto
             + ("\n" + precios_fraccion_texto if precios_fraccion_texto else "")
         ) if precios_texto else precios_fraccion_texto
@@ -383,6 +389,28 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = "MATCH:\n" + "\n".join(lineas)
             print(f"[CANDIDATOS DEBUG]\n{info_candidatos_extra}")
+        elif os.getenv("MODO_MATCH_ONLY", "false").lower() == "true":
+            # FALLBACK: MATCH no encontró nada — inyectar catálogo completo en parte dinámica
+            # Garantiza que Claude siempre tenga precios correctos aunque el MATCH falle
+            from memoria import cargar_memoria as _cm
+            _mem_fb = _cm()
+            _cat_fb = _mem_fb.get("catalogo", {})
+            if _cat_fb:
+                _lineas_fb = []
+                for _p in _cat_fb.values():
+                    _fracs = _p.get("precios_fraccion", {})
+                    _pxc   = _p.get("precio_por_cantidad")
+                    if _fracs:
+                        _lineas_fb.append(_p["nombre"] + ":" + "|".join(
+                            f'{k}={v["precio"] if isinstance(v,dict) else v}'
+                            for k, v in _fracs.items()
+                        ))
+                    elif _pxc:
+                        _lineas_fb.append(f'{_p["nombre"]}:{_pxc["precio_bajo_umbral"]}/{_pxc["precio_sobre_umbral"]}x{_pxc["umbral"]}')
+                    else:
+                        _lineas_fb.append(f'{_p["nombre"]}:{_p["precio_unidad"]}')
+                info_candidatos_extra = "CATALOGO COMPLETO (MATCH sin resultados):\n" + "\n".join(_lineas_fb)
+                print("[CANDIDATOS DEBUG] ⚠️ MATCH vacío — usando catálogo completo como fallback")
 
     # ── Clientes recientes ──
     clientes_recientes_texto = ""
@@ -554,8 +582,8 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
 
-    _modo = "MATCH-ONLY 🧪" if os.getenv("MODO_MATCH_ONLY","false").lower()=="true" else "NORMAL 📦"
-    logging.getLogger("ferrebot.cache").info(f"[MODO] {_modo}")
+    _modo = "MATCH+SIMPLE-CAT 💡"  # fracciones en MATCH, precio_unidad en estático
+    # modo activo: MATCH provee fracciones, catálogo estático solo precio base
 
     # Historial adaptativo: ventas simples solo necesitan 2 mensajes de contexto,
     # análisis y correcciones necesitan 4. Ahorra ~75 tokens en el 70% de llamadas.
