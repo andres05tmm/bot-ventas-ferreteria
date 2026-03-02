@@ -136,7 +136,6 @@ MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=8500
 
 MEDIDAS EN NOMBRE no son cantidad: chazos(3/8),puntillas(2"),arandelas(1/2),soldadura(60/11,7018). Total=cantidad*precio_u catalogo.
 GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000|Acronal=13000. Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
-Acronal: 1/2kg=7000(FIJO,NO 13000x0.5). Enteros: Nkg=N*13000. MIXTO: N-1/2kg=(N*13000)+7000. Ej:4.5kg=59000,3kg=39000,1/2kg=7000.
 Cantidad kilos: "medio kilo"=0.5|"kilo y medio"=1.5.
 
 PINTURAS sin color->preguntar "De que color?". BROCHAS sin medida->preguntar. Precios:1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
@@ -592,6 +591,43 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if not config._get_drive_disponible() else ""
     )
 
+    # ── Acronal: precalcular total en Python ──
+    acronal_calculado = ""
+    if "acronal" in msg_l:
+        import re as _re_ac
+        # Normalizar "kilos y medio" -> "X.5", "medio kilo" -> "0.5"
+        msg_ac = msg_l
+        msg_ac = _re_ac.sub(r'(\d+)\s+(?:kilo[s]?\s+)?y\s+medio', lambda m: str(int(m.group(1))) + '.5', msg_ac)
+        msg_ac = msg_ac.replace('medio kilo', '0.5').replace('kilo y medio', '1.5')
+        # Buscar cantidad: "2-1/2", "2.5", "4", etc.
+        # Detectar "1/2 kg" o "medio" antes del regex numerico
+        if _re_ac.search(r'(?:^|\s)(?:1/2|medio)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:1/2|medio)', msg_ac):
+            acronal_calculado = "ACRONAL PRECALCULADO: 0.5kg = $7,000 (precio especial). USA cantidad=0.5, total=7000 EXACTAMENTE."
+            continue_ac = False
+        else:
+            continue_ac = True
+        m_ac = _re_ac.search(r'([\d]+(?:[.,]\d+)?(?:-1/2|-1/4)?)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:kilo[s]?|kg)?\s*([\d]+(?:[.,]\d+)?(?:-1/2|-1/4)?)', msg_ac) if continue_ac else None
+        if m_ac:
+            raw = (m_ac.group(1) or m_ac.group(2) or '').strip()
+            raw = raw.replace(',', '.').replace('-1/2', '.5').replace('-1/4', '.25')
+            try:
+                kg = float(raw)
+                enteros = int(kg)
+                medio   = kg - enteros
+                if abs(medio - 0.5) < 0.01:
+                    total_ac = enteros * 13000 + 7000
+                elif abs(medio - 0.25) < 0.01:
+                    total_ac = enteros * 13000 + 3500  # 1/4 kg proporcional
+                else:
+                    total_ac = round(kg * 13000)
+                acronal_calculado = (
+                    f"ACRONAL PRECALCULADO: {kg}kg = ${total_ac:,} "
+                    f"({'%d*13000+7000' % enteros if abs(medio-0.5)<0.01 else '%g*13000' % kg}). "
+                    f"USA cantidad={kg}, total={total_ac} EXACTAMENTE."
+                )
+            except Exception:
+                pass
+
     # ── Thinner: precalcular fraccion en Python ──
     thinner_calculado = ""
     msg_l = mensaje_usuario.lower()
@@ -671,6 +707,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         p for p in [
             precios_modificados_texto,
             info_fracciones_extra,
+            acronal_calculado,
             thinner_calculado,
             tornillo_calculado,
             info_candidatos_extra,
