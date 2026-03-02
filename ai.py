@@ -135,11 +135,16 @@ CUNETES(4gal,NO galon): T1=220000|T2=170000|T3=100000. "2 cunetes t1"->440000.
 MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=90000|T3=60000.
 
 MEDIDAS EN NOMBRE no son cantidad: chazos(3/8),puntillas(2"),arandelas(1/2),soldadura(60/11,7018). Total=cantidad*precio_u catalogo.
-GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000|Acronal=13000. Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
+GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000|Acronal(kg=13000,1/2kg=7000). Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
 Cantidad kilos: "medio kilo"=0.5|"kilo y medio"=1.5.
+GRANEL MIXTO: "4 y medio de acronal"=4kg+1/2kg=4*13000+7000=59000,cantidad=4.5. NUNCA multiplicar decimal por precio_unidad.
 
 PINTURAS sin color->preguntar "De que color?". BROCHAS sin medida->preguntar. Precios:1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
-RODILLO solo=Convencional$8000. BISAGRA 3x3 sin material=PAR$4500(INOX solo si dice "inox"/"inoxidable").
+RODILLO: "rodillo" o "rodillos" SIN medida = Rodillo Convencional $7000. 
+"3 rodillos"=3 x Rodillo Convencional = 21000. "1 rodillo"=7000.
+SOLO usar Rodillo de X" si dice EXPLICITAMENTE la medida: "rodillo de 3", "rodillo 4 pulgadas", "rodillo de 2"".
+NUNCA interpretar "3 rodillos" como "Rodillo de 3"" — el 3 es CANTIDAD, no medida.
+BISAGRA 3x3 sin material=PAR$4500(INOX solo si dice "inox"/"inoxidable").
 SELLADOR=Corriente. AEROSOL=normal$9000("alta temperatura" solo si lo dice).
 MULTI-PRODUCTO(3+): registra TODO sin preguntar. Sin color->total:0,indica pendiente.
 
