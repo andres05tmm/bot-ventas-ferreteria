@@ -21,7 +21,7 @@ from excel import (
     guardar_venta_excel,
     obtener_nombre_id_cliente,
 )
-from memoria import cargar_inventario, guardar_inventario, cargar_caja, guardar_caja, cargar_memoria
+from memoria import cargar_inventario, guardar_inventario, cargar_caja, guardar_caja, cargar_memoria, descontar_inventario
 
 _estado_lock = threading.Lock()
 
@@ -145,18 +145,10 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         cliente_txt = f" | {nombre_c}" if nombre_c != "Consumidor Final" else ""
         confirmaciones.append(f"• {cantidad_legible} {producto} ${valor_final:,.0f}{cliente_txt}")
 
-        # Descontar inventario
-        inventario = cargar_inventario()
-        prod_lower = producto.lower()
-        prod_key   = next((k for k in inventario if k in prod_lower or prod_lower in k), None)
-        if prod_key and isinstance(inventario[prod_key], dict):
-            inv             = inventario[prod_key]
-            inv["cantidad"] = max(0, round(inv.get("cantidad", 0) - cantidad, 4))
-            guardar_inventario(inventario)
-            restante = decimal_a_fraccion_legible(inv["cantidad"])
-            unidad   = inv.get("unidad", "")
-            if inv["cantidad"] <= inv.get("minimo", 0.5):
-                confirmaciones.append(f"⚠️ Stock bajo: {prod_key} — quedan {restante} {unidad}")
+        # Descontar inventario (solo si el producto está registrado)
+        descontado, alerta, cantidad_restante = descontar_inventario(producto, cantidad)
+        if descontado and alerta:
+            confirmaciones.append(alerta)
 
     # Actualizar caja
     caja = cargar_caja()
