@@ -782,7 +782,14 @@ def _calcular_historial(mensaje: str) -> int:
     Determina cuántos mensajes de historial enviar según el contexto.
     OPTIMIZACIÓN: ventas simples solo necesitan 1 mensaje, ahorrando ~100 tokens.
     """
-    msg_l = mensaje.lower()
+    msg_l = mensaje.lower().strip()
+    
+    # Respuesta corta (1-2 palabras) = probablemente respuesta a pregunta anterior
+    # Necesita contexto completo para no perder la venta original
+    # Ej: "blanco", "rojo", "si", "no", "2 pulgadas"
+    palabras = msg_l.split()
+    if len(palabras) <= 2:
+        return 4
     
     # Necesita contexto completo (cliente, correcciones, fiados)
     if any(k in msg_l for k in ("cliente", "fiado", "para ", "a nombre", 
