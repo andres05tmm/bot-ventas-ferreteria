@@ -520,10 +520,19 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     if _menciona_cliente:
         try:
             from excel import buscar_cliente_con_resultado
-            palabras_cliente = [p for p in mensaje_usuario.lower().split()
-                                if len(p) > 3 and p not in stopwords]
-            if palabras_cliente:
-                termino_cliente = " ".join(palabras_cliente[:4])
+            import re as _re_cli
+            # Extraer nombre despues de "para", "a nombre de", "de parte de", etc.
+            _match_nombre = _re_cli.search(
+                r'(?:para|a nombre de|de parte de|cuenta de)\s+([A-Za-záéíóúÁÉÍÓÚñÑ]+(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]+){0,3})',
+                mensaje_usuario, _re_cli.IGNORECASE
+            )
+            if _match_nombre:
+                termino_cliente = _match_nombre.group(1).strip()
+            else:
+                palabras_cliente = [p for p in mensaje_usuario.lower().split()
+                                    if len(p) > 3 and p not in stopwords]
+                termino_cliente = " ".join(palabras_cliente[:4]) if palabras_cliente else ""
+            if termino_cliente:
                 cliente_unico, candidatos_cli = buscar_cliente_con_resultado(termino_cliente)
 
                 if len(candidatos_cli) == 1:
