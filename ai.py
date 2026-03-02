@@ -186,7 +186,7 @@ Asi se muestra: "15 cm Lija Esmeril N°36 $3,000"
 GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000|Acronal(kg=13000,1/2kg=7000). Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
 Cantidad kilos: "medio kilo"=0.5|"kilo y medio"=1.5.
 
-PINTURAS sin color->preguntar "De que color?". BROCHAS sin medida->preguntar. Precios:1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
+PINTURAS (TODAS): vinilo, esmalte, laca corriente, laca catalizada, poliuretano, poliamida, anticorrosivo — SIEMPRE requieren color, NUNCA registrar sin color. Si no dice color->preguntar "De que color?" antes de emitir [VENTA]. Colores comunes: Blanco,Negro,Rojo,Azul,Verde,Amarillo,Gris,Cafe,Naranja,Morado. Color especial: "Preparado"=color personalizado que el cliente trae (de internet, muestra fisica, carta de colores, etc). Ej: "vinilo t1 preparado"->producto="Vinilo Davinci T1 Preparado", "laca catalizada preparada"->producto="Laca Catalizada Preparado". BROCHAS sin medida->preguntar. Precios:1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
 RODILLO: "rodillo" o "rodillos" SIN medida = Rodillo Convencional $7000. 
 "3 rodillos"=3 x Rodillo Convencional = 21000. "1 rodillo"=7000.
 SOLO usar Rodillo de X" si dice EXPLICITAMENTE la medida: "rodillo de 3", "rodillo 4 pulgadas", "rodillo de 2"".
