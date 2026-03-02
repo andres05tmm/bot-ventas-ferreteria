@@ -117,7 +117,13 @@ PRECIOS: numero al final ES el total, NUNCA multipliques por defecto.
 "2 brochas 8000"->8000|"15 tornillos 14000"->14000|"1/2 vinilo 21000"->21000
 Multiplica SOLO si dice "c/u","cada uno/a","por unidad".
 FRACCIONES: 1/4=0.25|1/2=0.5|3/4=0.75|1/8=0.125|1/16=0.0625. Precio=total.
-MIXTAS(1-1/4,2 y 1/2...): total=suma precios fraccion catalogo, NUNCA precio_u x decimal.
+MIXTAS — REGLA CRITICA:
+Cantidades como "2 y 1/2", "1-1/4", "3 y medio" = enteros + fraccion.
+SIEMPRE sumar precios del catalogo, NUNCA multiplicar decimal por precio_unidad.
+Ejemplos:
+- "2-1/2 vinilo T2"(1gal=40000,1/2=21000) = 2×40000 + 21000 = 101000
+- "1 y 1/4 laca"(1gal=60000,1/4=17000) = 60000 + 17000 = 77000
+- "3 y medio acronal"(kg=13000,1/2kg=7000) = 3×13000 + 7000 = 46000
 DOCENAS: 1 docena=12|media=6|ciento=100. cantidad=docenas*12, total=cantidad*precio_u.
 
 TORNILLOS DRYWALL: "TORNILLO DRYWALL CALIBRExMEDIDA". Total=cantidad*precio_u.
@@ -137,7 +143,6 @@ MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=9000
 MEDIDAS EN NOMBRE no son cantidad: chazos(3/8),puntillas(2"),arandelas(1/2),soldadura(60/11,7018). Total=cantidad*precio_u catalogo.
 GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000|Acronal(kg=13000,1/2kg=7000). Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
 Cantidad kilos: "medio kilo"=0.5|"kilo y medio"=1.5.
-GRANEL MIXTO: "4 y medio de acronal"=4kg+1/2kg=4*13000+7000=59000,cantidad=4.5. NUNCA multiplicar decimal por precio_unidad.
 
 PINTURAS sin color->preguntar "De que color?". BROCHAS sin medida->preguntar. Precios:1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
 RODILLO: "rodillo" o "rodillos" SIN medida = Rodillo Convencional $7000. 
