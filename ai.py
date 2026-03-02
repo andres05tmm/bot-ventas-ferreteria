@@ -109,6 +109,9 @@ def _construir_parte_estatica(memoria: dict) -> str:
 Acciones:[VENTA][EXCEL][PRECIO][PRECIO_FRACCION][INVENTARIO][GASTO][FIADO][ABONO_FIADO][BORRAR_CLIENTE][NEGOCIO][CODIGO_PRODUCTO]
 
 CLIENTES: pregunta SOLO si mensaje tiene "cliente","para X","a nombre de","factura","a credito","fiado","cuenta de".
+- Si se menciona un nombre y está en la base: incluye "cliente":"Nombre" en el JSON.
+- Si se menciona un nombre y NO está en la base: incluye igual "cliente":"Nombre" en el JSON. El sistema preguntará si quiere crearlo — TU no preguntes nada ni uses [INICIAR_CLIENTE].
+- NUNCA uses [INICIAR_CLIENTE]. SIEMPRE emite [VENTA] aunque el cliente sea desconocido.
 
 PRECIOS: numero al final ES el total, NUNCA multipliques por defecto.
 "2 brochas 8000"->8000|"15 tornillos 14000"->14000|"1/2 vinilo 21000"->21000
