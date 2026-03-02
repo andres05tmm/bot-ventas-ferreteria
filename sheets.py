@@ -9,6 +9,18 @@ import config
 from utils import decimal_a_fraccion_legible
 
 
+def _col_a_letra(n: int) -> str:
+    """
+    Convierte número de columna a letra(s): 1→A, 26→Z, 27→AA, 28→AB, etc.
+    FIX: Soporta más de 26 columnas (antes fallaba con chr(ord('A') + n - 1))
+    """
+    result = ""
+    while n > 0:
+        n, remainder = divmod(n - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
+
 def _obtener_hoja_sheets():
     """
     Retorna la worksheet 'Ventas del Dia'.
@@ -30,7 +42,7 @@ def _obtener_hoja_sheets():
                     ws.delete_rows(1)
                     ws.insert_row(config.SHEETS_HEADERS, 1)
                     num_cols  = len(config.SHEETS_HEADERS)
-                    col_letra = chr(ord('A') + num_cols - 1)
+                    col_letra = _col_a_letra(num_cols)
                     ws.format(f"A1:{col_letra}1", {
                         "backgroundColor": {"red": 0.102, "green": 0.337, "blue": 0.855},
                         "textFormat": {
@@ -47,7 +59,7 @@ def _obtener_hoja_sheets():
             )
             ws.append_row(config.SHEETS_HEADERS)
             num_cols  = len(config.SHEETS_HEADERS)
-            col_letra = chr(ord('A') + num_cols - 1)
+            col_letra = _col_a_letra(num_cols)
             ws.format(f"A1:{col_letra}1", {
                 "backgroundColor": {"red": 0.102, "green": 0.337, "blue": 0.855},
                 "textFormat": {
@@ -101,7 +113,7 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
         # Alternar color de fila — texto siempre negro para legibilidad
         num_filas = len(ws.get_all_values())
         num_cols  = len(config.SHEETS_HEADERS)
-        col_letra = chr(ord('A') + num_cols - 1)
+        col_letra = _col_a_letra(num_cols)
         if num_filas % 2 == 0:
             ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
                 "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0},
@@ -311,7 +323,7 @@ def sheets_sincronizar_clientes() -> tuple[bool, str]:
         # Formato encabezado (primera fila)
         if datos:
             num_cols  = len(datos[0])
-            col_letra = chr(ord('A') + min(num_cols - 1, 25))
+            col_letra = _col_a_letra(num_cols)
             ws_sheets.format(f"A1:{col_letra}1", {
                 "backgroundColor": {"red": 0.102, "green": 0.337, "blue": 0.855},
                 "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
