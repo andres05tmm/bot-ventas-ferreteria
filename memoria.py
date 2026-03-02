@@ -196,6 +196,11 @@ _ALIAS_SINONIMOS = {
     "boquillera":     "masilla",
     "sika":           "impermeabilizante",
     "impermeabilizante": "impermeabilizante",
+    # Rodillo convencional
+    "convencional":   "rodillo convencional",
+    "convencionañ":   "rodillo convencional",  # typo común
+    "convensional":   "rodillo convencional",  # typo común
+    "rodillo normal": "rodillo convencional",
 }
 
 
