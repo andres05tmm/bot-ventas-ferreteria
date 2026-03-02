@@ -946,6 +946,15 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
             catalogo[clave]["precio_por_cantidad"]["precio_bajo_umbral"] = round(nuevo_precio)
 
     mem["catalogo"] = catalogo
+    # Guardar en precios_modificados para que la parte dinámica lo inyecte como override
+    # (evita que el cache de Anthropic sirva el precio viejo)
+    pm = mem.setdefault("precios_modificados", {})
+    clave_pm = prod.get("nombre_lower", nombre_producto.lower())
+    if fraccion and tiene_fracciones_reales:
+        pm.setdefault(clave_pm, {})["fraccion_" + fraccion] = round(nuevo_precio)
+    else:
+        pm[clave_pm] = round(nuevo_precio)
+    mem["precios_modificados"] = pm
     guardar_memoria(mem)
     invalidar_cache_memoria()
     return True
