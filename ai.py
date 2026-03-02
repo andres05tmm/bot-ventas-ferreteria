@@ -540,9 +540,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     nombre = c.get("Nombre tercero", "")
                     id_c   = c.get("Identificacion", "")
                     tipo   = c.get("Tipo de identificacion", "")
-                    # Solo asignar automaticamente si el nombre buscado tiene
-                    # al menos 2 palabras en comun con el encontrado
-                    palabras_buscadas  = set(_normalizar(termino_cliente).split())
+                    # Solo asignar si hay 2+ palabras en comun con el nombre buscado
+                    palabras_buscadas    = set(_normalizar(termino_cliente).split())
                     palabras_encontradas = set(_normalizar(nombre).split())
                     coincidencias = palabras_buscadas & palabras_encontradas
                     if len(coincidencias) >= 2 or (len(palabras_buscadas) == 1 and coincidencias):
@@ -551,10 +550,10 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                             f"  - {nombre} ({tipo}: {id_c})"
                         )
                     else:
+                        # Coincidencia parcial — marcar para preguntar ANTES de confirmar
                         clientes_texto = (
-                            f"CLIENTE SIMILAR ENCONTRADO — confirma con el usuario si es el mismo:\n"
-                            f"  - {nombre} ({tipo}: {id_c})\n"
-                            f"Ejemplo: '¿Es {nombre}?'"
+                            f"CLIENTE NO IDENTIFICADO: usa exactamente \"cliente\": \"{termino_cliente}\" en el JSON. "
+                            f"NO uses \"{nombre}\". El sistema preguntara si es cliente nuevo o existente."
                         )
                 elif len(candidatos_cli) > 1:
                     lineas_cli = []
