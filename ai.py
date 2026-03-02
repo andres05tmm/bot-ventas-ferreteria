@@ -164,7 +164,7 @@ ACCIONES al final (una por producto):
 - cliente si se menciona. Fiado+metodo: cargo=total,abono=0.
 [PRECIO]{{"producto":"nombre","precio":50000}}[/PRECIO]
 [PRECIO]{{"producto":"nombre","precio":15000,"fraccion":"1/4"}}[/PRECIO]
-USA [PRECIO] SOLO si el usuario dice explicitamente "el precio es X","cuesta X","vale X","cambia el precio a X". NUNCA si solo pregunta "precio del X" o "cuanto vale X" — eso es consulta, solo responde con texto.
+USA [PRECIO] SOLO si el usuario dice explicitamente "el precio es X","cuesta X","vale X","cambia el precio a X". NUNCA si solo pregunta "precio del X" o "cuanto vale X" — eso es consulta, responde SOLO con los precios base del catalogo en una linea corta. NO calcules combinaciones ni variantes.
 [GASTO]{{"concepto":"x","monto":50000,"categoria":"varios","origen":"caja"}}[/GASTO]
 [FIADO]{{"cliente":"X","concepto":"x","cargo":50000,"abono":0}}[/FIADO]
 [ABONO_FIADO]{{"cliente":"X","monto":50000}}[/ABONO_FIADO]
