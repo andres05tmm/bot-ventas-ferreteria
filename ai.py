@@ -811,6 +811,17 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 _, candidatos = buscar_cliente_con_resultado(nombre_cliente)
                 if not candidatos:
                     return nombre_cliente
+                # Verificar que algún candidato coincida con al menos 2 palabras
+                palabras_buscadas = set(_normalizar(nombre_cliente).split())
+                match_exacto = False
+                for c in candidatos:
+                    palabras_encontradas = set(_normalizar(c.get("Nombre tercero", "")).split())
+                    coincidencias = palabras_buscadas & palabras_encontradas
+                    if len(coincidencias) >= 2 or (len(palabras_buscadas) == 1 and coincidencias):
+                        match_exacto = True
+                        break
+                if not match_exacto:
+                    return nombre_cliente
             except Exception:
                 pass
         return None
