@@ -591,6 +591,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if not config._get_drive_disponible() else ""
     )
 
+    msg_l = mensaje_usuario.lower()
+
     # ── Acronal: precalcular total en Python ──
     acronal_calculado = ""
     if "acronal" in msg_l:
@@ -630,7 +632,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     # ── Thinner: precalcular fraccion en Python ──
     thinner_calculado = ""
-    msg_l = mensaje_usuario.lower()
     if "thinner" in msg_l:
         tabla_thinner = {3000:"1/12",4000:"1/10",5000:"1/8",6000:"1/6",8000:"1/4",
                          10000:"1/3",13000:"1/2",16000:"5/9",20000:"3/4",26000:"1 galon"}
