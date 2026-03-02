@@ -398,22 +398,23 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             )
 
         if pago_pend_aviso:
-            # CORRECCIÓN: usar agregar_a_standby con cap en lugar de acceso directo al dict
             agregar_a_standby(chat_id, mensaje)
             with _estado_lock:
                 ventas = ventas_pendientes.get(chat_id, [])
             await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
             await _enviar_botones_pago(update.message, chat_id, ventas)
-        elif confirmacion_accion:
-            metodo_conocido = confirmacion_accion.split(":", 1)[1]
-            with _estado_lock:
-                ventas = ventas_pendientes.get(chat_id, [])
-            from handlers.callbacks import _enviar_confirmacion_con_metodo
-            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
-        elif pedir_metodo:
-            with _estado_lock:
-                ventas = ventas_pendientes.get(chat_id, [])
-            await _enviar_botones_pago(update.message, chat_id, ventas)
+        elif not cliente_desconocido:
+            # Solo mostrar botones de pago/confirmar si ya se resolvio el cliente
+            if confirmacion_accion:
+                metodo_conocido = confirmacion_accion.split(":", 1)[1]
+                with _estado_lock:
+                    ventas = ventas_pendientes.get(chat_id, [])
+                from handlers.callbacks import _enviar_confirmacion_con_metodo
+                await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
+            elif pedir_metodo:
+                with _estado_lock:
+                    ventas = ventas_pendientes.get(chat_id, [])
+                await _enviar_botones_pago(update.message, chat_id, ventas)
 
         if iniciar_cliente:
             await _enviar_pregunta_cliente(update.message, chat_id)
@@ -530,16 +531,17 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                 reply_markup=keyboard, parse_mode="Markdown",
             )
 
-        if confirmacion_accion:
-            metodo_conocido = confirmacion_accion.split(":", 1)[1]
-            with _estado_lock:
-                ventas = ventas_pendientes.get(chat_id, [])
-            from handlers.callbacks import _enviar_confirmacion_con_metodo
-            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
-        elif pedir_metodo:
-            with _estado_lock:
-                ventas = ventas_pendientes.get(chat_id, [])
-            await _enviar_botones_pago(update.message, chat_id, ventas)
+        if not cliente_desconocido:
+            if confirmacion_accion:
+                metodo_conocido = confirmacion_accion.split(":", 1)[1]
+                with _estado_lock:
+                    ventas = ventas_pendientes.get(chat_id, [])
+                from handlers.callbacks import _enviar_confirmacion_con_metodo
+                await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
+            elif pedir_metodo:
+                with _estado_lock:
+                    ventas = ventas_pendientes.get(chat_id, [])
+                await _enviar_botones_pago(update.message, chat_id, ventas)
 
         for archivo in archivos_excel:
             if os.path.exists(archivo):
