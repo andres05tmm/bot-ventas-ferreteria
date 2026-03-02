@@ -20,12 +20,16 @@ from excel import (
     inicializar_excel, obtener_o_crear_hoja,
     detectar_columnas, buscar_ventas, obtener_ventas_recientes,
     buscar_clientes_multiples, cargar_clientes,
+    registrar_compra_en_excel, actualizar_hoja_inventario,
 )
 from memoria import (
     cargar_memoria, obtener_resumen_caja, cargar_gastos_hoy,
     cargar_inventario, verificar_alertas_inventario,
     resumen_fiados, detalle_fiado_cliente,
     importar_catalogo_desde_excel,
+    registrar_conteo_inventario, ajustar_inventario,
+    buscar_productos_inventario, buscar_clave_inventario,
+    registrar_compra, obtener_resumen_margenes,
 )
 from sheets import (
     sheets_leer_ventas_del_dia, sheets_detectar_ediciones_vs_excel,
@@ -323,23 +327,334 @@ async def comando_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def comando_inventario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    inventario = cargar_inventario()
-    if not inventario:
-        await update.message.reply_text("No hay productos en inventario aun.")
+    """Muestra inventario. Alias de /stock."""
+    await comando_stock(update, context)
+
+
+# ─────────────────────────────────────────────
+# /inv - Registrar conteo de inventario
+# ─────────────────────────────────────────────
+
+async def comando_inv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Registra conteo de inventario.
+    Uso: /inv [cantidad] [producto]
+    Ejemplos:
+        /inv 25 brocha 2"
+        /inv 18 rodillo de 4 pulgadas
+        /inv 50 tornillo drywall 6x1
+    """
+    args = context.args
+    if not args or len(args) < 2:
+        await update.message.reply_text(
+            "📦 *Registrar inventario*\n\n"
+            "Uso: `/inv [cantidad] [producto]`\n\n"
+            "Ejemplos:\n"
+            "• `/inv 25 brocha 2\"`\n"
+            "• `/inv 18 rodillo de 4 pulgadas`\n"
+            "• `/inv 50 tornillo drywall 6x1`\n"
+            "• `/inv 3.5 galones vinilo t1`",
+            parse_mode="Markdown"
+        )
         return
-    texto   = "📦 Inventario actual:\n\n"
-    alertas = []
-    for producto, datos in inventario.items():
-        if isinstance(datos, dict):
-            cantidad = datos.get("cantidad", 0)
-            minimo   = datos.get("minimo", 3)
-            emoji    = "⚠️" if cantidad <= minimo else "✅"
-            texto   += f"{emoji} {producto}: {cantidad} unidades\n"
-            if cantidad <= minimo:
-                alertas.append(producto)
-    if alertas:
-        texto += f"\n⚠️ Stock bajo en: {', '.join(alertas)}"
-    await update.message.reply_text(texto)
+    
+    # Primer argumento es la cantidad
+    try:
+        cantidad = float(args[0].replace(",", "."))
+    except ValueError:
+        await update.message.reply_text(
+            f"❌ '{args[0]}' no es una cantidad válida.\n"
+            "Usa números: `/inv 25 brocha 2\"`",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Resto es el nombre del producto
+    nombre_producto = " ".join(args[1:])
+    
+    if len(nombre_producto) < 3:
+        await update.message.reply_text("❌ Nombre del producto muy corto.")
+        return
+    
+    # Registrar en inventario
+    exito, mensaje = await asyncio.to_thread(
+        registrar_conteo_inventario, nombre_producto, cantidad
+    )
+    
+    await update.message.reply_text(mensaje)
+
+
+# ─────────────────────────────────────────────
+# /stock - Ver inventario
+# ─────────────────────────────────────────────
+
+async def comando_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Muestra inventario actual.
+    Uso: /stock [producto opcional]
+    """
+    args = context.args
+    termino = " ".join(args) if args else None
+    
+    productos = await asyncio.to_thread(buscar_productos_inventario, termino)
+    
+    if not productos:
+        if termino:
+            await update.message.reply_text(f"❌ No encontré '{termino}' en inventario.")
+        else:
+            await update.message.reply_text(
+                "📦 *Inventario vacío*\n\n"
+                "Usa `/inv [cantidad] [producto]` para agregar.\n"
+                "Ejemplo: `/inv 25 brocha 2\"`",
+                parse_mode="Markdown"
+            )
+        return
+    
+    # Construir mensaje
+    if termino:
+        texto = f"📦 *Inventario — '{termino}':*\n\n"
+    else:
+        texto = f"📦 *Inventario ({len(productos)} productos):*\n\n"
+    
+    alertas = 0
+    for p in productos:
+        cantidad = p["cantidad"]
+        minimo = p["minimo"]
+        unidad = p["unidad"]
+        
+        if cantidad <= 0:
+            emoji = "🔴"
+            alertas += 1
+        elif cantidad <= minimo:
+            emoji = "⚠️"
+            alertas += 1
+        else:
+            emoji = "✅"
+        
+        texto += f"{emoji} *{p['nombre']}*: {cantidad} {unidad}\n"
+    
+    if alertas > 0:
+        texto += f"\n⚠️ {alertas} producto(s) con stock bajo"
+    
+    # Dividir mensaje si es muy largo
+    if len(texto) > 4000:
+        partes = [texto[i:i+4000] for i in range(0, len(texto), 4000)]
+        for parte in partes:
+            await update.message.reply_text(parte, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(texto, parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
+# /ajuste - Ajustar inventario
+# ─────────────────────────────────────────────
+
+async def comando_ajuste(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Ajusta inventario sumando o restando.
+    Uso: /ajuste [+/-cantidad] [producto]
+    Ejemplos:
+        /ajuste +10 brocha 2"
+        /ajuste -5 rodillo 4"
+    """
+    args = context.args
+    if not args or len(args) < 2:
+        await update.message.reply_text(
+            "🔧 *Ajustar inventario*\n\n"
+            "Uso: `/ajuste [+/-cantidad] [producto]`\n\n"
+            "Ejemplos:\n"
+            "• `/ajuste +10 brocha 2\"` (suma 10)\n"
+            "• `/ajuste -5 rodillo 4\"` (resta 5)\n"
+            "• `/ajuste +2.5 galones vinilo`",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Primer argumento es el ajuste
+    ajuste_str = args[0]
+    try:
+        ajuste = float(ajuste_str.replace(",", "."))
+    except ValueError:
+        await update.message.reply_text(
+            f"❌ '{ajuste_str}' no es válido.\n"
+            "Usa +10 o -5 para ajustar.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Resto es el nombre del producto
+    nombre_producto = " ".join(args[1:])
+    
+    # Ajustar inventario
+    exito, mensaje = await asyncio.to_thread(
+        ajustar_inventario, nombre_producto, ajuste
+    )
+    
+    await update.message.reply_text(mensaje)
+
+
+# ─────────────────────────────────────────────
+# /compra - Registrar compra de mercancía
+# ─────────────────────────────────────────────
+
+async def comando_compra(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Registra compra de mercancía con costo.
+    Uso: /compra [cantidad] [producto] a [costo] de [proveedor]
+    Ejemplos:
+        /compra 20 brocha 2" a 2500 de Ferrisariato
+        /compra 10 rodillo 4" a 3000
+        /compra 50 tornillo drywall 6x1 a 25 de JS Tools
+    """
+    args = context.args
+    if not args or len(args) < 3:
+        await update.message.reply_text(
+            "📦 *Registrar compra de mercancía*\n\n"
+            "Uso: `/compra [cantidad] [producto] a [costo]`\n"
+            "Opcional: `de [proveedor]`\n\n"
+            "Ejemplos:\n"
+            "• `/compra 20 brocha 2\" a 2500`\n"
+            "• `/compra 20 brocha 2\" a 2500 de Ferrisariato`\n"
+            "• `/compra 50 tornillo 6x1 a 25 de JS Tools`\n\n"
+            "Si no ponés proveedor, usa el último registrado para ese producto.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    import re
+    texto_completo = " ".join(args)
+    
+    # Buscar " a " para separar producto de costo
+    if " a " not in texto_completo.lower():
+        await update.message.reply_text(
+            "❌ Formato incorrecto. Usa: `/compra 20 brocha 2\" a 2500`\n"
+            "El 'a' separa el producto del costo.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Separar por " a " (primera ocurrencia)
+    idx_a = texto_completo.lower().find(" a ")
+    parte_producto = texto_completo[:idx_a].strip()
+    resto = texto_completo[idx_a + 3:].strip()  # después de " a "
+    
+    # Buscar " de " para separar costo de proveedor (si existe)
+    proveedor = None
+    if " de " in resto.lower():
+        # Buscar la última ocurrencia de " de " para el proveedor
+        idx_de = resto.lower().rfind(" de ")
+        parte_costo = resto[:idx_de].strip()
+        proveedor = resto[idx_de + 4:].strip()
+    else:
+        parte_costo = resto
+    
+    # Extraer cantidad (primer número del producto)
+    palabras_producto = parte_producto.split()
+    try:
+        cantidad = float(palabras_producto[0].replace(",", "."))
+    except ValueError:
+        await update.message.reply_text(
+            f"❌ '{palabras_producto[0]}' no es una cantidad válida.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Resto es el nombre del producto
+    nombre_producto = " ".join(palabras_producto[1:])
+    if len(nombre_producto) < 2:
+        await update.message.reply_text("❌ Nombre del producto muy corto.")
+        return
+    
+    # Extraer costo (limpiar formato)
+    try:
+        costo_limpio = parte_costo.replace("$", "").replace(",", "").strip()
+        # Manejar números con puntos de miles (ej: 2.500)
+        if "." in costo_limpio and costo_limpio.replace(".", "").isdigit():
+            costo_limpio = costo_limpio.replace(".", "")
+        costo = float(costo_limpio)
+    except ValueError:
+        await update.message.reply_text(
+            f"❌ '{parte_costo}' no es un costo válido.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Registrar compra en memoria
+    exito, mensaje, datos_excel = await asyncio.to_thread(
+        registrar_compra, nombre_producto, cantidad, costo, proveedor
+    )
+    
+    # Guardar en Excel
+    if exito:
+        await asyncio.to_thread(
+            registrar_compra_en_excel,
+            datos_excel["producto"],
+            datos_excel["cantidad"],
+            datos_excel["costo_unitario"],
+            datos_excel["costo_total"],
+            datos_excel["proveedor"],
+        )
+    
+    await update.message.reply_text(mensaje)
+
+
+# ─────────────────────────────────────────────
+# /margenes - Ver márgenes de ganancia
+# ─────────────────────────────────────────────
+
+async def comando_margenes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Muestra productos con su margen de ganancia.
+    Solo productos que tienen costo registrado.
+    Actualiza la hoja Inventario del Excel.
+    """
+    resultados = await asyncio.to_thread(obtener_resumen_margenes, 30)
+    
+    if not resultados:
+        await update.message.reply_text(
+            "📊 *No hay márgenes calculados*\n\n"
+            "Para ver márgenes, primero registra compras:\n"
+            "`/compra 20 brocha 2\" a 2500`\n\n"
+            "El sistema calculará automáticamente el margen\n"
+            "comparando el costo con el precio de venta.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Actualizar hoja Inventario en Excel
+    await asyncio.to_thread(actualizar_hoja_inventario)
+    
+    # Separar por rangos de margen
+    excelentes = [r for r in resultados if r["margen_porcentaje"] >= 40]
+    buenos = [r for r in resultados if 25 <= r["margen_porcentaje"] < 40]
+    bajos = [r for r in resultados if r["margen_porcentaje"] < 25]
+    
+    texto = "📊 *MÁRGENES DE GANANCIA*\n\n"
+    
+    if excelentes:
+        texto += f"🏆 *Excelentes (≥40%):* {len(excelentes)} productos\n"
+        for p in excelentes[:5]:
+            texto += f"  • {p['nombre']}: {p['margen_porcentaje']}%\n"
+        if len(excelentes) > 5:
+            texto += f"  _...y {len(excelentes) - 5} más_\n"
+        texto += "\n"
+    
+    if buenos:
+        texto += f"✅ *Buenos (25-40%):* {len(buenos)} productos\n"
+        for p in buenos[:3]:
+            texto += f"  • {p['nombre']}: {p['margen_porcentaje']}%\n"
+        if len(buenos) > 3:
+            texto += f"  _...y {len(buenos) - 3} más_\n"
+        texto += "\n"
+    
+    if bajos:
+        texto += f"⚠️ *Bajos (<25%):* {len(bajos)} productos\n"
+        for p in bajos[:5]:
+            texto += f"  • {p['nombre']}: {p['margen_porcentaje']}%\n"
+    
+    texto += "\n📎 Detalle completo en Excel → hoja *Inventario*"
+    
+    await update.message.reply_text(texto, parse_mode="Markdown")
 
 
 # ─────────────────────────────────────────────
