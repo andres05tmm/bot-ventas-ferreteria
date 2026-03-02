@@ -649,8 +649,25 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     # "DATOS HISTORICOS" solo se incluye cuando hay datos reales — no enviar "(no cargado)" innecesariamente
     datos_historicos_item = f"DATOS HISTORICOS:\n{datos_texto}" if datos_texto != "(no cargado)" else ""
 
+    # Precios modificados manualmente — override del cache estático
+    precios_modificados_texto = ""
+    _pm = memoria.get("precios_modificados", {})
+    if _pm and palabras_clave:
+        overrides = []
+        for clave_pm, val in _pm.items():
+            if any(p in clave_pm for p in palabras_clave):
+                if isinstance(val, dict):
+                    for k, v in val.items():
+                        frac = k.replace("fraccion_", "")
+                        overrides.append(f"{clave_pm} {frac}={v}")
+                else:
+                    overrides.append(f"{clave_pm}={val}")
+        if overrides:
+            precios_modificados_texto = "PRECIOS ACTUALIZADOS (usar estos, ignorar el catalogo):\n" + "\n".join(overrides)
+
     partes = [
         p for p in [
+            precios_modificados_texto,
             info_fracciones_extra,
             thinner_calculado,
             tornillo_calculado,
