@@ -42,6 +42,33 @@ from excel import (
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
 # ─────────────────────────────────────────────
+# ALIAS DE FERRETERÍA (pre-procesamiento)
+# ─────────────────────────────────────────────
+
+_ALIAS_FERRETERIA = [
+    # (patrón regex, reemplazo)
+    (r'\b(\d+)?\s*botellas?\s+de\s+thinner\b', r'\g<1> thinner 4000'.replace('None', '1')),
+    (r'\b(\d+)?\s*botellas?\s+de\s+varsol\b', r'\g<1> varsol 4000'),
+    (r'\b(\d+)?\s*litros?\s+de\s+thinner\b', r'\g<1> thinner 8000'),
+    (r'\b(\d+)?\s*litros?\s+de\s+varsol\b', r'\g<1> varsol 8000'),
+    (r'\b(\d+)?\s*botellas?\s+thinner\b', r'\g<1> thinner 4000'),
+    (r'\b(\d+)?\s*botellas?\s+varsol\b', r'\g<1> varsol 4000'),
+    (r'\b(\d+)?\s*litros?\s+thinner\b', r'\g<1> thinner 8000'),
+    (r'\b(\d+)?\s*litros?\s+varsol\b', r'\g<1> varsol 8000'),
+]
+
+def aplicar_alias_ferreteria(mensaje: str) -> str:
+    """Transforma alias comunes antes de enviar a Claude."""
+    resultado = mensaje
+    for patron, reemplazo in _ALIAS_FERRETERIA:
+        # Manejar caso sin número (ej: "botella de thinner" -> "1 thinner 4000")
+        def _reemplazo(m):
+            num = m.group(1) if m.group(1) else "1"
+            return reemplazo.replace(r'\g<1>', num).strip()
+        resultado = re.sub(patron, _reemplazo, resultado, flags=re.IGNORECASE)
+    return resultado
+  
+# ─────────────────────────────────────────────
 # PARTE ESTÁTICA DEL SYSTEM PROMPT (cacheable)
 # ─────────────────────────────────────────────
 
@@ -757,10 +784,11 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 # ─────────────────────────────────────────────
 
 async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list) -> str:
+    mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)  # ← AGREGAR ESTA LÍNEA
     memoria        = cargar_memoria()
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
-
+  
     _modo = "MATCH+SIMPLE-CAT 💡"  # fracciones en MATCH, precio_unidad en estático
     # modo activo: MATCH provee fracciones, catálogo estático solo precio base
 
