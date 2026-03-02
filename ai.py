@@ -137,8 +137,10 @@ Voz: "por 1"=X1|"y cuarto"=+1/4|"y medio"=+1/2|"por 2"=X2|"por 3"=X3
 10:X1=83/70|X1-1/2=125/100|X2=150/120|X2-1/2=167/160|X3=167/160|X3-1/2=208/200|X4=208/200
 CRITICO: 10X3(sin "medio") != 10X3-1/2(con "medio"/"y medio"). Productos distintos.
 
-THINNER precio->fraccion: 3000=1/12|4000=1/10|5000=1/8|6000=1/6|8000=1/4|10000=1/3|13000=1/2|16000=5/9|20000=3/4|26000=1g
+THINNER y VARSOL: mismos precios por fraccion de galon.
+precio->fraccion: 3000=1/12|4000=1/10|5000=1/8|6000=1/6|8000=1/4|10000=1/3|13000=1/2|16000=5/9|20000=3/4|26000=1g
 cantidad=decimal, total=precio pagado.
+Ej: "varsol 8000"->cantidad=0.25,total=8000|"thinner 13000"->cantidad=0.5,total=13000
 
 CUNETES(4gal,NO galon): T1=220000|T2=170000|T3=100000. "2 cunetes t1"->440000.
 MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=90000|T3=60000.
