@@ -266,3 +266,63 @@ def sheets_limpiar() -> bool:
     except Exception as e:
         print(f"⚠️ Error limpiando Sheets: {e}")
         return False
+
+
+def sheets_sincronizar_clientes() -> tuple[bool, str]:
+    """
+    Copia la hoja 'clientes' del Excel al Sheets, sobreescribiendo siempre
+    la misma pestaña 'Clientes'. Retorna (ok, mensaje).
+    """
+    if not config.SHEETS_ID:
+        return False, "Sheets no configurado."
+    try:
+        import openpyxl, gspread
+        from excel import inicializar_excel
+        inicializar_excel()
+        wb = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
+        if "clientes" not in [s.lower() for s in wb.sheetnames]:
+            wb.close()
+            return False, "No encontré la hoja 'clientes' en el Excel."
+        # Buscar hoja con nombre exacto (puede ser 'Clientes' o 'clientes')
+        nombre_hoja = next(s for s in wb.sheetnames if s.lower() == "clientes")
+        ws_excel = wb[nombre_hoja]
+        filas = [list(row) for row in ws_excel.iter_rows(values_only=True)]
+        wb.close()
+        # Limpiar filas vacías al final
+        while filas and all(c is None or str(c).strip() == "" for c in filas[-1]):
+            filas.pop()
+        if not filas:
+            return False, "La hoja 'clientes' está vacía."
+
+        gc          = config.get_sheets_client()
+        spreadsheet = gc.open_by_key(config.SHEETS_ID)
+
+        # Obtener o crear la pestaña
+        try:
+            ws_sheets = spreadsheet.worksheet("Clientes")
+            ws_sheets.clear()
+        except gspread.WorksheetNotFound:
+            ws_sheets = spreadsheet.add_worksheet("Clientes", rows=max(500, len(filas)+10), cols=20)
+
+        # Convertir todo a string para Sheets
+        datos = [[str(c) if c is not None else "" for c in fila] for fila in filas]
+        ws_sheets.update(datos, "A1")
+
+        # Formato encabezado (primera fila)
+        if datos:
+            num_cols  = len(datos[0])
+            col_letra = chr(ord('A') + min(num_cols - 1, 25))
+            ws_sheets.format(f"A1:{col_letra}1", {
+                "backgroundColor": {"red": 0.102, "green": 0.337, "blue": 0.855},
+                "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                "horizontalAlignment": "CENTER",
+            })
+
+        config._set_sheets_disponible(True)
+        url = f"https://docs.google.com/spreadsheets/d/{config.SHEETS_ID}/edit#gid={ws_sheets.id}"
+        return True, url
+
+    except Exception as e:
+        print(f"Error sincronizando clientes: {e}")
+        config._set_sheets_disponible(False)
+        return False, f"Error al sincronizar: {e}"
