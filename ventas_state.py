@@ -8,6 +8,9 @@ CORRECCIONES v2:
   - consecutivo siempre >= 1: se usa obtener_siguiente_consecutivo() directamente
     en lugar de obtener_consecutivo_actual() que podía retornar 0
   - Docstring movido ANTES del import logging
+
+CORRECCIONES v3:
+  - Protección mejorada en descuento de inventario (manejo explícito de None)
 """
 
 import logging
@@ -146,9 +149,12 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         confirmaciones.append(f"• {cantidad_legible} {producto} ${valor_final:,.0f}{cliente_txt}")
 
         # Descontar inventario (solo si el producto está registrado)
-        descontado, alerta, cantidad_restante = descontar_inventario(producto, cantidad)
-        if descontado and alerta:
-            confirmaciones.append(alerta)
+        # CORRECCIÓN: manejo explícito de None para evitar errores silenciosos
+        resultado_descuento = descontar_inventario(producto, cantidad)
+        if resultado_descuento is not None:
+            descontado, alerta, cantidad_restante = resultado_descuento
+            if descontado and alerta:
+                confirmaciones.append(alerta)
 
     # Actualizar caja
     caja = cargar_caja()
