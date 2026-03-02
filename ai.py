@@ -531,10 +531,22 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     nombre = c.get("Nombre tercero", "")
                     id_c   = c.get("Identificacion", "")
                     tipo   = c.get("Tipo de identificacion", "")
-                    clientes_texto = (
-                        f"CLIENTE ENCONTRADO EN EL SISTEMA (usar este directamente):\n"
-                        f"  - {nombre} ({tipo}: {id_c})"
-                    )
+                    # Solo asignar automaticamente si el nombre buscado tiene
+                    # al menos 2 palabras en comun con el encontrado
+                    palabras_buscadas  = set(_normalizar(termino_cliente).split())
+                    palabras_encontradas = set(_normalizar(nombre).split())
+                    coincidencias = palabras_buscadas & palabras_encontradas
+                    if len(coincidencias) >= 2 or (len(palabras_buscadas) == 1 and coincidencias):
+                        clientes_texto = (
+                            f"CLIENTE ENCONTRADO EN EL SISTEMA (usar este directamente):\n"
+                            f"  - {nombre} ({tipo}: {id_c})"
+                        )
+                    else:
+                        clientes_texto = (
+                            f"CLIENTE SIMILAR ENCONTRADO — confirma con el usuario si es el mismo:\n"
+                            f"  - {nombre} ({tipo}: {id_c})\n"
+                            f"Ejemplo: '¿Es {nombre}?'"
+                        )
                 elif len(candidatos_cli) > 1:
                     lineas_cli = []
                     for c in candidatos_cli:
