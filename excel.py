@@ -524,33 +524,59 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
     inicializar_excel()
     wb = openpyxl.load_workbook(config.EXCEL_FILE)
 
-    borrado_alguna = False
+    total_borradas = 0
     hojas_buscar   = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
 
     for nombre_sh in hojas_buscar:
         if nombre_sh in wb.sheetnames:
-            ws      = wb[nombre_sh]
-            cols    = detectar_columnas(ws)
-            col_id  = cols.get("consecutivo de venta") or cols.get("alias")
+            ws     = wb[nombre_sh]
+            cols   = detectar_columnas(ws)
+            col_id = cols.get("consecutivo de venta") or cols.get("alias")
             if not col_id:
                 continue
+            # Recoger todas las filas a borrar primero, luego borrar en reversa
+            filas_a_borrar = []
             for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
                 val = ws.cell(row=fila, column=col_id).value
                 try:
                     if val is not None and int(float(str(val))) == int(numero_venta):
-                        ws.delete_rows(fila)
-                        borrado_alguna = True
-                        break
+                        filas_a_borrar.append(fila)
                 except (ValueError, TypeError):
                     pass
+            for fila in reversed(filas_a_borrar):
+                ws.delete_rows(fila)
+            total_borradas += len(filas_a_borrar)
 
-    if borrado_alguna:
+    if total_borradas:
         wb.save(config.EXCEL_FILE)
         subir_a_drive(config.EXCEL_FILE)
         sheets_borrar_fila(numero_venta)
-        return True, f"✅ Venta #{numero_venta} borrada del Excel (Mensual y Acumulado) y del Sheets."
+        return True, f"✅ Consecutivo #{numero_venta} borrado — {total_borradas} fila(s) eliminadas del Excel y del Sheets."
 
-    return False, f"No encontré la venta #{numero_venta}."
+    return False, f"No encontré el consecutivo #{numero_venta}."
+
+
+def obtener_ventas_por_consecutivo(numero_venta) -> list:
+    """Retorna todas las filas con ese consecutivo (para ventas con múltiples productos)."""
+    inicializar_excel()
+    wb          = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
+    nombre_hoja = obtener_nombre_hoja()
+    if nombre_hoja not in wb.sheetnames:
+        wb.close()
+        return []
+    ws     = wb[nombre_hoja]
+    cols   = detectar_columnas(ws)
+    col_id = cols.get("consecutivo de venta") or cols.get("alias")
+    filas  = []
+    for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
+        val = fila[col_id - 1] if col_id else None
+        try:
+            if val is not None and int(float(str(val))) == int(numero_venta):
+                filas.append({nombre: fila[num - 1] for nombre, num in cols.items()})
+        except (ValueError, TypeError):
+            pass
+    wb.close()
+    return filas
 
 
 def obtener_venta_por_numero(numero_venta) -> dict | None:
