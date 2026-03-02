@@ -388,11 +388,16 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         if texto_respuesta and not pago_pend_aviso and not cliente_desconocido and not pedir_metodo and not confirmacion_accion:
             await update.message.reply_text(texto_respuesta)
 
-        for accion in acciones:
-            if (not accion.startswith("PEDIR_CONFIRMACION:")
-                    and not accion.startswith("CLIENTE_DESCONOCIDO:")
-                    and accion not in _acciones_internas):
-                await update.message.reply_text(accion)
+        # Agrupar precios actualizados en un solo mensaje
+        precios_act = [a for a in acciones if a.startswith("🧠 Precio")]
+        otras_acciones = [a for a in acciones if not a.startswith("🧠 Precio")
+                         and not a.startswith("PEDIR_CONFIRMACION:")
+                         and not a.startswith("CLIENTE_DESCONOCIDO:")
+                         and a not in _acciones_internas]
+        if precios_act:
+            await update.message.reply_text("\n".join(precios_act))
+        for accion in otras_acciones:
+            await update.message.reply_text(accion)
 
         # ── Cliente desconocido: preguntar si quiere crearlo ──
         if cliente_desconocido:
@@ -524,11 +529,15 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
         if texto_respuesta and (not hay_botones_venta or cliente_desconocido):
             await update.message.reply_text(texto_respuesta)
 
-        for accion in acciones:
-            if (not accion.startswith("PEDIR_CONFIRMACION:")
-                    and not accion.startswith("CLIENTE_DESCONOCIDO:")
-                    and accion not in _acciones_internas):
-                await update.message.reply_text(accion)
+        precios_act2 = [a for a in acciones if a.startswith("🧠 Precio")]
+        otras_acciones2 = [a for a in acciones if not a.startswith("🧠 Precio")
+                          and not a.startswith("PEDIR_CONFIRMACION:")
+                          and not a.startswith("CLIENTE_DESCONOCIDO:")
+                          and a not in _acciones_internas]
+        if precios_act2:
+            await update.message.reply_text("\n".join(precios_act2))
+        for accion in otras_acciones2:
+            await update.message.reply_text(accion)
 
         if cliente_desconocido:
             nombre_cli = cliente_desconocido.split(":", 1)[1]
