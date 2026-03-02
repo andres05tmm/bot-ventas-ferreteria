@@ -135,7 +135,8 @@ CUNETES(4gal,NO galon): T1=220000|T2=170000|T3=100000. "2 cunetes t1"->440000.
 MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=85000|T3=55000.
 
 MEDIDAS EN NOMBRE no son cantidad: chazos(3/8),puntillas(2"),arandelas(1/2),soldadura(60/11,7018). Total=cantidad*precio_u catalogo.
-GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000. Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
+GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000|Acronal=13000. Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
+Acronal MIXTO(ej:4-1/2kg): total=(kilos_enteros*13000)+(0.5kg=7000). Ej:4.5kg=4*13000+7000=59000.
 Cantidad kilos: "medio kilo"=0.5|"kilo y medio"=1.5.
 
 PINTURAS sin color->preguntar "De que color?". BROCHAS sin medida->preguntar. Precios:1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
@@ -163,6 +164,7 @@ ACCIONES al final (una por producto):
 - cliente si se menciona. Fiado+metodo: cargo=total,abono=0.
 [PRECIO]{{"producto":"nombre","precio":50000}}[/PRECIO]
 [PRECIO]{{"producto":"nombre","precio":15000,"fraccion":"1/4"}}[/PRECIO]
+USA [PRECIO] SOLO si el usuario dice explicitamente "el precio es X","cuesta X","vale X","cambia el precio a X". NUNCA si solo pregunta "precio del X" o "cuanto vale X" — eso es consulta, solo responde con texto.
 [GASTO]{{"concepto":"x","monto":50000,"categoria":"varios","origen":"caja"}}[/GASTO]
 [FIADO]{{"cliente":"X","concepto":"x","cargo":50000,"abono":0}}[/FIADO]
 [ABONO_FIADO]{{"cliente":"X","monto":50000}}[/ABONO_FIADO]
