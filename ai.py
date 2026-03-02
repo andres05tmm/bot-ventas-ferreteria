@@ -132,7 +132,7 @@ THINNER precio->fraccion: 3000=1/12|4000=1/10|5000=1/8|6000=1/6|8000=1/4|10000=1
 cantidad=decimal, total=precio pagado.
 
 CUNETES(4gal,NO galon): T1=220000|T2=170000|T3=100000. "2 cunetes t1"->440000.
-MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=85000|T3=55000.
+MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=90000|T3=60000.
 
 MEDIDAS EN NOMBRE no son cantidad: chazos(3/8),puntillas(2"),arandelas(1/2),soldadura(60/11,7018). Total=cantidad*precio_u catalogo.
 GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000|Acronal=13000. Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
@@ -625,7 +625,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 acronal_calculado = (
                     f"ACRONAL PRECALCULADO: {kg}kg = ${total_ac:,} "
                     f"({'%d*13000+7000' % enteros if abs(medio-0.5)<0.01 else '%g*13000' % kg}). "
-                    f"USA cantidad={kg}, total={total_ac} EXACTAMENTE."
+                    f"CRITICO: USA cantidad={kg}, total={total_ac} SIN MODIFICAR. PROHIBIDO recalcular."
                 )
             except Exception:
                 pass
