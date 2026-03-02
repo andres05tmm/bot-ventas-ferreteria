@@ -331,6 +331,379 @@ def verificar_alertas_inventario() -> list[str]:
     return alertas
 
 
+def _normalizar_clave_inventario(nombre: str) -> str:
+    """Normaliza el nombre del producto para usar como clave en inventario."""
+    return _normalizar(nombre).strip().lower()
+
+
+def registrar_conteo_inventario(nombre_producto: str, cantidad: float, minimo: float = 5, unidad: str = "unidades") -> tuple[bool, str]:
+    """
+    Registra o actualiza el conteo de un producto en inventario.
+    Busca primero en el catálogo para usar el nombre correcto.
+    Retorna (éxito, mensaje).
+    """
+    inventario = cargar_inventario()
+    
+    # Buscar producto en catálogo para usar nombre oficial
+    producto_catalogo = buscar_producto_en_catalogo(nombre_producto)
+    if producto_catalogo:
+        nombre_oficial = producto_catalogo.get("nombre", nombre_producto)
+    else:
+        nombre_oficial = nombre_producto.strip()
+    
+    clave = _normalizar_clave_inventario(nombre_oficial)
+    
+    # Verificar si ya existe con otra clave similar
+    clave_existente = buscar_clave_inventario(nombre_producto)
+    if clave_existente and clave_existente != clave:
+        clave = clave_existente
+        nombre_oficial = inventario[clave].get("nombre_original", nombre_oficial)
+    
+    inventario[clave] = {
+        "nombre_original": nombre_oficial,
+        "cantidad": round(cantidad, 4),
+        "minimo": minimo,
+        "unidad": unidad,
+        "fecha_conteo": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    guardar_inventario(inventario)
+    
+    return True, f"✅ Registrado: {nombre_oficial} — {cantidad} {unidad}"
+
+
+def buscar_clave_inventario(termino: str) -> str | None:
+    """
+    Busca un producto en inventario de forma flexible.
+    Retorna la clave del inventario si encuentra coincidencia.
+    """
+    inventario = cargar_inventario()
+    if not inventario:
+        return None
+    
+    termino_lower = _normalizar_clave_inventario(termino)
+    
+    # 1. Coincidencia exacta con clave
+    if termino_lower in inventario:
+        return termino_lower
+    
+    # 2. Coincidencia exacta con nombre_original
+    for clave, datos in inventario.items():
+        if isinstance(datos, dict):
+            nombre_orig = datos.get("nombre_original", "").lower()
+            if nombre_orig == termino_lower:
+                return clave
+    
+    # 3. Búsqueda por palabras
+    palabras = [p for p in termino_lower.split() if len(p) > 2]
+    if not palabras:
+        return None
+    
+    mejores = []
+    for clave, datos in inventario.items():
+        if isinstance(datos, dict):
+            nombre_orig = datos.get("nombre_original", clave).lower()
+            texto_busqueda = f"{clave} {nombre_orig}"
+            coincidencias = sum(1 for p in palabras if p in texto_busqueda)
+            if coincidencias == len(palabras):
+                mejores.append((3, coincidencias, len(clave), clave))
+            elif coincidencias >= len(palabras) - 1 and len(palabras) > 1:
+                mejores.append((2, coincidencias, len(clave), clave))
+            elif coincidencias >= 1:
+                mejores.append((1, coincidencias, len(clave), clave))
+    
+    if mejores:
+        mejores.sort(key=lambda x: (-x[0], -x[1], x[2]))
+        return mejores[0][3]
+    
+    return None
+
+
+def descontar_inventario(nombre_producto: str, cantidad: float) -> tuple[bool, str | None, float | None]:
+    """
+    Descuenta cantidad del inventario si el producto está registrado.
+    Retorna (descontado, alerta_stock_bajo, cantidad_restante).
+    Si el producto no está en inventario, retorna (False, None, None).
+    """
+    clave = buscar_clave_inventario(nombre_producto)
+    if not clave:
+        return False, None, None
+    
+    inventario = cargar_inventario()
+    datos = inventario.get(clave, {})
+    
+    if not isinstance(datos, dict):
+        return False, None, None
+    
+    cantidad_actual = datos.get("cantidad", 0)
+    cantidad_nueva = max(0, round(cantidad_actual - cantidad, 4))
+    datos["cantidad"] = cantidad_nueva
+    datos["ultima_venta"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    
+    guardar_inventario(inventario)
+    
+    minimo = datos.get("minimo", 5)
+    nombre = datos.get("nombre_original", clave)
+    unidad = datos.get("unidad", "unidades")
+    
+    alerta = None
+    if cantidad_nueva <= minimo:
+        alerta = f"⚠️ Stock bajo: {nombre} — quedan {cantidad_nueva} {unidad}"
+    
+    return True, alerta, cantidad_nueva
+
+
+def ajustar_inventario(nombre_producto: str, ajuste: float) -> tuple[bool, str]:
+    """
+    Ajusta el inventario sumando o restando cantidad.
+    ajuste puede ser positivo (+10) o negativo (-5).
+    Retorna (éxito, mensaje).
+    """
+    clave = buscar_clave_inventario(nombre_producto)
+    if not clave:
+        return False, f"❌ Producto no encontrado en inventario: {nombre_producto}"
+    
+    inventario = cargar_inventario()
+    datos = inventario.get(clave, {})
+    
+    cantidad_anterior = datos.get("cantidad", 0)
+    cantidad_nueva = max(0, round(cantidad_anterior + ajuste, 4))
+    datos["cantidad"] = cantidad_nueva
+    datos["ultimo_ajuste"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    
+    guardar_inventario(inventario)
+    
+    nombre = datos.get("nombre_original", clave)
+    unidad = datos.get("unidad", "unidades")
+    signo = "+" if ajuste > 0 else ""
+    
+    return True, f"✅ Ajustado: {nombre}\n   {cantidad_anterior} {signo}{ajuste} = {cantidad_nueva} {unidad}"
+
+
+def buscar_productos_inventario(termino: str = None, limite: int = 50) -> list[dict]:
+    """
+    Busca productos en inventario. Si no hay término, retorna todos.
+    Retorna lista de dicts con info del producto.
+    """
+    inventario = cargar_inventario()
+    resultados = []
+    
+    for clave, datos in inventario.items():
+        if not isinstance(datos, dict):
+            continue
+        
+        if termino:
+            termino_lower = termino.lower()
+            nombre_orig = datos.get("nombre_original", clave).lower()
+            if termino_lower not in clave and termino_lower not in nombre_orig:
+                # Verificar palabras individuales
+                palabras = termino_lower.split()
+                texto = f"{clave} {nombre_orig}"
+                if not any(p in texto for p in palabras):
+                    continue
+        
+        resultados.append({
+            "clave": clave,
+            "nombre": datos.get("nombre_original", clave),
+            "cantidad": datos.get("cantidad", 0),
+            "minimo": datos.get("minimo", 5),
+            "unidad": datos.get("unidad", "unidades"),
+            "fecha_conteo": datos.get("fecha_conteo", ""),
+        })
+    
+    # Ordenar por nombre
+    resultados.sort(key=lambda x: x["nombre"].lower())
+    return resultados[:limite]
+
+
+def registrar_compra(nombre_producto: str, cantidad: float, costo_unitario: float, proveedor: str = None) -> tuple[bool, str, dict]:
+    """
+    Registra una compra de mercancía:
+    - Suma cantidad al inventario
+    - Actualiza costo promedio ponderado
+    - Guarda proveedor (usa el último si no se especifica)
+    - Registra en historial de compras
+    Retorna (éxito, mensaje, datos_para_excel).
+    """
+    inventario = cargar_inventario()
+    
+    # Buscar producto en catálogo
+    producto_catalogo = buscar_producto_en_catalogo(nombre_producto)
+    if producto_catalogo:
+        nombre_oficial = producto_catalogo.get("nombre", nombre_producto)
+    else:
+        nombre_oficial = nombre_producto.strip()
+    
+    # Buscar si ya existe en inventario
+    clave = buscar_clave_inventario(nombre_producto)
+    if not clave:
+        clave = _normalizar_clave_inventario(nombre_oficial)
+    
+    # Obtener datos actuales o crear nuevo
+    datos = inventario.get(clave, {})
+    if not isinstance(datos, dict):
+        datos = {}
+    
+    cantidad_anterior = datos.get("cantidad", 0)
+    costo_anterior = datos.get("costo_promedio", costo_unitario)
+    
+    # Determinar proveedor: usar el especificado o el último registrado
+    if proveedor:
+        proveedor_final = proveedor.strip()
+    else:
+        proveedor_final = datos.get("ultimo_proveedor", "—")
+    
+    # Calcular costo promedio ponderado
+    # (cantidad_anterior * costo_anterior + cantidad_nueva * costo_nuevo) / cantidad_total
+    cantidad_total = cantidad_anterior + cantidad
+    if cantidad_total > 0:
+        costo_promedio = round(
+            (cantidad_anterior * costo_anterior + cantidad * costo_unitario) / cantidad_total
+        )
+    else:
+        costo_promedio = costo_unitario
+    
+    # Actualizar inventario
+    datos["nombre_original"] = nombre_oficial
+    datos["cantidad"] = round(cantidad_total, 4)
+    datos["costo_promedio"] = costo_promedio
+    datos["ultima_compra"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    datos["ultimo_costo"] = costo_unitario
+    datos["ultimo_proveedor"] = proveedor_final
+    if "minimo" not in datos:
+        datos["minimo"] = 5
+    if "unidad" not in datos:
+        datos["unidad"] = "unidades"
+    
+    inventario[clave] = datos
+    guardar_inventario(inventario)
+    
+    # Registrar en historial de compras (para reportes)
+    _registrar_historial_compra(nombre_oficial, cantidad, costo_unitario, proveedor_final)
+    
+    total_compra = round(cantidad * costo_unitario)
+    
+    proveedor_txt = f"   🏪 Proveedor: {proveedor_final}\n" if proveedor_final != "—" else ""
+    
+    mensaje = (
+        f"✅ Compra registrada:\n"
+        f"   📦 +{cantidad} {nombre_oficial}\n"
+        f"   📊 Inventario: {cantidad_anterior} → {cantidad_total}\n"
+        f"   💰 Costo: ${costo_unitario:,.0f} c/u (${total_compra:,.0f} total)\n"
+        f"{proveedor_txt}"
+        f"   📈 Costo promedio: ${costo_promedio:,.0f}"
+    )
+    
+    datos_excel = {
+        "producto": nombre_oficial,
+        "cantidad": cantidad,
+        "costo_unitario": costo_unitario,
+        "costo_total": total_compra,
+        "proveedor": proveedor_final,
+    }
+    
+    return True, mensaje, datos_excel
+
+
+def _registrar_historial_compra(producto: str, cantidad: float, costo_unitario: float, proveedor: str = "—"):
+    """Guarda la compra en el historial para reportes."""
+    mem = cargar_memoria()
+    if "historial_compras" not in mem:
+        mem["historial_compras"] = []
+    
+    mem["historial_compras"].append({
+        "fecha": datetime.now().strftime("%Y-%m-%d"),
+        "hora": datetime.now().strftime("%H:%M"),
+        "proveedor": proveedor,
+        "producto": producto,
+        "cantidad": cantidad,
+        "costo_unitario": costo_unitario,
+        "total": round(cantidad * costo_unitario),
+    })
+    
+    # Mantener solo últimos 500 registros
+    if len(mem["historial_compras"]) > 500:
+        mem["historial_compras"] = mem["historial_compras"][-500:]
+    
+    guardar_memoria(mem)
+
+
+def obtener_costo_producto(nombre_producto: str) -> float | None:
+    """Obtiene el costo promedio de un producto del inventario."""
+    clave = buscar_clave_inventario(nombre_producto)
+    if not clave:
+        return None
+    
+    inventario = cargar_inventario()
+    datos = inventario.get(clave, {})
+    return datos.get("costo_promedio")
+
+
+def calcular_margen(nombre_producto: str, precio_venta: float) -> dict | None:
+    """
+    Calcula el margen de ganancia de un producto.
+    Retorna dict con costo, margen_valor, margen_porcentaje o None.
+    """
+    costo = obtener_costo_producto(nombre_producto)
+    if costo is None or costo == 0:
+        return None
+    
+    margen_valor = precio_venta - costo
+    margen_porcentaje = round((margen_valor / precio_venta) * 100, 1)
+    
+    return {
+        "costo": costo,
+        "precio_venta": precio_venta,
+        "margen_valor": margen_valor,
+        "margen_porcentaje": margen_porcentaje,
+    }
+
+
+def obtener_resumen_margenes(limite: int = 20) -> list[dict]:
+    """
+    Obtiene productos con su margen calculado.
+    Requiere que el producto tenga costo_promedio y precio en catálogo.
+    """
+    inventario = cargar_inventario()
+    catalogo = cargar_memoria().get("catalogo", {})
+    
+    resultados = []
+    
+    for clave, datos in inventario.items():
+        if not isinstance(datos, dict):
+            continue
+        
+        costo = datos.get("costo_promedio")
+        if not costo:
+            continue
+        
+        nombre = datos.get("nombre_original", clave)
+        
+        # Buscar precio de venta en catálogo
+        producto_cat = buscar_producto_en_catalogo(nombre)
+        if not producto_cat:
+            continue
+        
+        precio_venta = producto_cat.get("precio_unidad", 0)
+        if not precio_venta or precio_venta <= costo:
+            continue
+        
+        margen_valor = precio_venta - costo
+        margen_porcentaje = round((margen_valor / precio_venta) * 100, 1)
+        
+        resultados.append({
+            "nombre": nombre,
+            "costo": costo,
+            "precio_venta": precio_venta,
+            "margen_valor": margen_valor,
+            "margen_porcentaje": margen_porcentaje,
+            "cantidad": datos.get("cantidad", 0),
+        })
+    
+    # Ordenar por margen porcentaje descendente
+    resultados.sort(key=lambda x: -x["margen_porcentaje"])
+    return resultados[:limite]
+
+
 # ─────────────────────────────────────────────
 # CAJA
 # ─────────────────────────────────────────────
