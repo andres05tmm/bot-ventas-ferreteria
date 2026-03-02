@@ -67,7 +67,7 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/sheets — Estado del Sheet del dia\n\n"
         "🏪 INVENTARIO Y PRECIOS\n"
         "/inventario — Ver inventario actual\n"
-        "/inv [producto] — Buscar producto en inventario\n"
+        "/inv [cantidad] [producto] — Registrar conteo de inventario\n"
         "/stock [producto] — Detalle de stock\n"
         "/ajuste [producto] [cantidad] — Ajustar stock manualmente\n"
         "/compra — Registrar compra de mercancia\n"
@@ -660,23 +660,17 @@ async def comando_margenes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────────
 
 async def comando_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if args:
-        termino    = " ".join(args)
-        resultados = await asyncio.to_thread(buscar_clientes_multiples, termino, 5)
-        if not resultados:
-            await update.message.reply_text(f"No encontre clientes con '{termino}'.")
-            return
-        texto = f"👥 Clientes encontrados para '{termino}':\n\n"
-        for c in resultados:
-            nombre = c.get("Nombre tercero", "")
-            id_c   = c.get("Identificacion", "")
-            tipo   = c.get("Tipo de identificacion", "")
-            texto += f"• {nombre} — {tipo}: {id_c}\n"
-        await update.message.reply_text(texto)
-    else:
+    from sheets import sheets_sincronizar_clientes
+    await update.message.reply_text("📋 Sincronizando clientes con Sheets...")
+    ok, resultado = await asyncio.to_thread(sheets_sincronizar_clientes)
+    if ok:
         clientes = await asyncio.to_thread(cargar_clientes)
-        await update.message.reply_text(f"👥 Tienes {len(clientes)} clientes registrados.")
+        await update.message.reply_text(
+            f"👥 {len(clientes)} clientes sincronizados.\n\n"
+            f"📊 Ver lista completa:\n{resultado}"
+        )
+    else:
+        await update.message.reply_text(f"⚠️ {resultado}")
 
 
 # ─────────────────────────────────────────────
