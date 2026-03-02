@@ -410,7 +410,11 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             for p in palabras_raw:
                 if p in stopwords:
                     continue
-                if len(p) > 2 and not p.replace('.','').replace(',','').isdigit():
+                # Tokens alfanuméricos cortos como t1, t2, t3, x1 (2 chars con al menos un dígito)
+                if len(p) == 2 and any(c.isdigit() for c in p):
+                    palabras_seg.append(p)
+                    nombre_producto_encontrado = True
+                elif len(p) > 2 and not p.replace('.','').replace(',','').isdigit():
                     palabras_seg.append(_stem(p))  # con stemming
                     nombre_producto_encontrado = True
                 elif _re.match(r'^\d+x\d+', p):  # formatos como 3x3, 8x1
