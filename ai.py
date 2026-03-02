@@ -7,12 +7,14 @@ Integración con Claude AI (modelo: claude-haiku-4-5-20251001):
 OPTIMIZACIONES DE COSTO ACTIVAS:
   1. Prompt caching  — la parte estática del prompt (reglas + catálogo) se cachea 5 min.
                        Costo de tokens cacheados = 10% del precio normal.
-  2. Historial corto — se envían solo los últimos 4 mensajes.
-  3. max_tokens cap  — techo de 2000 tokens de respuesta.
+  2. Historial corto — se envían solo los últimos 1-4 mensajes (adaptativo).
+  3. max_tokens cap  — techo adaptativo de respuesta.
   4. Catálogo simplificado — parte estática solo precio base, fracciones vía MATCH dinámico (~26% menos tokens cacheados).
 
-CORRECCIONES v2:
-  - Comentario de modelo corregido: era "Claude 3.5", el modelo real es claude-haiku-4-5-20251001
+CORRECCIONES v3:
+  - Eliminado código muerto (_frac_por_producto, loop vacío en _linea_candidato)
+  - Historial adaptativo más agresivo (1-4 mensajes según contexto)
+  - Instrucción de JSON compacto para reducir output tokens
 """
 
 import logging
@@ -201,7 +203,7 @@ RESPUESTA: espanol, sin markdown. Fracciones legibles (1/4 no 0.25).
 SILENCIO TOTAL si es registro de venta sin ambiguedades: emite SOLO los JSON [VENTA], cero texto antes ni despues. El sistema ya muestra el resumen al cliente automaticamente.
 Texto SOLO en: (1) falta dato obligatorio como color o medida, (2) producto no encontrado en catalogo, (3) precio contradictorio, (4) el usuario hace una pregunta explicita.
 
-ACCIONES al final (una por producto):
+ACCIONES al final (una por producto, JSON compacto sin espacios):
 [VENTA]{{"producto":"nombre","cantidad":1,"total":21000}}[/VENTA]
 - Solo campo "total" (NUNCA precio_unitario/precio/monto). Sin $ ni comas.
 - "producto" = nombre limpio del catalogo SIN fraccion. La fraccion va SOLO en "cantidad".
@@ -355,18 +357,9 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if token in ("1/4","1/2","3/4","1/8","1/16","3/8"):
             _fracs_mencionadas.add(token)
 
-    # Construir mapa: palabra_clave_producto -> fraccion adyacente en el mensaje
-    # Ej: "1/2 laca miel" -> laca miel tiene fraccion 1/2
+    # Tokenizar mensaje para detectar fracciones adyacentes a productos
     _tokens = mensaje_usuario.lower().replace(",","").split()
-    _frac_por_producto = {}  # nombre_lower -> fraccion mas cercana
     _fracs_set = {"1/4","1/2","3/4","1/8","1/16","3/8"}
-    for idx_t, token in enumerate(_tokens):
-        if token in _fracs_set:
-            # Buscar palabra de producto en los 3 tokens siguientes
-            contexto = " ".join(_tokens[idx_t+1:idx_t+5])
-            for prod in catalogo.values() if False else []:
-                pass
-            _frac_por_producto[contexto[:30]] = token  # clave aproximada
 
     def _linea_candidato(p: dict) -> str:
         # Formato comprimido: sin "  - ", sin "$", sin comas, fraccion relevante marcada con *
@@ -779,25 +772,52 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     ]
     return "\n\n".join(partes)
 
+
+# ─────────────────────────────────────────────
+# FUNCIÓN AUXILIAR: calcular historial adaptativo
+# ─────────────────────────────────────────────
+
+def _calcular_historial(mensaje: str) -> int:
+    """
+    Determina cuántos mensajes de historial enviar según el contexto.
+    OPTIMIZACIÓN: ventas simples solo necesitan 1 mensaje, ahorrando ~100 tokens.
+    """
+    msg_l = mensaje.lower()
+    
+    # Necesita contexto completo (cliente, correcciones, fiados)
+    if any(k in msg_l for k in ("cliente", "fiado", "para ", "a nombre", 
+                                 "corrig", "modific", "error", "equivoque",
+                                 "cambia", "quita", "agrega")):
+        return 4
+    
+    # Análisis, reportes o consultas complejas
+    _kw_contexto = {"cuanto", "vendimos", "reporte", "analiz", "resumen", "estadistica",
+                    "inventario", "grafica", "top", "mas vendido", "caja", "gasto"}
+    if any(k in msg_l for k in _kw_contexto):
+        return 4
+    
+    # Multi-producto (comas o saltos de línea)
+    if "," in mensaje or mensaje.count("\n") > 0:
+        return 2
+    
+    # Venta simple: solo el mensaje actual basta
+    return 1
+
+
 # ─────────────────────────────────────────────
 # LLAMADA A CLAUDE CON PROMPT CACHING
 # ─────────────────────────────────────────────
 
 async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list) -> str:
-    mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)  # ← AGREGAR ESTA LÍNEA
+    mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
     memoria        = cargar_memoria()
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
   
     _modo = "MATCH+SIMPLE-CAT 💡"  # fracciones en MATCH, precio_unidad en estático
-    # modo activo: MATCH provee fracciones, catálogo estático solo precio base
 
-    # Historial adaptativo: ventas simples solo necesitan 2 mensajes de contexto,
-    # análisis y correcciones necesitan 4. Ahorra ~75 tokens en el 70% de llamadas.
-    _kw_contexto = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
-                    "modificar","corregir","cambia","quita","agrega","error","equivoque",
-                    "fiado","debe","abono","inventario","grafica","top","mas vendido"}
-    _n_hist = 4 if any(p in mensaje_usuario.lower() for p in _kw_contexto) else 2
+    # Historial adaptativo: usa _calcular_historial para determinar cuántos mensajes
+    _n_hist = _calcular_historial(mensaje_usuario)
 
     messages = []
     for msg in historial_chat[-_n_hist:]:
@@ -809,7 +829,6 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     # - Venta simple (1 producto, sin comas ni saltos): solo JSON → 400 tok
     # - Venta multi-producto: JSON × N productos + posible texto → 250 × lineas
     # - Consulta/reporte/modificacion: respuesta larga → 2000 mínimo
-    # Esto evita pagar por tokens que nunca se van a usar
     _kw_reporte = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
                    "grafica","top","mas vendido","gasto","caja","inventario"}
     _kw_edicion = {"modificar","corregir","cambia","quita","agrega","error",
