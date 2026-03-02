@@ -755,3 +755,134 @@ def registrar_fiado_en_excel(cliente: str, concepto: str, cargo: float, abono: f
     wb.save(config.EXCEL_FILE)
     from drive import subir_a_drive
     subir_a_drive(config.EXCEL_FILE)
+
+
+# ─────────────────────────────────────────────
+# COMPRAS EN EXCEL
+# ─────────────────────────────────────────────
+
+def registrar_compra_en_excel(producto: str, cantidad: float, costo_unitario: float, 
+                               costo_total: float, proveedor: str = "—"):
+    """
+    Agrega una fila a la hoja 'Compras' del Excel.
+    Crea la hoja si no existe.
+    """
+    inicializar_excel()
+    wb = openpyxl.load_workbook(config.EXCEL_FILE)
+    
+    nombre_hoja = "Compras"
+    if nombre_hoja not in wb.sheetnames:
+        ws = wb.create_sheet(title=nombre_hoja)
+        encabezados = ["FECHA", "HORA", "PROVEEDOR", "PRODUCTO", "CANTIDAD", "COSTO UNIT.", "COSTO TOTAL"]
+        for col, enc in enumerate(encabezados, 1):
+            celda = ws.cell(row=1, column=col, value=enc)
+            celda.font = Font(bold=True, color="FFFFFF")
+            celda.fill = PatternFill("solid", fgColor="2563EB")
+            celda.alignment = Alignment(horizontal="center")
+        # Anchos de columna
+        anchos = [12, 8, 20, 30, 12, 15, 15]
+        for col, ancho in enumerate(anchos, 1):
+            ws.column_dimensions[get_column_letter(col)].width = ancho
+        fila_datos = 2
+    else:
+        ws = wb[nombre_hoja]
+        fila_datos = ws.max_row + 1
+    
+    ahora = datetime.now(config.COLOMBIA_TZ)
+    fecha = ahora.strftime("%Y-%m-%d")
+    hora = ahora.strftime("%H:%M")
+    
+    valores = [fecha, hora, proveedor, producto, cantidad, costo_unitario, costo_total]
+    for col, val in enumerate(valores, 1):
+        celda = ws.cell(row=fila_datos, column=col, value=val)
+        celda.alignment = Alignment(horizontal="center")
+        if col in (6, 7):  # Columnas de costo
+            celda.number_format = "$#,##0"
+        if fila_datos % 2 == 0:
+            celda.fill = PatternFill("solid", fgColor="FEF3C7")  # Amarillo claro
+    
+    wb.save(config.EXCEL_FILE)
+    from drive import subir_a_drive
+    subir_a_drive(config.EXCEL_FILE)
+
+
+def actualizar_hoja_inventario():
+    """
+    Actualiza/crea la hoja 'Inventario' con el estado actual.
+    Sobreescribe todos los datos cada vez.
+    """
+    from memoria import cargar_inventario, buscar_producto_en_catalogo
+    
+    inicializar_excel()
+    wb = openpyxl.load_workbook(config.EXCEL_FILE)
+    
+    nombre_hoja = "Inventario"
+    
+    # Si existe, eliminar y recrear
+    if nombre_hoja in wb.sheetnames:
+        del wb[nombre_hoja]
+    
+    ws = wb.create_sheet(title=nombre_hoja)
+    
+    # Encabezados
+    encabezados = ["PRODUCTO", "STOCK", "COSTO PROM.", "PRECIO VENTA", "MARGEN %", "PROVEEDOR", "ÚLT. COMPRA"]
+    for col, enc in enumerate(encabezados, 1):
+        celda = ws.cell(row=1, column=col, value=enc)
+        celda.font = Font(bold=True, color="FFFFFF")
+        celda.fill = PatternFill("solid", fgColor="059669")  # Verde
+        celda.alignment = Alignment(horizontal="center")
+    
+    # Anchos de columna
+    anchos = [30, 10, 15, 15, 12, 20, 15]
+    for col, ancho in enumerate(anchos, 1):
+        ws.column_dimensions[get_column_letter(col)].width = ancho
+    
+    # Cargar datos de inventario
+    inventario = cargar_inventario()
+    fila = 2
+    
+    for clave, datos in sorted(inventario.items()):
+        if not isinstance(datos, dict):
+            continue
+        
+        nombre = datos.get("nombre_original", clave)
+        cantidad = datos.get("cantidad", 0)
+        costo_prom = datos.get("costo_promedio", 0)
+        proveedor = datos.get("ultimo_proveedor", "—")
+        ultima_compra = datos.get("ultima_compra", "—")
+        
+        # Buscar precio de venta en catálogo
+        producto_cat = buscar_producto_en_catalogo(nombre)
+        precio_venta = producto_cat.get("precio_unidad", 0) if producto_cat else 0
+        
+        # Calcular margen
+        if precio_venta > 0 and costo_prom > 0:
+            margen = round(((precio_venta - costo_prom) / precio_venta) * 100, 1)
+        else:
+            margen = "—"
+        
+        valores = [nombre, cantidad, costo_prom, precio_venta, margen, proveedor, ultima_compra]
+        
+        for col, val in enumerate(valores, 1):
+            celda = ws.cell(row=fila, column=col, value=val if val != 0 else "—")
+            celda.alignment = Alignment(horizontal="center")
+            if col in (3, 4):  # Costos y precios
+                if val and val != "—":
+                    celda.number_format = "$#,##0"
+            if col == 5 and val != "—":  # Margen
+                celda.number_format = "0.0%"
+                if isinstance(val, (int, float)):
+                    celda.value = val / 100  # Convertir a porcentaje
+                    if val >= 40:
+                        celda.fill = PatternFill("solid", fgColor="D1FAE5")  # Verde claro
+                    elif val < 20:
+                        celda.fill = PatternFill("solid", fgColor="FEE2E2")  # Rojo claro
+            if fila % 2 == 0:
+                if col != 5 or val == "—":  # No sobreescribir color de margen
+                    celda.fill = PatternFill("solid", fgColor="F0FDF4")
+        
+        fila += 1
+    
+    wb.save(config.EXCEL_FILE)
+    from drive import subir_a_drive
+    subir_a_drive(config.EXCEL_FILE)
