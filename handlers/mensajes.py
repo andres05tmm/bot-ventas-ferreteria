@@ -151,6 +151,17 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                     f"📧 {en_proceso.get('correo', '') or 'Sin correo'}\n"
                     f"📞 {telefono or 'Sin teléfono'}"
                 )
+                # Continuar con la venta pendiente si existe
+                with _estado_lock:
+                    datos_espera = ventas_esperando_cliente.pop(chat_id, None)
+                    ventas_pend  = list(ventas_pendientes.get(chat_id, []))
+                if ventas_pend:
+                    metodo = ventas_pend[0].get("metodo_pago", "").lower()
+                    if metodo in ("efectivo", "transferencia", "datafono"):
+                        from handlers.callbacks import _enviar_confirmacion_con_metodo
+                        await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_pend, metodo)
+                    else:
+                        await _enviar_botones_pago(update.message, chat_id, ventas_pend)
             else:
                 await update.message.reply_text("⚠️ No pude guardar el cliente. Intenta de nuevo.")
             return
