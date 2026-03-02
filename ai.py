@@ -119,11 +119,14 @@ Multiplica SOLO si dice "c/u","cada uno/a","por unidad".
 FRACCIONES: 1/4=0.25|1/2=0.5|3/4=0.75|1/8=0.125|1/16=0.0625. Precio=total.
 MIXTAS — REGLA CRITICA:
 Cantidades como "2 y 1/2", "1-1/4", "3 y medio" = enteros + fraccion.
-SIEMPRE sumar precios del catalogo, NUNCA multiplicar decimal por precio_unidad.
+PASO 1: Identificar parte entera y fraccion (2-1/2 = 2 enteros + 1/2)
+PASO 2: Buscar precio de 1 galon y precio de fraccion en MATCH
+PASO 3: total = (enteros × precio_galon) + precio_fraccion
+NUNCA multiplicar decimal por precio_unidad.
 Ejemplos:
-- "2-1/2 vinilo T2"(1gal=40000,1/2=21000) = 2×40000 + 21000 = 101000
-- "1 y 1/4 laca"(1gal=60000,1/4=17000) = 60000 + 17000 = 77000
-- "3 y medio acronal"(kg=13000,1/2kg=7000) = 3×13000 + 7000 = 46000
+- "2-1/2 vinilo T2"(1=40000,1/2=21000): 2×40000=80000 + 21000 = 101000 ✓
+- "1 y 1/4 esmalte"(1=65000,1/4=17000): 1×65000=65000 + 17000 = 82000 ✓
+- "3 y medio acronal"(kg=13000,1/2=7000): 3×13000=39000 + 7000 = 46000 ✓
 DOCENAS: 1 docena=12|media=6|ciento=100. cantidad=docenas*12, total=cantidad*precio_u.
 
 TORNILLOS DRYWALL: "TORNILLO DRYWALL CALIBRExMEDIDA". Total=cantidad*precio_u.
