@@ -49,6 +49,11 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
 _ALIAS_FERRETERIA = [
     # (patrón regex, reemplazo)
+    # TORNILLOS DRYWALL: normalizar medidas para evitar confusión (6x3 vs 6x3/4)
+    # Importante: estos patrones van PRIMERO para que se apliquen antes de otros
+    (r'\btornillo[s]?\s*(?:de\s*)?drywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'tornillo drywall \g<1>x3'),
+    (r'\bdrywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'drywall \g<1>x3'),
+    (r'\b(\d+)\s*[xX]\s*3\b(?!/)\s*(?=.*(?:tornillo|drywall))', r'\g<1>x3'),
     # Thinner/Varsol por botellas y litros (cantidades pequeñas por precio)
     (r'\b(\d+)?\s*botellas?\s+de\s+thinner\b', r'\g<1> thinner 4000'.replace('None', '1')),
     (r'\b(\d+)?\s*botellas?\s+de\s+varsol\b', r'\g<1> varsol 4000'),
@@ -507,6 +512,29 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 for prod in buscar_multiples_en_catalogo(frag_exact, limite=1):
                     if frag_exact in prod["nombre_lower"]:
                         combinados[prod["nombre_lower"]] = prod
+
+        # 2.5 FILTRO TORNILLOS: evitar confusión entre medidas similares (6x3 vs 6x3/4)
+        # Si el mensaje menciona una medida exacta como "6x3", eliminar productos con medidas
+        # que la contengan pero sean diferentes (como "6x3/4", "6x3-1/2")
+        _medidas_exactas = _re.findall(r'\b(\d+)\s*[xX]\s*(\d+)\b(?![/\-])', _msg_lower)
+        if _medidas_exactas and "tornillo" in _msg_lower or "drywall" in _msg_lower:
+            for calibre, largo_med in _medidas_exactas:
+                medida_exacta = f"{calibre}x{largo_med}"
+                # Filtrar productos que tengan la medida como substring pero NO sean exactos
+                # Ej: si busca "6x3", eliminar "6x3/4" y "6x3-1/2" pero mantener "6x3"
+                productos_a_eliminar = []
+                for nl, prod in list(combinados.items()):
+                    if "tornillo" in nl or "drywall" in nl:
+                        # Buscar la medida en el nombre del producto
+                        medida_prod = _re.search(r'(\d+)[xX](\d+(?:[/-]\d+(?:/\d+)?)?)', nl)
+                        if medida_prod:
+                            medida_completa = medida_prod.group(0).lower()
+                            # Si la medida del producto es más larga que la buscada, es diferente
+                            if medida_exacta in medida_completa and medida_completa != medida_exacta:
+                                productos_a_eliminar.append(nl)
+                for nl in productos_a_eliminar:
+                    if nl in combinados and nl not in _candidatos_garantizados:
+                        del combinados[nl]
 
         # 3. Ordenar: más palabras del mensaje completo en el nombre = mayor prioridad
         #    Los candidatos garantizados (mejor hit por segmento) siempre se incluyen primero.
