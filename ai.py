@@ -54,6 +54,10 @@ _ALIAS_FERRETERIA = [
     (r'\btornillo[s]?\s*(?:de\s*)?drywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'tornillo drywall \g<1>x3'),
     (r'\bdrywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'drywall \g<1>x3'),
     (r'\b(\d+)\s*[xX]\s*3\b(?!/)\s*(?=.*(?:tornillo|drywall))', r'\g<1>x3'),
+    # Pegaternit: normalizar variantes de escritura
+    (r'\bpagaternit\b', r'pegaternit'),
+    (r'\bpega\s*ternit\b', r'pegaternit'),
+    (r'\bpegaeternit\b', r'pegaternit'),
     # Thinner/Varsol por botellas y litros (cantidades pequeñas por precio)
     (r'\b(\d+)?\s*botellas?\s+de\s+thinner\b', r'\g<1> thinner 4000'.replace('None', '1')),
     (r'\b(\d+)?\s*botellas?\s+de\s+varsol\b', r'\g<1> varsol 4000'),
@@ -856,6 +860,56 @@ def _calcular_historial(mensaje: str) -> int:
 # LLAMADA A CLAUDE CON PROMPT CACHING
 # ─────────────────────────────────────────────
 
+async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, max_reintentos=5):
+    """
+    Wrapper para llamar a Claude con reintentos adicionales para error 529 (overloaded).
+    El SDK ya hace 3 reintentos internos, pero agregamos una capa extra con backoff.
+    """
+    import random
+    from anthropic import APIError
+    
+    ultimo_error = None
+    for intento in range(max_reintentos):
+        try:
+            loop = asyncio.get_event_loop()
+            respuesta = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: cliente.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=max_tokens,
+                        system=system,
+                        messages=messages,
+                    )
+                ),
+                timeout=45.0,  # timeout más generoso
+            )
+            return respuesta
+        except asyncio.TimeoutError:
+            ultimo_error = RuntimeError("La IA tardó demasiado en responder (>45s).")
+            # No reintentar en timeout, probablemente es un problema de red
+            if intento >= 2:
+                raise ultimo_error
+        except Exception as e:
+            ultimo_error = e
+            error_str = str(e).lower()
+            # Solo reintentar en errores 529 (overloaded) o 503 (service unavailable)
+            if "529" in str(e) or "overload" in error_str or "503" in str(e) or "unavailable" in error_str:
+                if intento < max_reintentos - 1:
+                    # Backoff exponencial con jitter: 2^intento + random(0-1) segundos
+                    espera = (2 ** intento) + random.uniform(0, 1)
+                    logging.getLogger("ferrebot.ai").warning(
+                        f"[CLAUDE] Error 529/503, reintento {intento+1}/{max_reintentos} en {espera:.1f}s..."
+                    )
+                    await asyncio.sleep(espera)
+                    continue
+            # Otros errores: no reintentar
+            raise
+    
+    # Si llegamos aquí, agotamos los reintentos
+    raise ultimo_error or RuntimeError("Error desconocido al llamar a Claude")
+
+
 async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list) -> str:
     mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
     memoria        = cargar_memoria()
@@ -892,32 +946,21 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     else:
         max_tokens = min(3000, max(800, num_lineas * 220))  # multi-producto
 
-    loop = asyncio.get_event_loop()
-    try:
-        respuesta = await asyncio.wait_for(
-            loop.run_in_executor(
-                None,
-                lambda: config.claude_client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=max_tokens,
-                    system=[
-                        {
-                            "type": "text",
-                            "text": parte_estatica,
-                            "cache_control": {"type": "ephemeral"},
-                        },
-                        {
-                            "type": "text",
-                            "text": parte_dinamica,
-                        },
-                    ],
-                    messages=messages,
-                )
-            ),
-            timeout=30.0,
-        )
-    except asyncio.TimeoutError:
-        raise RuntimeError("La IA tardó demasiado en responder (>30s). Intenta de nuevo.")
+    system = [
+        {
+            "type": "text",
+            "text": parte_estatica,
+            "cache_control": {"type": "ephemeral"},
+        },
+        {
+            "type": "text",
+            "text": parte_dinamica,
+        },
+    ]
+
+    respuesta = await _llamar_claude_con_reintentos(
+        config.claude_client, max_tokens, system, messages
+    )
 
     # ── Log de uso de tokens y cache ──
     uso = respuesta.usage
