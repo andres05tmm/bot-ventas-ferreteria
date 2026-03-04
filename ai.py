@@ -82,11 +82,28 @@ def aplicar_alias_ferreteria(mensaje: str) -> str:
     """Transforma alias comunes antes de enviar a Claude."""
     resultado = mensaje
     for patron, reemplazo in _ALIAS_FERRETERIA:
-        # Manejar caso sin número (ej: "botella de thinner" -> "1 thinner 4000")
-        def _reemplazo(m):
-            num = m.group(1) if m.group(1) else "1"
-            return reemplazo.replace(r'\g<1>', num).strip()
-        resultado = re.sub(patron, _reemplazo, resultado, flags=re.IGNORECASE)
+        # Verificar si el patrón tiene grupos de captura opcionales (\d+)?
+        # Si el reemplazo usa \g<1>, necesitamos manejar el caso donde group(1) es None
+        if r'\g<1>' in reemplazo or r'\g<2>' in reemplazo:
+            def _hacer_reemplazo(m, repl=reemplazo):
+                resultado_repl = repl
+                # Reemplazar \g<1> con el grupo 1 o "1" si es None
+                try:
+                    g1 = m.group(1) if m.lastindex and m.lastindex >= 1 and m.group(1) else "1"
+                    resultado_repl = resultado_repl.replace(r'\g<1>', g1)
+                except IndexError:
+                    resultado_repl = resultado_repl.replace(r'\g<1>', "1")
+                # Reemplazar \g<2> con el grupo 2 si existe
+                try:
+                    if m.lastindex and m.lastindex >= 2 and m.group(2):
+                        resultado_repl = resultado_repl.replace(r'\g<2>', m.group(2))
+                except IndexError:
+                    pass
+                return resultado_repl.strip()
+            resultado = re.sub(patron, _hacer_reemplazo, resultado, flags=re.IGNORECASE)
+        else:
+            # Reemplazo simple sin grupos de captura
+            resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
     return resultado
   
 # ─────────────────────────────────────────────
