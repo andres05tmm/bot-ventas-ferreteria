@@ -189,9 +189,16 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.message.chat_id
 
-    # Buscar todas las filas del consecutivo
-    from excel import obtener_ventas_por_consecutivo
-    filas = await asyncio.to_thread(obtener_ventas_por_consecutivo, numero)
+    # Buscar todas las filas del consecutivo - PRIORIZAR SHEETS
+    filas = []
+    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+        from sheets import sheets_obtener_ventas_por_consecutivo
+        filas = await asyncio.to_thread(sheets_obtener_ventas_por_consecutivo, numero)
+    
+    # Fallback a Excel local si Sheets no tiene datos
+    if not filas:
+        from excel import obtener_ventas_por_consecutivo
+        filas = await asyncio.to_thread(obtener_ventas_por_consecutivo, numero)
 
     if not filas:
         await update.message.reply_text(f"No encontré el consecutivo #{numero}.")
@@ -204,15 +211,15 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lineas = []
     total_sum = 0
     for f in filas:
-        prod  = f.get(config.COL_PRODUCTO, "?")
-        total = f.get(config.COL_TOTAL, 0)
+        prod  = f.get("producto", f.get(config.COL_PRODUCTO, "?"))
+        total = f.get("total", f.get(config.COL_TOTAL, 0))
         try:
             total_sum += float(total)
             lineas.append(f"  • {prod} ${float(total):,.0f}")
         except Exception:
             lineas.append(f"  • {prod}")
-    fecha    = filas[0].get(config.COL_FECHA, "?")
-    vendedor = filas[0].get(config.COL_VENDEDOR, "?")
+    fecha    = filas[0].get("fecha", filas[0].get(config.COL_FECHA, "?"))
+    vendedor = filas[0].get("vendedor", filas[0].get(config.COL_VENDEDOR, "?"))
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Sí, borrar todo", callback_data=f"borrar_si_{chat_id}"),
