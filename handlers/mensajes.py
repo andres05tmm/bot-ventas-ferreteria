@@ -502,6 +502,67 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
         await update.message.reply_text(f"📝 {texto}")
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
+        # ── Verificar modo corrección/modificación (igual que en texto) ──
+        with _estado_lock:
+            en_correccion = esperando_correccion.pop(chat_id, False)
+
+        if en_correccion == "modificar":
+            # Usar la misma lógica que el handler de texto para modificaciones
+            with _estado_lock:
+                ventas_actuales = list(ventas_pendientes.get(chat_id, []))
+
+            metodo_original = None
+            if ventas_actuales and ventas_actuales[0].get("metodo_pago"):
+                metodo_original = ventas_actuales[0]["metodo_pago"]
+
+            import json as _json
+            resumen_venta = _json.dumps(ventas_actuales, ensure_ascii=False)
+
+            prompt_modificacion = (
+                "El vendedor tiene esta venta pendiente de confirmar:\n"
+                + resumen_venta
+                + "\n\nEl vendedor quiere modificarla con esta instrucción: "
+                + texto
+                + "\n\nAplica EXACTAMENTE los cambios pedidos a la venta (modifica cantidad, precio, "
+                "quita o agrega productos según corresponda). "
+                "Luego emite los [VENTA] actualizados con los datos correctos y confirma los cambios en texto. "
+                "IMPORTANTE: emite [VENTA] para TODOS los productos que quedan en la venta (no solo el modificado). "
+                + (f"IMPORTANTE: mantén metodo_pago={metodo_original} en todos los [VENTA]." if metodo_original else "")
+            )
+            historial = get_historial(chat_id)
+            agregar_al_historial(chat_id, "user", prompt_modificacion)
+
+            with _estado_lock:
+                ventas_pendientes.pop(chat_id, None)
+
+            respuesta_raw = await procesar_con_claude(prompt_modificacion, vendedor, historial)
+            texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
+            agregar_al_historial(chat_id, "assistant", texto_respuesta)
+
+            confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+            with _estado_lock:
+                ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
+
+            if ventas_nuevas:
+                nota = texto_respuesta.split("\n")[0] if texto_respuesta else ""
+                if confirmacion_accion:
+                    metodo_conocido = confirmacion_accion.split(":", 1)[1]
+                    from handlers.callbacks import _enviar_confirmacion_con_metodo
+                    await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido, nota=nota)
+                elif metodo_original:
+                    with _estado_lock:
+                        for v in ventas_pendientes.get(chat_id, []):
+                            v["metodo_pago"] = metodo_original
+                    from handlers.callbacks import _enviar_confirmacion_con_metodo
+                    await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_original, nota=nota)
+                else:
+                    if nota:
+                        await update.message.reply_text(nota)
+                    await _enviar_botones_pago(update.message, chat_id, ventas_nuevas)
+            elif texto_respuesta:
+                await update.message.reply_text(texto_respuesta)
+            return
+
         # ── Chequeo de pago pendiente: si hay venta esperando, el audio va al standby ──
         with _estado_lock:
             _ventas_pend = list(ventas_pendientes.get(chat_id, []))
