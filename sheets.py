@@ -280,6 +280,74 @@ def sheets_limpiar() -> bool:
         return False
 
 
+def sheets_obtener_ventas_por_consecutivo(numero_venta) -> list:
+    """
+    Retorna todas las filas con ese consecutivo desde Google Sheets.
+    Usado por /borrar para encontrar ventas a eliminar.
+    """
+    if not config.SHEETS_ID:
+        return []
+    try:
+        ws = _obtener_hoja_sheets()
+        if not ws:
+            return []
+        todas = ws.get_all_records()
+        filas = []
+        for fila in todas:
+            try:
+                num = fila.get("CONSECUTIVO DE VENTA", fila.get("#", ""))
+                if num and int(float(str(num))) == int(numero_venta):
+                    filas.append({
+                        "producto": fila.get("PRODUCTO", fila.get("Producto", "?")),
+                        "total": fila.get("TOTAL", fila.get("Total", 0)),
+                        "fecha": fila.get("FECHA", fila.get("Fecha", "?")),
+                        "vendedor": fila.get("VENDEDOR", fila.get("Vendedor", "?")),
+                        "cantidad": fila.get("CANTIDAD", fila.get("Cantidad", 1)),
+                    })
+            except (ValueError, TypeError):
+                pass
+        return filas
+    except Exception as e:
+        print(f"⚠️ Error buscando consecutivo en Sheets: {e}")
+        return []
+
+
+def sheets_borrar_consecutivo(numero_venta) -> tuple[int, list]:
+    """
+    Borra TODAS las filas con ese consecutivo del Sheets.
+    Retorna (cantidad_borradas, lista_productos_borrados).
+    """
+    if not config.SHEETS_ID:
+        return 0, []
+    try:
+        ws = _obtener_hoja_sheets()
+        if not ws:
+            return 0, []
+        
+        celdas = ws.get_all_values()
+        filas_a_borrar = []  # índices de filas a borrar (1-indexed)
+        productos_borrados = []
+        
+        for idx, fila in enumerate(celdas):
+            if idx == 0:  # saltar encabezado
+                continue
+            try:
+                if int(float(str(fila[0]))) == int(numero_venta):
+                    filas_a_borrar.append(idx + 1)  # +1 porque Sheets es 1-indexed
+                    productos_borrados.append(fila[6] if len(fila) > 6 else "?")  # columna PRODUCTO
+            except (ValueError, IndexError, TypeError):
+                pass
+        
+        # Borrar de abajo hacia arriba para no afectar los índices
+        for fila_idx in reversed(filas_a_borrar):
+            ws.delete_rows(fila_idx)
+        
+        return len(filas_a_borrar), productos_borrados
+    except Exception as e:
+        print(f"⚠️ Error borrando consecutivo del Sheets: {e}")
+        return 0, []
+
+
 def sheets_sincronizar_clientes() -> tuple[bool, str]:
     """
     Copia la hoja 'clientes' del Excel al Sheets, sobreescribiendo siempre
