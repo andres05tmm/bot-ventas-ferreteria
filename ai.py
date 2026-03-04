@@ -49,6 +49,7 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
 _ALIAS_FERRETERIA = [
     # (patrón regex, reemplazo)
+    # Thinner/Varsol por botellas y litros (cantidades pequeñas por precio)
     (r'\b(\d+)?\s*botellas?\s+de\s+thinner\b', r'\g<1> thinner 4000'.replace('None', '1')),
     (r'\b(\d+)?\s*botellas?\s+de\s+varsol\b', r'\g<1> varsol 4000'),
     (r'\b(\d+)?\s*litros?\s+de\s+thinner\b', r'\g<1> thinner 8000'),
@@ -57,6 +58,15 @@ _ALIAS_FERRETERIA = [
     (r'\b(\d+)?\s*botellas?\s+varsol\b', r'\g<1> varsol 4000'),
     (r'\b(\d+)?\s*litros?\s+thinner\b', r'\g<1> thinner 8000'),
     (r'\b(\d+)?\s*litros?\s+varsol\b', r'\g<1> varsol 8000'),
+    # Thinner/Varsol por galones (cantidades >= 1/2 galón)
+    # "1-1/2 galón de thinner", "1 y medio galón de thinner", "2-1/2 galones thinner"
+    (r'\b(\d+)\s*-\s*1/2\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
+    (r'\b(\d+)\s+y\s+(?:medio|1/2)\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
+    (r'\b(\d+)\s+(?:galon(?:es)?)\s+y\s+(?:medio|1/2)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
+    # "medio galón de thinner", "1/2 galón thinner"  
+    (r'\b(?:medio|1/2)\s*(?:galon)?\s*(?:de\s*)?(thinner|varsol)\b', r'0.5 galones \g<1>'),
+    # "2 galones de thinner", "1 galón thinner"
+    (r'\b(\d+)\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1> galones \g<2>'),
 ]
 
 def aplicar_alias_ferreteria(mensaje: str) -> str:
@@ -166,10 +176,13 @@ Voz: "por 1"=X1|"y cuarto"=+1/4|"y medio"=+1/2|"por 2"=X2|"por 3"=X3
 10:X1=83/70|X1-1/2=125/100|X2=150/120|X2-1/2=167/160|X3=167/160|X3-1/2=208/200|X4=208/200
 CRITICO: 10X3(sin "medio") != 10X3-1/2(con "medio"/"y medio"). Productos distintos.
 
-THINNER y VARSOL: mismos precios por fraccion de galon.
-precio->fraccion: 3000=1/12|4000=1/10|5000=1/8|6000=1/6|8000=1/4|10000=1/3|13000=1/2|16000=5/9|20000=3/4|26000=1g
-cantidad=decimal, total=precio pagado.
-Ej: "varsol 8000"->cantidad=0.25,total=8000|"thinner 13000"->cantidad=0.5,total=13000
+THINNER y VARSOL: DOS FORMAS DE VENTA.
+1) Por PRECIO (cantidades pequeñas): "thinner 4000","varsol 8000" → cantidad=decimal segun tabla, total=precio_dicho
+   precio->fraccion: 3000=1/12|4000=1/10|5000=1/8|6000=1/6|8000=1/4|10000=1/3|13000=1/2|20000=3/4|26000=1g
+2) Por CANTIDAD (1/2 galon o mas): "1 galon thinner","1-1/2 galon varsol","medio galon thinner"
+   Precios: 1=26000|3/4=20000|1/2=13000
+   Cantidades mixtas: "1-1/2 galon"=1+0.5=1.5 galones → (1×26000)+(13000)=39000
+   "2 y medio galones"=2+0.5=2.5 galones → (2×26000)+(13000)=65000
 
 CUNETES(4gal,NO galon): T1=220000|T2=170000|T3=100000. "2 cunetes t1"->440000.
 MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=90000|T3=60000.
