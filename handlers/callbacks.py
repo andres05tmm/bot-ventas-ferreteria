@@ -230,8 +230,22 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             numero = borrados_pendientes.pop(chat_id, None)
 
         if confirm == "si" and numero:
+            # Borrar de Sheets primero (si está disponible)
+            sheets_borradas = 0
+            if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+                from sheets import sheets_borrar_consecutivo
+                sheets_borradas, _ = await asyncio.to_thread(sheets_borrar_consecutivo, numero)
+            
+            # También borrar del Excel local
             exito, msg = await asyncio.to_thread(borrar_venta_excel, numero)
-            await query.edit_message_text(msg)
+            
+            # Mensaje de confirmación
+            if sheets_borradas > 0:
+                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado ({sheets_borradas} productos borrados de Sheets).")
+            elif exito:
+                await query.edit_message_text(msg)
+            else:
+                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
         else:
             await query.edit_message_text("Borrado cancelado.")
 
