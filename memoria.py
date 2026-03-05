@@ -962,16 +962,22 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
         if isinstance(frac_existente, dict) and "etiqueta" in frac_existente:
             entrada_frac["etiqueta"] = frac_existente["etiqueta"]
         catalogo[clave]["precios_fraccion"][fraccion] = entrada_frac
+        # Si la fraccion actualizada es "1" (= unidad completa), sincronizar precio_unidad también
+        if fraccion == "1":
+            catalogo[clave]["precio_unidad"] = round(nuevo_precio)
+            if catalogo[clave].get("precio_por_cantidad"):
+                catalogo[clave]["precio_por_cantidad"]["precio_bajo_umbral"] = round(nuevo_precio)
     else:
         catalogo[clave]["precio_unidad"] = round(nuevo_precio)
-        # Sincronizar la fraccion "1" (= 1 galon) en precios_fraccion si existe,
-        # ya que precio_unidad y fracs["1"]["precio"] deben ser iguales
-        if catalogo[clave].get("precios_fraccion") and "1" in catalogo[clave]["precios_fraccion"]:
-            frac1 = catalogo[clave]["precios_fraccion"]["1"]
+        # Sincronizar precios_fraccion["1"] (= unidad completa) con precio_unidad
+        # Garantiza que ambos campos siempre estén iguales → sin desincronización futura
+        fracs = catalogo[clave].get("precios_fraccion", {})
+        if fracs and "1" in fracs:
+            frac1 = fracs["1"]
             if isinstance(frac1, dict):
                 frac1["precio"] = round(nuevo_precio)
             else:
-                catalogo[clave]["precios_fraccion"]["1"] = {"precio": round(nuevo_precio), "decimal": 1.0}
+                fracs["1"] = {"precio": round(nuevo_precio), "decimal": 1.0}
         # Limpiar cualquier precios_fraccion corrupto si la fraccion era parte del nombre
         if fraccion_en_nombre:
             catalogo[clave]["precios_fraccion"] = {}
