@@ -199,13 +199,12 @@ FRACCIONES: 1/4=0.25|1/2=0.5|3/4=0.75|1/8=0.125|1/16=0.0625. Precio=total.
 MIXTAS — REGLA CRITICA:
 Cantidades como "2 y 1/2", "1-1/4", "3 y medio" = enteros + fraccion.
 PASO 1: Identificar parte entera y fraccion (2-1/2 = 2 enteros + 1/2)
-PASO 2: Buscar precio de 1 galon y precio de fraccion en MATCH
-PASO 3: total = (enteros × precio_galon) + precio_fraccion
+PASO 2: Buscar precio en MATCH (MATCH siempre tiene prioridad sobre el catalogo estatico)
+PASO 3: total = (enteros × precio_1) + precio_fraccion
 NUNCA multiplicar decimal por precio_unidad.
 Ejemplos:
 - "2-1/2 vinilo T2"(1=40000,1/2=21000): 2×40000=80000 + 21000 = 101000 ✓
 - "1 y 1/4 esmalte"(1=65000,1/4=17000): 1×65000=65000 + 17000 = 82000 ✓
-- "3 y medio acronal"(kg=13000,1/2=7000): 3×13000=39000 + 7000 = 46000 ✓
 DOCENAS: 1 docena=12|media=6|ciento=100. cantidad=docenas*12, total=cantidad*precio_u.
 
 TORNILLOS DRYWALL: "TORNILLO DRYWALL CALIBRExMEDIDA". Total=cantidad*precio_u.
