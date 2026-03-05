@@ -236,7 +236,7 @@ Ej: {{"producto":"cm Lija Esmeril N°36","cantidad":15,"total":3000}}
 Asi se muestra: "15 cm Lija Esmeril N°36 $3,000"
 
 GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000. Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
-ACRONAL: se vende por KILOS (NO galones). 1kg=$13,000|1/2kg=$7,000(precio especial). NUNCA menciones "galon" para Acronal.
+ACRONAL: se vende por KILOS (NO galones). Precios en MATCH. NUNCA menciones "galon" para Acronal.
 Cantidad kilos: "medio kilo"=0.5|"kilo y medio"=1.5.
 
 PINTURAS (TODAS): vinilo, esmalte, laca corriente, laca catalizada, poliuretano, poliamida, anticorrosivo — SIEMPRE requieren color, NUNCA registrar sin color. Si no dice color->preguntar "De que color?" antes de emitir [VENTA]. Colores comunes: Blanco,Negro,Rojo,Azul,Verde,Amarillo,Gris,Cafe,Naranja,Morado. Color especial: "Preparado"=color personalizado que el cliente trae (de internet, muestra fisica, carta de colores, etc). Ej: "vinilo t1 preparado"->producto="Vinilo Davinci T1 Preparado", "laca catalizada preparada"->producto="Laca Catalizada Preparado". BROCHAS sin medida->preguntar. Precios:1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
@@ -794,6 +794,13 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     # ── Acronal: precalcular total en Python ──
     acronal_calculado = ""
+    _acronal_precio_kg = memoria.get("catalogo", {}).get("4acronal", {}).get("precio_unidad", 13000)
+    _acronal_precio_medio = 7000
+    _frac_acronal = memoria.get("catalogo", {}).get("4acronal", {}).get("precios_fraccion", {}).get("1/2", {})
+    if isinstance(_frac_acronal, dict):
+        _acronal_precio_medio = _frac_acronal.get("precio", 7000)
+    elif isinstance(_frac_acronal, (int, float)):
+        _acronal_precio_medio = int(_frac_acronal)
     if "acronal" in msg_l:
         import re as _re_ac
         # Normalizar "kilos y medio" -> "X.5", "medio kilo" -> "0.5"
@@ -803,7 +810,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # Buscar cantidad: "2-1/2", "2.5", "4", etc.
         # Detectar "1/2 kg" o "medio" antes del regex numerico
         if _re_ac.search(r'(?:^|\s)(?:1/2|medio)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:1/2|medio)', msg_ac):
-            acronal_calculado = "ACRONAL PRECALCULADO: 0.5kg = $7,000 (precio especial). USA cantidad=0.5, total=7000 EXACTAMENTE."
+            acronal_calculado = f"ACRONAL PRECALCULADO: 0.5kg = ${_acronal_precio_medio:,} (precio especial). USA cantidad=0.5, total={_acronal_precio_medio} EXACTAMENTE."
             continue_ac = False
         else:
             continue_ac = True
@@ -816,14 +823,14 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 enteros = int(kg)
                 medio   = kg - enteros
                 if abs(medio - 0.5) < 0.01:
-                    total_ac = enteros * 13000 + 7000
+                    total_ac = enteros * _acronal_precio_kg + _acronal_precio_medio
                 elif abs(medio - 0.25) < 0.01:
-                    total_ac = enteros * 13000 + 3500  # 1/4 kg proporcional
+                    total_ac = enteros * _acronal_precio_kg + round(_acronal_precio_medio / 2)
                 else:
-                    total_ac = round(kg * 13000)
+                    total_ac = round(kg * _acronal_precio_kg)
                 acronal_calculado = (
                     f"ACRONAL PRECALCULADO: {kg}kg = ${total_ac:,} "
-                    f"({'%d*13000+7000' % enteros if abs(medio-0.5)<0.01 else '%g*13000' % kg}). "
+                    f"(1kg={_acronal_precio_kg},1/2kg={_acronal_precio_medio}). "
                     f"CRITICO: USA cantidad={kg}, total={total_ac} SIN MODIFICAR. PROHIBIDO recalcular."
                 )
             except Exception:
