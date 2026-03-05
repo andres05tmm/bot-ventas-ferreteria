@@ -236,7 +236,8 @@ En [VENTA] poner cantidad=centimetros y producto="cm Lija Esmeril N°X"
 Ej: {{"producto":"cm Lija Esmeril N°36","cantidad":15,"total":3000}}
 Asi se muestra: "15 cm Lija Esmeril N°36 $3,000"
 
-GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000|Acronal(kg=13000,1/2kg=7000). Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
+GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000. Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
+ACRONAL: se vende por KILOS (NO galones). 1kg=$13,000|1/2kg=$7,000(precio especial). NUNCA menciones "galon" para Acronal.
 Cantidad kilos: "medio kilo"=0.5|"kilo y medio"=1.5.
 
 PINTURAS (TODAS): vinilo, esmalte, laca corriente, laca catalizada, poliuretano, poliamida, anticorrosivo — SIEMPRE requieren color, NUNCA registrar sin color. Si no dice color->preguntar "De que color?" antes de emitir [VENTA]. Colores comunes: Blanco,Negro,Rojo,Azul,Verde,Amarillo,Gris,Cafe,Naranja,Morado. Color especial: "Preparado"=color personalizado que el cliente trae (de internet, muestra fisica, carta de colores, etc). Ej: "vinilo t1 preparado"->producto="Vinilo Davinci T1 Preparado", "laca catalizada preparada"->producto="Laca Catalizada Preparado". BROCHAS sin medida->preguntar. Precios:1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
