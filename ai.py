@@ -333,48 +333,121 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     palabras_clave = [p for p in mensaje_usuario.lower().split() if _es_keyword_relevante(p)]
     info_fracciones_extra = ""
-    palabras_frac = ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"]
-    if any(p in mensaje_usuario.lower() for p in palabras_frac):
-        palabras_msg = mensaje_usuario.lower().split()
-        for largo in [4, 3, 2]:
-            encontrado = False
-            for i in range(len(palabras_msg) - largo + 1):
-                fragmento = " ".join(palabras_msg[i:i + largo])
-                prod      = buscar_producto_en_catalogo(fragmento)
-                if prod and prod.get("precios_fraccion"):
-                    info = obtener_info_fraccion_producto(prod["nombre_lower"])
-                    if info:
-                        info_fracciones_extra = f"PRECIOS POR FRACCION DEL PRODUCTO MENCIONADO:\n{info}"
 
-                    # Calcular total mixto en Python para no depender de Claude
-                    fracs = prod.get("precios_fraccion", {})
-                    msg_lower = mensaje_usuario.lower()
-                    map_frac = {
-                        "un cuarto": "1/4", "1/4": "1/4",
-                        "medio": "1/2", "media": "1/2", "1/2": "1/2",
-                        "tres cuartos": "3/4", "3/4": "3/4",
-                        "un octavo": "1/8", "1/8": "1/8",
-                        "1/16": "1/16",
-                    }
-                    map_enteros = {"un ": 1, "uno ": 1, "1 ": 1, "dos ": 2, "2 ": 2, "tres ": 3, "3 ": 3}
-                    frac_key   = next((v for k, v in map_frac.items() if k in msg_lower), None)
-                    n_enteros  = next((v for k, v in map_enteros.items() if k in msg_lower), None)
-                    if frac_key and n_enteros and frac_key in fracs and "1" in fracs:
-                        p_galon   = fracs["1"]["precio"] if isinstance(fracs.get("1"), dict) else fracs.get("1", 0)
-                        p_frac    = fracs[frac_key]["precio"] if isinstance(fracs.get(frac_key), dict) else fracs.get(frac_key, 0)
-                        total_calc = p_galon * n_enteros + p_frac
-                        dec_map   = {"1/4": 0.25, "1/2": 0.5, "3/4": 0.75, "1/8": 0.125, "1/16": 0.0625}
-                        cantidad_calc = n_enteros + dec_map.get(frac_key, 0)
-                        info_fracciones_extra += (
-                            f"\nTOTAL YA CALCULADO: cantidad={cantidad_calc}, total={total_calc}"
-                            f" ({n_enteros}x${p_galon:,} + {frac_key}=${p_frac:,})"
-                            f"\nUSA EXACTAMENTE estos valores en el [VENTA], no calcules de nuevo."
-                        )
+    # Mapa decimal → fracción para buscar precio especial
+    _dec_a_frac = {0.5: "1/2", 0.25: "1/4", 0.75: "3/4", 0.125: "1/8", 0.0625: "1/16"}
+    _frac_a_dec = {"1/2": 0.5, "1/4": 0.25, "3/4": 0.75, "1/8": 0.125, "1/16": 0.0625}
 
-                    encontrado = True
+    def _extraer_cantidad_mixta(msg: str):
+        """
+        Extrae (n_enteros, frac_key, cantidad_total) del mensaje.
+        Maneja todas las formas: '2 y medio', '2-1/2', '1.5', '2.5 galones', etc.
+        Retorna (None, None, None) si no encuentra cantidad mixta.
+        """
+        import re as _re
+        m = msg.lower()
+
+        # Forma decimal: 2.5, 1.5, 3.5 (producida por alias)
+        match_dec = _re.search(r'(\d+)\.5\b', m)
+        if match_dec:
+            enteros = int(match_dec.group(1))
+            return enteros, "1/2", enteros + 0.5
+
+        match_dec25 = _re.search(r'(\d+)\.25\b', m)
+        if match_dec25:
+            enteros = int(match_dec25.group(1))
+            return enteros, "1/4", enteros + 0.25
+
+        match_dec75 = _re.search(r'(\d+)\.75\b', m)
+        if match_dec75:
+            enteros = int(match_dec75.group(1))
+            return enteros, "3/4", enteros + 0.75
+
+        # Forma escrita: "2 y medio", "2 y media", "2-1/2", "2 1/2"
+        map_frac_texto = {
+            r'y\s+medio': "1/2", r'y\s+media': "1/2",
+            r'(?<!\d)1/2': "1/2",
+            r'y\s+cuarto': "1/4", r'(?<!\d)1/4': "1/4",
+            r'tres\s+cuartos': "3/4", r'(?<!\d)3/4': "3/4",
+            r'y\s+octavo': "1/8", r'(?<!\d)1/8': "1/8",
+        }
+        map_enteros_texto = {
+            r'\bun\b': 1, r'\buno\b': 1, r'\b1\b': 1,
+            r'\bdos\b': 2, r'\b2\b': 2,
+            r'\btres\b': 3, r'\b3\b': 3,
+            r'\bcuatro\b': 4, r'\b4\b': 4,
+            r'\bcinco\b': 5, r'\b5\b': 5,
+        }
+
+        # Patrón especial N-1/frac: "2-1/2", "3-1/4", etc. — extraer N directamente
+        match_guion = _re.search(r'\b(\d+)-1/(\d+)', m)
+        if match_guion:
+            enteros  = int(match_guion.group(1))
+            divisor  = int(match_guion.group(2))
+            frac_map = {2: "1/2", 4: "1/4", 8: "1/8"}
+            frac_g   = frac_map.get(divisor)
+            if frac_g:
+                return enteros, frac_g, enteros + _frac_a_dec[frac_g]
+
+        frac_key = next((v for pat, v in map_frac_texto.items() if _re.search(pat, m)), None)
+        if not frac_key:
+            return None, None, None
+
+        n_enteros = next((v for pat, v in map_enteros_texto.items() if _re.search(pat, m)), None)
+        if not n_enteros:
+            return None, None, None
+
+        return n_enteros, frac_key, n_enteros + _frac_a_dec[frac_key]
+
+    # Detectar si hay fracciones o decimales mixtos en el mensaje
+    _msg_lower_pre = mensaje_usuario.lower()
+    _tiene_mixto = any(p in _msg_lower_pre for p in
+                       ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad",
+                        "octavo", ".5", ".25", ".75"])
+
+    if _tiene_mixto:
+        palabras_msg = _msg_lower_pre.split()
+        calculos_multi = []  # lista de (prod, n_enteros, frac_key, cantidad_calc, total_calc)
+
+        # Segmentar por producto para manejar multi-producto
+        import re as _re_pre
+        _segs = _re_pre.split(r',\s*', mensaje_usuario.lower())
+
+        for seg in _segs:
+            seg = seg.strip()
+            if not seg:
+                continue
+            # Buscar producto con fracciones en este segmento
+            palabras_seg = seg.split()
+            for largo in [4, 3, 2]:
+                encontrado_seg = False
+                for i in range(len(palabras_seg) - largo + 1):
+                    fragmento = " ".join(palabras_seg[i:i + largo])
+                    prod      = buscar_producto_en_catalogo(fragmento)
+                    if prod and prod.get("precios_fraccion"):
+                        fracs = prod.get("precios_fraccion", {})
+                        n_enteros, frac_key, cantidad_calc = _extraer_cantidad_mixta(seg)
+                        if n_enteros and frac_key and frac_key in fracs and "1" in fracs:
+                            p_galon = fracs["1"]["precio"] if isinstance(fracs.get("1"), dict) else fracs.get("1", 0)
+                            p_frac  = fracs[frac_key]["precio"] if isinstance(fracs.get(frac_key), dict) else fracs.get(frac_key, 0)
+                            total_calc = p_galon * n_enteros + p_frac
+                            calculos_multi.append((prod["nombre"], n_enteros, frac_key, cantidad_calc, total_calc, p_galon, p_frac))
+                        encontrado_seg = True
+                        break
+                if encontrado_seg:
                     break
-            if encontrado:
-                break
+
+        if calculos_multi:
+            lineas = []
+            for nombre, n_ent, frac, cant, total, p_gal, p_fr in calculos_multi:
+                lineas.append(
+                    f"{nombre}: cantidad={cant}, total={total} "
+                    f"({n_ent}x${p_gal:,} + {frac}=${p_fr:,})"
+                )
+            info_fracciones_extra = (
+                "TOTALES PRECALCULADOS (USA EXACTAMENTE, NO recalcules):\n"
+                + "\n".join(lineas)
+            )
 
     # ── Candidatos del catálogo para este mensaje específico ──
     info_candidatos_extra = ""
