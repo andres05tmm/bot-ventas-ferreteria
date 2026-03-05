@@ -504,6 +504,9 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                         frac_este_prod = tok
                         break
             lineas_frac = []
+            # Incluir precio_unidad como "1" para que Claude lo vea junto a las fracciones
+            if p.get("precio_unidad"):
+                lineas_frac.append(f"1={p['precio_unidad']}")
             for k, v in fracs.items():
                 precio = v['precio'] if isinstance(v, dict) else v
                 marca = "*" if k == frac_este_prod else ""
