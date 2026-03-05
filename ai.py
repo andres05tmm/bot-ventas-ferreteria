@@ -26,6 +26,20 @@ import traceback
 from datetime import datetime
 
 import config
+# Cache RAM de precios recién actualizados (override del cache de Anthropic, TTL 5 min)
+import time as _time
+_precios_recientes: dict = {}  # {nombre_lower: (precio, timestamp)}
+_PRECIO_TTL = 300  # 5 minutos
+
+def _registrar_precio_reciente(nombre_lower: str, precio: float, fraccion: str = None):
+    key = f"{nombre_lower}___{fraccion}" if fraccion else nombre_lower
+    _precios_recientes[key] = (precio, _time.time())
+
+def _get_precios_recientes_activos() -> dict:
+    ahora = _time.time()
+    return {k: v[0] for k, v in _precios_recientes.items() if ahora - v[1] < _PRECIO_TTL}
+
+
 from memoria import (
     cargar_memoria, guardar_memoria, invalidar_cache_memoria,
     buscar_producto_en_catalogo, buscar_multiples_en_catalogo,
@@ -870,19 +884,18 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     # "DATOS HISTORICOS" solo se incluye cuando hay datos reales — no enviar "(no cargado)" innecesariamente
     datos_historicos_item = f"DATOS HISTORICOS:\n{datos_texto}" if datos_texto != "(no cargado)" else ""
 
-    # Precios modificados manualmente — override del cache estático
+    # Precios recién actualizados en RAM — override del cache de Anthropic (TTL 5 min)
     precios_modificados_texto = ""
-    _pm = memoria.get("precios_modificados", {})
-    if _pm and palabras_clave:
+    _pm_ram = _get_precios_recientes_activos()
+    if _pm_ram and palabras_clave:
         overrides = []
-        for clave_pm, val in _pm.items():
-            if any(p in clave_pm for p in palabras_clave):
-                if isinstance(val, dict):
-                    for k, v in val.items():
-                        frac = k.replace("fraccion_", "")
-                        overrides.append(f"{clave_pm} {frac}={v}")
+        for clave_pm, val in _pm_ram.items():
+            nombre_pm, _, frac = clave_pm.partition("___")
+            if any(p in nombre_pm for p in palabras_clave):
+                if frac:
+                    overrides.append(f"{nombre_pm} {frac}={val}")
                 else:
-                    overrides.append(f"{clave_pm}={val}")
+                    overrides.append(f"{nombre_pm}={val}")
         if overrides:
             precios_modificados_texto = "PRECIOS ACTUALIZADOS (usar estos, ignorar el catalogo):\n" + "\n".join(overrides)
 
@@ -1255,25 +1268,15 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             precio   = float(datos["precio"])
             fraccion = datos.get("fraccion")  # opcional: "1/4", "1/2", etc.
 
-            # Actualizar en catálogo (permanente)
+            # Actualizar en catálogo (fuente única de verdad)
+            from memoria import buscar_producto_en_catalogo as _bpc
             en_catalogo = actualizar_precio_en_catalogo(producto, precio, fraccion)
 
-            # Limpiar precio viejo de precios simples para que no haya conflicto
-            mem = cargar_memoria()
-            precios_simples = mem.get("precios", {})
-            # Borrar cualquier variante del nombre del producto en precios simples
-            from memoria import buscar_producto_en_catalogo as _bpc
+            # Registrar en RAM para override del cache de Anthropic (5 min)
             prod_encontrado = _bpc(producto)
-            if prod_encontrado:
-                nombre_lower = prod_encontrado.get("nombre_lower", "")
-                claves_borrar = [k for k in precios_simples if k == nombre_lower or nombre_lower in k or k in nombre_lower]
-                for k in claves_borrar:
-                    del precios_simples[k]
-            # Guardar precio nuevo también en simples como referencia actualizada
-            precios_simples[producto.lower()] = precio
-            mem["precios"] = precios_simples
-            guardar_memoria(mem)
-            invalidar_cache_memoria()  # Forzar recarga inmediata
+            nombre_lower_pc = prod_encontrado.get("nombre_lower", producto.lower()) if prod_encontrado else producto.lower()
+            _registrar_precio_reciente(nombre_lower_pc, precio, fraccion)
+            invalidar_cache_memoria()
 
             if fraccion:
                 acciones.append(f"🧠 Precio actualizado: {producto} {fraccion} = ${precio:,.0f}")
