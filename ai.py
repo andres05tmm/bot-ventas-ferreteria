@@ -799,7 +799,11 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     _acronal_precio_medio = 7000
     for _ak, _av in memoria.get("catalogo", {}).items():
         if "acronal" in _av.get("nombre_lower", ""):
-            _acronal_precio_kg = _av.get("precio_unidad", 13000)
+            # Prioridad: precios_fraccion["1"] sobre precio_unidad
+            # (pueden quedar desincronizados si el precio se actualizó vía fraccion)
+            _frac1 = _av.get("precios_fraccion", {}).get("1", {})
+            _precio_frac1 = _frac1.get("precio", 0) if isinstance(_frac1, dict) else int(_frac1) if _frac1 else 0
+            _acronal_precio_kg = _precio_frac1 if _precio_frac1 > 0 else _av.get("precio_unidad", 13000)
             _frac = _av.get("precios_fraccion", {}).get("1/2", {})
             _acronal_precio_medio = _frac.get("precio", 7000) if isinstance(_frac, dict) else int(_frac) if _frac else 7000
             break
