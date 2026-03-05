@@ -902,7 +902,11 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
         try:
             inicializar_excel()
             wb = await asyncio.to_thread(openpyxl.load_workbook, config.EXCEL_FILE)
-            hoja = obtener_nombre_hoja()
+
+            # CORRECCIÓN: calcular la hoja del mes a partir de la FECHA PEDIDA,
+            # no del mes actual. Sin esto, borrar ventas de febrero en marzo
+            # buscaba en "Marzo 2026" y no encontraba nada.
+            hoja = f"{config.MESES[fecha_obj.month]} {fecha_obj.year}"
 
             total_borradas = 0
             hojas_limpiar = [hoja, "Registro de Ventas-Acumulado"]
@@ -928,7 +932,21 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
 
             await asyncio.to_thread(wb.save, config.EXCEL_FILE)
             await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
-            await update.message.reply_text(f"✅ Eliminadas {total_borradas} filas del {fecha_str_raw} (hoja del mes + acumulado).")
+
+            # Si la fecha borrada es hoy, limpiar el Sheets también
+            hoy_iso = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+            sheets_msg = ""
+            if fecha_iso == hoy_iso:
+                try:
+                    await asyncio.to_thread(sheets_limpiar)
+                    sheets_msg = " y del Sheets de hoy"
+                except Exception:
+                    sheets_msg = " (Sheets no pudo limpiarse)"
+
+            await update.message.reply_text(
+                f"✅ Eliminadas {total_borradas} filas del {fecha_str_raw} "
+                f"(hoja {hoja} + acumulado{sheets_msg})."
+            )
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
         return
