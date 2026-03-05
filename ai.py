@@ -1264,9 +1264,19 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             fraccion = datos.get("fraccion", "").strip()
             precio   = float(datos.get("precio", 0))
             if producto and fraccion and precio:
-                mem = cargar_memoria()
-                mem.setdefault("precios_fraccion", {}).setdefault(producto.lower(), {})[fraccion] = round(precio)
-                guardar_memoria(mem)
+                # Intentar actualizar en catálogo (fuente única de verdad)
+                en_cat = actualizar_precio_en_catalogo(producto, precio, fraccion)
+                if en_cat:
+                    # También registrar override RAM para 5 min
+                    _pf_prod = buscar_producto_en_catalogo(producto)
+                    _pf_key  = (_pf_prod.get("nombre_lower", producto.lower()) if _pf_prod else producto.lower()) + f"___{fraccion}"
+                    _registrar_precio_reciente(_pf_key.split("___")[0], precio, fraccion)
+                    invalidar_cache_memoria()
+                else:
+                    # Producto no en catálogo: guardar en precios_fraccion separado como fallback
+                    mem = cargar_memoria()
+                    mem.setdefault("precios_fraccion", {}).setdefault(producto.lower(), {})[fraccion] = round(precio)
+                    guardar_memoria(mem, urgente=True)
                 acciones.append(f"Precio de fracción guardado: {producto} {fraccion} = ${precio:,.0f}")
         except Exception as e:
             print(f"Error precio fraccion: {e}")
