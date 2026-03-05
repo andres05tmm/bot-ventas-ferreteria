@@ -154,8 +154,8 @@ def _col_para(cols: dict, *claves_posibles) -> int | None:
 
 def obtener_siguiente_consecutivo() -> int:
     """
-    Consecutivo para SHEETS y /ventas: se reinicia cada día desde 1.
-    Lee el Sheets del día (fuente principal) o el Excel mensual filtrando por fecha de hoy.
+    Retorna el SIGUIENTE consecutivo disponible (el que se usará en la próxima venta).
+    Si hoy no hay ventas, retorna 1.
     """
     hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
 
@@ -179,15 +179,22 @@ def obtener_siguiente_consecutivo() -> int:
     if not os.path.exists(config.EXCEL_FILE):
         return 1
     try:
+        # CORRECCIÓN: read_only=True para lectura de consecutivo
         wb          = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
         nombre_hoja = obtener_nombre_hoja()
         max_hoy     = 0
+
         if nombre_hoja in wb.sheetnames:
-            ws        = wb[nombre_hoja]
-            cols      = {str(ws.cell(row=config.EXCEL_FILA_HEADERS, column=c).value or "").lower().strip(): c
-                         for c in range(1, ws.max_column + 1)}
+            ws   = wb[nombre_hoja]
+            cols = {}
+            for col in range(1, ws.max_column + 1):
+                valor = ws.cell(row=config.EXCEL_FILA_HEADERS, column=col).value
+                if valor:
+                    cols[str(valor).lower().strip()] = col
+
             col_fecha  = next((v for k, v in cols.items() if "fecha"       in k), None)
             col_consec = next((v for k, v in cols.items() if "consecutivo" in k), None)
+
             if col_fecha and col_consec:
                 for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
                     if str(fila[col_fecha - 1] or "")[:10] != hoy:
@@ -198,6 +205,7 @@ def obtener_siguiente_consecutivo() -> int:
                             max_hoy = num
                     except (TypeError, ValueError):
                         pass
+
         wb.close()
         return max_hoy + 1
     except Exception as e:
@@ -206,63 +214,18 @@ def obtener_siguiente_consecutivo() -> int:
 
 
 def obtener_consecutivo_actual() -> int:
-    """Retorna el último consecutivo registrado hoy (0 si no hay ventas)."""
-    return max(0, obtener_siguiente_consecutivo() - 1)
-
-
-def _max_consecutivo_hoja(wb, nombre_hoja: str) -> int:
-    """Helper: retorna el consecutivo más alto que existe en una hoja dada. 0 si vacía."""
-    if nombre_hoja not in wb.sheetnames:
-        return 0
-    ws   = wb[nombre_hoja]
-    cols = {str(ws.cell(row=config.EXCEL_FILA_HEADERS, column=c).value or "").lower().strip(): c
-            for c in range(1, ws.max_column + 1)}
-    col_c = next((v for k, v in cols.items() if "consecutivo" in k), None)
-    if not col_c:
-        return 0
-    maximo = 0
-    for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
-        try:
-            num = int(float(str(fila[col_c - 1])))
-            if num > maximo:
-                maximo = num
-        except (TypeError, ValueError):
-            pass
-    return maximo
-
-
-def obtener_consecutivo_mensual() -> int:
     """
-    Consecutivo para la HOJA MENSUAL del Excel (ej: 'Marzo 2026').
-    Se acumula durante el mes y se reinicia al comenzar un mes nuevo.
-    """
-    if not os.path.exists(config.EXCEL_FILE):
-        return 1
-    try:
-        wb      = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
-        maximo  = _max_consecutivo_hoja(wb, obtener_nombre_hoja())
-        wb.close()
-        return maximo + 1
-    except Exception as e:
-        print(f"Error leyendo consecutivo mensual: {e}")
-        return 1
+    Retorna el último consecutivo REGISTRADO hoy (el de la última venta).
+    Si no hay ventas hoy, retorna 0.
 
-
-def obtener_consecutivo_acumulado() -> int:
+    CORRECCIÓN: antes retornaba obtener_siguiente_consecutivo() - 1, lo que daba
+    0 cuando no había ventas del día y ese 0 se guardaba como consecutivo de la
+    primera venta. Ahora lee el máximo real del día (o 0 si no hay ventas).
     """
-    Consecutivo para la hoja 'Registro de Ventas-Acumulado'.
-    Se acumula todo el año sin reiniciarse.
-    """
-    if not os.path.exists(config.EXCEL_FILE):
-        return 1
-    try:
-        wb      = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
-        maximo  = _max_consecutivo_hoja(wb, "Registro de Ventas-Acumulado")
-        wb.close()
-        return maximo + 1
-    except Exception as e:
-        print(f"Error leyendo consecutivo acumulado: {e}")
-        return 1
+    siguiente = obtener_siguiente_consecutivo()
+    # siguiente=1 significa que no hay ventas hoy (el próximo será el 1)
+    # siguiente=N+1 significa que el último registrado fue N
+    return max(0, siguiente - 1)
 
 
 # ─────────────────────────────────────────────
@@ -474,14 +437,11 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
     fecha_hoy  = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
     hora_ahora = datetime.now(config.COLOMBIA_TZ).strftime("%H:%M")
 
-    # Consecutivo para Sheets/día (se reinicia cada día) — viene del caller (ventas_state)
+    # CORRECCIÓN: consecutivo_final nunca puede ser 0 o None
+    # Si por alguna razón llega None o 0, recalculamos
     if not consecutivo:
         consecutivo = obtener_siguiente_consecutivo()
-    consecutivo_diario = consecutivo
-
-    # Consecutivos independientes para cada hoja del Excel
-    consecutivo_mensual   = _max_consecutivo_hoja(wb, obtener_nombre_hoja()) + 1
-    consecutivo_acumulado = _max_consecutivo_hoja(wb, "Registro de Ventas-Acumulado") + 1
+    consecutivo_final = consecutivo
 
     id_cliente_final     = cliente_id    or "CF"
     nombre_cliente_final = cliente_nombre or "Consumidor Final"
@@ -494,36 +454,36 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
             cod_producto_final = prod_encontrado.get("codigo", "")
 
     datos_base = {
-        "fecha":               fecha_hoy,
-        "hora":                hora_ahora,
-        "id cliente":          id_cliente_final,
-        "cliente":             nombre_cliente_final,
-        "código del producto": cod_producto_final,
-        "producto":            str(producto),
-        "cantidad":            cantidad,
-        "valor unitario":      float(precio_unitario),
-        "total":               float(total),
-        "subtotal":            float(total),
-        "vendedor":            str(vendedor),
-        "metodo de pago":      str(observaciones),
+        "fecha":                fecha_hoy,
+        "hora":                 hora_ahora,
+        "id cliente":           id_cliente_final,
+        "cliente":              nombre_cliente_final,
+        "código del producto":  cod_producto_final,
+        "producto":             str(producto),
+        "cantidad":             cantidad,
+        "valor unitario":       float(precio_unitario),
+        "total":                float(total),
+        "subtotal":             float(total),
+        "consecutivo de venta": consecutivo_final,
+        "vendedor":             str(vendedor),
+        "metodo de pago":       str(observaciones),
     }
 
-    # Hojas donde guardar: cada una con su propio consecutivo
-    hojas_destino = [
-        (obtener_nombre_hoja(),          consecutivo_mensual),
-        ("Registro de Ventas-Acumulado", consecutivo_acumulado),
-    ]
+    # Hojas donde guardar simultáneamente
+    hojas_destino = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
 
-    for nombre_sh, consec_hoja in hojas_destino:
+    for nombre_sh in hojas_destino:
         ws   = obtener_o_crear_hoja(wb, nombre_sh)
         cols = detectar_columnas(ws)
 
         fila     = max(ws.max_row + 1, config.EXCEL_FILA_DATOS)
+        # CORRECCIÓN: el alias es el número de fila de datos de ESTA hoja específica,
+        # no un contador global. Antes ambas hojas recibían el mismo alias calculado
+        # desde la primera hoja, dejando alias=1 siempre en la hoja Acumulado.
         num_fila = fila - config.EXCEL_FILA_DATOS + 1
 
-        datos = datos_base.copy()
-        datos["consecutivo de venta"] = consec_hoja
-        datos["alias"]                = str(num_fila)
+        datos         = datos_base.copy()
+        datos["alias"] = str(num_fila)
 
         for nombre_col, num_col in cols.items():
             clave = nombre_col.lower().strip()
@@ -535,32 +495,66 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
                     ws.cell(row=fila, column=num_col, value=dato_val)
                     break
 
-        if consec_hoja % 2 == 0:
+        if consecutivo_final % 2 == 0:
             for col in range(1, ws.max_column + 1):
                 ws.cell(row=fila, column=col).fill = PatternFill("solid", fgColor="EFF6FF")
 
     wb.save(config.EXCEL_FILE)
     subir_a_drive(config.EXCEL_FILE)
 
-    # Sheets usa el consecutivo diario (se reinicia cada día)
-    sheets_agregar_venta(
-        consecutivo_diario, producto, cantidad, precio_unitario, total, vendedor, observaciones,
-        id_cliente=id_cliente_final, nombre_cliente=nombre_cliente_final,
-        codigo_producto=cod_producto_final, alias=str(consecutivo_mensual),
+    # Para el Sheets, el alias es el de la hoja mensual (primera hoja)
+    alias_mensual = str(
+        max(wb[obtener_nombre_hoja()].max_row - config.EXCEL_FILA_DATOS + 1, 1)
+        if obtener_nombre_hoja() in wb.sheetnames else consecutivo_final
     )
 
-    return consecutivo_diario
+    sheets_agregar_venta(
+        consecutivo_final, producto, cantidad, precio_unitario, total, vendedor, observaciones,
+        id_cliente=id_cliente_final, nombre_cliente=nombre_cliente_final,
+        codigo_producto=cod_producto_final, alias=alias_mensual,
+    )
+
+    return consecutivo_final
 
 
 def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
     from drive import subir_a_drive
     from sheets import sheets_borrar_fila
+    from memoria import cargar_caja, guardar_caja
 
     inicializar_excel()
     wb = openpyxl.load_workbook(config.EXCEL_FILE)
 
     total_borradas = 0
     hojas_buscar   = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+
+    # Recoger totales y métodos de la hoja mensual ANTES de borrar
+    # para poder descontar de la caja correctamente
+    totales_por_metodo = {}  # {"efectivo": 50000, "transferencia": 0, ...}
+    hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+
+    nombre_hoja_mes = obtener_nombre_hoja()
+    if nombre_hoja_mes in wb.sheetnames:
+        ws_mes = wb[nombre_hoja_mes]
+        cols   = detectar_columnas(ws_mes)
+        col_id     = cols.get("consecutivo de venta")
+        col_total  = next((v for k, v in cols.items() if k == "total"), None)
+        col_metodo = next((v for k, v in cols.items() if "metodo" in k), None)
+        col_fecha  = next((v for k, v in cols.items() if "fecha" in k), None)
+
+        if col_id and col_total:
+            for fila in range(config.EXCEL_FILA_DATOS, ws_mes.max_row + 1):
+                val = ws_mes.cell(row=fila, column=col_id).value
+                try:
+                    if val is not None and int(float(str(val))) == int(numero_venta):
+                        # Solo descontar si la venta es de hoy (caja es del día)
+                        fecha_fila = str(ws_mes.cell(row=fila, column=col_fecha).value or "")[:10] if col_fecha else ""
+                        if fecha_fila == hoy:
+                            t = float(ws_mes.cell(row=fila, column=col_total).value or 0)
+                            m = str(ws_mes.cell(row=fila, column=col_metodo).value or "efectivo").lower() if col_metodo else "efectivo"
+                            totales_por_metodo[m] = totales_por_metodo.get(m, 0) + t
+                except (ValueError, TypeError):
+                    pass
 
     for nombre_sh in hojas_buscar:
         if nombre_sh in wb.sheetnames:
@@ -569,7 +563,6 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
             col_id = cols.get("consecutivo de venta") or cols.get("alias")
             if not col_id:
                 continue
-            # Recoger todas las filas a borrar primero, luego borrar en reversa
             filas_a_borrar = []
             for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
                 val = ws.cell(row=fila, column=col_id).value
@@ -586,9 +579,76 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
         wb.save(config.EXCEL_FILE)
         subir_a_drive(config.EXCEL_FILE)
         sheets_borrar_fila(numero_venta)
+
+        # Descontar de la caja si la venta era de hoy
+        if totales_por_metodo:
+            caja = cargar_caja()
+            if caja.get("abierta"):
+                _map = {"efectivo": "efectivo", "transferencia": "transferencias",
+                        "transferencias": "transferencias", "datafono": "datafono"}
+                for metodo, monto in totales_por_metodo.items():
+                    campo = _map.get(metodo, "efectivo")
+                    caja[campo] = max(0, caja.get(campo, 0) - monto)
+                guardar_caja(caja)
+
         return True, f"✅ Consecutivo #{numero_venta} borrado — {total_borradas} fila(s) eliminadas del Excel y del Sheets."
 
     return False, f"No encontré el consecutivo #{numero_venta}."
+
+
+def recalcular_caja_desde_excel():
+    """
+    Recalcula los totales de la caja leyendo las ventas de HOY desde la hoja mensual.
+    Útil después de borrar ventas para que la caja quede consistente.
+    Solo actúa si la caja está abierta.
+    """
+    from memoria import cargar_caja, guardar_caja
+
+    caja = cargar_caja()
+    if not caja.get("abierta"):
+        return
+
+    hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+
+    efectivo      = 0.0
+    transferencias = 0.0
+    datafono      = 0.0
+
+    if os.path.exists(config.EXCEL_FILE):
+        try:
+            wb          = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
+            nombre_hoja = obtener_nombre_hoja()
+            if nombre_hoja in wb.sheetnames:
+                ws        = wb[nombre_hoja]
+                cols      = detectar_columnas(ws)
+                col_fecha  = next((v for k, v in cols.items() if "fecha"  in k), None)
+                col_total  = next((v for k, v in cols.items() if k == "total"), None)
+                col_metodo = next((v for k, v in cols.items() if "metodo" in k), None)
+
+                if col_fecha and col_total:
+                    for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
+                        fecha_fila = str(fila[col_fecha - 1] or "")[:10]
+                        if fecha_fila != hoy:
+                            continue
+                        try:
+                            t = float(fila[col_total - 1] or 0)
+                            m = str(fila[col_metodo - 1] or "efectivo").lower() if col_metodo else "efectivo"
+                            if "transfer" in m:
+                                transferencias += t
+                            elif "datafono" in m or "tarjeta" in m:
+                                datafono += t
+                            else:
+                                efectivo += t
+                        except (TypeError, ValueError):
+                            pass
+            wb.close()
+        except Exception as e:
+            print(f"Error recalculando caja: {e}")
+
+    caja["efectivo"]       = efectivo
+    caja["transferencias"] = transferencias
+    caja["datafono"]       = datafono
+    guardar_caja(caja)
 
 
 def obtener_ventas_por_consecutivo(numero_venta) -> list:
