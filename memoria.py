@@ -919,9 +919,7 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
     prod     = buscar_producto_en_catalogo(nombre_producto)
 
     if not prod:
-        # Guardar en precios simples como fallback
-        mem.setdefault("precios", {})[nombre_producto.lower()] = nuevo_precio
-        guardar_memoria(mem)
+        # Producto no en catalogo — no guardar en precios simples, solo retornar False
         return False
 
     # Encontrar la clave exacta en el catálogo
@@ -951,15 +949,17 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
             catalogo[clave]["precio_por_cantidad"]["precio_bajo_umbral"] = round(nuevo_precio)
 
     mem["catalogo"] = catalogo
-    # Guardar en precios_modificados para que la parte dinámica lo inyecte como override
-    # (evita que el cache de Anthropic sirva el precio viejo)
-    pm = mem.setdefault("precios_modificados", {})
-    clave_pm = prod.get("nombre_lower", nombre_producto.lower())
-    if fraccion and tiene_fracciones_reales:
-        pm.setdefault(clave_pm, {})["fraccion_" + fraccion] = round(nuevo_precio)
-    else:
-        pm[clave_pm] = round(nuevo_precio)
-    mem["precios_modificados"] = pm
+
+    # Limpiar precio viejo de "precios" simples si existe
+    precios = mem.get("precios", {})
+    nombre_lower = prod.get("nombre_lower", nombre_producto.lower())
+    claves_borrar = [k for k in precios if k == nombre_lower or nombre_lower in k or k in nombre_lower]
+    for k in claves_borrar:
+        del precios[k]
+    mem["precios"] = precios
+
+    # Nunca escribir en precios_modificados — el catalogo es la unica fuente de verdad
+    # El override de cache se maneja en RAM (ver _cache_precios_recientes en ai.py)
     guardar_memoria(mem)
     invalidar_cache_memoria()
     return True
