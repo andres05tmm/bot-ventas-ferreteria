@@ -21,6 +21,7 @@ from excel import (
     detectar_columnas, buscar_ventas, obtener_ventas_recientes,
     buscar_clientes_multiples, cargar_clientes,
     registrar_compra_en_excel, actualizar_hoja_inventario,
+    recalcular_caja_desde_excel,
 )
 from memoria import (
     cargar_memoria, obtener_resumen_caja, cargar_gastos_hoy,
@@ -902,11 +903,7 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
         try:
             inicializar_excel()
             wb = await asyncio.to_thread(openpyxl.load_workbook, config.EXCEL_FILE)
-
-            # CORRECCIÓN: calcular la hoja del mes a partir de la FECHA PEDIDA,
-            # no del mes actual. Sin esto, borrar ventas de febrero en marzo
-            # buscaba en "Marzo 2026" y no encontraba nada.
-            hoja = f"{config.MESES[fecha_obj.month]} {fecha_obj.year}"
+            hoja = obtener_nombre_hoja()
 
             total_borradas = 0
             hojas_limpiar = [hoja, "Registro de Ventas-Acumulado"]
@@ -933,7 +930,7 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
             await asyncio.to_thread(wb.save, config.EXCEL_FILE)
             await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
 
-            # Si la fecha borrada es hoy, limpiar el Sheets también
+            # Si la fecha borrada es hoy, recalcular caja y limpiar Sheets
             hoy_iso = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
             sheets_msg = ""
             if fecha_iso == hoy_iso:
@@ -942,6 +939,8 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
                     sheets_msg = " y del Sheets de hoy"
                 except Exception:
                     sheets_msg = " (Sheets no pudo limpiarse)"
+                # Recalcular caja desde lo que queda en el Excel
+                await asyncio.to_thread(recalcular_caja_desde_excel)
 
             await update.message.reply_text(
                 f"✅ Eliminadas {total_borradas} filas del {fecha_str_raw} "
@@ -957,14 +956,8 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # 1. Limpiar Google Sheets
     await asyncio.to_thread(sheets_limpiar)
-    
-    # 2. Resetear el consecutivo de ventas
-    from memoria import cargar_memoria, guardar_memoria
-    mem = cargar_memoria()
-    mem["ultimo_consecutivo"] = 0
-    guardar_memoria(mem)
-    
-    # 3. Limpiar TODO el estado en memoria (Standbys, ventas a medias, clientes en proceso)
+
+    # 2. Limpiar TODO el estado en memoria (Standbys, ventas a medias, clientes en proceso)
     try:
         from ventas_state import (
             ventas_pendientes, borrados_pendientes, historiales,
@@ -980,6 +973,9 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
             ventas_esperando_cliente.clear()
     except Exception as e:
         print(f"Error limpiando memoria interna: {e}")
+
+    # 3. Recalcular caja desde lo que queda en el Excel
+    await asyncio.to_thread(recalcular_caja_desde_excel)
 
     await update.message.reply_text("✅ Reset del dia completado. Todos los procesos en standby fueron cancelados.")
 
