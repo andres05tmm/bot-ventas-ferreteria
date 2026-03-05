@@ -32,6 +32,10 @@ _precios_recientes: dict = {}  # {nombre_lower: (precio, timestamp)}
 _PRECIO_TTL = 300  # 5 minutos
 
 def _registrar_precio_reciente(nombre_lower: str, precio: float, fraccion: str = None):
+    # Limpiar entradas anteriores del mismo producto antes de guardar
+    claves_borrar = [k for k in _precios_recientes if k == nombre_lower or k.startswith(nombre_lower + "___")]
+    for k in claves_borrar:
+        del _precios_recientes[k]
     key = f"{nombre_lower}___{fraccion}" if fraccion else nombre_lower
     _precios_recientes[key] = (precio, _time.time())
 
@@ -794,13 +798,14 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     # ── Acronal: precalcular total en Python ──
     acronal_calculado = ""
-    _acronal_precio_kg = memoria.get("catalogo", {}).get("4acronal", {}).get("precio_unidad", 13000)
+    _acronal_precio_kg = 13000
     _acronal_precio_medio = 7000
-    _frac_acronal = memoria.get("catalogo", {}).get("4acronal", {}).get("precios_fraccion", {}).get("1/2", {})
-    if isinstance(_frac_acronal, dict):
-        _acronal_precio_medio = _frac_acronal.get("precio", 7000)
-    elif isinstance(_frac_acronal, (int, float)):
-        _acronal_precio_medio = int(_frac_acronal)
+    for _ak, _av in memoria.get("catalogo", {}).items():
+        if "acronal" in _av.get("nombre_lower", ""):
+            _acronal_precio_kg = _av.get("precio_unidad", 13000)
+            _frac = _av.get("precios_fraccion", {}).get("1/2", {})
+            _acronal_precio_medio = _frac.get("precio", 7000) if isinstance(_frac, dict) else int(_frac) if _frac else 7000
+            break
     if "acronal" in msg_l:
         import re as _re_ac
         # Normalizar "kilos y medio" -> "X.5", "medio kilo" -> "0.5"
