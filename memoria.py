@@ -43,15 +43,24 @@ def cargar_memoria() -> dict:
         return _cache
 
 
-def guardar_memoria(memoria: dict):
+def guardar_memoria(memoria: dict, urgente: bool = False):
+    """
+    Guarda memoria en disco y sube a Drive.
+    urgente=True: sube inmediatamente sin debounce (para cambios de precio/catálogo).
+    urgente=False: sube con debounce 2s (para ventas, que pueden ser ráfagas).
+    """
     global _cache
     with _cache_lock:
         _cache = memoria
         with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
             json.dump(memoria, f, ensure_ascii=False, indent=2)
     if not _bloquear_subida_drive:
-        from drive import subir_a_drive
-        subir_a_drive(config.MEMORIA_FILE)
+        if urgente:
+            from drive import subir_a_drive_urgente
+            subir_a_drive_urgente(config.MEMORIA_FILE)
+        else:
+            from drive import subir_a_drive
+            subir_a_drive(config.MEMORIA_FILE)
 
 
 def invalidar_cache_memoria():
@@ -938,10 +947,31 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
     fraccion_en_nombre = fraccion and nombre_prod.startswith(fraccion)
     tiene_fracciones_reales = bool(catalogo[clave].get("precios_fraccion")) and not fraccion_en_nombre
 
+    _FRAC_A_DECIMAL = {
+        "1": 1.0, "3/4": 0.75, "1/2": 0.5, "1/4": 0.25,
+        "1/8": 0.125, "1/16": 0.0625, "1/3": 0.333, "1/6": 0.167,
+    }
     if fraccion and tiene_fracciones_reales:
-        catalogo[clave]["precios_fraccion"][fraccion] = {"precio": round(nuevo_precio)}
+        # Preservar campo 'decimal' y 'etiqueta' para consistencia con catálogo importado de Excel
+        decimal_val = _FRAC_A_DECIMAL.get(fraccion, 0.0)
+        entrada_frac = {"precio": round(nuevo_precio)}
+        if decimal_val:
+            entrada_frac["decimal"] = decimal_val
+        # Preservar etiqueta existente si la hay
+        frac_existente = catalogo[clave]["precios_fraccion"].get(fraccion, {})
+        if isinstance(frac_existente, dict) and "etiqueta" in frac_existente:
+            entrada_frac["etiqueta"] = frac_existente["etiqueta"]
+        catalogo[clave]["precios_fraccion"][fraccion] = entrada_frac
     else:
         catalogo[clave]["precio_unidad"] = round(nuevo_precio)
+        # Sincronizar la fraccion "1" (= 1 galon) en precios_fraccion si existe,
+        # ya que precio_unidad y fracs["1"]["precio"] deben ser iguales
+        if catalogo[clave].get("precios_fraccion") and "1" in catalogo[clave]["precios_fraccion"]:
+            frac1 = catalogo[clave]["precios_fraccion"]["1"]
+            if isinstance(frac1, dict):
+                frac1["precio"] = round(nuevo_precio)
+            else:
+                catalogo[clave]["precios_fraccion"]["1"] = {"precio": round(nuevo_precio), "decimal": 1.0}
         # Limpiar cualquier precios_fraccion corrupto si la fraccion era parte del nombre
         if fraccion_en_nombre:
             catalogo[clave]["precios_fraccion"] = {}
@@ -958,9 +988,9 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
         del precios[k]
     mem["precios"] = precios
 
-    # Nunca escribir en precios_modificados — el catalogo es la unica fuente de verdad
-    # El override de cache se maneja en RAM (ver _cache_precios_recientes en ai.py)
-    guardar_memoria(mem)
+    # urgente=True: sube a Drive sin debounce para evitar pérdida si el container
+    # se reinicia antes de que expire el timer de 2s del debounce normal.
+    guardar_memoria(mem, urgente=True)
     invalidar_cache_memoria()
     return True
 
