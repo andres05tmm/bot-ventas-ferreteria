@@ -341,8 +341,11 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
                  "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en",
-                 "galon", "litro", "kilo", "metro", "pulgada", "pulgadas", "unidad", "unidades",
-                 "vendi", "vendo", "vendimos", "dame", "quiero", "necesito", "par"}
+                 "galon", "galones", "litro", "litros", "kilo", "kilos", "metro", "metros",
+                 "pulgada", "pulgadas", "unidad", "unidades",
+                 "vendi", "vendo", "vendimos", "dame", "quiero", "necesito", "par",
+                 # palabras de cantidad fraccionaria — no son nombre de producto
+                 "y", "un", "cuarto", "medio", "media", "octavo", "tres"}
 
     def _es_keyword_relevante(p: str) -> bool:
         """Determina si una palabra debe incluirse como keyword de búsqueda."""
@@ -573,14 +576,14 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # tenga garantizado su candidato, sin que unos "aplasten" a otros.
         # Ej: "1/4 vinilo blanco, 1/2 laca miel, 3/4 thinner" → 3 segmentos independientes
         import re as _re
-        _segmentos_raw = _re.split(r',\s*|(?<!\w)\s+y\s+(?=\d)', mensaje_usuario.lower())
+        # Separar solo por coma. NO separar por 'y' — puede ser parte de cantidad mixta
+        # Ej: '1 galón y un cuarto vinilo' NO debe partirse
+        _segmentos_raw = _re.split(r',\s*', mensaje_usuario.lower())
         _segmentos = []
         for seg in _segmentos_raw:
             seg = seg.strip()
-            # Quitar fracciones y números del inicio para quedarnos con el nombre
-            seg_limpio = _re.sub(r'^[\d\-/\.\s]+', '', seg).strip()
-            if len(seg_limpio) > 3:
-                _segmentos.append(seg_limpio)
+            if len(seg) > 3:
+                _segmentos.append(seg)
 
         combinados = {}
         _candidatos_garantizados = {}  # nl → prod: el mejor hit por segmento, siempre incluido
