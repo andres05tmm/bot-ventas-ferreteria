@@ -6,7 +6,10 @@ CORRECCIONES v2:
   - manejar_texto_cliente eliminada — era código muerto (nunca se llamaba desde ningún handler)
   - Docstring ANTES del import logging
 
-CORRECCIONES v3 — FIX CRÍTICO standby:
+CORRECCIONES v4 — FIX standby async:
+  _procesar_siguiente_standby usaba procesar_acciones (síncrona), bloqueando
+  el event loop completo mientras escribe en Excel/Drive. Cambiado a
+  procesar_acciones_async para no congelar otros chats.
   Antes: el loop procesaba TODOS los mensajes del standby de golpe.
     Mensaje 1 → dejaba venta nueva en ventas_pendientes
     Mensaje 2 → veía ventas_pendientes ocupado → [VENTA] ignorado → pérdida silenciosa
@@ -45,7 +48,7 @@ async def _procesar_siguiente_standby(bot, message, chat_id: int, pendientes: li
     - El resto de los mensajes se guarda de vuelta en mensajes_standby antes de procesar,
       para que no se pierdan si hay un error.
     """
-    from ai import procesar_con_claude, procesar_acciones
+    from ai import procesar_con_claude, procesar_acciones_async
     from ventas_state import agregar_al_historial, get_historial
 
     if not pendientes:
@@ -62,7 +65,7 @@ async def _procesar_siguiente_standby(bot, message, chat_id: int, pendientes: li
     historial     = get_historial(chat_id)
     agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
     respuesta_raw            = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
-    texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
+    texto_resp, acciones2, _ = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
     agregar_al_historial(chat_id, "assistant", texto_resp)
 
     confirmacion_accion = next((a for a in acciones2 if a.startswith("PEDIR_CONFIRMACION:")), None)
