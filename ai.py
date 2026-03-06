@@ -603,13 +603,16 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
         # 1. Buscar candidato por cada segmento de producto (garantiza uno por producto)
         for seg in _segmentos:
+            # Limpiar símbolos de puntuación y basura al inicio del segmento
+            seg = _re.sub(r'^[^\w]+', '', seg).strip()
             # Quitar palabras de acción y cantidades iniciales del segmento
             palabras_raw = seg.split()
-            # Saltar palabras de acción al inicio
-            while palabras_raw and palabras_raw[0] in _palabras_accion:
-                palabras_raw = palabras_raw[1:]
-            # Saltar números/fracciones iniciales (cantidades como "3", "1/2", "50")
-            while palabras_raw and _re.match(r'^[\d/\.]+$', palabras_raw[0]):
+            # Saltar tokens no-alfanuméricos, palabras de acción y cantidades al inicio
+            while palabras_raw and (
+                not _re.search(r'[\w\d]', palabras_raw[0]) or
+                palabras_raw[0] in _palabras_accion or
+                _re.match(r'^[\d/\.]+$', palabras_raw[0])
+            ):
                 palabras_raw = palabras_raw[1:]
             # Saltar palabras de volumen/unidad inmediatas tras la cantidad
             _unidades_volumen = {"galon", "galones", "cuarto", "cuartos", "litro", "litros",
