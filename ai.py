@@ -1024,7 +1024,25 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     memoria        = cargar_memoria()
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
-  
+
+    # BLOQUEO PYTHON: si el MATCH está vacío y el mensaje parece una venta
+    # (no es consulta, no es reporte), responder directamente sin llamar a Claude.
+    # Esto evita que el bot registre productos inexistentes con total:0.
+    _SEÑAL_MATCH_VACIO = "MATCH: (sin resultados — producto no encontrado en catalogo)"
+    _kw_no_venta = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
+                    "top","mas vendido","gasto","caja","inventario","cliente",
+                    "precio","vale","cuesta","cuanto vale","hay","stock","quedan"}
+    _es_consulta = any(p in mensaje_usuario.lower() for p in _kw_no_venta)
+
+    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta:
+        # Extraer nombre del producto del mensaje para respuesta clara
+        _msg_limpio = mensaje_usuario.strip().lower()
+        # Quitar cantidades y unidades del inicio para aislar el nombre
+        import re as _re_pc
+        _msg_limpio = _re_pc.sub(r'^[\d\s/\.]+', '', _msg_limpio).strip()
+        _msg_limpio = _re_pc.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_limpio).strip()
+        return f"No tengo {_msg_limpio} en el catálogo."
+
     _modo = "MATCH+SIMPLE-CAT 💡"  # fracciones en MATCH, precio_unidad en estático
 
     # Historial adaptativo: usa _calcular_historial para determinar cuántos mensajes
