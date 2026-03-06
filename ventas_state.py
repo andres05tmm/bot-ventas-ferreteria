@@ -100,10 +100,11 @@ def agregar_a_standby(chat_id: int, mensaje: str):
 def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_id: int) -> list[str]:
     with _estado_lock:
         ventas_pendientes.pop(chat_id, None)
+        # CORRECCIÓN Bug 5: consecutivo se obtiene DENTRO del lock para evitar
+        # que dos ventas simultáneas reciban el mismo número de consecutivo.
+        consecutivo = obtener_siguiente_consecutivo()
 
     confirmaciones    = []
-    # CORRECCIÓN: obtener_siguiente_consecutivo() siempre retorna >= 1
-    consecutivo       = obtener_siguiente_consecutivo()
     total_transaccion = 0
 
     # Resolver cliente (del primer producto que lo mencione)
@@ -148,13 +149,11 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         cliente_txt = f" | {nombre_c}" if nombre_c != "Consumidor Final" else ""
         confirmaciones.append(f"• {cantidad_legible} {producto} ${valor_final:,.0f}{cliente_txt}")
 
-        # Descontar inventario (solo si el producto está registrado)
-        # CORRECCIÓN: manejo explícito de None para evitar errores silenciosos
-        resultado_descuento = descontar_inventario(producto, cantidad)
-        if resultado_descuento is not None:
-            descontado, alerta, cantidad_restante = resultado_descuento
-            if descontado and alerta:
-                confirmaciones.append(alerta)
+        # Descontar inventario (solo si el producto está registrado).
+        # descontar_inventario() siempre retorna (bool, str|None, float|None).
+        descontado, alerta, cantidad_restante = descontar_inventario(producto, cantidad)
+        if descontado and alerta:
+            confirmaciones.append(alerta)
 
     # Actualizar caja
     caja = cargar_caja()
