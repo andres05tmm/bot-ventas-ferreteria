@@ -77,14 +77,16 @@ _ALIAS_FERRETERIA = [
     (r'\bpega\s*ternit\b', r'pegaternit'),
     (r'\bpegaeternit\b', r'pegaternit'),
     # Thinner/Varsol por botellas y litros (cantidades pequeñas por precio)
-    (r'\b(\d+)?\s*botellas?\s+de\s+thinner\b', r'\g<1> thinner 4000'.replace('None', '1')),
-    (r'\b(\d+)?\s*botellas?\s+de\s+varsol\b', r'\g<1> varsol 4000'),
-    (r'\b(\d+)?\s*litros?\s+de\s+thinner\b', r'\g<1> thinner 8000'),
-    (r'\b(\d+)?\s*litros?\s+de\s+varsol\b', r'\g<1> varsol 8000'),
-    (r'\b(\d+)?\s*botellas?\s+thinner\b', r'\g<1> thinner 4000'),
-    (r'\b(\d+)?\s*botellas?\s+varsol\b', r'\g<1> varsol 4000'),
-    (r'\b(\d+)?\s*litros?\s+thinner\b', r'\g<1> thinner 8000'),
-    (r'\b(\d+)?\s*litros?\s+varsol\b', r'\g<1> varsol 8000'),
+    # La cantidad se MULTIPLICA por el precio unitario: "2 litros de thinner" → "thinner 16000"
+    # Así Claude recibe un único segmento con el total, no "2 thinner 8000" (ambiguo).
+    (r'\b(\d+)?\s*botellas?\s+de\s+thinner\b', lambda m: f"thinner {int(m.group(1) or 1) * 4000}"),
+    (r'\b(\d+)?\s*botellas?\s+de\s+varsol\b',  lambda m: f"varsol {int(m.group(1) or 1) * 4000}"),
+    (r'\b(\d+)?\s*litros?\s+de\s+thinner\b',   lambda m: f"thinner {int(m.group(1) or 1) * 8000}"),
+    (r'\b(\d+)?\s*litros?\s+de\s+varsol\b',    lambda m: f"varsol {int(m.group(1) or 1) * 8000}"),
+    (r'\b(\d+)?\s*botellas?\s+thinner\b',       lambda m: f"thinner {int(m.group(1) or 1) * 4000}"),
+    (r'\b(\d+)?\s*botellas?\s+varsol\b',        lambda m: f"varsol {int(m.group(1) or 1) * 4000}"),
+    (r'\b(\d+)?\s*litros?\s+thinner\b',         lambda m: f"thinner {int(m.group(1) or 1) * 8000}"),
+    (r'\b(\d+)?\s*litros?\s+varsol\b',          lambda m: f"varsol {int(m.group(1) or 1) * 8000}"),
     # Thinner/Varsol por galones (cantidades >= 1/2 galón)
     # "1-1/2 galón de thinner", "1 y medio galón de thinner", "2-1/2 galones thinner"
     (r'\b(\d+)\s*-\s*1/2\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
@@ -100,18 +102,17 @@ def aplicar_alias_ferreteria(mensaje: str) -> str:
     """Transforma alias comunes antes de enviar a Claude."""
     resultado = mensaje
     for patron, reemplazo in _ALIAS_FERRETERIA:
-        # Verificar si el patrón tiene grupos de captura opcionales (\d+)?
-        # Si el reemplazo usa \g<1>, necesitamos manejar el caso donde group(1) es None
-        if r'\g<1>' in reemplazo or r'\g<2>' in reemplazo:
+        if callable(reemplazo):
+            # Lambda/función: re.sub la llama directamente con el match
+            resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
+        elif r'\g<1>' in reemplazo or r'\g<2>' in reemplazo:
             def _hacer_reemplazo(m, repl=reemplazo):
                 resultado_repl = repl
-                # Reemplazar \g<1> con el grupo 1 o "1" si es None
                 try:
                     g1 = m.group(1) if m.lastindex and m.lastindex >= 1 and m.group(1) else "1"
                     resultado_repl = resultado_repl.replace(r'\g<1>', g1)
                 except IndexError:
                     resultado_repl = resultado_repl.replace(r'\g<1>', "1")
-                # Reemplazar \g<2> con el grupo 2 si existe
                 try:
                     if m.lastindex and m.lastindex >= 2 and m.group(2):
                         resultado_repl = resultado_repl.replace(r'\g<2>', m.group(2))
@@ -120,7 +121,6 @@ def aplicar_alias_ferreteria(mensaje: str) -> str:
                 return resultado_repl.strip()
             resultado = re.sub(patron, _hacer_reemplazo, resultado, flags=re.IGNORECASE)
         else:
-            # Reemplazo simple sin grupos de captura
             resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
     return resultado
   
@@ -736,24 +736,17 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         candidatos = _garantizados_lista + _resto
         candidatos = candidatos[:max(len(_garantizados_lista), 25)]
 
-        # Filtro de relevancia: descartar candidatos que no comparten suficientes
-        # palabras con el query. Usa norm+stem para tolerar tildes y plurales.
-        # Umbral escala con cuántas palabras alfabéticas tiene el query:
-        #   0 palabras alfab (solo números como "3/8", "12"): pasa todo — el motor ya filtró
-        #   1 palabra alfab: esa palabra debe aparecer (100%)
-        #   2 palabras alfab: al menos 1 debe aparecer (50%) — flexible
-        #   3+ palabras alfab: al menos 2 deben aparecer
-        def _es_relevante(prod_nombre_lower, palabras_alfab_query):
-            if not palabras_alfab_query:
-                return True
-            nl = _normalizar(prod_nombre_lower)
-            hits = sum(
-                1 for w in palabras_alfab_query
-                if _normalizar(w) in nl or _stem_simple(_normalizar(w)) in nl
-            )
-            n = len(palabras_alfab_query)
-            umbral = 1 if n <= 2 else 2
-            return hits >= umbral
+        # Filtro de relevancia: se aplica SOLO al _resto (pool global), nunca a los
+        # candidatos garantizados. Un candidato garantizado ya fue validado por el
+        # segmentador (tiene su propio segmento que lo respaldó) — filtrarlo aquí con
+        # las palabras del mensaje completo sería incorrecto en ventas multi-producto,
+        # donde el mensaje tiene muchas palabras que no pertenecen a ese candidato.
+        #
+        # Para el _resto: comparar contra las palabras del segmento más cercano
+        # es complejo, así que se usa el mensaje completo pero con umbral ajustado:
+        #   - umbral fijo de 1 hit alfab: cualquier palabra del nombre debe aparecer en
+        #     algún lugar del mensaje. Esto filtra productos completamente ajenos (ej:
+        #     un tornillo que entró por un número suelto) sin afectar productos legítimos.
 
         def _stem_simple(w):
             if w.endswith("les") and len(w) > 5: return w[:-2]
@@ -761,14 +754,27 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             if w.endswith("s") and len(w) > 4:   return w[:-1]
             return w
 
-        _palabras_alfab = [
+        _palabras_alfab_msg = [
             w for w in palabras_clave
             if len(w) > 2 and not w.replace("/","").replace("-","").isdigit()
         ]
-        candidatos = [
-            p for p in candidatos
-            if _es_relevante(p.get("nombre_lower", ""), _palabras_alfab)
-        ]
+
+        def _es_relevante_resto(prod_nombre_lower):
+            """Filtro para candidatos del pool global (no garantizados).
+            Exige al menos 1 palabra alfabética del nombre en el mensaje completo."""
+            if not _palabras_alfab_msg:
+                return True
+            nl = _normalizar(prod_nombre_lower)
+            return any(
+                _normalizar(w) in nl or _stem_simple(_normalizar(w)) in nl
+                for w in _palabras_alfab_msg
+            )
+
+        # Garantizados: pasan siempre. Resto: pasan solo si son relevantes.
+        candidatos = (
+            _garantizados_lista +
+            [p for p in _resto if _es_relevante_resto(p.get("nombre_lower", ""))]
+        )
 
         if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
