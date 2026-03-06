@@ -121,57 +121,96 @@ def _stem_palabra(w: str) -> str:
 
 
 def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
-    """Retorna todos los candidatos que coincidan con el término, ordenados por relevancia.
-    Incluye stemming de plurales y bonus de score para números exactos (tallas).
+    """Retorna candidatos que coincidan con el término, ordenados por relevancia.
+    Umbral estricto para evitar falsos positivos:
+    - 1 palabra:  debe aparecer exactamente en el nombre
+    - 2 palabras: ambas deben aparecer (100%)
+    - 3+ palabras: al menos 2 deben aparecer
+    Las palabras de unidad (pulgada, metro, kilo...) son opcionales y no cuentan para el umbral.
     """
     catalogo = cargar_memoria().get("catalogo", {})
     if not catalogo:
         return []
 
-    nombre_lower = nombre_buscado.strip().lower()
-    # Incluir palabras largas (>2 chars), números, Y códigos alfanuméricos cortos como t1, t2, t3, x1
+    import re as _re_mem
+
+    # Normalizar tildes y ñ para búsqueda tolerante
+    def _norm(s: str) -> str:
+        return (s.lower()
+                .replace("ñ","n").replace("á","a").replace("é","e")
+                .replace("í","i").replace("ó","o").replace("ú","u"))
+
+    nombre_lower = _norm(nombre_buscado.strip())
+
     def _es_token_relevante(p: str) -> bool:
         if len(p) > 2:
             return True
         if p.isdigit():
             return True
-        # Tokens de 2 chars con al menos un dígito: t1, t2, t3, x1, 6x, 8x, etc.
         if len(p) == 2 and any(c.isdigit() for c in p):
             return True
         return False
 
-    palabras_raw = [p for p in nombre_lower.split() if _es_token_relevante(p)]
+    # Palabras de unidad: opcionales, no cuentan para el umbral mínimo
+    _UNIDADES = {"pulgada", "pulgadas", "metros", "metro", "centimetro", "centimetros",
+                 "litro", "litros", "kilo", "kilos", "gramo", "gramos",
+                 "galon", "galones", "unidad", "unidades"}
+
+    _STOPWORDS = {"que", "del", "los", "las", "una", "uno", "con", "por",
+                  "para", "como", "fue", "son", "de", "en", "la", "el",
+                  "vendi", "vendo", "dame", "quiero", "necesito"}
+
+    palabras_raw = [p for p in nombre_lower.split()
+                    if _es_token_relevante(p) and p not in _STOPWORDS]
     if not palabras_raw:
         return []
 
-    # Separar palabras normales de números/tallas para scoring diferenciado
-    palabras_variantes = []
-    numeros_busqueda = set()
-    for p in palabras_raw:
-        stem = _stem_palabra(p)
-        palabras_variantes.append((p, stem))
-        if p.isdigit():
-            numeros_busqueda.add(p)
+    palabras_producto = [p for p in palabras_raw if p not in _UNIDADES]
+    palabras_unidad   = [p for p in palabras_raw if p in _UNIDADES]
+
+    total_producto = len(palabras_producto)
+    if total_producto == 0:
+        return []
+
+    # Umbral mínimo de coincidencias sobre palabras_producto
+    if total_producto == 1:
+        min_hits = 1      # 100%
+    elif total_producto == 2:
+        min_hits = 2      # 100%
+    else:
+        min_hits = 2      # al menos 2 de 3+
+
+    numeros_busqueda = {p for p in palabras_producto if p.isdigit()}
 
     candidatos = []
     for prod in catalogo.values():
-        nl = prod.get("nombre_lower", "")
-        coincidencias = sum(1 for (orig, stem) in palabras_variantes if orig in nl or stem in nl)
-        total = len(palabras_variantes)
-        # Bonus: si el número exacto de la búsqueda aparece en el nombre → prioridad alta
-        # Usa regex para extraer números del nombre_lower (maneja n°80, 3", etc.)
-        import re as _re_mem
-        nl_numeros = set(_re_mem.findall(r'\d+', nl))
+        nl = _norm(prod.get("nombre_lower", ""))
+        coincidencias = sum(
+            1 for p in palabras_producto
+            if p in nl or _stem_palabra(p) in nl
+        )
+        if coincidencias < min_hits:
+            continue
+
+        # Bonus por número exacto de talla/medida
+        nl_numeros = set(_re_mem.findall(r'\d+', prod.get("nombre_lower","")))
         bonus_numero = sum(1 for n in numeros_busqueda if n in nl_numeros)
-        score_base = 0
-        if coincidencias == total:
+
+        # Penalización: si el producto empieza con fracción (ej: "1/2 cuñete")
+        # pero el usuario NO mencionó fracción, bajar prioridad
+        nl_orig = prod.get("nombre_lower", "")
+        penalizacion = -1 if (_re_mem.match(r'^[\d/]+\s', nl_orig)
+                               and not any(f in nombre_lower for f in ["1/2","1/4","3/4","1/8","medio","mitad"])) else 0
+
+        # Score base: más coincidencias = mejor
+        if coincidencias == total_producto:
             score_base = 3
-        elif total > 1 and coincidencias >= total - 1:
+        elif coincidencias >= total_producto - 1:
             score_base = 2
-        elif coincidencias >= 1:
+        else:
             score_base = 1
-        if score_base > 0:
-            candidatos.append((score_base + bonus_numero, coincidencias, len(nl), prod))
+
+        candidatos.append((score_base + bonus_numero + penalizacion, coincidencias, len(nl), prod))
 
     candidatos.sort(key=lambda x: (-x[0], -x[1], x[2]))
     return [c[3] for c in candidatos[:limite]]
@@ -186,6 +225,9 @@ _ALIAS_SINONIMOS = {
     "imprimante":     "primario",
     "primante":       "primario",
     "primate":        "primario",    # error Whisper frecuente
+    "tiner":          "thinner",
+    "thiner":         "thinner",     # typo frecuente
+    "cunete":         "cuñete",      # sin tilde
     "pintura":        "vinilo",
     "pinturas":       "vinilo",
     "lija":           "lija",
