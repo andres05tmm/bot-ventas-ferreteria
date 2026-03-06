@@ -480,7 +480,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     .replace("á","a").replace("é","e").replace("í","i")
                     .replace("ó","o").replace("ú","u").replace("ñ","n"))
 
-        _segs = _re_pre.split(r',\s*', mensaje_usuario.lower())
+        _segs = _re_pre.split(r'[,\n]+', mensaje_usuario.lower())
 
         for seg in _segs:
             seg = _norm_seg(seg).strip()
@@ -600,7 +600,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         import re as _re
         # Separar solo por coma. NO separar por 'y' — puede ser parte de cantidad mixta
         # Ej: '1 galón y un cuarto vinilo' NO debe partirse
-        _segmentos_raw = _re.split(r',\s*', mensaje_usuario.lower())
+        _segmentos_raw = _re.split(r'[,\n]+', mensaje_usuario.lower())
         _segmentos = []
         for seg in _segmentos_raw:
             seg = seg.strip()
