@@ -533,6 +533,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         "medio": "1/2",  "media": "1/2",  "un medio": "1/2",
         "octavo": "1/8", "un octavo": "1/8",
         "tres cuartos": "3/4",
+        "botella": "botella", "botellas": "botella",
+        "litro": "litro",    "litros": "litro",
     }
     for palabra, frac in _mapa_palabras.items():
         if palabra in _msg_lower:
@@ -543,7 +545,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     # Tokenizar mensaje para detectar fracciones adyacentes a productos
     _tokens = mensaje_usuario.lower().replace(",","").split()
-    _fracs_set = {"1/4","1/2","3/4","1/8","1/16","3/8"}
+    _fracs_set = {"1/4","1/2","3/4","1/8","1/16","3/8","botella","litro"}
 
     def _linea_candidato(p: dict) -> str:
         # Formato comprimido: sin "  - ", sin "$", sin comas, fraccion relevante marcada con *
@@ -599,7 +601,14 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
         # Stemming mínimo: quitar 's' final para que "lijas"→"lija", "discos"→"disco"
         def _stem(w):
-            return w[:-1] if w.endswith("s") and len(w) > 4 else w
+            # Plurales en "es": aerosoles→aerosol, tornillos→tornillo
+            if w.endswith("les") and len(w) > 5:
+                return w[:-2]   # aerosoles → aerosol
+            if w.endswith("es") and len(w) > 4:
+                return w[:-2]   # brochas no aplica (termina en as), pero discos→disco
+            if w.endswith("s") and len(w) > 4:
+                return w[:-1]   # tornillos → tornillo
+            return w
 
         # 1. Buscar candidato por cada segmento de producto (garantiza uno por producto)
         for seg in _segmentos:
