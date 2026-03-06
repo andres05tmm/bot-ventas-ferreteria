@@ -28,6 +28,7 @@ from ventas_state import (
     agregar_a_standby,   # ← nueva función con cap de MAX_STANDBY
 )
 from excel import guardar_cliente_nuevo
+from handlers.comandos import manejar_flujo_agregar_producto
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
 
 logger = logging.getLogger("ferrebot.mensajes")
@@ -93,6 +94,10 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+    # ── Flujo paso a paso de agregar producto ──
+    if await manejar_flujo_agregar_producto(update, context):
+        return
 
     # ── Flujo paso a paso de creación de cliente ──
     with _estado_lock:
