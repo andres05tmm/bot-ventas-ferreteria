@@ -308,7 +308,7 @@ async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caja["fecha"] = datetime.date.today().isoformat()
         caja["monto_apertura"] = monto
         caja["efectivo"] = 0
-        caja["transferencia"] = 0
+        caja["transferencias"] = 0
         caja["datafono"] = 0
         guardar_caja(caja)
         await update.message.reply_text(f"💰 Caja abierta con ${monto:,} de base.")
@@ -1289,8 +1289,9 @@ async def _mostrar_confirmacion(update, prod: dict):
 
 async def _guardar_producto(update, context, prod: dict):
     """Guarda el producto en memoria.json y en BASE_DE_DATOS_PRODUCTOS.xlsx."""
+    from utils import _normalizar
     from memoria import (cargar_memoria, guardar_memoria, invalidar_cache_memoria,
-                         _normalizar, _es_producto_con_fracciones, _es_tornillo_drywall)
+                         _es_producto_con_fracciones, _es_tornillo_drywall)
 
     mem      = cargar_memoria()
     catalogo = mem.get("catalogo", {})
