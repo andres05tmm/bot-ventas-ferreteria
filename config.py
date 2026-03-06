@@ -131,7 +131,6 @@ def _make_sheets_client():
 # Instancias cacheadas — se inicializan la primera vez que se usen
 _drive_service  = None
 _sheets_client  = None
-_google_init_lock = _threading.Lock()
 
 def get_drive_service():
     """Retorna el servicio de Drive, creandolo si aun no existe."""
@@ -162,6 +161,7 @@ def reset_google_clients():
 import threading as _threading
 
 _flags_lock        = _threading.Lock()
+_google_init_lock  = _threading.Lock()
 _DRIVE_DISPONIBLE  = True
 _SHEETS_DISPONIBLE = bool(SHEETS_ID)
 
