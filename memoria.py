@@ -222,43 +222,21 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
 
 # Mapa de sinónimos: palabra que dice el usuario → palabra que está en el catálogo
 _ALIAS_SINONIMOS = {
-    "imprimante":     "primario",
-    "primante":       "primario",
-    "primate":        "primario",    # error Whisper frecuente
+    # Solo typos de escritura y variantes sin tilde del mismo nombre
     "tiner":          "thinner",
-    "thiner":         "thinner",     # typo frecuente
-    "cunete":         "cuñete",      # sin tilde
-    "pintura":        "vinilo",
-    "pinturas":       "vinilo",
-    "lija":           "lija",
-    "lijas":          "lija",
-    "silicona":       "silicona",
-    "silicon":        "silicona",
-    "cinta masking":  "cinta enmascarar",
-    "masking":        "cinta enmascarar",
-    "enmascarar":     "cinta enmascarar",
-    "vinipel":        "cinta",
-    "esquinero":      "perfil",
-    "angelina":       "lana de vidrio",
-    "fibra vidrio":   "lana de vidrio",
-    "emplaste":       "masilla",
-    "empaste":        "masilla",
-    "palustre":       "llana",
-    "boquillera":     "masilla",
-    "sika":           "impermeabilizante",
-    "impermeabilizante": "impermeabilizante",
-    # Rodillo convencional
+    "thiner":         "thinner",
+    "cunete":         "cuñete",
     "convencional":   "rodillo convencional",
-    "convencionañ":   "rodillo convencional",  # typo común
-    "convensional":   "rodillo convencional",  # typo común
+    "convencionañ":   "rodillo convencional",
+    "convensional":   "rodillo convencional",
     "rodillo normal": "rodillo convencional",
 }
 
 
 def expandir_con_alias(termino: str) -> list[str]:
     """
-    Dado un término de búsqueda, retorna variantes aplicando alias conocidos.
-    Ej: 'imprimante blanco' → ['imprimante blanco', 'primario blanco']
+    Dado un término de búsqueda, retorna variantes aplicando alias de escritura.
+    Ej: 'tiner' → ['tiner', 'thinner']
     """
     termino_lower = termino.lower().strip()
     variantes = [termino_lower]
@@ -269,11 +247,32 @@ def expandir_con_alias(termino: str) -> list[str]:
     return variantes
 
 
+def _limpiar_cantidad_inicial(query: str) -> str:
+    """
+    Elimina prefijos numéricos que son CANTIDADES, no tallas.
+    Ej: '2 brochas de 3'  → 'brochas de 3'
+        '1 brocha 2 pulgadas 4000' → 'brocha 2 pulgadas'
+        '5 lijas 80'       → 'lijas 80'
+    No elimina fracciones que son parte del nombre: '1/4 vinilo' → '1/4 vinilo'
+    No elimina precios finales (número > 1000 al final).
+    """
+    import re as _re_lc
+    q = query.strip()
+    # Eliminar número entero inicial seguido de espacio y palabra alfabética
+    # (ej: "2 brochas", "5 lijas", "1 brocha") — pero NO "1/4 vinilo" ni "2x4"
+    q = _re_lc.sub(r'^(\d+)\s+(?=[a-zA-ZáéíóúÁÉÍÓÚñÑ])', '', q).strip()
+    # Eliminar precio final obvio (número > 1000 al final sin contexto de medida)
+    q = _re_lc.sub(r'\s+\d{4,}$', '', q).strip()
+    return q
+
+
 def buscar_multiples_con_alias(nombre_buscado: str, limite: int = 8) -> list:
     """
     Igual que buscar_multiples_en_catalogo pero expande el término con alias/sinónimos.
     Úsala en lugar de buscar_multiples_en_catalogo cuando el MATCH falle frecuentemente.
     """
+    # Limpiar cantidad inicial antes de expandir alias
+    nombre_buscado = _limpiar_cantidad_inicial(nombre_buscado)
     variantes = expandir_con_alias(nombre_buscado)
     vistos = set()
     resultados_combinados = []
