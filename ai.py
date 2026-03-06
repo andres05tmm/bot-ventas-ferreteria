@@ -11,10 +11,10 @@ OPTIMIZACIONES DE COSTO ACTIVAS:
   3. max_tokens cap  — techo adaptativo de respuesta.
   4. Catálogo simplificado — parte estática solo precio base, fracciones vía MATCH dinámico (~26% menos tokens cacheados).
 
-CORRECCIONES v3:
-  - Eliminado código muerto (_frac_por_producto, loop vacío en _linea_candidato)
-  - Historial adaptativo más agresivo (1-4 mensajes según contexto)
-  - Instrucción de JSON compacto para reducir output tokens
+CORRECCIONES v4:
+  - Bug precedencia and/or en filtro tornillos drywall corregido
+  - _quitar_tildes (redefinida en loop) eliminada, reemplazada por _normalizar
+  - Todos los `import re as _re*` dentro de funciones eliminados (re ya importado al top)
 """
 
 import logging
@@ -373,7 +373,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         Maneja todas las formas: '2 y medio', '2-1/2', '1.5', '2.5 galones', etc.
         Retorna (None, None, None) si no encuentra cantidad mixta.
         """
-        import re as _re
         m = msg.lower()
 
         # Forma decimal: 2.5, 1.5, 3.5 (producida por alias)
@@ -474,13 +473,12 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         calculos_multi = []  # lista de (prod, n_enteros, frac_key, cantidad_calc, total_calc)
 
         # Segmentar por producto para manejar multi-producto
-        import re as _re_pre
         def _norm_seg(s):
             return (s.lower()
                     .replace("á","a").replace("é","e").replace("í","i")
                     .replace("ó","o").replace("ú","u").replace("ñ","n"))
 
-        _segs = _re_pre.split(r'[,\n]+', mensaje_usuario.lower())
+        _segs = re.split(r'[,\n]+', mensaje_usuario.lower())
 
         for seg in _segs:
             seg = _norm_seg(seg).strip()
@@ -597,7 +595,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # FIX MULTI-PRODUCTO: segmentar el mensaje por producto para que cada uno
         # tenga garantizado su candidato, sin que unos "aplasten" a otros.
         # Ej: "1/4 vinilo blanco, 1/2 laca miel, 3/4 thinner" → 3 segmentos independientes
-        import re as _re
         # Separar solo por coma. NO separar por 'y' — puede ser parte de cantidad mixta
         # Ej: '1 galón y un cuarto vinilo' NO debe partirse
         _segmentos_raw = _re.split(r'[,\n]+', mensaje_usuario.lower())
@@ -633,12 +630,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         for seg in _segmentos:
             # Limpiar símbolos de puntuación y basura al inicio del segmento
             seg = _re.sub(r'^[^\w]+', '', seg).strip()
-            # Normalizar tildes para que "galón"=="galon", "cuánto"=="cuanto", etc.
-            # IMPORTANTE: hacerlo ANTES de tokenizar para que los sets de filtro funcionen
-            def _quitar_tildes(s):
-                import unicodedata as _ud
-                return _ud.normalize("NFD", s).encode("ascii", "ignore").decode()
-            seg = _quitar_tildes(seg)
+            # Normalizar tildes usando _normalizar (ya importada desde utils)
+            seg = _normalizar(seg)
             # Quitar palabras de acción y cantidades iniciales del segmento
             palabras_raw = seg.split()
             # Saltar tokens no-alfanuméricos, palabras de acción y cantidades al inicio
@@ -722,7 +715,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # Si el mensaje menciona una medida exacta como "6x3", eliminar productos con medidas
         # que la contengan pero sean diferentes (como "6x3/4", "6x3-1/2")
         _medidas_exactas = _re.findall(r'\b(\d+)\s*[xX]\s*(\d+)\b(?![/\-])', _msg_lower)
-        if _medidas_exactas and "tornillo" in _msg_lower or "drywall" in _msg_lower:
+        if _medidas_exactas and ("tornillo" in _msg_lower or "drywall" in _msg_lower):
             for calibre, largo_med in _medidas_exactas:
                 medida_exacta = f"{calibre}x{largo_med}"
                 # Filtrar productos que tengan la medida como substring pero NO sean exactos
@@ -837,11 +830,10 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     if _menciona_cliente:
         try:
             from excel import buscar_cliente_con_resultado
-            import re as _re_cli
             # Extraer nombre despues de "para", "a nombre de", "de parte de", etc.
-            _match_nombre = _re_cli.search(
+            _match_nombre = re.search(
                 r'(?:para|a nombre de|de parte de|cuenta de)\s+([A-Za-záéíóúÁÉÍÓÚñÑ]+(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]+){0,3})',
-                mensaje_usuario, _re_cli.IGNORECASE
+                mensaje_usuario, re.IGNORECASE
             )
             if _match_nombre:
                 termino_cliente = _match_nombre.group(1).strip()
@@ -924,19 +916,18 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             _acronal_precio_medio = _frac.get("precio", 7000) if isinstance(_frac, dict) else int(_frac) if _frac else 7000
             break
     if "acronal" in msg_l:
-        import re as _re_ac
         # Normalizar "kilos y medio" -> "X.5", "medio kilo" -> "0.5"
         msg_ac = msg_l
-        msg_ac = _re_ac.sub(r'(\d+)\s+(?:kilo[s]?\s+)?y\s+medio', lambda m: str(int(m.group(1))) + '.5', msg_ac)
+        msg_ac = re.sub(r'(\d+)\s+(?:kilo[s]?\s+)?y\s+medio', lambda m: str(int(m.group(1))) + '.5', msg_ac)
         msg_ac = msg_ac.replace('medio kilo', '0.5').replace('kilo y medio', '1.5')
         # Buscar cantidad: "2-1/2", "2.5", "4", etc.
         # Detectar "1/2 kg" o "medio" antes del regex numerico
-        if _re_ac.search(r'(?:^|\s)(?:1/2|medio)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:1/2|medio)', msg_ac):
+        if re.search(r'(?:^|\s)(?:1/2|medio)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:1/2|medio)', msg_ac):
             acronal_calculado = f"ACRONAL PRECALCULADO: 0.5kg = ${_acronal_precio_medio:,} (precio especial). USA cantidad=0.5, total={_acronal_precio_medio} EXACTAMENTE."
             continue_ac = False
         else:
             continue_ac = True
-        m_ac = _re_ac.search(r'([\d]+(?:[.,]\d+)?(?:-1/2|-1/4)?)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:kilo[s]?|kg)?\s*([\d]+(?:[.,]\d+)?(?:-1/2|-1/4)?)', msg_ac) if continue_ac else None
+        m_ac = re.search(r'([\d]+(?:[.,]\d+)?(?:-1/2|-1/4)?)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:kilo[s]?|kg)?\s*([\d]+(?:[.,]\d+)?(?:-1/2|-1/4)?)', msg_ac) if continue_ac else None
         if m_ac:
             raw = (m_ac.group(1) or m_ac.group(2) or '').strip()
             raw = raw.replace(',', '.').replace('-1/2', '.5').replace('-1/4', '.25')
@@ -964,7 +955,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     #   directamente desde litros, sin confundir el total con un precio de fracción.
     # CASO 2: "thinner 8000" (precio por fracción de galón) — tabla normal.
     thinner_calculado = ""
-    import re as _re
     if "thinner" in msg_l:
         tabla_thinner = {3000:"1/12",4000:"1/10",5000:"1/8",6000:"1/6",8000:"1/4",
                          10000:"1/3",13000:"1/2",20000:"3/4",26000:"1 galon"}
@@ -1022,7 +1012,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             ("2 y medio","2-1/2"),("2 y media","2-1/2"),
             ("1 y medio","1-1/2"),("1 y media","1-1/2"),("1 y cuarto","1-1/4"),
         ]
-        import re as _re
         # Normalizar voz a fraccion
         msg_norm = msg_l
         for voz, frac in voz_medida:
@@ -1194,9 +1183,8 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
         # Extraer nombre del producto del mensaje para respuesta clara
         _msg_limpio = mensaje_usuario.strip().lower()
         # Quitar cantidades y unidades del inicio para aislar el nombre
-        import re as _re_pc
-        _msg_limpio = _re_pc.sub(r'^[\d\s/\.]+', '', _msg_limpio).strip()
-        _msg_limpio = _re_pc.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_limpio).strip()
+        _msg_limpio = re.sub(r'^[\d\s/\.]+', '', _msg_limpio).strip()
+        _msg_limpio = re.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_limpio).strip()
         return f"No tengo {_msg_limpio} en el catálogo."
 
     _modo = "MATCH+SIMPLE-CAT 💡"  # fracciones en MATCH, precio_unidad en estático
