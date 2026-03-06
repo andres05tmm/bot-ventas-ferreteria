@@ -376,17 +376,17 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         m = msg.lower()
 
         # Forma decimal: 2.5, 1.5, 3.5 (producida por alias)
-        match_dec = _re.search(r'(\d+)\.5\b', m)
+        match_dec = re.search(r'(\d+)\.5\b', m)
         if match_dec:
             enteros = int(match_dec.group(1))
             return enteros, "1/2", enteros + 0.5
 
-        match_dec25 = _re.search(r'(\d+)\.25\b', m)
+        match_dec25 = re.search(r'(\d+)\.25\b', m)
         if match_dec25:
             enteros = int(match_dec25.group(1))
             return enteros, "1/4", enteros + 0.25
 
-        match_dec75 = _re.search(r'(\d+)\.75\b', m)
+        match_dec75 = re.search(r'(\d+)\.75\b', m)
         if match_dec75:
             enteros = int(match_dec75.group(1))
             return enteros, "3/4", enteros + 0.75
@@ -413,7 +413,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         }
 
         # Patrón especial N-1/frac: "2-1/2", "3-1/4", etc. — extraer N directamente
-        match_guion = _re.search(r'\b(\d+)-1/(\d+)', m)
+        match_guion = re.search(r'\b(\d+)-1/(\d+)', m)
         if match_guion:
             enteros  = int(match_guion.group(1))
             divisor  = int(match_guion.group(2))
@@ -438,25 +438,25 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         frac_key = None
         # Primero buscar fracciones con "y" (garantizado mixto)
         for pat, v in map_frac_texto.items():
-            if pat in _patrones_con_y and _re.search(pat, m):
+            if pat in _patrones_con_y and re.search(pat, m):
                 frac_key = v
                 break
 
         # Si no encontró con "y", buscar fracción numérica SOLO si hay un entero antes
         if not frac_key:
             for pat, v in _patrones_fraccion_numerica:
-                match_frac = _re.search(pat, m)
+                match_frac = re.search(pat, m)
                 if match_frac:
                     # Verificar que haya un número entero ANTES de la fracción
                     texto_antes = m[:match_frac.start()].strip()
-                    if _re.search(r'\b[1-9]\d*\s+(?:galon|galones|litro|litros|y)\s*$', texto_antes):
+                    if re.search(r'\b[1-9]\d*\s+(?:galon|galones|litro|litros|y)\s*$', texto_antes):
                         frac_key = v
                         break
 
         if not frac_key:
             return None, None, None
 
-        n_enteros = next((v for pat, v in map_enteros_texto.items() if _re.search(pat, m)), None)
+        n_enteros = next((v for pat, v in map_enteros_texto.items() if re.search(pat, m)), None)
         if not n_enteros:
             return None, None, None
 
@@ -597,7 +597,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # Ej: "1/4 vinilo blanco, 1/2 laca miel, 3/4 thinner" → 3 segmentos independientes
         # Separar solo por coma. NO separar por 'y' — puede ser parte de cantidad mixta
         # Ej: '1 galón y un cuarto vinilo' NO debe partirse
-        _segmentos_raw = _re.split(r'[,\n]+', mensaje_usuario.lower())
+        _segmentos_raw = re.split(r'[,\n]+', mensaje_usuario.lower())
         _segmentos = []
         for seg in _segmentos_raw:
             seg = seg.strip()
@@ -629,16 +629,16 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # 1. Buscar candidato por cada segmento de producto (garantiza uno por producto)
         for seg in _segmentos:
             # Limpiar símbolos de puntuación y basura al inicio del segmento
-            seg = _re.sub(r'^[^\w]+', '', seg).strip()
+            seg = re.sub(r'^[^\w]+', '', seg).strip()
             # Normalizar tildes usando _normalizar (ya importada desde utils)
             seg = _normalizar(seg)
             # Quitar palabras de acción y cantidades iniciales del segmento
             palabras_raw = seg.split()
             # Saltar tokens no-alfanuméricos, palabras de acción y cantidades al inicio
             while palabras_raw and (
-                not _re.search(r'[\w\d]', palabras_raw[0]) or
+                not re.search(r'[\w\d]', palabras_raw[0]) or
                 palabras_raw[0] in _palabras_accion or
-                _re.match(r'^[\d/\.]+$', palabras_raw[0])
+                re.match(r'^[\d/\.]+$', palabras_raw[0])
             ):
                 palabras_raw = palabras_raw[1:]
             # Saltar palabras de volumen/unidad inmediatas tras la cantidad
@@ -665,7 +665,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 elif len(p) > 2 and not p.replace('.','').replace(',','').isdigit():
                     palabras_seg.append(_stem(p))  # con stemming
                     nombre_producto_encontrado = True
-                elif _re.match(r'^\d+x\d+', p):  # formatos como 3x3, 8x1
+                elif re.match(r'^\d+x\d+', p):  # formatos como 3x3, 8x1
                     palabras_seg.append(p)
                     nombre_producto_encontrado = True
                 elif nombre_producto_encontrado and p.isdigit() and 1 <= int(p) <= 999:
@@ -714,7 +714,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # 2.5 FILTRO TORNILLOS: evitar confusión entre medidas similares (6x3 vs 6x3/4)
         # Si el mensaje menciona una medida exacta como "6x3", eliminar productos con medidas
         # que la contengan pero sean diferentes (como "6x3/4", "6x3-1/2")
-        _medidas_exactas = _re.findall(r'\b(\d+)\s*[xX]\s*(\d+)\b(?![/\-])', _msg_lower)
+        _medidas_exactas = re.findall(r'\b(\d+)\s*[xX]\s*(\d+)\b(?![/\-])', _msg_lower)
         if _medidas_exactas and ("tornillo" in _msg_lower or "drywall" in _msg_lower):
             for calibre, largo_med in _medidas_exactas:
                 medida_exacta = f"{calibre}x{largo_med}"
@@ -724,7 +724,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 for nl, prod in list(combinados.items()):
                     if "tornillo" in nl or "drywall" in nl:
                         # Buscar la medida en el nombre del producto
-                        medida_prod = _re.search(r'(\d+)[xX](\d+(?:[/-]\d+(?:/\d+)?)?)', nl)
+                        medida_prod = re.search(r'(\d+)[xX](\d+(?:[/-]\d+(?:/\d+)?)?)', nl)
                         if medida_prod:
                             medida_completa = medida_prod.group(0).lower()
                             # Si la medida del producto es más larga que la buscada, es diferente
@@ -965,8 +965,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # Detectamos: "thinner N*8000" donde N es entero y el total es múltiplo de 8000.
         # CASO 1a: "N litros thinner" — el alias preserva la palabra "litros"
         #   para distinguirlo de "thinner 8000" (precio por fracción de galón).
-        _m_litros = _re.search(r'(\d+)\s+litros?\s+thinner', msg_l)
-        _m_botellas = _re.search(r'(\d+)\s+botellas?\s+thinner', msg_l)
+        _m_litros = re.search(r'(\d+)\s+litros?\s+thinner', msg_l)
+        _m_botellas = re.search(r'(\d+)\s+botellas?\s+thinner', msg_l)
         if _m_litros:
             _n_litros = int(_m_litros.group(1))
             _total_t  = _n_litros * 8000
@@ -986,7 +986,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         else:
             # CASO 2: precio por fracción de galón
             # Busca "thinner 8000" o "8000 de thinner" (precio directo, nunca ambiguo con litros)
-            _m_precio = _re.search(r'(\d[\d\.]*)\s*(?:de\s+)?thinner|thinner\s+(\d[\d\.]*)', msg_l)
+            _m_precio = re.search(r'(\d[\d\.]*)\s*(?:de\s+)?thinner|thinner\s+(\d[\d\.]*)', msg_l)
             if _m_precio:
                 precio_t = int(float(_m_precio.group(1) or _m_precio.group(2)))
                 if precio_t in tabla_thinner:
@@ -1016,7 +1016,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         msg_norm = msg_l
         for voz, frac in voz_medida:
             msg_norm = msg_norm.replace(voz, frac)
-        m = _re.search(r'(\d+)\s+tornillo[s]?\s+drywall\s+(\d+)\s+[xXpor]+\s+([\d\-/½]+)', msg_norm)
+        m = re.search(r'(\d+)\s+tornillo[s]?\s+drywall\s+(\d+)\s+[xXpor]+\s+([\d\-/½]+)', msg_norm)
         if m:
             cant   = int(m.group(1))
             cal    = m.group(2)
