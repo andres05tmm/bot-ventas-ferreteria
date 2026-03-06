@@ -633,6 +633,12 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         for seg in _segmentos:
             # Limpiar símbolos de puntuación y basura al inicio del segmento
             seg = _re.sub(r'^[^\w]+', '', seg).strip()
+            # Normalizar tildes para que "galón"=="galon", "cuánto"=="cuanto", etc.
+            # IMPORTANTE: hacerlo ANTES de tokenizar para que los sets de filtro funcionen
+            def _quitar_tildes(s):
+                import unicodedata as _ud
+                return _ud.normalize("NFD", s).encode("ascii", "ignore").decode()
+            seg = _quitar_tildes(seg)
             # Quitar palabras de acción y cantidades iniciales del segmento
             palabras_raw = seg.split()
             # Saltar tokens no-alfanuméricos, palabras de acción y cantidades al inicio
@@ -646,7 +652,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             _unidades_volumen = {"galon", "galones", "cuarto", "cuartos", "litro", "litros",
                                   "kilo", "kilos", "gramo", "gramos", "metro", "metros",
                                   "unidad", "unidades", "caja", "cajas", "bolsa", "bolsas",
-                                  "rollo", "rollos", "par", "pares"}
+                                  "rollo", "rollos", "par", "pares", "y", "un", "una",
+                                  "medio", "media", "cuarto"}
             while palabras_raw and palabras_raw[0] in _unidades_volumen:
                 palabras_raw = palabras_raw[1:]
 
