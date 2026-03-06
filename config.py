@@ -169,9 +169,10 @@ def _get_drive_disponible() -> bool:
 
 
 def _set_drive_disponible(valor: bool):
-    global _DRIVE_DISPONIBLE
+    global _DRIVE_DISPONIBLE, DRIVE_DISPONIBLE
     with _flags_lock:
         _DRIVE_DISPONIBLE = valor
+        DRIVE_DISPONIBLE  = valor
 
 
 def _get_sheets_disponible() -> bool:
@@ -180,15 +181,15 @@ def _get_sheets_disponible() -> bool:
 
 
 def _set_sheets_disponible(valor: bool):
-    global _SHEETS_DISPONIBLE
+    global _SHEETS_DISPONIBLE, SHEETS_DISPONIBLE
     with _flags_lock:
         _SHEETS_DISPONIBLE = valor
+        SHEETS_DISPONIBLE  = valor
 
 
-# Propiedades de compatibilidad: el resto del código puede seguir leyendo
-# config.DRIVE_DISPONIBLE / config.SHEETS_DISPONIBLE sin cambios,
-# pero AHORA las asignaciones directas también deben usar los setters.
-# Para compatibilidad total con código existente, mantenemos los atributos
-# de módulo pero las funciones anteriores son la vía recomendada para mutar.
+# Atributos públicos de módulo: el resto del código lee config.DRIVE_DISPONIBLE /
+# config.SHEETS_DISPONIBLE directamente. Los setters anteriores actualizan AMBOS
+# (la variable privada y este atributo público) para que los lectores directos
+# siempre vean el estado real, no el valor congelado del import inicial.
 DRIVE_DISPONIBLE   = _DRIVE_DISPONIBLE
 SHEETS_DISPONIBLE  = _SHEETS_DISPONIBLE
