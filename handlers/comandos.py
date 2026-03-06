@@ -1361,7 +1361,11 @@ async def _guardar_producto(update, context, prod: dict):
             ws.append(fila)
             wb.save(ruta)
 
-            subido = await asyncio.to_thread(subir_a_drive, ruta, "BASE_DE_DATOS_PRODUCTOS.xlsx")
+            # Renombrar archivo temporal al nombre original antes de subir
+            import shutil
+            ruta_final = "BASE_DE_DATOS_PRODUCTOS.xlsx"
+            shutil.copy(ruta, ruta_final)
+            subido = await asyncio.to_thread(subir_a_drive, ruta_final)
             excel_ok  = subido
             excel_msg = "✅ También agregado al Excel en Drive." if subido else "⚠️ No se pudo subir el Excel a Drive."
 
