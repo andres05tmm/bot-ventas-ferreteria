@@ -1,6 +1,6 @@
 """
 Configuracion central: variables de entorno, constantes y clientes de API.
-Los clientes de Google se crean una sola vez aqui (cached) para evitar
+Los clientes de Google se crean una sola vez aqui (cached, con lock thread-safe) para evitar
 parsear las credenciales JSON y autenticar en cada llamada.
 """
 
@@ -131,20 +131,23 @@ def _make_sheets_client():
 # Instancias cacheadas — se inicializan la primera vez que se usen
 _drive_service  = None
 _sheets_client  = None
+_google_init_lock = _threading.Lock()
 
 def get_drive_service():
     """Retorna el servicio de Drive, creandolo si aun no existe."""
     global _drive_service
-    if _drive_service is None:
-        _drive_service = _make_drive_service()
-    return _drive_service
+    with _google_init_lock:
+        if _drive_service is None:
+            _drive_service = _make_drive_service()
+        return _drive_service
 
 def get_sheets_client():
     """Retorna el cliente de gspread, creandolo si aun no existe."""
     global _sheets_client
-    if _sheets_client is None:
-        _sheets_client = _make_sheets_client()
-    return _sheets_client
+    with _google_init_lock:
+        if _sheets_client is None:
+            _sheets_client = _make_sheets_client()
+        return _sheets_client
 
 def reset_google_clients():
     """Fuerza recreacion de clientes Google en la proxima llamada (util tras errores de auth)."""
