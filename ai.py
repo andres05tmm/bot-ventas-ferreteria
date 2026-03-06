@@ -259,6 +259,7 @@ INFORMACION DEL NEGOCIO: {negocio_json}
 RESPUESTA: espanol, sin markdown. Fracciones legibles (1/4 no 0.25).
 SILENCIO TOTAL si es registro de venta sin ambiguedades: emite SOLO los JSON [VENTA], cero texto antes ni despues. El sistema ya muestra el resumen al cliente automaticamente.
 Texto SOLO en: (1) falta dato obligatorio como color o medida, (2) producto no encontrado en catalogo, (3) precio contradictorio, (4) el usuario hace una pregunta explicita.
+PRODUCTO NO ENCONTRADO — REGLA CRITICA: Si el MATCH no trae ese producto o trae productos que no tienen nada que ver con lo pedido, responde exactamente: "No tengo [producto] en el catalogo." NO inventes un producto similar, NO registres nada, NO sugieras alternativas a menos que el usuario lo pida.
 
 ACCIONES al final (una por producto, JSON compacto sin espacios):
 [VENTA]{{"producto":"nombre","cantidad":1,"total":21000}}[/VENTA]
@@ -665,28 +666,11 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = "MATCH:\n" + "\n".join(lineas)
             print(f"[CANDIDATOS DEBUG]\n{info_candidatos_extra}")
-        elif os.getenv("MODO_MATCH_ONLY", "false").lower() == "true":
-            # FALLBACK: MATCH no encontró nada — inyectar catálogo completo en parte dinámica
-            # Garantiza que Claude siempre tenga precios correctos aunque el MATCH falle
-            from memoria import cargar_memoria as _cm
-            _mem_fb = _cm()
-            _cat_fb = _mem_fb.get("catalogo", {})
-            if _cat_fb:
-                _lineas_fb = []
-                for _p in _cat_fb.values():
-                    _fracs = _p.get("precios_fraccion", {})
-                    _pxc   = _p.get("precio_por_cantidad")
-                    if _fracs:
-                        _lineas_fb.append(_p["nombre"] + ":" + "|".join(
-                            f'{k}={v["precio"] if isinstance(v,dict) else v}'
-                            for k, v in _fracs.items()
-                        ))
-                    elif _pxc:
-                        _lineas_fb.append(f'{_p["nombre"]}:{_pxc["precio_bajo_umbral"]}/{_pxc["precio_sobre_umbral"]}x{_pxc["umbral"]}')
-                    else:
-                        _lineas_fb.append(f'{_p["nombre"]}:{_p["precio_unidad"]}')
-                info_candidatos_extra = "CATALOGO COMPLETO (MATCH sin resultados):\n" + "\n".join(_lineas_fb)
-                print("[CANDIDATOS DEBUG] ⚠️ MATCH vacío — usando catálogo completo como fallback")
+        else:
+            # MATCH vacío: el producto no existe en el catálogo.
+            # Informar al bot para que responda "No tengo ese producto" en vez de inventar.
+            info_candidatos_extra = "MATCH: (sin resultados — producto no encontrado en catalogo)"
+            print("[CANDIDATOS DEBUG] MATCH vacío — producto no en catálogo")
 
     # ── Clientes recientes ──
     clientes_recientes_texto = ""
