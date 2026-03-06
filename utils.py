@@ -336,7 +336,7 @@ def corregir_texto_audio(texto: str) -> str:
     # Rodillo sin especificar pulgadas -> Convencional
     import re as _re2
     texto = _re2.sub(
-        r'(\d+)\s+rodillo(s?)(?!\s+(?:de\s+)?\d)',
+        r'\b(\d+)\s+rodillo(s?)\b(?!\s+(?:de\s+)?\d)',
         lambda m: f'{m.group(1)} rodillo{m.group(2)} convencional',
         texto, flags=re.IGNORECASE
     )
