@@ -22,6 +22,7 @@ from handlers.comandos import (
     comando_inventario, comando_clientes, comando_grafica, comando_fiados,
     manejar_callback_grafica, comando_sheets, comando_cerrar_dia,
     comando_reset_ventas, comando_actualizar_catalogo, comando_keepalive,
+    comando_agregar_producto,
     comando_inv, comando_stock, comando_ajuste,
     comando_compra, comando_margenes,
 )
@@ -69,8 +70,11 @@ def main():
     app.add_handler(CommandHandler("sheets",     comando_sheets))
     app.add_handler(CommandHandler("cerrar",     comando_cerrar_dia))
     app.add_handler(CommandHandler("resetventas", comando_reset_ventas))
-    app.add_handler(CommandHandler("catalogo",   comando_actualizar_catalogo))
-    app.add_handler(CommandHandler("keepalive",  comando_keepalive))
+    app.add_handler(CommandHandler("catalogo",          comando_actualizar_catalogo))
+    app.add_handler(CommandHandler("actualizar_catalogo", comando_actualizar_catalogo))
+    app.add_handler(CommandHandler("keepalive",       comando_keepalive))
+    app.add_handler(CommandHandler("agregar_producto", comando_agregar_producto))
+    app.add_handler(CommandHandler("nuevo_producto",   comando_agregar_producto))
 
     # Mensajes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))
