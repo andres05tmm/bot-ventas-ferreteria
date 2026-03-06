@@ -390,11 +390,11 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
         # Forma escrita: "2 y medio", "2 y media", "2-1/2", "2 1/2"
         map_frac_texto = {
-            r'y\s+medio': "1/2", r'y\s+media': "1/2",
+            r'y\s+medio': "1/2", r'y\s+media': "1/2", r'y\s+un\s+medio': "1/2",
             r'(?<!\d)1/2': "1/2",
-            r'y\s+cuarto': "1/4", r'(?<!\d)1/4': "1/4",
+            r'y\s+cuarto': "1/4", r'y\s+un\s+cuarto': "1/4", r'(?<!\d)1/4': "1/4",
             r'tres\s+cuartos': "3/4", r'(?<!\d)3/4': "3/4",
-            r'y\s+octavo': "1/8", r'(?<!\d)1/8': "1/8",
+            r'y\s+octavo': "1/8", r'y\s+un\s+octavo': "1/8", r'(?<!\d)1/8': "1/8",
         }
         map_enteros_texto = {
             r'\bun\b': 1, r'\buno\b': 1, r'\b1\b': 1,
