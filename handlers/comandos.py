@@ -1088,3 +1088,296 @@ async def comando_keepalive(update, context):
         f"/keepalive on  → activar\n"
         f"/keepalive off → desactivar"
     )
+
+
+# ─────────────────────────────────────────────
+# AGREGAR PRODUCTO AL CATÁLOGO
+# ─────────────────────────────────────────────
+
+CATEGORIAS_DISPONIBLES = {
+    "1": "2 Pinturas y Disolventes",
+    "2": "1 Artículos de Ferreteria",
+    "3": "3 Tornilleria",
+    "4": "4 Impermeabilizantes y Materiales de construcción",
+    "5": "5 Materiales Electricos",
+}
+
+CATEGORIAS_CON_FRACCIONES = {"2 pinturas y disolventes"}
+CATEGORIAS_TORNILLERIA    = {"3 tornilleria"}
+
+
+async def comando_agregar_producto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /agregar_producto — Inicia flujo para agregar un producto nuevo al catálogo y al Excel.
+    """
+    context.user_data["nuevo_producto"] = {}
+    context.user_data["paso_producto"]  = "nombre"
+
+    await update.message.reply_text(
+        "➕ Agregar producto nuevo\n\n"
+        "Escribe el nombre del producto:"
+    )
+
+
+async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Maneja los pasos del flujo de agregar producto.
+    Retorna True si el mensaje fue consumido por este flujo, False si no.
+    """
+    paso = context.user_data.get("paso_producto")
+    if not paso:
+        return False
+
+    texto = update.message.text.strip()
+
+    # Cancelar en cualquier momento
+    if texto.lower() in {"cancelar", "/cancelar"}:
+        context.user_data.pop("nuevo_producto", None)
+        context.user_data.pop("paso_producto", None)
+        await update.message.reply_text("❌ Cancelado.")
+        return True
+
+    prod = context.user_data.get("nuevo_producto", {})
+
+    # ── Paso 1: nombre ──
+    if paso == "nombre":
+        if len(texto) < 2:
+            await update.message.reply_text("Nombre muy corto. Escribe el nombre del producto:")
+            return True
+        prod["nombre"] = texto
+        context.user_data["nuevo_producto"] = prod
+        context.user_data["paso_producto"]  = "categoria"
+
+        cats = "\n".join(f"  {k}. {v}" for k, v in CATEGORIAS_DISPONIBLES.items())
+        await update.message.reply_text(
+            f"Producto: {texto}\n\n"
+            f"Elige la categoría:\n{cats}\n\n"
+            f"Responde con el número (1-5):"
+        )
+        return True
+
+    # ── Paso 2: categoría ──
+    if paso == "categoria":
+        if texto not in CATEGORIAS_DISPONIBLES:
+            await update.message.reply_text("Responde con un número del 1 al 5:")
+            return True
+        categoria = CATEGORIAS_DISPONIBLES[texto]
+        prod["categoria"] = categoria
+        context.user_data["nuevo_producto"] = prod
+        context.user_data["paso_producto"]  = "precio"
+
+        await update.message.reply_text(
+            f"Categoría: {categoria}\n\n"
+            f"¿Cuál es el precio de la unidad completa?\n"
+            f"(solo el número, ej: 50000)"
+        )
+        return True
+
+    # ── Paso 3: precio base ──
+    if paso == "precio":
+        try:
+            precio = float(texto.replace(",", "").replace(".", "").replace("$", ""))
+            if precio <= 0:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text("Precio inválido. Escribe solo el número (ej: 50000):")
+            return True
+
+        prod["precio_unidad"] = precio
+        context.user_data["nuevo_producto"] = prod
+        cat_lower = prod["categoria"].lower()
+
+        # Según categoría, decidir siguiente paso
+        if cat_lower in CATEGORIAS_CON_FRACCIONES:
+            context.user_data["paso_producto"] = "fracciones_3_4"
+            await update.message.reply_text(
+                f"Precio base: ${precio:,.0f}\n\n"
+                f"Es de Pinturas/Disolventes — necesito los precios por fracción.\n"
+                f"(Escribe 0 si no aplica esa fracción)\n\n"
+                f"¿Precio unitario para vender 3/4?\n"
+                f"(precio que multiplicado × 0.75 da el total)"
+            )
+        elif cat_lower in CATEGORIAS_TORNILLERIA:
+            context.user_data["paso_producto"] = "mayorista"
+            await update.message.reply_text(
+                f"Precio base: ${precio:,.0f}\n\n"
+                f"Es Tornillería — ¿cuál es el precio unitario para compras de 50 o más unidades?\n"
+                f"(Escribe 0 si no aplica precio mayorista)"
+            )
+        else:
+            context.user_data["paso_producto"] = "confirmar"
+            await _mostrar_confirmacion(update, prod)
+        return True
+
+    # ── Paso 4a: fracciones (pinturas) ──
+    for frac_paso, frac_key, frac_mult, siguiente_paso, siguiente_texto in [
+        ("fracciones_3_4", "3/4",  0.75,   "fracciones_1_2", "¿Precio unitario para vender 1/2?\n(× 0.5 = total)"),
+        ("fracciones_1_2", "1/2",  0.5,    "fracciones_1_4", "¿Precio unitario para vender 1/4?\n(× 0.25 = total)"),
+        ("fracciones_1_4", "1/4",  0.25,   "fracciones_1_8", "¿Precio unitario para vender 1/8?\n(× 0.125 = total)"),
+        ("fracciones_1_8", "1/8",  0.125,  "fracciones_1_16","¿Precio unitario para vender 1/16?\n(× 0.0625 = total)"),
+        ("fracciones_1_16","1/16", 0.0625, "confirmar",       None),
+    ]:
+        if paso == frac_paso:
+            try:
+                val = float(texto.replace(",", "").replace(".", "").replace("$", ""))
+            except ValueError:
+                await update.message.reply_text("Escribe solo el número (ej: 52000 o 0):")
+                return True
+
+            if val > 0:
+                prod.setdefault("fracciones", {})[frac_key] = val
+            context.user_data["nuevo_producto"] = prod
+            context.user_data["paso_producto"]  = siguiente_paso
+
+            if siguiente_paso == "confirmar":
+                await _mostrar_confirmacion(update, prod)
+            else:
+                total_ejemplo = round(val * frac_mult) if val > 0 else 0
+                ejemplo = f"(ej: ${val:,.0f} × {frac_mult} = ${total_ejemplo:,.0f})\n\n" if val > 0 else ""
+                await update.message.reply_text(f"{ejemplo}{siguiente_texto}")
+            return True
+
+    # ── Paso 4b: mayorista (tornillería) ──
+    if paso == "mayorista":
+        try:
+            val = float(texto.replace(",", "").replace(".", "").replace("$", ""))
+        except ValueError:
+            await update.message.reply_text("Escribe solo el número (ej: 150 o 0):")
+            return True
+
+        if val > 0:
+            prod["precio_mayorista"] = val
+        context.user_data["nuevo_producto"] = prod
+        context.user_data["paso_producto"]  = "confirmar"
+        await _mostrar_confirmacion(update, prod)
+        return True
+
+    # ── Paso final: confirmación ──
+    if paso == "confirmar":
+        if texto.lower() in {"si", "sí", "s", "yes"}:
+            await _guardar_producto(update, context, prod)
+        else:
+            context.user_data.pop("nuevo_producto", None)
+            context.user_data.pop("paso_producto", None)
+            await update.message.reply_text("❌ Cancelado. El producto no fue guardado.")
+        return True
+
+    return False
+
+
+async def _mostrar_confirmacion(update, prod: dict):
+    """Muestra resumen del producto antes de guardar."""
+    lineas = [
+        f"📦 Confirmar producto nuevo:\n",
+        f"Nombre:    {prod['nombre']}",
+        f"Categoría: {prod['categoria']}",
+        f"Precio:    ${prod['precio_unidad']:,.0f}",
+    ]
+    fracs = prod.get("fracciones", {})
+    if fracs:
+        lineas.append("Fracciones:")
+        for frac, p_unit in fracs.items():
+            mult = {"3/4":0.75,"1/2":0.5,"1/4":0.25,"1/8":0.125,"1/16":0.0625}[frac]
+            total = round(p_unit * mult)
+            lineas.append(f"  {frac}: ${total:,.0f}  (unitario: ${p_unit:,.0f})")
+    if prod.get("precio_mayorista"):
+        lineas.append(f"Mayorista: ${prod['precio_mayorista']:,.0f} (x50+)")
+
+    lineas.append("\n¿Confirmas? (si / no)")
+    await update.message.reply_text("\n".join(lineas))
+
+
+async def _guardar_producto(update, context, prod: dict):
+    """Guarda el producto en memoria.json y en BASE_DE_DATOS_PRODUCTOS.xlsx."""
+    from memoria import (cargar_memoria, guardar_memoria, invalidar_cache_memoria,
+                         _normalizar, _es_producto_con_fracciones, _es_tornillo_drywall)
+
+    mem      = cargar_memoria()
+    catalogo = mem.get("catalogo", {})
+
+    nombre       = prod["nombre"]
+    categoria    = prod["categoria"]
+    precio_unidad = prod["precio_unidad"]
+    fracs_input  = prod.get("fracciones", {})
+    p_mayorista  = prod.get("precio_mayorista")
+
+    nombre_lower = _normalizar(nombre)
+    clave        = nombre_lower.replace(" ", "_")
+
+    # Construir entrada del catálogo
+    entrada = {
+        "nombre":       nombre,
+        "nombre_lower": nombre_lower,
+        "categoria":    categoria,
+        "precio_unidad": round(precio_unidad),
+    }
+
+    if _es_tornillo_drywall(nombre) and p_mayorista:
+        entrada["precio_por_cantidad"] = {
+            "umbral":              50,
+            "precio_bajo_umbral":  round(precio_unidad),
+            "precio_sobre_umbral": round(p_mayorista),
+        }
+    elif fracs_input:
+        mult_map = {"3/4":0.75,"1/2":0.5,"1/4":0.25,"1/8":0.125,"1/16":0.0625}
+        fracs_cat = {}
+        for frac, p_unit in fracs_input.items():
+            mult = mult_map[frac]
+            fracs_cat[frac] = {"precio": round(p_unit * mult)}
+        entrada["precios_fraccion"] = fracs_cat
+
+    catalogo[clave] = entrada
+    mem["catalogo"] = catalogo
+    guardar_memoria(mem)
+    invalidar_cache_memoria()
+
+    # Agregar al Excel BASE_DE_DATOS_PRODUCTOS.xlsx
+    excel_ok  = False
+    excel_msg = ""
+    try:
+        import openpyxl
+        from drive import descargar_de_drive, subir_a_drive
+        ruta = "BASE_DE_DATOS_PRODUCTOS_temp.xlsx"
+
+        descargado = await asyncio.to_thread(descargar_de_drive, "BASE_DE_DATOS_PRODUCTOS.xlsx", ruta)
+        if descargado:
+            wb = openpyxl.load_workbook(ruta)
+            ws = wb["Datos"]
+
+            # Construir fila con el mismo formato de columnas del importador
+            fila = [""] * 22  # columnas A-V
+            fila[1]  = nombre        # col B — nombre
+            fila[3]  = categoria     # col D — categoría
+            fila[16] = round(precio_unidad)  # col Q — precio unidad
+
+            mult_map = {"3/4":17,"1/2":18,"1/4":19,"1/8":20,"1/16":21}
+            for frac, col_idx in mult_map.items():
+                if frac in fracs_input:
+                    fila[col_idx] = round(fracs_input[frac])
+
+            if p_mayorista:
+                fila[17] = round(p_mayorista)  # col R — precio mayorista (3/4 slot)
+
+            ws.append(fila)
+            wb.save(ruta)
+
+            subido = await asyncio.to_thread(subir_a_drive, ruta, "BASE_DE_DATOS_PRODUCTOS.xlsx")
+            excel_ok  = subido
+            excel_msg = "✅ También agregado al Excel en Drive." if subido else "⚠️ No se pudo subir el Excel a Drive."
+
+            import os
+            if os.path.exists(ruta):
+                os.remove(ruta)
+        else:
+            excel_msg = "⚠️ No se encontró BASE_DE_DATOS_PRODUCTOS.xlsx en Drive. Guardado solo en catálogo."
+    except Exception as e:
+        excel_msg = f"⚠️ Error actualizando Excel: {e}"
+
+    context.user_data.pop("nuevo_producto", None)
+    context.user_data.pop("paso_producto",  None)
+
+    await update.message.reply_text(
+        f"✅ Producto guardado en el catálogo.\n"
+        f"{excel_msg}\n\n"
+        f"Ya puedes registrar ventas de '{nombre}'."
+    )
