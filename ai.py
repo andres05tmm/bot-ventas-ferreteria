@@ -736,6 +736,40 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         candidatos = _garantizados_lista + _resto
         candidatos = candidatos[:max(len(_garantizados_lista), 25)]
 
+        # Filtro de relevancia: descartar candidatos que no comparten suficientes
+        # palabras con el query. Usa norm+stem para tolerar tildes y plurales.
+        # Umbral escala con cuántas palabras alfabéticas tiene el query:
+        #   0 palabras alfab (solo números como "3/8", "12"): pasa todo — el motor ya filtró
+        #   1 palabra alfab: esa palabra debe aparecer (100%)
+        #   2 palabras alfab: al menos 1 debe aparecer (50%) — flexible
+        #   3+ palabras alfab: al menos 2 deben aparecer
+        def _es_relevante(prod_nombre_lower, palabras_alfab_query):
+            if not palabras_alfab_query:
+                return True
+            nl = _normalizar(prod_nombre_lower)
+            hits = sum(
+                1 for w in palabras_alfab_query
+                if _normalizar(w) in nl or _stem_simple(_normalizar(w)) in nl
+            )
+            n = len(palabras_alfab_query)
+            umbral = 1 if n <= 2 else 2
+            return hits >= umbral
+
+        def _stem_simple(w):
+            if w.endswith("les") and len(w) > 5: return w[:-2]
+            if w.endswith("es") and len(w) > 4:  return w[:-2]
+            if w.endswith("s") and len(w) > 4:   return w[:-1]
+            return w
+
+        _palabras_alfab = [
+            w for w in palabras_clave
+            if len(w) > 2 and not w.replace("/","").replace("-","").isdigit()
+        ]
+        candidatos = [
+            p for p in candidatos
+            if _es_relevante(p.get("nombre_lower", ""), _palabras_alfab)
+        ]
+
         if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = "MATCH:\n" + "\n".join(lineas)
