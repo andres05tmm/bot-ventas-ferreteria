@@ -436,10 +436,15 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
         # Segmentar por producto para manejar multi-producto
         import re as _re_pre
+        def _norm_seg(s):
+            return (s.lower()
+                    .replace("á","a").replace("é","e").replace("í","i")
+                    .replace("ó","o").replace("ú","u").replace("ñ","n"))
+
         _segs = _re_pre.split(r',\s*', mensaje_usuario.lower())
 
         for seg in _segs:
-            seg = seg.strip()
+            seg = _norm_seg(seg).strip()
             if not seg:
                 continue
             # Buscar producto con fracciones en este segmento
@@ -473,6 +478,9 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 "TOTALES PRECALCULADOS (USA EXACTAMENTE, NO recalcules):\n"
                 + "\n".join(lineas)
             )
+            print(f"[PRECALCULADO DEBUG]\n{info_fracciones_extra}")
+        else:
+            print("[PRECALCULADO DEBUG] No se generó precalculado para este mensaje")
 
     # ── Candidatos del catálogo para este mensaje específico ──
     info_candidatos_extra = ""
