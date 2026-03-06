@@ -274,8 +274,9 @@ ACCIONES al final (una por producto, JSON compacto sin espacios):
   CORRECTO: {{"producto":"Laca Miel Catalizada","cantidad":0.25,"total":17000}}
   INCORRECTO: {{"producto":"Laca Miel Catalizada 1/4","cantidad":0.25,"total":17000}}
   INCORRECTO: {{"producto":"1/4 Laca Miel Catalizada","cantidad":0.25,"total":17000}}
-- metodo_pago si se menciona: efectivo|transferencia|datafono
+- metodo_pago SOLO si el usuario lo menciona explícitamente: efectivo|transferencia|datafono
   cash/plata=efectivo | nequi/daviplata/transfer=transferencia | tarjeta/datafono=datafono
+  NUNCA asumas metodo_pago. Si no lo dice, omite el campo metodo_pago del JSON.
 - cliente si se menciona. Fiado+metodo: cargo=total,abono=0.
 [PRECIO]{{"producto":"nombre","precio":50000}}[/PRECIO]
 [PRECIO]{{"producto":"nombre","precio":15000,"fraccion":"1/4"}}[/PRECIO]
@@ -397,11 +398,12 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             r'y\s+octavo': "1/8", r'y\s+un\s+octavo': "1/8", r'(?<!\d)1/8': "1/8",
         }
         map_enteros_texto = {
-            r'\bun\b': 1, r'\buno\b': 1, r'\b1\b': 1,
-            r'\bdos\b': 2, r'\b2\b': 2,
-            r'\btres\b': 3, r'\b3\b': 3,
-            r'\bcuatro\b': 4, r'\b4\b': 4,
-            r'\bcinco\b': 5, r'\b5\b': 5,
+            # (?!/) evita que el "1" de "1/4" active el patrón de entero
+            r'\bun\b(?!\s*/)': 1, r'\buno\b': 1, r'\b1\b(?!/)': 1,
+            r'\bdos\b': 2, r'\b2\b(?!/)': 2,
+            r'\btres\b': 3, r'\b3\b(?!/)': 3,
+            r'\bcuatro\b': 4, r'\b4\b(?!/)': 4,
+            r'\bcinco\b': 5, r'\b5\b(?!/)': 5,
         }
 
         # Patrón especial N-1/frac: "2-1/2", "3-1/4", etc. — extraer N directamente
