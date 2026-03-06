@@ -91,7 +91,12 @@ def main():
 
     if config.WEBHOOK_URL:
         print(f"🌐 Iniciando en modo WEBHOOK: {config.WEBHOOK_URL}")
-        asyncio.get_event_loop().create_task(loop_keepalive())
+
+        async def _iniciar_keepalive(app):
+            """Inicia el loop de keepalive dentro del event loop correcto (post_init)."""
+            asyncio.create_task(loop_keepalive())
+
+        app.post_init = _iniciar_keepalive
         app.run_webhook(
             listen="0.0.0.0",
             port=config.WEBHOOK_PORT,
