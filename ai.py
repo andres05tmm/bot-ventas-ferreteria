@@ -952,53 +952,52 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             except Exception:
                 pass
 
-    # ── Thinner: precalcular fraccion en Python ──
-    # CASO 1: "N litros/botellas de thinner" — el alias ya convirtió a "thinner TOTAL"
-    #   donde TOTAL = N × precio_unitario. Detectar ese patrón y generar precalculado
-    #   directamente desde litros, sin confundir el total con un precio de fracción.
-    # CASO 2: "thinner 8000" (precio por fracción de galón) — tabla normal.
+    # ── Thinner y Varsol: precalcular fraccion en Python ──
+    # CASO 1: "N litros/botellas de thinner/varsol" — el alias convirtió a "N litros/botellas thinner/varsol"
+    # CASO 2: "thinner/varsol 8000" (precio por fracción de galón) — tabla normal.
+    # Ambos productos usan la misma tabla de precios.
     thinner_calculado = ""
-    if "thinner" in msg_l:
-        tabla_thinner = {3000:"1/12",4000:"1/10",5000:"1/8",6000:"1/6",8000:"1/4",
-                         10000:"1/3",13000:"1/2",20000:"3/4",26000:"1 galon"}
-        dec_thinner   = {3000:1/12,4000:0.1,5000:0.125,6000:1/6,8000:0.25,
-                         10000:1/3,13000:0.5,20000:0.75,26000:1.0}
-        # CASO 1: litros — buscar en el mensaje ORIGINAL (antes del alias de esta llamada
-        # ya se aplicó en procesar_con_claude, pero el alias de litros deja "thinner TOTAL").
-        # Detectamos: "thinner N*8000" donde N es entero y el total es múltiplo de 8000.
-        # CASO 1a: "N litros thinner" — el alias preserva la palabra "litros"
-        #   para distinguirlo de "thinner 8000" (precio por fracción de galón).
-        _m_litros = re.search(r'(\d+)\s+litros?\s+thinner', msg_l)
-        _m_botellas = re.search(r'(\d+)\s+botellas?\s+thinner', msg_l)
+    _tabla_tv = {3000:"1/12",4000:"1/10",5000:"1/8",6000:"1/6",8000:"1/4",
+                 10000:"1/3",13000:"1/2",20000:"3/4",26000:"1 galon"}
+    _dec_tv   = {3000:1/12,4000:0.1,5000:0.125,6000:1/6,8000:0.25,
+                 10000:1/3,13000:0.5,20000:0.75,26000:1.0}
+
+    for _producto_tv in ("thinner", "varsol"):
+        if _producto_tv not in msg_l:
+            continue
+        _m_litros   = re.search(rf'(\d+)\s+litros?\s+{_producto_tv}', msg_l)
+        _m_botellas = re.search(rf'(\d+)\s+botellas?\s+{_producto_tv}', msg_l)
         if _m_litros:
-            _n_litros = int(_m_litros.group(1))
-            _total_t  = _n_litros * 8000
-            thinner_calculado = (
-                f"THINNER PRECALCULADO: {_n_litros} litro{'s' if _n_litros > 1 else ''} de thinner = "
-                f"${_total_t:,} total (cantidad={_n_litros} litros, "
-                f"precio_litro=8000). USA cantidad={_n_litros}, total={_total_t} SIN MODIFICAR."
+            _n = int(_m_litros.group(1))
+            _total_t = _n * 8000
+            thinner_calculado += (
+                f"{_producto_tv.upper()} PRECALCULADO: {_n} litro{'s' if _n > 1 else ''} = "
+                f"${_total_t:,} total (cantidad={_n} litros, precio_litro=8000). "
+                f"USA cantidad={_n}, total={_total_t} SIN MODIFICAR.\n"
             )
         elif _m_botellas:
-            _n_bot   = int(_m_botellas.group(1))
-            _total_t = _n_bot * 4000
-            thinner_calculado = (
-                f"THINNER PRECALCULADO: {_n_bot} botella{'s' if _n_bot > 1 else ''} de thinner = "
-                f"${_total_t:,} total (cantidad={_n_bot} botellas, "
-                f"precio_botella=4000). USA cantidad={_n_bot}, total={_total_t} SIN MODIFICAR."
+            _n = int(_m_botellas.group(1))
+            _total_t = _n * 4000
+            thinner_calculado += (
+                f"{_producto_tv.upper()} PRECALCULADO: {_n} botella{'s' if _n > 1 else ''} = "
+                f"${_total_t:,} total (cantidad={_n} botellas, precio_botella=4000). "
+                f"USA cantidad={_n}, total={_total_t} SIN MODIFICAR.\n"
             )
         else:
             # CASO 2: precio por fracción de galón
-            # Busca "thinner 8000" o "8000 de thinner" (precio directo, nunca ambiguo con litros)
-            _m_precio = re.search(r'(\d[\d\.]*)\s*(?:de\s+)?thinner|thinner\s+(\d[\d\.]*)', msg_l)
+            _m_precio = re.search(
+                rf'(\d[\d\.]*)\s*(?:de\s+)?{_producto_tv}|{_producto_tv}\s+(\d[\d\.]*)', msg_l
+            )
             if _m_precio:
                 precio_t = int(float(_m_precio.group(1) or _m_precio.group(2)))
-                if precio_t in tabla_thinner:
-                    frac_t = tabla_thinner[precio_t]
-                    dec_t  = dec_thinner[precio_t]
-                    thinner_calculado = (
-                        f"THINNER PRECALCULADO: ${precio_t:,} de thinner = {frac_t} galon "
-                        f"(cantidad={dec_t:.4f}, total={precio_t}). USA EXACTAMENTE estos valores."
+                if precio_t in _tabla_tv:
+                    frac_t = _tabla_tv[precio_t]
+                    dec_t  = _dec_tv[precio_t]
+                    thinner_calculado += (
+                        f"{_producto_tv.upper()} PRECALCULADO: ${precio_t:,} = {frac_t} galon "
+                        f"(cantidad={dec_t:.4f}, total={precio_t}). USA EXACTAMENTE estos valores.\n"
                     )
+    thinner_calculado = thinner_calculado.strip()
 
     # ── Tornillos drywall: precalcular precio correcto ──
     tornillo_calculado = ""
