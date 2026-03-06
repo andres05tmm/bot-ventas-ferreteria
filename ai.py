@@ -398,12 +398,16 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             r'y\s+octavo': "1/8", r'y\s+un\s+octavo': "1/8", r'(?<!\d)1/8': "1/8",
         }
         map_enteros_texto = {
-            # (?!/) evita que el "1" de "1/4" active el patrón de entero
-            r'\bun\b(?!\s*/)': 1, r'\buno\b': 1, r'\b1\b(?!/)': 1,
-            r'\bdos\b': 2, r'\b2\b(?!/)': 2,
-            r'\btres\b': 3, r'\b3\b(?!/)': 3,
-            r'\bcuatro\b': 4, r'\b4\b(?!/)': 4,
-            r'\bcinco\b': 5, r'\b5\b(?!/)': 5,
+            # Solo detectar entero si está SEPARADO de fracciones:
+            # - palabras textuales: "un", "dos", "tres"...
+            # - número seguido de espacio y luego "y" o palabra (no fracción)
+            # Ej: "1 galón y" → sí | "1/4" → no | "24 tornillos" → no
+            r'\bun\b(?!\s*/)': 1, r'\buno\b': 1,
+            r'\b1\b(?!\s*/)': 1,
+            r'\bdos\b': 2, r'\b2\b(?!\s*/)': 2,
+            r'\btres\b': 3, r'\b3\b(?!\s*/)': 3,
+            r'\bcuatro\b': 4, r'\b4\b(?!\s*/)': 4,
+            r'\bcinco\b': 5, r'\b5\b(?!\s*/)': 5,
         }
 
         # Patrón especial N-1/frac: "2-1/2", "3-1/4", etc. — extraer N directamente
@@ -416,7 +420,37 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             if frac_g:
                 return enteros, frac_g, enteros + _frac_a_dec[frac_g]
 
-        frac_key = next((v for pat, v in map_frac_texto.items() if _re.search(pat, m)), None)
+        # Detectar si hay fracción — pero SOLO las que vienen precedidas de "y"
+        # son candidatas a cantidad mixta. Las fracciones solas (1/4 laca) se ignoran.
+        _patrones_con_y = [
+            r'y\s+medio', r'y\s+media', r'y\s+un\s+medio',
+            r'y\s+cuarto', r'y\s+un\s+cuarto',
+            r'tres\s+cuartos',
+            r'y\s+octavo', r'y\s+un\s+octavo',
+        ]
+        _patrones_fraccion_numerica = [
+            (r'(?<!\d)1/2', "1/2"), (r'(?<!\d)3/4', "3/4"),
+            (r'(?<!\d)1/4', "1/4"), (r'(?<!\d)1/8', "1/8"),
+        ]
+
+        frac_key = None
+        # Primero buscar fracciones con "y" (garantizado mixto)
+        for pat, v in map_frac_texto.items():
+            if pat in _patrones_con_y and _re.search(pat, m):
+                frac_key = v
+                break
+
+        # Si no encontró con "y", buscar fracción numérica SOLO si hay un entero antes
+        if not frac_key:
+            for pat, v in _patrones_fraccion_numerica:
+                match_frac = _re.search(pat, m)
+                if match_frac:
+                    # Verificar que haya un número entero ANTES de la fracción
+                    texto_antes = m[:match_frac.start()].strip()
+                    if _re.search(r'\b[1-9]\d*\s+(?:galon|galones|litro|litros|y)\s*$', texto_antes):
+                        frac_key = v
+                        break
+
         if not frac_key:
             return None, None, None
 
@@ -626,6 +660,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                             # El primer resultado es el mejor match — garantizarlo en la lista final
                             _candidatos_garantizados[nl] = prod
                             primer = False
+                            print(f"[SEG DEBUG] seg='{seg[:30]}' frag='{fragmento}' garantizado='{prod['nombre']}'")
                         encontrado_seg = True
                     if encontrado_seg:
                         break
