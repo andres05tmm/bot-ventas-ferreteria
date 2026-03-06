@@ -1440,6 +1440,16 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     _pf_key  = (_pf_prod.get("nombre_lower", producto.lower()) if _pf_prod else producto.lower()) + f"___{fraccion}"
                     _registrar_precio_reciente(_pf_key.split("___")[0], precio, fraccion)
                     invalidar_cache_memoria()
+
+                    # Sincronizar con BASE_DE_DATOS_PRODUCTOS.xlsx en Drive (en background)
+                    from memoria import actualizar_precio_en_excel_drive as _apexd2
+                    import threading as _th
+                    _th.Thread(
+                        target=_apexd2,
+                        args=(producto, precio, fraccion),
+                        daemon=True,
+                        name=f"precio_frac_excel_{producto[:20]}",
+                    ).start()
                 else:
                     # Producto no en catálogo: guardar en precios_fraccion separado como fallback
                     mem = cargar_memoria()
@@ -1459,7 +1469,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             fraccion = datos.get("fraccion")  # opcional: "1/4", "1/2", etc.
 
             # Actualizar en catálogo (fuente única de verdad)
-            from memoria import buscar_producto_en_catalogo as _bpc
+            from memoria import buscar_producto_en_catalogo as _bpc, actualizar_precio_en_excel_drive as _apexd
             en_catalogo = actualizar_precio_en_catalogo(producto, precio, fraccion)
 
             # Registrar en RAM para override del cache de Anthropic (5 min)
@@ -1467,6 +1477,16 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             nombre_lower_pc = prod_encontrado.get("nombre_lower", producto.lower()) if prod_encontrado else producto.lower()
             _registrar_precio_reciente(nombre_lower_pc, precio, fraccion)
             invalidar_cache_memoria()
+
+            # Sincronizar con BASE_DE_DATOS_PRODUCTOS.xlsx en Drive (en background)
+            if en_catalogo:
+                import threading as _th
+                _th.Thread(
+                    target=_apexd,
+                    args=(producto, precio, fraccion),
+                    daemon=True,
+                    name=f"precio_excel_{nombre_lower_pc}",
+                ).start()
 
             if fraccion:
                 acciones.append(f"🧠 Precio actualizado: {producto} {fraccion} = ${precio:,.0f}")
