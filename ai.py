@@ -563,7 +563,16 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                         frac_este_prod = tok
                         break
             lineas_frac = []
+            # Siempre incluir precio_unidad como "1=X" primero — es el precio del
+            # galón/unidad completa. Sin esto, Claude no puede calcular fracciones
+            # mixtas como "1 galón y un cuarto" porque no tiene el precio base.
+            precio_unidad = p.get("precio_unidad", 0)
+            if precio_unidad:
+                marca_1 = "*" if frac_este_prod == "1" else ""
+                lineas_frac.append(f"1={precio_unidad}{marca_1}")
             for k, v in fracs.items():
+                if k == "1":
+                    continue  # evitar duplicar si ya está en precios_fraccion
                 precio = v['precio'] if isinstance(v, dict) else v
                 marca = "*" if k == frac_este_prod else ""
                 lineas_frac.append(f"{k}={precio}{marca}")
@@ -601,11 +610,10 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
         # Stemming mínimo: quitar 's' final para que "lijas"→"lija", "discos"→"disco"
         def _stem(w):
-            # Plurales en "es": aerosoles→aerosol, tornillos→tornillo
             if w.endswith("les") and len(w) > 5:
                 return w[:-2]   # aerosoles → aerosol
             if w.endswith("es") and len(w) > 4:
-                return w[:-2]   # brochas no aplica (termina en as), pero discos→disco
+                return w[:-2]
             if w.endswith("s") and len(w) > 4:
                 return w[:-1]   # tornillos → tornillo
             return w
