@@ -127,12 +127,6 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
     - 2 palabras: ambas deben aparecer (100%)
     - 3+ palabras: al menos 2 deben aparecer
     Las palabras de unidad (pulgada, metro, kilo...) son opcionales y no cuentan para el umbral.
-
-    MEJORAS v2:
-    1. Alias integrados  — aplica _ALIAS_SINONIMOS antes de buscar (tiner→thinner, etc.)
-    2. Búsqueda por prefijo — 5+ chars: "poliam" encuentra "poliamida" (errores de audio)
-    3. Números como palabras — "6 por 1" → "6x1" antes de comparar
-    4. Normalizar N°/No.   — "lija 80" encuentra "Lija N°80"
     """
     catalogo = cargar_memoria().get("catalogo", {})
     if not catalogo:
@@ -146,23 +140,7 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
                 .replace("ñ","n").replace("á","a").replace("é","e")
                 .replace("í","i").replace("ó","o").replace("ú","u"))
 
-    def _preprocesar(texto: str) -> str:
-        """Mejora 1+3+4: alias, números como palabras y normalizar N°."""
-        t = _norm(texto.strip())
-        # Mejora 1: aplicar alias/sinónimos
-        for alias_orig, alias_dest in _ALIAS_SINONIMOS.items():
-            alias_orig_n = _norm(alias_orig)
-            alias_dest_n = _norm(alias_dest)
-            if alias_orig_n in t and alias_dest_n not in t:
-                t = t.replace(alias_orig_n, alias_dest_n)
-        # Mejora 3: "X por Y" → "XxY" para medidas (bisagra 3 por 3 → bisagra 3x3)
-        t = _re_mem.sub(r'(\d+)\s+por\s+(\d)', r'\1x\2', t)
-        t = _re_mem.sub(r'(\d+)\s+x\s+(\d)', r'\1x\2', t)
-        # Mejora 4: normalizar N°/No./n° → solo el número (lija n°80 → lija 80)
-        t = _re_mem.sub(r'n[°o]?\s*(\d+)', r'\1', t)
-        return t
-
-    nombre_lower = _preprocesar(nombre_buscado)
+    nombre_lower = _norm(nombre_buscado.strip())
 
     def _es_token_relevante(p: str) -> bool:
         if len(p) > 2:
@@ -206,35 +184,16 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
 
     candidatos = []
     for prod in catalogo.values():
-        # Aplicar mismo preprocesamiento al nombre del catálogo para comparación justa
-        nl = _preprocesar(prod.get("nombre_lower", ""))
-
-        # Coincidencia exacta de palabra (como token completo, no substring de otro)
-        nl_tokens = set(nl.split())
-        coincidencias = 0
-        for p in palabras_producto:
-            p_stem = _stem_palabra(p)
-            if p in nl_tokens or p_stem in nl_tokens:
-                coincidencias += 1          # coincidencia exacta de token → peso máximo
-            elif p in nl or p_stem in nl:
-                coincidencias += 0.5        # substring parcial → peso reducido
-
-        coincidencias = int(coincidencias)  # redondear hacia abajo
-
-        # Mejora 2: búsqueda por prefijo (5+ chars) para errores tipográficos de audio
-        # "poliam" encuentra "poliamida", "disgo" no encuentra nada (solo 3 chars 'dis')
-        if coincidencias < min_hits:
-            for p in palabras_producto:
-                if len(p) >= 5:
-                    prefijo = p[:5]
-                    if any(tok.startswith(prefijo) for tok in nl_tokens):
-                        coincidencias += 1
-
+        nl = _norm(prod.get("nombre_lower", ""))
+        coincidencias = sum(
+            1 for p in palabras_producto
+            if p in nl or _stem_palabra(p) in nl
+        )
         if coincidencias < min_hits:
             continue
 
         # Bonus por número exacto de talla/medida
-        nl_numeros = set(_re_mem.findall(r'\d+', nl))
+        nl_numeros = set(_re_mem.findall(r'\d+', prod.get("nombre_lower","")))
         bonus_numero = sum(1 for n in numeros_busqueda if n in nl_numeros)
 
         # Penalización: si el producto empieza con fracción (ej: "1/2 cuñete")
@@ -263,41 +222,22 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
 
 # Mapa de sinónimos: palabra que dice el usuario → palabra que está en el catálogo
 _ALIAS_SINONIMOS = {
-    # ── Pintura / disolventes ──
     "imprimante":     "primario",
     "primante":       "primario",
-    "primate":        "primario",        # error Whisper frecuente
+    "primate":        "primario",    # error Whisper frecuente
     "tiner":          "thinner",
-    "thiner":         "thinner",         # typo frecuente
-    "cunete":         "cuñete",          # sin tilde
-    # "pintura"/"pinturas" omitidos — muy ambiguos, generan falsos positivos
+    "thiner":         "thinner",     # typo frecuente
+    "cunete":         "cuñete",      # sin tilde
+    "pintura":        "vinilo",
+    "pinturas":       "vinilo",
+    "lija":           "lija",
+    "lijas":          "lija",
     "silicona":       "silicona",
     "silicon":        "silicona",
-    "masking":        "cinta enmascarar",
     "cinta masking":  "cinta enmascarar",
+    "masking":        "cinta enmascarar",
     "enmascarar":     "cinta enmascarar",
     "vinipel":        "cinta",
-    "sika":           "impermeabilizante",
-    "lacca":          "laca",            # error tipográfico audio
-    "poliamila":      "poliamida",       # error Whisper
-    "poliamilla":     "poliamida",
-    "binilos":        "vinilo davinci",   # b/v frecuente en audio colombiano → apunta a Davinci
-    "binilo":         "vinilo davinci",
-    "binilas":        "vinilo",
-    "esmalte":        "esmalte",
-    # ── Ferretería ──
-    "arandeja":       "arandela",        # error Whisper muy frecuente
-    "arandejas":      "arandelas",
-    "disgo":          "disco",           # error Whisper
-    "disko":          "disco",
-    "seyadol":        "sellador",        # error Whisper
-    "plaque":         "placa",           # error audio
-    "plaket":         "placa",
-    "chazos":         "chazo",           # plural irregular
-    "puntillas":      "puntilla",
-    "grapa":          "grapa",
-    "candados":       "candado",
-    "segueta":        "sierra",
     "esquinero":      "perfil",
     "angelina":       "lana de vidrio",
     "fibra vidrio":   "lana de vidrio",
@@ -305,10 +245,12 @@ _ALIAS_SINONIMOS = {
     "empaste":        "masilla",
     "palustre":       "llana",
     "boquillera":     "masilla",
-    # ── Rodillo ──
+    "sika":           "impermeabilizante",
+    "impermeabilizante": "impermeabilizante",
+    # Rodillo convencional
     "convencional":   "rodillo convencional",
     "convencionañ":   "rodillo convencional",  # typo común
-    "convensional":   "rodillo convencional",
+    "convensional":   "rodillo convencional",  # typo común
     "rodillo normal": "rodillo convencional",
 }
 
@@ -1114,7 +1056,12 @@ def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
         return {"importados": 0, "omitidos": 0, "errores": [str(e)]}
 
     mem      = cargar_memoria()
-    catalogo = mem.get("catalogo", {})
+
+    # Limpiar el catálogo antes de importar para evitar duplicados entre
+    # el formato viejo (claves legacy como "2vinilodt1blanco") y el nuevo
+    # (snake_case como "vinilo_davinci_t1_blanco"). Si no se limpia, cada
+    # ejecución de /catalogo acumula ambas versiones del mismo producto.
+    catalogo = {}
 
     importados = 0
     omitidos   = 0
