@@ -79,14 +79,15 @@ _ALIAS_FERRETERIA = [
     # Thinner/Varsol por botellas y litros (cantidades pequeñas por precio)
     # La cantidad se MULTIPLICA por el precio unitario: "2 litros de thinner" → "thinner 16000"
     # Así Claude recibe un único segmento con el total, no "2 thinner 8000" (ambiguo).
-    (r'\b(\d+)?\s*botellas?\s+de\s+thinner\b', lambda m: f"{int(m.group(1) or 1)} botellas thinner"),
-    (r'\b(\d+)?\s*botellas?\s+de\s+varsol\b',  lambda m: f"{int(m.group(1) or 1)} botellas varsol"),
-    (r'\b(\d+)?\s*litros?\s+de\s+thinner\b',   lambda m: f"{int(m.group(1) or 1)} litros thinner"),
-    (r'\b(\d+)?\s*litros?\s+de\s+varsol\b',    lambda m: f"{int(m.group(1) or 1)} litros varsol"),
-    (r'\b(\d+)?\s*botellas?\s+thinner\b',       lambda m: f"{int(m.group(1) or 1)} botellas thinner"),
-    (r'\b(\d+)?\s*botellas?\s+varsol\b',        lambda m: f"{int(m.group(1) or 1)} botellas varsol"),
-    (r'\b(\d+)?\s*litros?\s+thinner\b',         lambda m: f"{int(m.group(1) or 1)} litros thinner"),
-    (r'\b(\d+)?\s*litros?\s+varsol\b',          lambda m: f"{int(m.group(1) or 1)} litros varsol"),
+    # NOTA: (?:una?\s+)? consume el artículo "una"/"un" para evitar "una1 botellas thinner"
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+de\s+thinner\b', lambda m: f"{int(m.group(1) or 1)} botellas thinner"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+de\s+varsol\b',  lambda m: f"{int(m.group(1) or 1)} botellas varsol"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+de\s+thinner\b',   lambda m: f"{int(m.group(1) or 1)} litros thinner"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+de\s+varsol\b',    lambda m: f"{int(m.group(1) or 1)} litros varsol"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+thinner\b',       lambda m: f"{int(m.group(1) or 1)} botellas thinner"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+varsol\b',        lambda m: f"{int(m.group(1) or 1)} botellas varsol"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+thinner\b',         lambda m: f"{int(m.group(1) or 1)} litros thinner"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+varsol\b',          lambda m: f"{int(m.group(1) or 1)} litros varsol"),
     # Thinner/Varsol por galones (cantidades >= 1/2 galón)
     # "1-1/2 galón de thinner", "1 y medio galón de thinner", "2-1/2 galones thinner"
     (r'\b(\d+)\s*-\s*1/2\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
@@ -343,6 +344,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                  "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en",
                  "galon", "galones", "litro", "litros", "kilo", "kilos", "metro", "metros",
                  "pulgada", "pulgadas", "unidad", "unidades",
+                 "botella", "botellas",
                  "vendi", "vendo", "vendimos", "dame", "quiero", "necesito", "par",
                  # palabras de cantidad fraccionaria — no son nombre de producto
                  "y", "un", "cuarto", "medio", "media", "octavo", "tres"}
@@ -646,6 +648,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                                   "kilo", "kilos", "gramo", "gramos", "metro", "metros",
                                   "unidad", "unidades", "caja", "cajas", "bolsa", "bolsas",
                                   "rollo", "rollos", "par", "pares", "y", "un", "una",
+                                  "botella", "botellas",
                                   "medio", "media", "cuarto"}
             while palabras_raw and palabras_raw[0] in _unidades_volumen:
                 palabras_raw = palabras_raw[1:]
