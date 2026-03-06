@@ -1100,7 +1100,9 @@ def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
                 }
 
             elif _es_producto_con_fracciones(nombre, categoria):
-                # Calcular precios totales por fraccion multiplicando precio_unitario x fraccion
+                # Las columnas tienen el precio UNITARIO aplicable a esa fraccion.
+                # El precio total = precio_columna x fraccion
+                # Ej: col 1/2 = 52000 → precio total 1/2 galon = 52000 x 0.5 = 26000
                 fracs = {}
                 if p_075 and isinstance(p_075, (int, float)) and p_075 > 0:
                     fracs["3/4"]  = {"precio": round(float(p_075) * 0.75)}
