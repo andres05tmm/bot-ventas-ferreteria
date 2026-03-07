@@ -201,6 +201,7 @@ PRECIOS: numero al final ES el total, NUNCA multipliques por defecto.
 "2 brochas 8000"->8000|"15 tornillos 14000"->14000|"1/2 vinilo 21000"->21000
 Multiplica SOLO si dice "c/u","cada uno/a","por unidad".
 FRACCIONES: 1/4=0.25|1/2=0.5|3/4=0.75|1/8=0.125|1/16=0.0625. Precio=total.
+ALIAS FRACCIONES para [PRECIO_FRACCION]: litro=1/4|botella=1/8|media botella=1/16|mayorista=usa precio_por_cantidad no fraccion.
 MIXTAS — REGLA CRITICA:
 Cantidades como "2 y 1/2", "1-1/4", "3 y medio" = enteros + fraccion.
 PASO 1: Identificar parte entera y fraccion (2-1/2 = 2 enteros + 1/2)
@@ -227,6 +228,10 @@ THINNER y VARSOL: DOS FORMAS DE VENTA.
    Precios: 1=26000|3/4=20000|1/2=13000
    Cantidades mixtas: "1-1/2 galon"=1+0.5=1.5 galones → (1×26000)+(13000)=39000
    "2 y medio galones"=2+0.5=2.5 galones → (2×26000)+(13000)=65000
+ALIAS DE FRACCION (thinner/varsol): litro=1/4|botella=1/8|media botella=1/16|cuarto=1/4
+Cuando alguien diga "cambia el precio del litro de thinner" → fraccion="1/4"
+Cuando alguien diga "cambia el precio de la botella de thinner" → fraccion="1/8"
+Estas equivalencias aplican SOLO para cambios de precio [PRECIO_FRACCION], no para ventas.
 
 CUNETES(4gal,NO galon): T1=220000|T2=170000|T3=100000. "2 cunetes t1"->440000.
 MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=90000|T3=60000.
