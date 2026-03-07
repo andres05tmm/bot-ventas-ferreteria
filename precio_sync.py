@@ -654,9 +654,30 @@ def verificar_consistencia() -> dict:
             continue
 
         diffs = []
-        if pm.get("precio_unidad") != pe.get("precio_unidad"):
-            diffs.append(f"precio_unidad: mem={pm.get('precio_unidad')} xls={pe.get('precio_unidad')}")
 
+        # ── Precio unidad ────────────────────────────────────────────────────
+        pu_m = pm.get("precio_unidad")
+        pu_x = pe.get("precio_unidad")
+        if pu_m != pu_x:
+            diffs.append(f"precio_unidad: mem={pu_m} xls={pu_x}")
+
+        # ── Precio por cantidad / mayorista (tornillería) ────────────────────
+        pxc_m = pm.get("precio_por_cantidad", {})
+        pxc_x = pe.get("precio_por_cantidad", {})
+        if pxc_m or pxc_x:
+            # Comparar precio normal (bajo umbral)
+            pb_m = pxc_m.get("precio_bajo_umbral") if pxc_m else None
+            pb_x = pxc_x.get("precio_bajo_umbral") if pxc_x else None
+            if pb_m != pb_x:
+                diffs.append(f"precio_normal: mem={pb_m} xls={pb_x}")
+            # Comparar precio mayorista (sobre umbral)
+            ps_m = pxc_m.get("precio_sobre_umbral") if pxc_m else None
+            ps_x = pxc_x.get("precio_sobre_umbral") if pxc_x else None
+            if ps_m != ps_x:
+                umbral = pxc_m.get("umbral") or pxc_x.get("umbral") or UMBRAL_TORNILLERIA
+                diffs.append(f"precio_mayorista (x{umbral}+): mem={ps_m} xls={ps_x}")
+
+        # ── Fracciones (pinturas, ferretería) ────────────────────────────────
         fracs_m = pm.get("precios_fraccion", {})
         fracs_x = pe.get("precios_fraccion", {})
         for lbl in set(list(fracs_m) + list(fracs_x)):
@@ -753,15 +774,19 @@ def generar_reporte_discrepancias(resultado: dict, ruta: str = "reporte_discrepa
         for d in diferentes:
             nombre = d["nombre"]
             for diff in d["diffs"]:
-                # "precio_unidad: mem=7000 xls=8000"
-                # "fraccion 1/2: mem=26000 xls=None"
-                partes = diff.split(": ", 1)
-                campo  = partes[0] if partes else diff
+                # Formato: "campo_label: mem=VALOR xls=VALOR"
+                partes  = diff.split(": ", 1)
+                campo   = partes[0] if partes else diff
                 valores = partes[1] if len(partes) > 1 else ""
                 mem_val = valores.split(" xls=")[0].replace("mem=", "") if " xls=" in valores else ""
                 xls_val = valores.split(" xls=")[1] if " xls=" in valores else ""
+                # Etiqueta legible según campo
                 if "fraccion" in campo:
                     tipo = f"Fracción {campo.replace('fraccion ', '').strip()}"
+                elif "mayorista" in campo:
+                    tipo = campo  # ya viene legible: "precio_mayorista (x50+)"
+                elif "precio_normal" in campo:
+                    tipo = "Precio normal (unidad)"
                 else:
                     tipo = "Precio unidad"
                 filas.append([nombre, tipo, mem_val, xls_val])
