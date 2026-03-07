@@ -1035,6 +1035,51 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
         await update.message.reply_text(f"❌ Error importando: {e}")
 
 
+
+async def comando_consistencia(update, context):
+    """
+    /consistencia — Compara precios entre memoria.json y BASE_DE_DATOS_PRODUCTOS.xlsx en Drive.
+    Útil para detectar desincronizaciones.
+    """
+    await update.message.reply_text("🔍 Verificando consistencia entre memoria y Excel…")
+    try:
+        from precio_sync import verificar_consistencia
+        resultado = await asyncio.to_thread(verificar_consistencia)
+
+        if "error" in resultado:
+            await update.message.reply_text(f"❌ Error: {resultado['error']}")
+            return
+
+        iguales   = resultado["iguales"]
+        diferentes = resultado["diferentes"]
+        solo_mem  = resultado["solo_memoria"]
+        solo_xls  = resultado["solo_excel"]
+
+        texto = f"📊 *Consistencia de precios*\n\n"
+        texto += f"✅ Iguales: {iguales}\n"
+        texto += f"⚠️ Con diferencias: {len(diferentes)}\n"
+        if solo_mem:
+            texto += f"🧠 Solo en memoria: {len(solo_mem)}\n"
+        if solo_xls:
+            texto += f"📋 Solo en Excel: {len(solo_xls)}\n"
+
+        if diferentes:
+            texto += "\n*Diferencias encontradas:*\n"
+            for d in diferentes[:10]:
+                texto += f"• {d['nombre']}\n"
+                for diff in d["diffs"][:2]:
+                    texto += f"  → {diff}\n"
+            if len(diferentes) > 10:
+                texto += f"  …y {len(diferentes)-10} más\n"
+
+        if not diferentes and not solo_mem and not solo_xls:
+            texto += "\n🎉 ¡Todo sincronizado correctamente!"
+
+        await update.message.reply_text(texto, parse_mode="Markdown")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error en verificación: {e}")
+
+
 async def comando_keepalive(update, context):
     """
     /keepalive        → muestra estado actual
