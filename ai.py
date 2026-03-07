@@ -228,10 +228,9 @@ THINNER y VARSOL: DOS FORMAS DE VENTA.
    Precios: 1=26000|3/4=20000|1/2=13000
    Cantidades mixtas: "1-1/2 galon"=1+0.5=1.5 galones → (1×26000)+(13000)=39000
    "2 y medio galones"=2+0.5=2.5 galones → (2×26000)+(13000)=65000
-ALIAS DE FRACCION (thinner/varsol): litro=1/4|botella=1/8|media botella=1/16|cuarto=1/4
-Cuando alguien diga "cambia el precio del litro de thinner" → fraccion="1/4"
-Cuando alguien diga "cambia el precio de la botella de thinner" → fraccion="1/8"
-Estas equivalencias aplican SOLO para cambios de precio [PRECIO_FRACCION], no para ventas.
+ALIAS DE FRACCION (thinner/varsol): litro=1/4 galon|botella=1/8 galon|media botella=1/16 galon|cuarto=1/4 galon
+VENTAS con alias: "1 litro thinner"=1/4 galon thinner=8000|"1 botella thinner"=1/8 galon thinner=5000|"2 litros thinner"=2×8000=16000
+PRECIO [PRECIO_FRACCION] con alias: "cambia litro de thinner a X" → fraccion="1/4"|"botella de thinner a X" → fraccion="1/8"
 
 CUNETES(4gal,NO galon): T1=220000|T2=170000|T3=100000. "2 cunetes t1"->440000.
 MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=90000|T3=60000.
