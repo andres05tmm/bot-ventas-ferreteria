@@ -633,6 +633,7 @@ def verificar_consistencia() -> dict:
         _limpiar(ruta_tmp)
         return {"error": f"No se pudo leer el Excel: {e}"}
 
+    from utils import _normalizar
     from memoria import cargar_memoria
 
     catalogo = cargar_memoria().get("catalogo", {})
@@ -679,3 +680,128 @@ def verificar_consistencia() -> dict:
             resultado["solo_excel"].append(pe["nombre"])
 
     return resultado
+
+
+def generar_reporte_discrepancias(resultado: dict, ruta: str = "reporte_discrepancias.xlsx") -> str:
+    """
+    Genera un Excel con una pestaña por tipo de discrepancia.
+    Recibe el dict de verificar_consistencia() o cualquier función que devuelva
+    {diferentes, solo_memoria, solo_excel, sin_match (opcional)}.
+    Retorna la ruta del archivo generado.
+
+    Pestañas generadas (solo si tienen datos):
+      - Diferencias de precio   : productos con precio distinto entre memoria y Excel
+      - Solo en memoria         : están en el bot pero no en el Excel
+      - Solo en Excel           : están en el Excel pero no en el bot
+      - No encontrados en Excel : solo para exportar_precios (sin_match)
+    """
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from datetime import datetime
+    import config
+
+    def _estilo_header(celda, color="1A1A1A"):
+        celda.font      = Font(bold=True, color="FFFFFF", size=11)
+        celda.fill      = PatternFill("solid", fgColor=color)
+        celda.alignment = Alignment(horizontal="center", vertical="center")
+        celda.border    = Border(bottom=Side(style="thin", color="FFFFFF"))
+
+    def _crear_hoja(wb, titulo, encabezados, filas, color_header="1A56DB"):
+        ws = wb.create_sheet(title=titulo[:31])
+        # Título fusionado
+        ws.merge_cells(f"A1:{get_column_letter(len(encabezados))}1")
+        c = ws.cell(row=1, column=1, value=titulo)
+        c.font      = Font(bold=True, color="FFFFFF", size=13)
+        c.fill      = PatternFill("solid", fgColor=color_header)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 28
+
+        # Encabezados
+        for col, enc in enumerate(encabezados, 1):
+            celda = ws.cell(row=2, column=col, value=enc)
+            _estilo_header(celda)
+        ws.row_dimensions[2].height = 22
+
+        # Datos
+        for i, fila in enumerate(filas, 3):
+            for col, val in enumerate(fila, 1):
+                celda = ws.cell(row=i, column=col, value=val)
+                celda.alignment = Alignment(horizontal="left", vertical="center")
+                if i % 2 == 0:
+                    celda.fill = PatternFill("solid", fgColor="EFF6FF")
+
+        # Anchos automáticos
+        for col in range(1, len(encabezados) + 1):
+            max_len = max(
+                (len(str(ws.cell(r, col).value or "")) for r in range(1, ws.max_row + 1)),
+                default=10
+            )
+            ws.column_dimensions[get_column_letter(col)].width = min(max_len + 4, 60)
+
+        return ws
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # quitar hoja vacía por defecto
+
+    fecha = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d %H:%M")
+    hojas_creadas = 0
+
+    # ── Pestaña 1: Diferencias de precio ────────────────────────────────────
+    diferentes = resultado.get("diferentes", [])
+    if diferentes:
+        filas = []
+        for d in diferentes:
+            nombre = d["nombre"]
+            for diff in d["diffs"]:
+                # "precio_unidad: mem=7000 xls=8000"
+                # "fraccion 1/2: mem=26000 xls=None"
+                partes = diff.split(": ", 1)
+                campo  = partes[0] if partes else diff
+                valores = partes[1] if len(partes) > 1 else ""
+                mem_val = valores.split(" xls=")[0].replace("mem=", "") if " xls=" in valores else ""
+                xls_val = valores.split(" xls=")[1] if " xls=" in valores else ""
+                if "fraccion" in campo:
+                    tipo = f"Fracción {campo.replace('fraccion ', '').strip()}"
+                else:
+                    tipo = "Precio unidad"
+                filas.append([nombre, tipo, mem_val, xls_val])
+        _crear_hoja(wb, "Diferencias de precio",
+                    ["Producto", "Campo", "Precio Memoria", "Precio Excel"],
+                    filas, color_header="B45309")
+        hojas_creadas += 1
+
+    # ── Pestaña 2: Solo en memoria ───────────────────────────────────────────
+    solo_mem = resultado.get("solo_memoria", [])
+    if solo_mem:
+        filas = [[nombre] for nombre in sorted(solo_mem)]
+        _crear_hoja(wb, "Solo en memoria",
+                    ["Producto (en bot, no en Excel)"],
+                    filas, color_header="7C3AED")
+        hojas_creadas += 1
+
+    # ── Pestaña 3: Solo en Excel ─────────────────────────────────────────────
+    solo_xls = resultado.get("solo_excel", [])
+    if solo_xls:
+        filas = [[nombre] for nombre in sorted(solo_xls)]
+        _crear_hoja(wb, "Solo en Excel",
+                    ["Producto (en Excel, no en bot)"],
+                    filas, color_header="065F46")
+        hojas_creadas += 1
+
+    # ── Pestaña 4: No encontrados en Excel (exportar_precios) ───────────────
+    sin_match = resultado.get("sin_match", [])
+    if sin_match:
+        filas = [[nombre] for nombre in sorted(sin_match)]
+        _crear_hoja(wb, "No encontrados en Excel",
+                    ["Producto (en bot, sin fila en Excel)"],
+                    filas, color_header="9F1239")
+        hojas_creadas += 1
+
+    if hojas_creadas == 0:
+        # Todo OK — crear hoja de confirmación
+        ws = wb.create_sheet(title="Todo sincronizado")
+        ws.cell(1, 1, f"✅ Sin discrepancias al {fecha}")
+        ws.column_dimensions["A"].width = 40
+
+    wb.save(ruta)
+    return ruta
