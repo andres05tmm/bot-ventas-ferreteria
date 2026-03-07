@@ -199,8 +199,8 @@ CLIENTES: pregunta SOLO si mensaje tiene "cliente","para X","a nombre de","factu
 PRECIOS: numero al final ES el total, NUNCA multipliques por defecto.
 "2 brochas 8000"->8000|"15 tornillos 14000"->14000|"1/2 vinilo 21000"->21000
 Multiplica SOLO si dice "c/u","cada uno/a","por unidad".
-CRITICO — UNIDAD SUELTA: si el MATCH tiene "unidad_suelta" y el mensaje NO dice "kilo/kilos/kg/medio kilo" → usar precio unidad_suelta × cantidad. NUNCA usar precio_unidad(kilo) en ese caso.
-"2 wayper blanco"(unidad_suelta=700) → total=1400. "1 kilo wayper blanco" → total=10000.
+CRITICO — UNIDAD SUELTA: si el MATCH de CUALQUIER producto tiene "unidad_suelta" y el mensaje NO dice "kilo/kilos/kg/medio kilo" → usar precio unidad_suelta × cantidad. NUNCA usar precio_unidad(kilo).
+Ejemplos: "2 wayper blanco"(unidad_suelta=700)→1400 | "3 wayper de color"(unidad_suelta=500)→1500 | "1 kilo wayper"→precio_unidad.
 FRACCIONES: 1/4=0.25|1/2=0.5|3/4=0.75|1/8=0.125|1/16=0.0625. Precio=total.
 ALIAS FRACCIONES para [PRECIO_FRACCION]: litro=1/4|botella=1/8|media botella=1/16|mayorista=usa precio_por_cantidad no fraccion.
 MIXTAS — REGLA CRITICA:
