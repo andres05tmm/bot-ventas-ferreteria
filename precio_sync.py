@@ -67,16 +67,21 @@ _IDX_UNIDAD    = 16   # Col Q
 # header_str → (col_idx_base0, decimal_real, label)
 # "0.13" y "0.06" son aproximaciones de 1/8 y 1/16 (los headers del Excel
 # están redondeados, pero los decimales reales son 0.125 y 0.0625)
+# "Precio de venta 8" → col W (idx 22) → label "unidad_suelta"
+#   Para productos como WAYPER que se venden también por unidad individual.
+#   decimal_real = None → el valor de la celda ES el precio total directamente.
 _HEADER_MAP: dict[str, tuple[int, float, str]] = {
-    "0.75": (17, 0.75,   "3/4"),
-    "0.5":  (18, 0.5,    "1/2"),
-    "0.25": (19, 0.25,   "1/4"),
-    "0.13": (20, 0.125,  "1/8"),
-    "0.06": (21, 0.0625, "1/16"),
-    "0.1":  (22, 0.1,    "1/10"),
+    "0.75":             (17, 0.75,   "3/4"),
+    "0.5":              (18, 0.5,    "1/2"),
+    "0.25":             (19, 0.25,   "1/4"),
+    "0.13":             (20, 0.125,  "1/8"),
+    "0.06":             (21, 0.0625, "1/16"),
+    "0.1":              (22, 0.1,    "1/10"),
+    "precio de venta 8":(23, None,   "unidad_suelta"),  # col X, precio directo
 }
 
 # label → (decimal_real, col_idx_base0) — índice inverso
+# decimal_real puede ser None para "unidad_suelta" (precio directo)
 _LABEL_MAP: dict[str, tuple[float, int]] = {
     label: (dec, idx) for _, (idx, dec, label) in _HEADER_MAP.items()
 }
@@ -194,19 +199,29 @@ def construir_producto_desde_fila(row: tuple, col_headers: list) -> Optional[dic
             }
 
     # ── Resto: fracciones directas (celda = total, solo si < precio_unidad) ──
+    # También incluye "unidad_suelta" (Precio de venta 8) si tiene valor.
     else:
         fracs = {}
         for i, header in enumerate(col_headers):
             if i == _IDX_UNIDAD:
                 continue
-            info = _HEADER_MAP.get(str(header).strip())
+            info = _HEADER_MAP.get(str(header).strip().lower())
+            if not info:
+                # También buscar sin importar mayúsculas
+                info = _HEADER_MAP.get(str(header).strip())
             if not info:
                 continue
             idx, decimal_real, label = info
             v = _num(row[i]) if i < len(row) else None
             if v is None:
                 continue
-            if v < p_unidad:   # solo si es menor → tiene sentido como fracción
+            # unidad_suelta: decimal_real es None, valor = precio total directo
+            if decimal_real is None:
+                fracs[label] = {
+                    "precio":  round(v),
+                    "decimal": None,
+                }
+            elif v < p_unidad:   # fracción normal: solo si es menor al precio unidad
                 fracs[label] = {
                     "precio":  round(v),
                     "decimal": decimal_real,
@@ -325,6 +340,7 @@ def _valor_para_celda(precio_total: float, fraccion: Optional[str], cat: str) ->
 
     Para pinturas/impermeabilizantes la celda almacena precio UNITARIO:
       valor_celda = precio_total / decimal
+    Para unidad_suelta (decimal=None): se escribe el precio directamente.
     Para el resto (tornillería, ferretería) la celda almacena el valor tal cual.
     """
     if not fraccion or fraccion == "1":
@@ -333,6 +349,9 @@ def _valor_para_celda(precio_total: float, fraccion: Optional[str], cat: str) ->
     if info is None:
         return round(precio_total)
     decimal_real = info[0]
+    if decimal_real is None:
+        # unidad_suelta → precio directo
+        return round(precio_total)
     if _es_galon(cat) and decimal_real > 0:
         return round(precio_total / decimal_real)
     return round(precio_total)
