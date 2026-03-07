@@ -252,6 +252,7 @@ NUNCA interpretar "3 rodillos" como "Rodillo de 3"" — el 3 es CANTIDAD, no med
 BISAGRA 3x3 sin material=PAR$4500(INOX solo si dice "inox"/"inoxidable").
 SELLADOR=Corriente. AEROSOL=normal$9000("alta temperatura" solo si lo dice).
 MULTI-PRODUCTO(3+): registra TODO sin preguntar. Sin color->total:0,indica pendiente.
+HISTORIAL: los mensajes anteriores son SOLO contexto (cliente activo, corrección en curso, respuesta a pregunta pendiente). NUNCA re-preguntes ni re-proceses productos de mensajes ya cerrados. PROCESA ÚNICAMENTE el último mensaje del usuario.
 
 INFORMACION DEL NEGOCIO: {negocio_json}
 
@@ -1712,3 +1713,4 @@ async def procesar_acciones_async(texto_respuesta: str, vendedor: str, chat_id: 
         None,
         lambda: procesar_acciones(texto_respuesta, vendedor, chat_id)
     )
+  
