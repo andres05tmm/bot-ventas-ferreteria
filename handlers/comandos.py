@@ -1055,7 +1055,13 @@ async def comando_consistencia(update, context):
         solo_mem  = resultado["solo_memoria"]
         solo_xls  = resultado["solo_excel"]
 
-        texto = f"📊 *Consistencia de precios*\n\n"
+        def _esc(s):
+            # Escapa caracteres especiales de Markdown de Telegram
+            for ch in ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
+                s = s.replace(ch, f"\\{ch}")
+            return s
+
+        texto = "📊 Consistencia de precios\n\n"
         texto += f"✅ Iguales: {iguales}\n"
         texto += f"⚠️ Con diferencias: {len(diferentes)}\n"
         if solo_mem:
@@ -1064,18 +1070,18 @@ async def comando_consistencia(update, context):
             texto += f"📋 Solo en Excel: {len(solo_xls)}\n"
 
         if diferentes:
-            texto += "\n*Diferencias encontradas:*\n"
+            texto += "\nDiferencias encontradas:\n"
             for d in diferentes[:10]:
-                texto += f"• {d['nombre']}\n"
+                texto += f"• {_esc(d['nombre'])}\n"
                 for diff in d["diffs"][:2]:
-                    texto += f"  → {diff}\n"
+                    texto += f"  → {_esc(diff)}\n"
             if len(diferentes) > 10:
                 texto += f"  …y {len(diferentes)-10} más\n"
 
         if not diferentes and not solo_mem and not solo_xls:
             texto += "\n🎉 ¡Todo sincronizado correctamente!"
 
-        await update.message.reply_text(texto, parse_mode="Markdown")
+        await update.message.reply_text(texto)
     except Exception as e:
         await update.message.reply_text(f"❌ Error en verificación: {e}")
 
