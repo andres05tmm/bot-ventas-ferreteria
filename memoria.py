@@ -1044,95 +1044,15 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
 
 def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
     """
-    Lee BASE_DE_DATOS_PRODUCTOS.xlsx e importa todos los productos al catálogo en memoria.
-    Retorna {"importados": N, "omitidos": N, "errores": [...]}
+    Lee BASE_DE_DATOS_PRODUCTOS.xlsx e importa todos los productos al catálogo.
+    Delega a precio_sync que maneja correctamente:
+      - Campo "decimal" SIEMPRE presente en precios_fraccion.
+      - Pinturas/Impermeabilizantes: total = col_value × decimal_real.
+      - Tornillería Cat 3: precio_por_cantidad con umbral=50.
+      - Ferretería con cols extra: precios_fraccion directos.
     """
-    import openpyxl
-    try:
-        wb = openpyxl.load_workbook(ruta_excel, data_only=True)
-        ws = wb['Datos']
-    except Exception as e:
-        return {"importados": 0, "omitidos": 0, "errores": [str(e)]}
-
-    mem      = cargar_memoria()
-
-    # Limpiar el catálogo antes de importar para evitar duplicados entre
-    # el formato viejo (claves legacy como "2vinilodt1blanco") y el nuevo
-    # (snake_case como "vinilo_davinci_t1_blanco"). Si no se limpia, cada
-    # ejecución de /catalogo acumula ambas versiones del mismo producto.
-    catalogo = {}
-
-    importados = 0
-    omitidos   = 0
-    errores    = []
-
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        try:
-            nombre    = str(row[1] or "").strip()
-            categoria = str(row[3] or "").strip()
-            p_unidad  = row[16]   # COL 17 — precio 1 unidad / galon
-            p_075     = row[17]   # COL 18 — precio unitario para 3/4
-            p_05      = row[18]   # COL 19 — precio unitario para 1/2
-            p_025     = row[19]   # COL 20 — precio unitario para 1/4
-            p_013     = row[20]   # COL 21 — precio unitario para 1/8
-            p_006     = row[21]   # COL 22 — precio unitario para 1/16
-
-            if not nombre or nombre == "nan":
-                omitidos += 1
-                continue
-            if not p_unidad or not isinstance(p_unidad, (int, float)) or p_unidad <= 0:
-                omitidos += 1
-                continue
-
-            nombre_lower = _normalizar(nombre)
-            clave        = nombre_lower.replace(" ", "_")
-
-            prod_base = {
-                "nombre":      nombre,
-                "nombre_lower": nombre_lower,
-                "categoria":   categoria,
-                "precio_unidad": round(float(p_unidad)),
-            }
-
-            if _es_tornillo_drywall(nombre):
-                # Precio especial cuando compra >= 50 unidades
-                precio_x50 = round(float(p_075)) if p_075 and isinstance(p_075, (int, float)) and p_075 > 0 else round(float(p_unidad))
-                prod_base["precio_por_cantidad"] = {
-                    "umbral":               50,
-                    "precio_bajo_umbral":   round(float(p_unidad)),
-                    "precio_sobre_umbral":  precio_x50,
-                }
-
-            elif _es_producto_con_fracciones(nombre, categoria):
-                # Las columnas tienen el precio UNITARIO aplicable a esa fraccion.
-                # El precio total = precio_columna x fraccion
-                # Ej: col 1/2 = 52000 → precio total 1/2 galon = 52000 x 0.5 = 26000
-                fracs = {}
-                if p_075 and isinstance(p_075, (int, float)) and p_075 > 0:
-                    fracs["3/4"]  = {"precio": round(float(p_075) * 0.75)}
-                if p_05 and isinstance(p_05, (int, float)) and p_05 > 0:
-                    fracs["1/2"]  = {"precio": round(float(p_05)  * 0.5)}
-                if p_025 and isinstance(p_025, (int, float)) and p_025 > 0:
-                    fracs["1/4"]  = {"precio": round(float(p_025) * 0.25)}
-                if p_013 and isinstance(p_013, (int, float)) and p_013 > 0:
-                    fracs["1/8"]  = {"precio": round(float(p_013) * 0.125)}
-                if p_006 and isinstance(p_006, (int, float)) and p_006 > 0:
-                    fracs["1/16"] = {"precio": round(float(p_006) * 0.0625)}
-                if fracs:
-                    prod_base["precios_fraccion"] = fracs
-
-            catalogo[clave] = prod_base
-            importados += 1
-
-        except Exception as e:
-            errores.append(f"{row[1]}: {e}")
-
-    mem["catalogo"] = catalogo
-    guardar_memoria(mem)
-    invalidar_cache_memoria()
-
-    return {"importados": importados, "omitidos": omitidos, "errores": errores[:10]}
-
+    from precio_sync import importar_catalogo_desde_excel as _importar
+    return _importar(ruta_excel)
 
 # ─────────────────────────────────────────────
 # SINCRONIZACIÓN DE PRECIO → BASE_DE_DATOS_PRODUCTOS.xlsx
@@ -1144,104 +1064,8 @@ def actualizar_precio_en_excel_drive(
     fraccion: str = None,
 ) -> tuple[bool, str]:
     """
-    Descarga BASE_DE_DATOS_PRODUCTOS.xlsx desde Drive, actualiza el precio del
-    producto en la fila correspondiente y vuelve a subir el archivo.
-
-    La columna que se actualiza depende de 'fraccion':
-      None / "1"   → col Q (índice 16) — precio unidad / galón completo
-      "3/4"        → col R (índice 17) — precio unitario 3/4  (total/0.75)
-      "1/2"        → col S (índice 18) — precio unitario 1/2  (total/0.5)
-      "1/4"        → col T (índice 19) — precio unitario 1/4  (total/0.25)
-      "1/8"        → col U (índice 20) — precio unitario 1/8  (total/0.125)
-      "1/16"       → col V (índice 21) — precio unitario 1/16 (total/0.0625)
-
-    El importador guarda el PRECIO UNITARIO (no el total de la fracción), así que
-    para fracciones recalculamos: precio_unitario = total_fraccion / decimal_fraccion.
-
-    Retorna (True, "") si todo salió bien, (False, mensaje_error) si falló.
+    DEPRECATED — mantenida por compatibilidad con código existente.
+    Ahora delega a precio_sync.actualizar_precio() que usa cola serializada.
     """
-    import os, shutil
-    try:
-        import openpyxl
-    except ImportError:
-        return False, "openpyxl no instalado"
-
-    _FRAC_COL = {
-        None:  16,
-        "1":   16,
-        "3/4": 17,
-        "1/2": 18,
-        "1/4": 19,
-        "1/8": 20,
-        "1/16": 21,
-    }
-    _FRAC_DEC = {
-        "3/4": 0.75, "1/2": 0.5, "1/4": 0.25, "1/8": 0.125, "1/16": 0.0625,
-    }
-
-    col_idx = _FRAC_COL.get(fraccion, 16)
-
-    # El valor que va en la celda es el precio UNITARIO (= total / fraccion_decimal)
-    if fraccion and fraccion in _FRAC_DEC:
-        valor_celda = round(nuevo_precio / _FRAC_DEC[fraccion])
-    else:
-        valor_celda = round(nuevo_precio)
-
-    NOMBRE_ARCHIVO = "BASE_DE_DATOS_PRODUCTOS.xlsx"
-    ruta_temp      = "BASE_DE_DATOS_PRODUCTOS_precio_temp.xlsx"
-
-    try:
-        from drive import descargar_de_drive, subir_a_drive_urgente
-    except ImportError:
-        return False, "módulo drive no disponible"
-
-    try:
-        descargado = descargar_de_drive(NOMBRE_ARCHIVO, ruta_temp)
-    except Exception as e:
-        return False, f"no se pudo descargar: {e}"
-
-    if not descargado:
-        return False, f"{NOMBRE_ARCHIVO} no encontrado en Drive"
-
-    try:
-        wb = openpyxl.load_workbook(ruta_temp)
-        ws = wb["Datos"]
-    except Exception as e:
-        if os.path.exists(ruta_temp):
-            os.remove(ruta_temp)
-        return False, f"no se pudo abrir el Excel: {e}"
-
-    nombre_lower_buscado = _normalizar(nombre_producto)
-    fila_encontrada      = None
-
-    for row in ws.iter_rows(min_row=2):
-        celda_nombre = row[1].value  # col B
-        if celda_nombre and _normalizar(str(celda_nombre)) == nombre_lower_buscado:
-            fila_encontrada = row
-            break
-
-    if fila_encontrada is None:
-        if os.path.exists(ruta_temp):
-            os.remove(ruta_temp)
-        return False, f"producto '{nombre_producto}' no encontrado en el Excel"
-
-    # Actualizar la celda de precio
-    fila_encontrada[col_idx].value = valor_celda
-
-    # Guardar y subir
-    try:
-        wb.save(ruta_temp)
-        shutil.copy(ruta_temp, NOMBRE_ARCHIVO)
-        subir_a_drive_urgente(NOMBRE_ARCHIVO)
-    except Exception as e:
-        return False, f"error guardando/subiendo: {e}"
-    finally:
-        for f in (ruta_temp, NOMBRE_ARCHIVO):
-            try:
-                if os.path.exists(f):
-                    os.remove(f)
-            except Exception:
-                pass
-
-    col_letra = chr(ord("A") + col_idx)
-    return True, f"Excel actualizado (col {col_letra} = {valor_celda:,})"
+    from precio_sync import actualizar_precio as _ap
+    return _ap(nombre_producto, nuevo_precio, fraccion)
