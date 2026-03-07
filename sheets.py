@@ -3,10 +3,24 @@ Google Sheets: pizarra del dia en tiempo real.
 Columnas: #, Fecha, Hora, Producto, Cantidad, Precio Unitario, Total, Vendedor, Metodo Pago
 """
 
+import time
 from datetime import datetime
 
 import config
 from utils import decimal_a_fraccion_legible
+
+# ── Cache del objeto worksheet ────────────────────────────────────────────────
+# Evita abrir la conexión + buscar la pestaña en CADA llamada (3 reads evitados
+# por operación). TTL de 5 minutos; se invalida en errores 429 o excepciones.
+_ws_cache: object = None          # objeto gspread.Worksheet
+_ws_cache_ts: float = 0.0         # timestamp del último open exitoso
+_WS_CACHE_TTL: float = 300.0      # segundos (5 min, igual que el cache de Claude)
+
+
+def _invalidar_ws_cache() -> None:
+    global _ws_cache, _ws_cache_ts
+    _ws_cache = None
+    _ws_cache_ts = 0.0
 
 
 def _col_a_letra(n: int) -> str:
@@ -21,57 +35,59 @@ def _col_a_letra(n: int) -> str:
     return result
 
 
+def _formato_encabezado(ws) -> None:
+    """Aplica formato azul al encabezado. Solo se llama al crear la hoja."""
+    num_cols  = len(config.SHEETS_HEADERS)
+    col_letra = _col_a_letra(num_cols)
+    ws.format(f"A1:{col_letra}1", {
+        "backgroundColor": {"red": 0.102, "green": 0.337, "blue": 0.855},
+        "textFormat": {
+            "bold": True,
+            "foregroundColor": {"red": 1, "green": 1, "blue": 1},
+        },
+        "horizontalAlignment": "CENTER",
+    })
+
+
 def _obtener_hoja_sheets():
     """
     Retorna la worksheet 'Ventas del Dia'.
-    Si no existe la pestana la crea con encabezados y formato.
-    Retorna None si no hay conexion.
+    - Cachea el objeto ws durante 5 min para evitar múltiples reads por operación.
+    - El chequeo de encabezados solo ocurre al crear la hoja por primera vez,
+      no en cada llamada (evitaba 1 read extra por operación → 429 en pico).
+    - Retorna None si no hay conexión.
     """
+    global _ws_cache, _ws_cache_ts
     if not config.SHEETS_ID:
         return None
+
+    # Devolver caché si sigue vigente
+    if _ws_cache is not None and (time.time() - _ws_cache_ts) < _WS_CACHE_TTL:
+        return _ws_cache
+
     try:
         import gspread
-        gc           = config.get_sheets_client()
-        spreadsheet  = gc.open_by_key(config.SHEETS_ID)
+        gc          = config.get_sheets_client()
+        spreadsheet = gc.open_by_key(config.SHEETS_ID)
         try:
             ws = spreadsheet.worksheet("Ventas del Dia")
-            # Verificar que los encabezados esten actualizados
-            try:
-                encabezados_actuales = ws.row_values(1)
-                if encabezados_actuales != config.SHEETS_HEADERS:
-                    ws.delete_rows(1)
-                    ws.insert_row(config.SHEETS_HEADERS, 1)
-                    num_cols  = len(config.SHEETS_HEADERS)
-                    col_letra = _col_a_letra(num_cols)
-                    ws.format(f"A1:{col_letra}1", {
-                        "backgroundColor": {"red": 0.102, "green": 0.337, "blue": 0.855},
-                        "textFormat": {
-                            "bold": True,
-                            "foregroundColor": {"red": 1, "green": 1, "blue": 1},
-                        },
-                        "horizontalAlignment": "CENTER",
-                    })
-            except Exception:
-                pass
         except gspread.WorksheetNotFound:
+            # Primera vez: crear hoja con encabezados y formato
             ws = spreadsheet.add_worksheet(
                 "Ventas del Dia", rows=500, cols=len(config.SHEETS_HEADERS)
             )
             ws.append_row(config.SHEETS_HEADERS)
-            num_cols  = len(config.SHEETS_HEADERS)
-            col_letra = _col_a_letra(num_cols)
-            ws.format(f"A1:{col_letra}1", {
-                "backgroundColor": {"red": 0.102, "green": 0.337, "blue": 0.855},
-                "textFormat": {
-                    "bold": True,
-                    "foregroundColor": {"red": 1, "green": 1, "blue": 1},
-                },
-                "horizontalAlignment": "CENTER",
-            })
+            _formato_encabezado(ws)
+
+        # Guardar en caché
+        _ws_cache    = ws
+        _ws_cache_ts = time.time()
         config._set_sheets_disponible(True)
         return ws
+
     except Exception as e:
         print(f"⚠️ Error accediendo a Sheets: {e}")
+        _invalidar_ws_cache()
         config._set_sheets_disponible(False)
         config.reset_google_clients()
         return None
@@ -110,8 +126,9 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
         ]
         ws.append_row(fila, value_input_option="USER_ENTERED")
 
-        # Alternar color de fila — texto siempre negro para legibilidad
-        num_filas = len(ws.get_all_values())
+        # Alternar color de fila usando row_count (sin read extra)
+        # append_row agrega al final → la nueva fila es la última
+        num_filas = ws.row_count
         num_cols  = len(config.SHEETS_HEADERS)
         col_letra = _col_a_letra(num_cols)
         if num_filas % 2 == 0:
@@ -129,6 +146,7 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
         return True
     except Exception as e:
         print(f"⚠️ Error agregando al Sheets: {e}")
+        _invalidar_ws_cache()
         config._set_sheets_disponible(False)
         config.reset_google_clients()
         return False
@@ -155,6 +173,7 @@ def sheets_borrar_fila(numero_venta) -> bool:
         return False
     except Exception as e:
         print(f"⚠️ Error borrando fila del Sheets: {e}")
+        _invalidar_ws_cache()
         return False
 
 
@@ -192,6 +211,7 @@ def sheets_leer_ventas_del_dia() -> list:
         return resultado
     except Exception as e:
         print(f"⚠️ Error leyendo Sheets: {e}")
+        _invalidar_ws_cache()
         return []
 
 
@@ -277,6 +297,7 @@ def sheets_limpiar() -> bool:
         return True
     except Exception as e:
         print(f"⚠️ Error limpiando Sheets: {e}")
+        _invalidar_ws_cache()
         return False
 
 
@@ -345,6 +366,7 @@ def sheets_borrar_consecutivo(numero_venta) -> tuple[int, list]:
         return len(filas_a_borrar), productos_borrados
     except Exception as e:
         print(f"⚠️ Error borrando consecutivo del Sheets: {e}")
+        _invalidar_ws_cache()
         return 0, []
 
 
