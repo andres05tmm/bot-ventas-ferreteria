@@ -1432,23 +1432,15 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 # Intentar actualizar en catálogo (fuente única de verdad)
                 en_cat = actualizar_precio_en_catalogo(producto, precio, fraccion)
                 if en_cat:
-                    # También registrar override RAM para 5 min
+                    # Override RAM 5 min + encolar Excel vía precio_sync (sin hilo manual)
                     _pf_prod = buscar_producto_en_catalogo(producto)
-                    _pf_key  = (_pf_prod.get("nombre_lower", producto.lower()) if _pf_prod else producto.lower()) + f"___{fraccion}"
-                    _registrar_precio_reciente(_pf_key.split("___")[0], precio, fraccion)
+                    _pf_key  = _pf_prod.get("nombre_lower", producto.lower()) if _pf_prod else producto.lower()
+                    _registrar_precio_reciente(_pf_key, precio, fraccion)
                     invalidar_cache_memoria()
-
-                    # Sincronizar con BASE_DE_DATOS_PRODUCTOS.xlsx en Drive (en background)
-                    from memoria import actualizar_precio_en_excel_drive as _apexd2
-                    import threading as _th
-                    _th.Thread(
-                        target=_apexd2,
-                        args=(producto, precio, fraccion),
-                        daemon=True,
-                        name=f"precio_frac_excel_{producto[:20]}",
-                    ).start()
+                    from precio_sync import actualizar_precio as _ap_frac
+                    _ap_frac(producto, precio, fraccion)  # encola Excel internamente
                 else:
-                    # Producto no en catálogo: guardar en precios_fraccion separado como fallback
+                    # Producto no en catálogo: guardar en precios_fraccion como fallback
                     mem = cargar_memoria()
                     mem.setdefault("precios_fraccion", {}).setdefault(producto.lower(), {})[fraccion] = round(precio)
                     guardar_memoria(mem, urgente=True)
@@ -1465,25 +1457,15 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             precio   = float(datos["precio"])
             fraccion = datos.get("fraccion")  # opcional: "1/4", "1/2", etc.
 
-            # Actualizar en catálogo (fuente única de verdad)
-            from memoria import buscar_producto_en_catalogo as _bpc, actualizar_precio_en_excel_drive as _apexd
-            en_catalogo = actualizar_precio_en_catalogo(producto, precio, fraccion)
+            # Actualizar en catálogo (fuente única de verdad) + encolar Excel
+            from precio_sync import actualizar_precio as _ap_precio
+            en_catalogo, _ = _ap_precio(producto, precio, fraccion)
 
-            # Registrar en RAM para override del cache de Anthropic (5 min)
-            prod_encontrado = _bpc(producto)
+            # Override RAM 5 min
+            prod_encontrado = buscar_producto_en_catalogo(producto)
             nombre_lower_pc = prod_encontrado.get("nombre_lower", producto.lower()) if prod_encontrado else producto.lower()
             _registrar_precio_reciente(nombre_lower_pc, precio, fraccion)
             invalidar_cache_memoria()
-
-            # Sincronizar con BASE_DE_DATOS_PRODUCTOS.xlsx en Drive (en background)
-            if en_catalogo:
-                import threading as _th
-                _th.Thread(
-                    target=_apexd,
-                    args=(producto, precio, fraccion),
-                    daemon=True,
-                    name=f"precio_excel_{nombre_lower_pc}",
-                ).start()
 
             if fraccion:
                 acciones.append(f"🧠 Precio actualizado: {producto} {fraccion} = ${precio:,.0f}")
