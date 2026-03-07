@@ -909,16 +909,22 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     acronal_calculado = ""
     _acronal_precio_kg = 13000
     _acronal_precio_medio = 7000
-    for _ak, _av in memoria.get("catalogo", {}).items():
-        if "acronal" in _av.get("nombre_lower", ""):
-            # Prioridad: precios_fraccion["1"] sobre precio_unidad
-            # (pueden quedar desincronizados si el precio se actualizó vía fraccion)
-            _frac1 = _av.get("precios_fraccion", {}).get("1", {})
-            _precio_frac1 = _frac1.get("precio", 0) if isinstance(_frac1, dict) else int(_frac1) if _frac1 else 0
-            _acronal_precio_kg = _precio_frac1 if _precio_frac1 > 0 else _av.get("precio_unidad", 13000)
-            _frac = _av.get("precios_fraccion", {}).get("1/2", {})
-            _acronal_precio_medio = _frac.get("precio", 7000) if isinstance(_frac, dict) else int(_frac) if _frac else 7000
-            break
+    # precios_fraccion esta en la RAIZ de memoria, no dentro del objeto catalogo.
+    # El catalogo puede tener precio_unidad desactualizado — precios_fraccion manda.
+    _frac_mem = memoria.get("precios_fraccion", {}).get("acronal", {})
+    if _frac_mem:
+        _v1 = _frac_mem.get("1", 0)
+        _acronal_precio_kg = int(_v1) if _v1 else _acronal_precio_kg
+        _vm = _frac_mem.get("1/2", 0)
+        _acronal_precio_medio = int(_vm) if _vm else _acronal_precio_medio
+    else:
+        # fallback: precio_unidad del catalogo si no hay precios_fraccion definidos
+        for _ak, _av in memoria.get("catalogo", {}).items():
+            if "acronal" in _av.get("nombre_lower", ""):
+                _pu = _av.get("precio_unidad", 0)
+                if _pu:
+                    _acronal_precio_kg = int(_pu)
+                break
     if "acronal" in msg_l:
         # Normalizar "kilos y medio" -> "X.5", "medio kilo" -> "0.5"
         msg_ac = msg_l
@@ -1713,4 +1719,3 @@ async def procesar_acciones_async(texto_respuesta: str, vendedor: str, chat_id: 
         None,
         lambda: procesar_acciones(texto_respuesta, vendedor, chat_id)
     )
-  
