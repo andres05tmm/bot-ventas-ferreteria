@@ -76,18 +76,17 @@ _ALIAS_FERRETERIA = [
     (r'\bpagaternit\b', r'pegaternit'),
     (r'\bpega\s*ternit\b', r'pegaternit'),
     (r'\bpegaeternit\b', r'pegaternit'),
-    # Thinner/Varsol por botellas y litros (cantidades pequeñas por precio)
-    # La cantidad se MULTIPLICA por el precio unitario: "2 litros de thinner" → "thinner 16000"
-    # Así Claude recibe un único segmento con el total, no "2 thinner 8000" (ambiguo).
-    # NOTA: (?:una?\s+)? consume el artículo "una"/"un" para evitar "una1 botellas thinner"
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+de\s+thinner\b', lambda m: f"{int(m.group(1) or 1)} botellas thinner"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+de\s+varsol\b',  lambda m: f"{int(m.group(1) or 1)} botellas varsol"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+de\s+thinner\b',   lambda m: f"{int(m.group(1) or 1)} litros thinner"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+de\s+varsol\b',    lambda m: f"{int(m.group(1) or 1)} litros varsol"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+thinner\b',       lambda m: f"{int(m.group(1) or 1)} botellas thinner"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+varsol\b',        lambda m: f"{int(m.group(1) or 1)} botellas varsol"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+thinner\b',         lambda m: f"{int(m.group(1) or 1)} litros thinner"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+varsol\b',          lambda m: f"{int(m.group(1) or 1)} litros varsol"),
+    # Thinner/Varsol: litro=1/4 galón (8000), botella=1/8 galón (5000).
+    # Convertimos directo a precio total antes de llegar a Claude.
+    # NOTA: (?:una?\s+)? consume artículo "una"/"un"
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?thinner\b',
+        lambda m: f"{int(m.group(1) or 1) * 5000} thinner" if int(m.group(1) or 1) > 1 else "thinner 5000"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?varsol\b',
+        lambda m: f"{int(m.group(1) or 1) * 5000} varsol" if int(m.group(1) or 1) > 1 else "varsol 5000"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?thinner\b',
+        lambda m: f"{int(m.group(1) or 1) * 8000} thinner" if int(m.group(1) or 1) > 1 else "thinner 8000"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?varsol\b',
+        lambda m: f"{int(m.group(1) or 1) * 8000} varsol" if int(m.group(1) or 1) > 1 else "varsol 8000"),
     # Thinner/Varsol por galones (cantidades >= 1/2 galón)
     # "1-1/2 galón de thinner", "1 y medio galón de thinner", "2-1/2 galones thinner"
     (r'\b(\d+)\s*-\s*1/2\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
