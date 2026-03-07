@@ -394,13 +394,12 @@ def _escribir_en_excel(nombre: str, precio: float, fraccion: Optional[str]) -> t
 
     # 5 ── Guardar y subir
     try:
-        wb.save(ruta_tmp)
-        shutil.copy(ruta_tmp, ruta_final)
-        subir_a_drive_urgente(ruta_final)
+        wb.save(NOMBRE_EXCEL_PRODUCTOS)
+        subir_a_drive_urgente(NOMBRE_EXCEL_PRODUCTOS)
     except Exception as e:
         return False, f"error guardando/subiendo: {e}"
     finally:
-        _limpiar(ruta_tmp, ruta_final)
+        _limpiar(ruta_tmp)   # solo el temporal de descarga
 
     col_letra = chr(ord("A") + col_idx)
     return True, f"col {col_letra} = {val_celda:,}"
@@ -582,15 +581,16 @@ def exportar_catalogo_a_excel() -> dict:
             actualizados += 1
 
     # 4 ── Guardar y subir una sola vez
+    # subir_a_drive_urgente lanza un hilo background que lee el archivo.
+    # Por eso guardamos en NOMBRE_EXCEL_PRODUCTOS y NO lo borramos en finally
+    # — el hilo lo necesita vivo. Solo borramos el temporal de descarga (ruta_tmp).
     try:
-        wb.save(ruta_tmp)
-        import shutil as _sh
-        _sh.copy(ruta_tmp, ruta_final)
-        subir_a_drive_urgente(ruta_final)
+        wb.save(NOMBRE_EXCEL_PRODUCTOS)
+        subir_a_drive_urgente(NOMBRE_EXCEL_PRODUCTOS)
     except Exception as e:
         errores.append(f"error guardando/subiendo: {e}")
     finally:
-        _limpiar(ruta_tmp, ruta_final)
+        _limpiar(ruta_tmp)   # solo el temporal de descarga
 
     return {
         "actualizados": actualizados,
