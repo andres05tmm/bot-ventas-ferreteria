@@ -246,6 +246,10 @@ Asi se muestra: "15 cm Lija Esmeril N°36 $3,000"
 GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000. Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
 ACRONAL: se vende por KILOS (NO galones). Precios en MATCH. NUNCA menciones "galon" para Acronal.
 Cantidad kilos: "medio kilo"=0.5|"kilo y medio"=1.5.
+UNIDAD SUELTA: algunos productos tienen precio por unidad individual además del precio por kilo/cantidad.
+En MATCH aparece como fraccion "unidad_suelta". Ej: WAYPER BLANCO kilo=10000|medio kilo=5000|unidad=1000.
+"1 wayper blanco" o "una unidad de wayper" → usar precio unidad_suelta.
+"2 wayper blanco" sin mencionar kilo → usar precio unidad_suelta × 2.
 
 PINTURAS (TODAS): vinilo, esmalte, laca corriente, laca catalizada, poliuretano, poliamida, anticorrosivo — SIEMPRE requieren color, NUNCA registrar sin color. PERO PRIMERO verifica que el producto exista en el MATCH. Si el MATCH no trae ese producto->responde "No tengo [producto] en el catalogo." sin preguntar color. Solo si el producto SI existe en el MATCH y no tiene color->preguntar "De que color?". Colores comunes: Blanco,Negro,Rojo,Azul,Verde,Amarillo,Gris,Cafe,Naranja,Morado. Color especial: "Preparado"=color personalizado que el cliente trae (de internet, muestra fisica, carta de colores, etc). Ej: "vinilo t1 preparado"->producto="Vinilo Davinci T1 Preparado", "laca catalizada preparada"->producto="Laca Catalizada Preparado". BROCHAS sin medida->preguntar. Precios:1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
 RODILLO: "rodillo" o "rodillos" SIN medida = Rodillo Convencional $7000. 
