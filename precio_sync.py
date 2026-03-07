@@ -527,8 +527,11 @@ def exportar_catalogo_a_excel() -> dict:
     errores      = []
 
     # 3 ── Iterar catálogo y escribir cada precio en su celda
+    # nombre_lower en el JSON puede haber sido generado con la versión vieja de
+    # _normalizar (reemplazos manuales, no eliminaba "°" ni otros no-ASCII).
+    # Normalizamos aquí con la versión actual para que coincida con el índice.
     for clave, prod in catalogo.items():
-        nombre_lower = prod.get("nombre_lower", "")
+        nombre_lower = _normalizar(prod.get("nombre_lower", "") or prod.get("nombre", clave))
         row = filas_excel.get(nombre_lower)
         if row is None:
             sin_match.append(prod.get("nombre", clave))
@@ -642,7 +645,9 @@ def verificar_consistencia() -> dict:
     _limpiar(ruta_tmp)
 
     for nl, pm in catalogo.items():
-        pe = excel_prods.get(nl) or excel_prods.get(pm.get("nombre_lower", nl))
+        # Normalizar con _normalizar actual por si nombre_lower fue guardado con versión vieja
+        nl_norm = _normalizar(pm.get("nombre_lower", "") or pm.get("nombre", nl))
+        pe = excel_prods.get(nl_norm)
         if pe is None:
             resultado["solo_memoria"].append(pm["nombre"])
             continue
@@ -664,8 +669,13 @@ def verificar_consistencia() -> dict:
         else:
             resultado["iguales"] += 1
 
+    # Construir set de claves normalizadas del catálogo para comparar
+    claves_mem_norm = {
+        _normalizar(pm.get("nombre_lower", "") or pm.get("nombre", k))
+        for k, pm in catalogo.items()
+    }
     for nl, pe in excel_prods.items():
-        if nl not in catalogo:
+        if nl not in claves_mem_norm:
             resultado["solo_excel"].append(pe["nombre"])
 
     return resultado
