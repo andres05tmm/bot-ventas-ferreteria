@@ -72,6 +72,10 @@ _ALIAS_FERRETERIA = [
     (r'\btornillo[s]?\s*(?:de\s*)?drywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'tornillo drywall \g<1>x3'),
     (r'\bdrywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'drywall \g<1>x3'),
     (r'\b(\d+)\s*[xX]\s*3\b(?!/)\s*(?=.*(?:tornillo|drywall))', r'\g<1>x3'),
+    # Rodillo sin medida → Rodillo Convencional
+    # Evita que "3 rodillos" matchee "Rodillo de 1"", "Rodillo de 2"", etc.
+    # Solo aplica cuando NO va seguido de una medida explícita (número o pulgadas)
+    (r'\b(\d+)\s+rodillos?\b(?!\s*(?:de\s+)?\d)', lambda m: f"{m.group(1)} rodillo convencional"),
     # Pegaternit: normalizar variantes de escritura
     (r'\bpagaternit\b', r'pegaternit'),
     (r'\bpega\s*ternit\b', r'pegaternit'),
