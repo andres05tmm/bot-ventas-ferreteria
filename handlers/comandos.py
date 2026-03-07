@@ -1036,6 +1036,58 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
 
 
 
+async def comando_exportar_precios(update, context):
+    """
+    /exportar_precios — Vuelca todos los precios de memoria.json al Excel en Drive.
+    Descarga el Excel una sola vez, actualiza todas las celdas respetando las
+    reglas de cada categoría, y lo sube de vuelta. Útil para poner el Excel
+    al día cuando la memoria tiene los precios correctos.
+    """
+    await update.message.reply_text(
+        "📤 Exportando precios de memoria → Excel...\n"
+        "Esto puede tomar unos segundos."
+    )
+    try:
+        from precio_sync import exportar_catalogo_a_excel
+        resultado = await asyncio.to_thread(exportar_catalogo_a_excel)
+
+        actualizados = resultado["actualizados"]
+        sin_match    = resultado["sin_match"]
+        errores      = resultado["errores"]
+
+        lineas = []
+        lineas.append("📤 EXPORTACIÓN COMPLETADA")
+        lineas.append("─" * 30)
+        lineas.append(f"✅ Productos actualizados: {actualizados}")
+
+        if sin_match:
+            lineas.append(f"⚠️  No encontrados en Excel: {len(sin_match)}")
+            if len(sin_match) <= 5:
+                for nombre in sin_match:
+                    lineas.append(f"   • {nombre}")
+            else:
+                for nombre in sin_match[:3]:
+                    lineas.append(f"   • {nombre}")
+                lineas.append(f"   …y {len(sin_match)-3} más")
+            lineas.append("   (estos productos están en memoria pero no en el Excel)")
+
+        if errores:
+            lineas.append(f"❌ Errores: {len(errores)}")
+            for e in errores[:3]:
+                lineas.append(f"   • {e}")
+
+        if not sin_match and not errores:
+            lineas.append("")
+            lineas.append("🎉 Excel actualizado correctamente.")
+            lineas.append("Usa /consistencia para verificar.")
+
+        await update.message.reply_text("\n".join(lineas))
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error en exportación: {e}")
+
+
+
 async def comando_consistencia(update, context):
     """
     /consistencia — Compara precios entre memoria.json y BASE_DE_DATOS_PRODUCTOS.xlsx en Drive.
