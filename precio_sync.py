@@ -1,0 +1,531 @@
+"""
+precio_sync.py — Sincronización robusta y bidireccional de precios.
+
+ARQUITECTURA:
+  memoria.json (catálogo en RAM) ←→ BASE_DE_DATOS_PRODUCTOS.xlsx (Drive)
+
+══════════════════════════════════════════════════════════
+ESTRUCTURA DEL EXCEL (hoja "Datos")
+══════════════════════════════════════════════════════════
+  Col A  (idx 0)  : Código del Producto
+  Col B  (idx 1)  : Nombre del Producto
+  Col D  (idx 3)  : Categoría
+  Col Q  (idx 16) : UNIDAD  → precio por unidad completa
+  Col R  (idx 17) : 0.75
+  Col S  (idx 18) : 0.5
+  Col T  (idx 19) : 0.25
+  Col U  (idx 20) : 0.13  → real decimal = 1/8 = 0.125
+  Col V  (idx 21) : 0.06  → real decimal = 1/16 = 0.0625
+  Col W  (idx 22) : 0.1   → reservada (actualmente vacía)
+
+INTERPRETACIÓN POR CATEGORÍA:
+  Cat 2 - Pinturas / Cat 4 - Impermeabilizantes:
+    Cols R-V = precio UNITARIO para esa fracción de galón.
+    precio_total = valor_celda × decimal_real
+    Ej: col S = 52000, decimal=0.5  →  total 1/2 galón = 26000
+
+  Cat 3 - Tornillería:
+    Col R = precio mayorista por unidad cuando qty >= UMBRAL_TORNILLERIA (50).
+    Si col R == col Q → sin descuento (igual en ambos niveles).
+    Se guarda como precio_por_cantidad {umbral, precio_bajo, precio_sobre}.
+
+  Resto (Cat 1 - Ferretería, Cat 5 - Eléctricos, etc.):
+    Cols R-V se usan solo si valor < precio_unidad.
+    En ese caso el valor de la celda ES el precio total de la fracción
+    (no se multiplica). Ej: WAYPER Q=10000, S=5000 → 1/2 vale $5.000.
+
+GARANTÍAS:
+  1. Campo "decimal" SIEMPRE presente en precios_fraccion.
+  2. Cola FIFO serializada → sin condición de carrera al escribir el Excel.
+  3. Una sola función pública: actualizar_precio(nombre, precio, fraccion).
+  4. importar_catalogo_desde_excel() es la única entrada para bulk import.
+"""
+
+import logging
+import os
+import queue
+import shutil
+import threading
+from typing import Optional
+
+import openpyxl
+
+log = logging.getLogger("ferrebot.precio_sync")
+
+# ─────────────────────────────────────────────────────────────────
+# CONSTANTES
+# ─────────────────────────────────────────────────────────────────
+
+NOMBRE_EXCEL_PRODUCTOS = "BASE_DE_DATOS_PRODUCTOS.xlsx"
+UMBRAL_TORNILLERIA     = 50
+
+_IDX_CODIGO    = 0
+_IDX_NOMBRE    = 1
+_IDX_CATEGORIA = 3
+_IDX_UNIDAD    = 16   # Col Q
+
+# header_str → (col_idx_base0, decimal_real, label)
+# "0.13" y "0.06" son aproximaciones de 1/8 y 1/16 (los headers del Excel
+# están redondeados, pero los decimales reales son 0.125 y 0.0625)
+_HEADER_MAP: dict[str, tuple[int, float, str]] = {
+    "0.75": (17, 0.75,   "3/4"),
+    "0.5":  (18, 0.5,    "1/2"),
+    "0.25": (19, 0.25,   "1/4"),
+    "0.13": (20, 0.125,  "1/8"),
+    "0.06": (21, 0.0625, "1/16"),
+    "0.1":  (22, 0.1,    "1/10"),
+}
+
+# label → (decimal_real, col_idx_base0) — índice inverso
+_LABEL_MAP: dict[str, tuple[float, int]] = {
+    label: (dec, idx) for _, (idx, dec, label) in _HEADER_MAP.items()
+}
+
+_CATS_GALON = {
+    "2 pinturas y disolventes",
+    "4 impermeabilizantes y materiales de construccion",
+    "4 impermeabilizantes y materiales de construcción",
+}
+
+_CATS_TORNILLERIA = {"3 tornilleria", "3 tornillería"}
+
+
+# ─────────────────────────────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────────────────────────────
+
+def _norm_cat(cat: str) -> str:
+    return (
+        (cat or "").lower()
+        .replace("á","a").replace("é","e").replace("í","i")
+        .replace("ó","o").replace("ú","u").replace("ñ","n")
+        .strip()
+    )
+
+def _es_galon(cat: str) -> bool:
+    return _norm_cat(cat) in _CATS_GALON
+
+def _es_tornilleria(cat: str) -> bool:
+    return _norm_cat(cat) in _CATS_TORNILLERIA
+
+def _num(v) -> Optional[float]:
+    """Celda → float positivo, o None."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return f if f > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+def _limpiar(*rutas):
+    for r in rutas:
+        try:
+            if r and os.path.exists(r):
+                os.remove(r)
+        except Exception:
+            pass
+
+
+# ─────────────────────────────────────────────────────────────────
+# CONSTRUCCIÓN DE UN PRODUCTO DESDE UNA FILA
+# ─────────────────────────────────────────────────────────────────
+
+def construir_producto_desde_fila(row: tuple, col_headers: list) -> Optional[dict]:
+    """
+    Convierte una fila del Excel en un dict listo para el catálogo.
+    Siempre incluye campo "decimal" en precios_fraccion.
+    Retorna None si la fila no tiene nombre o precio válido.
+    """
+    from utils import _normalizar
+
+    nombre    = str(row[_IDX_NOMBRE] or "").strip()
+    if not nombre or nombre.lower() == "nan":
+        return None
+
+    cat      = str(row[_IDX_CATEGORIA] or "").strip()
+    codigo   = str(row[_IDX_CODIGO] or "").strip()
+    p_unidad = _num(row[_IDX_UNIDAD]) if _IDX_UNIDAD < len(row) else None
+
+    if p_unidad is None:
+        return None
+
+    nombre_lower = _normalizar(nombre)
+
+    prod = {
+        "nombre":        nombre,
+        "nombre_lower":  nombre_lower,
+        "categoria":     cat,
+        "precio_unidad": round(p_unidad),
+    }
+    if codigo:
+        prod["codigo"] = codigo
+
+    # ── Cat 2 / Cat 4: fracciones de galón ──────────────────────────────────
+    if _es_galon(cat):
+        fracs = {}
+        for i, header in enumerate(col_headers):
+            if i == _IDX_UNIDAD:
+                continue
+            info = _HEADER_MAP.get(str(header).strip())
+            if not info:
+                continue
+            idx, decimal_real, label = info
+            v = _num(row[i]) if i < len(row) else None
+            if v is None:
+                continue
+            # Valor en celda = precio UNITARIO. Total = v × decimal_real
+            fracs[label] = {
+                "precio":  round(v * decimal_real),
+                "decimal": decimal_real,
+            }
+        if fracs:
+            prod["precios_fraccion"] = fracs
+
+    # ── Cat 3: tornillería → precio mayorista ────────────────────────────────
+    elif _es_tornilleria(cat):
+        idx_r  = _HEADER_MAP["0.75"][0]   # col R = idx 17
+        p_may  = _num(row[idx_r]) if idx_r < len(row) else None
+        if p_may is not None and round(p_may) != round(p_unidad):
+            prod["precio_por_cantidad"] = {
+                "umbral":              UMBRAL_TORNILLERIA,
+                "precio_bajo_umbral":  round(p_unidad),
+                "precio_sobre_umbral": round(p_may),
+            }
+
+    # ── Resto: fracciones directas (celda = total, solo si < precio_unidad) ──
+    else:
+        fracs = {}
+        for i, header in enumerate(col_headers):
+            if i == _IDX_UNIDAD:
+                continue
+            info = _HEADER_MAP.get(str(header).strip())
+            if not info:
+                continue
+            idx, decimal_real, label = info
+            v = _num(row[i]) if i < len(row) else None
+            if v is None:
+                continue
+            if v < p_unidad:   # solo si es menor → tiene sentido como fracción
+                fracs[label] = {
+                    "precio":  round(v),
+                    "decimal": decimal_real,
+                }
+        if fracs:
+            prod["precios_fraccion"] = fracs
+
+    return prod
+
+
+# ─────────────────────────────────────────────────────────────────
+# IMPORTAR CATÁLOGO COMPLETO (Excel → memoria.json)
+# ─────────────────────────────────────────────────────────────────
+
+def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
+    """
+    Lee BASE_DE_DATOS_PRODUCTOS.xlsx e importa todos los productos.
+    Reemplaza COMPLETAMENTE el catálogo en memoria (limpia claves legacy).
+
+    Retorna {"importados": N, "omitidos": N, "errores": [...]}
+    """
+    try:
+        wb = openpyxl.load_workbook(ruta_excel, data_only=True)
+        ws = wb["Datos"]
+    except Exception as e:
+        return {"importados": 0, "omitidos": 0, "errores": [str(e)]}
+
+    col_headers = [
+        str(ws.cell(1, c).value or "")
+        for c in range(1, ws.max_column + 1)
+    ]
+
+    from memoria import cargar_memoria, guardar_memoria, invalidar_cache_memoria
+
+    mem      = cargar_memoria()
+    catalogo = {}        # siempre limpio — evita duplicados de claves antiguas
+    importados = 0
+    omitidos   = 0
+    errores    = []
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        try:
+            prod = construir_producto_desde_fila(row, col_headers)
+            if prod is None:
+                omitidos += 1
+                continue
+            clave = prod["nombre_lower"].replace(" ", "_")
+            catalogo[clave] = prod
+            importados += 1
+        except Exception as e:
+            nombre_raw = row[_IDX_NOMBRE] if row and len(row) > _IDX_NOMBRE else "?"
+            errores.append(f"{nombre_raw}: {e}")
+
+    mem["catalogo"] = catalogo
+    # Limpiar precios simples para que no contradigan al catálogo
+    mem["precios"] = {}
+
+    guardar_memoria(mem)
+    invalidar_cache_memoria()
+
+    return {"importados": importados, "omitidos": omitidos, "errores": errores[:10]}
+
+
+# ─────────────────────────────────────────────────────────────────
+# COLA FIFO — ESCRITURAS AL EXCEL (serializa todos los hilos)
+# ─────────────────────────────────────────────────────────────────
+
+class _ExcelWorker:
+    """
+    Hilo daemon que procesa actualizaciones al Excel de productos en serie.
+    Elimina la condición de carrera: aunque ai.py lance N hilos de precio
+    simultáneos, todos esperan su turno en esta cola.
+    """
+    def __init__(self):
+        self._q = queue.Queue()
+        t = threading.Thread(target=self._loop, daemon=True, name="excel-prod-worker")
+        t.start()
+
+    def encolar(self, nombre: str, precio: float, fraccion: Optional[str]):
+        self._q.put({"nombre": nombre, "precio": precio, "fraccion": fraccion})
+        log.debug("[cola] encolado: %s frac=%s precio=%s", nombre, fraccion, precio)
+
+    def _loop(self):
+        while True:
+            tarea = self._q.get()
+            try:
+                ok, msg = _escribir_en_excel(
+                    tarea["nombre"], tarea["precio"], tarea["fraccion"]
+                )
+                nivel = log.info if ok else log.warning
+                nivel("[excel] %s %s → %s", "✅" if ok else "⚠️", tarea["nombre"], msg)
+            except Exception as e:
+                log.error("[excel] ❌ excepción en worker: %s", e)
+            finally:
+                self._q.task_done()
+
+
+_worker = _ExcelWorker()
+
+
+# ─────────────────────────────────────────────────────────────────
+# ESCRITURA REAL AL EXCEL (ejecutada por el worker, nunca concurrente)
+# ─────────────────────────────────────────────────────────────────
+
+def _col_idx_para(fraccion: Optional[str]) -> int:
+    """Retorna el índice base-0 de la columna para la fracción dada."""
+    if not fraccion or fraccion == "1":
+        return _IDX_UNIDAD
+    info = _LABEL_MAP.get(fraccion)
+    return info[1] if info else _IDX_UNIDAD
+
+
+def _valor_para_celda(precio_total: float, fraccion: Optional[str], cat: str) -> float:
+    """
+    Calcula el valor a escribir en la celda.
+
+    Para pinturas/impermeabilizantes la celda almacena precio UNITARIO:
+      valor_celda = precio_total / decimal
+    Para el resto (tornillería, ferretería) la celda almacena el valor tal cual.
+    """
+    if not fraccion or fraccion == "1":
+        return round(precio_total)
+    info = _LABEL_MAP.get(fraccion)
+    if info is None:
+        return round(precio_total)
+    decimal_real = info[0]
+    if _es_galon(cat) and decimal_real > 0:
+        return round(precio_total / decimal_real)
+    return round(precio_total)
+
+
+def _escribir_en_excel(nombre: str, precio: float, fraccion: Optional[str]) -> tuple[bool, str]:
+    """Descarga el Excel, actualiza la celda correcta y lo sube."""
+    ruta_tmp   = "BASE_DE_DATOS_PRODUCTOS_tmp.xlsx"
+    ruta_final = NOMBRE_EXCEL_PRODUCTOS
+
+    try:
+        from drive import descargar_de_drive, subir_a_drive_urgente
+    except ImportError:
+        return False, "módulo drive no disponible"
+
+    # 1 ── Descargar
+    try:
+        if not descargar_de_drive(NOMBRE_EXCEL_PRODUCTOS, ruta_tmp):
+            return False, "archivo no encontrado en Drive"
+    except Exception as e:
+        return False, f"error descargando: {e}"
+
+    # 2 ── Abrir
+    try:
+        wb = openpyxl.load_workbook(ruta_tmp)
+        ws = wb["Datos"]
+    except Exception as e:
+        _limpiar(ruta_tmp)
+        return False, f"no se pudo abrir: {e}"
+
+    col_headers = [str(ws.cell(1, c).value or "") for c in range(1, ws.max_column + 1)]
+
+    # 3 ── Buscar fila
+    from utils import _normalizar
+    nombre_norm     = _normalizar(nombre)
+    fila_encontrada = None
+    cat_prod        = ""
+
+    for row in ws.iter_rows(min_row=2):
+        v = row[_IDX_NOMBRE].value
+        if v and _normalizar(str(v)) == nombre_norm:
+            fila_encontrada = row
+            cat_prod = str(row[_IDX_CATEGORIA].value or "")
+            break
+
+    if fila_encontrada is None:
+        _limpiar(ruta_tmp)
+        return False, f"'{nombre}' no encontrado en el Excel"
+
+    # 4 ── Calcular columna y valor
+    col_idx   = _col_idx_para(fraccion)
+    val_celda = _valor_para_celda(precio, fraccion, cat_prod)
+
+    if col_idx >= len(fila_encontrada):
+        _limpiar(ruta_tmp)
+        return False, f"índice de columna {col_idx} fuera de rango"
+
+    fila_encontrada[col_idx].value = val_celda
+
+    # 5 ── Guardar y subir
+    try:
+        wb.save(ruta_tmp)
+        shutil.copy(ruta_tmp, ruta_final)
+        subir_a_drive_urgente(ruta_final)
+    except Exception as e:
+        return False, f"error guardando/subiendo: {e}"
+    finally:
+        _limpiar(ruta_tmp, ruta_final)
+
+    col_letra = chr(ord("A") + col_idx)
+    return True, f"col {col_letra} = {val_celda:,}"
+
+
+# ─────────────────────────────────────────────────────────────────
+# FUNCIÓN PÚBLICA PRINCIPAL
+# ─────────────────────────────────────────────────────────────────
+
+def actualizar_precio(
+    nombre_producto: str,
+    nuevo_precio: float,
+    fraccion: Optional[str] = None,
+) -> tuple[bool, str]:
+    """
+    Actualiza el precio en memoria.json (inmediato) y encola la actualización
+    del Excel en Drive (asíncrono, serializado).
+
+    Args:
+        nombre_producto : nombre del producto (como en el catálogo).
+        nuevo_precio    : precio total de la unidad o de la fracción.
+        fraccion        : "3/4" | "1/2" | "1/4" | "1/8" | "1/16" | None/"1" para unidad.
+
+    Returns:
+        (True, descripcion) si el producto existe y se actualizó la memoria.
+        (False, mensaje_error) si el producto no está en el catálogo.
+    """
+    from memoria import (
+        actualizar_precio_en_catalogo,
+        invalidar_cache_memoria,
+        buscar_producto_en_catalogo,
+    )
+
+    frac = fraccion.strip() if fraccion and fraccion.strip() not in ("", "1") else None
+
+    # 1 ── Actualizar memoria.json
+    if not actualizar_precio_en_catalogo(nombre_producto, nuevo_precio, frac):
+        return False, f"Producto '{nombre_producto}' no encontrado en catálogo."
+
+    invalidar_cache_memoria()
+
+    # 2 ── Encolar actualización del Excel
+    prod = buscar_producto_en_catalogo(nombre_producto)
+    nombre_oficial = prod["nombre"] if prod else nombre_producto
+    _worker.encolar(nombre_oficial, nuevo_precio, frac)
+
+    desc = nombre_oficial
+    if frac:
+        desc += f" {frac}"
+    desc += f" = ${nuevo_precio:,.0f}"
+    return True, desc
+
+
+# ─────────────────────────────────────────────────────────────────
+# VERIFICACIÓN DE CONSISTENCIA (bajo demanda)
+# ─────────────────────────────────────────────────────────────────
+
+def verificar_consistencia() -> dict:
+    """
+    Descarga el Excel de Drive y compara precios contra memoria.json.
+    Útil para detectar si hubo alguna desincronización.
+
+    Retorna:
+        {
+          "iguales":      int,
+          "diferentes":   [{"nombre": ..., "diffs": [...]}],
+          "solo_memoria": [nombre, ...],   # en JSON pero no en Excel
+          "solo_excel":   [nombre, ...],   # en Excel pero no en JSON
+        }
+    """
+    ruta_tmp = "BASE_DE_DATOS_PRODUCTOS_check.xlsx"
+
+    try:
+        from drive import descargar_de_drive
+        if not descargar_de_drive(NOMBRE_EXCEL_PRODUCTOS, ruta_tmp):
+            return {"error": "No se pudo descargar el Excel de Drive"}
+    except Exception as e:
+        return {"error": str(e)}
+
+    resultado = {"iguales": 0, "diferentes": [], "solo_memoria": [], "solo_excel": []}
+
+    try:
+        wb = openpyxl.load_workbook(ruta_tmp, data_only=True)
+        ws = wb["Datos"]
+        col_headers = [str(ws.cell(1, c).value or "") for c in range(1, ws.max_column + 1)]
+    except Exception as e:
+        _limpiar(ruta_tmp)
+        return {"error": f"No se pudo leer el Excel: {e}"}
+
+    from memoria import cargar_memoria
+
+    catalogo = cargar_memoria().get("catalogo", {})
+    excel_prods = {}
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        prod = construir_producto_desde_fila(row, col_headers)
+        if prod:
+            excel_prods[prod["nombre_lower"]] = prod
+
+    _limpiar(ruta_tmp)
+
+    for nl, pm in catalogo.items():
+        pe = excel_prods.get(nl) or excel_prods.get(pm.get("nombre_lower", nl))
+        if pe is None:
+            resultado["solo_memoria"].append(pm["nombre"])
+            continue
+
+        diffs = []
+        if pm.get("precio_unidad") != pe.get("precio_unidad"):
+            diffs.append(f"precio_unidad: mem={pm.get('precio_unidad')} xls={pe.get('precio_unidad')}")
+
+        fracs_m = pm.get("precios_fraccion", {})
+        fracs_x = pe.get("precios_fraccion", {})
+        for lbl in set(list(fracs_m) + list(fracs_x)):
+            pm_p = fracs_m.get(lbl, {}).get("precio")
+            px_p = fracs_x.get(lbl, {}).get("precio")
+            if pm_p != px_p:
+                diffs.append(f"fraccion {lbl}: mem={pm_p} xls={px_p}")
+
+        if diffs:
+            resultado["diferentes"].append({"nombre": pm["nombre"], "diffs": diffs})
+        else:
+            resultado["iguales"] += 1
+
+    for nl, pe in excel_prods.items():
+        if nl not in catalogo:
+            resultado["solo_excel"].append(pe["nombre"])
+
+    return resultado
