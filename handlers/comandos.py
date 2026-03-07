@@ -1031,6 +1031,37 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
         if os.path.exists(ruta_local):
             os.remove(ruta_local)
 
+        # Generar reporte de consistencia post-importación
+        try:
+            from precio_sync import verificar_consistencia, generar_reporte_discrepancias
+            await update.message.reply_text("🔍 Verificando consistencia post-importación...")
+            resultado = await asyncio.to_thread(verificar_consistencia)
+            hay_disc = (resultado.get("diferentes") or resultado.get("solo_memoria") or resultado.get("solo_excel"))
+            if hay_disc:
+                ruta_rep = await asyncio.to_thread(generar_reporte_discrepancias, resultado)
+                iguales  = resultado.get("iguales", 0)
+                dif      = len(resultado.get("diferentes", []))
+                s_mem    = len(resultado.get("solo_memoria", []))
+                s_xls    = len(resultado.get("solo_excel", []))
+                resumen  = (
+                    f"📊 Post-importación:\n"
+                    f"✅ Iguales: {iguales}\n"
+                    f"⚠️ Con diferencias: {dif}\n"
+                    f"🧠 Solo en memoria: {s_mem}\n"
+                    f"📋 Solo en Excel: {s_xls}"
+                )
+                with open(ruta_rep, "rb") as f:
+                    await update.message.reply_document(
+                        document=f,
+                        filename="reporte_post_importacion.xlsx",
+                        caption=resumen
+                    )
+                os.remove(ruta_rep)
+            else:
+                await update.message.reply_text("✅ Post-importación: todo sincronizado correctamente.")
+        except Exception as e:
+            pass  # El reporte es opcional, no interrumpir si falla
+
     except Exception as e:
         await update.message.reply_text(f"❌ Error importando: {e}")
 
@@ -1082,6 +1113,22 @@ async def comando_exportar_precios(update, context):
             lineas.append("Usa /consistencia para verificar.")
 
         await update.message.reply_text("\n".join(lineas))
+
+        # Generar y enviar reporte Excel si hay productos no encontrados
+        if sin_match:
+            try:
+                from precio_sync import generar_reporte_discrepancias
+                reporte_data = {"sin_match": sin_match, "diferentes": [], "solo_memoria": [], "solo_excel": []}
+                ruta = await asyncio.to_thread(generar_reporte_discrepancias, reporte_data)
+                with open(ruta, "rb") as f:
+                    await update.message.reply_document(
+                        document=f,
+                        filename="reporte_exportacion.xlsx",
+                        caption="📎 Productos en memoria que no se encontraron en el Excel"
+                    )
+                import os; os.remove(ruta)
+            except Exception as e:
+                await update.message.reply_text(f"⚠️ No se pudo generar el reporte: {e}")
 
     except Exception as e:
         await update.message.reply_text(f"❌ Error en exportación: {e}")
@@ -1166,6 +1213,23 @@ async def comando_consistencia(update, context):
             lineas.append("🎉 ¡Todo sincronizado correctamente!")
 
         await update.message.reply_text("\n".join(lineas))
+
+        # Generar y enviar reporte Excel si hay discrepancias
+        hay_discrepancias = diferentes or solo_mem or solo_xls
+        if hay_discrepancias:
+            try:
+                from precio_sync import generar_reporte_discrepancias
+                ruta = await asyncio.to_thread(generar_reporte_discrepancias, resultado)
+                with open(ruta, "rb") as f_rep:
+                    await update.message.reply_document(
+                        document=f_rep,
+                        filename="reporte_consistencia.xlsx",
+                        caption="📎 Detalle completo de discrepancias"
+                    )
+                import os; os.remove(ruta)
+            except Exception as e_rep:
+                await update.message.reply_text(f"⚠️ No se pudo generar el reporte: {e_rep}")
+
     except Exception as e:
         await update.message.reply_text(f"❌ Error en verificación: {e}")
 
