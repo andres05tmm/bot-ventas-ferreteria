@@ -458,6 +458,146 @@ def actualizar_precio(
 # VERIFICACIÓN DE CONSISTENCIA (bajo demanda)
 # ─────────────────────────────────────────────────────────────────
 
+
+def exportar_catalogo_a_excel() -> dict:
+    """
+    Vuelca TODOS los precios de memoria.json al Excel BASE_DE_DATOS_PRODUCTOS.xlsx
+    en una sola operación: descarga una vez, actualiza todas las celdas, sube una vez.
+
+    Reglas por categoría (idénticas al importador, sentido inverso):
+
+      Cat 2 Pinturas / Cat 4 Impermeabilizantes:
+        Col Q (idx 16) = precio_unidad
+        Col R (idx 17) = precio_fraccion["3/4"].precio  / 0.75   (precio unitario)
+        Col S (idx 18) = precio_fraccion["1/2"].precio  / 0.5
+        Col T (idx 19) = precio_fraccion["1/4"].precio  / 0.25
+        Col U (idx 20) = precio_fraccion["1/8"].precio  / 0.125
+        Col V (idx 21) = precio_fraccion["1/16"].precio / 0.0625
+
+      Cat 3 Tornillería con precio_por_cantidad:
+        Col Q (idx 16) = precio_bajo_umbral   (precio unitario normal)
+        Col R (idx 17) = precio_sobre_umbral  (precio mayorista >= umbral)
+
+      Resto (ferretería, eléctricos, etc.) con precios_fraccion:
+        Col Q (idx 16) = precio_unidad
+        Cols R-V       = precio_fraccion[label].precio  (valor total directo)
+
+    Retorna:
+        {
+          "actualizados": N,   productos con al menos una celda modificada
+          "sin_match":  [...], productos en memoria no encontrados en el Excel
+          "errores":    [...],
+        }
+    """
+    ruta_tmp   = "BASE_DE_DATOS_PRODUCTOS_tmp.xlsx"
+    ruta_final = NOMBRE_EXCEL_PRODUCTOS
+
+    try:
+        from drive import descargar_de_drive, subir_a_drive_urgente
+    except ImportError:
+        return {"actualizados": 0, "sin_match": [], "errores": ["módulo drive no disponible"]}
+
+    # 1 ── Descargar una sola vez
+    try:
+        if not descargar_de_drive(NOMBRE_EXCEL_PRODUCTOS, ruta_tmp):
+            return {"actualizados": 0, "sin_match": [], "errores": [f"{NOMBRE_EXCEL_PRODUCTOS} no encontrado en Drive"]}
+    except Exception as e:
+        return {"actualizados": 0, "sin_match": [], "errores": [f"error descargando: {e}"]}
+
+    try:
+        wb = openpyxl.load_workbook(ruta_tmp)
+        ws = wb["Datos"]
+    except Exception as e:
+        _limpiar(ruta_tmp)
+        return {"actualizados": 0, "sin_match": [], "errores": [f"no se pudo abrir: {e}"]}
+
+    from utils import _normalizar
+    from memoria import cargar_memoria
+
+    catalogo = cargar_memoria().get("catalogo", {})
+
+    # 2 ── Construir índice nombre_lower → fila del Excel
+    filas_excel: dict[str, list] = {}   # nombre_lower → lista de celdas de la fila
+    for row in ws.iter_rows(min_row=2):
+        v = row[_IDX_NOMBRE].value
+        if v:
+            filas_excel[_normalizar(str(v))] = row
+
+    actualizados = 0
+    sin_match    = []
+    errores      = []
+
+    # 3 ── Iterar catálogo y escribir cada precio en su celda
+    for clave, prod in catalogo.items():
+        nombre_lower = prod.get("nombre_lower", "")
+        row = filas_excel.get(nombre_lower)
+        if row is None:
+            sin_match.append(prod.get("nombre", clave))
+            continue
+
+        cat = prod.get("categoria", "")
+        modificado = False
+
+        try:
+            # ── Precio unidad (col Q) ────────────────────────────────────────
+            p_unidad = prod.get("precio_unidad")
+            if p_unidad:
+                row[_IDX_UNIDAD].value = round(p_unidad)
+                modificado = True
+
+            # ── Tornillería: precio_por_cantidad (col R = mayorista) ─────────
+            pxc = prod.get("precio_por_cantidad")
+            if pxc and _es_tornilleria(cat):
+                p_bajo  = pxc.get("precio_bajo_umbral")
+                p_sobre = pxc.get("precio_sobre_umbral")
+                if p_bajo:
+                    row[_IDX_UNIDAD].value = round(p_bajo)   # col Q
+                if p_sobre:
+                    idx_r = _HEADER_MAP["0.75"][0]            # col R = idx 17
+                    if idx_r < len(row):
+                        row[idx_r].value = round(p_sobre)
+                        modificado = True
+
+            # ── Fracciones de galón (pinturas) o directas (ferretería) ───────
+            fracs = prod.get("precios_fraccion", {})
+            for label, frac_data in fracs.items():
+                precio_total = frac_data.get("precio")
+                if not precio_total:
+                    continue
+                info = _LABEL_MAP.get(label)
+                if info is None:
+                    continue
+                decimal_real, col_idx = info
+                if col_idx >= len(row):
+                    continue
+                val_celda = _valor_para_celda(precio_total, label, cat)
+                row[col_idx].value = val_celda
+                modificado = True
+
+        except Exception as e:
+            errores.append(f"{prod.get('nombre', clave)}: {e}")
+            continue
+
+        if modificado:
+            actualizados += 1
+
+    # 4 ── Guardar y subir una sola vez
+    try:
+        wb.save(ruta_tmp)
+        import shutil as _sh
+        _sh.copy(ruta_tmp, ruta_final)
+        subir_a_drive_urgente(ruta_final)
+    except Exception as e:
+        errores.append(f"error guardando/subiendo: {e}")
+    finally:
+        _limpiar(ruta_tmp, ruta_final)
+
+    return {
+        "actualizados": actualizados,
+        "sin_match":    sin_match,
+        "errores":      errores[:10],
+    }
+
 def verificar_consistencia() -> dict:
     """
     Descarga el Excel de Drive y compara precios contra memoria.json.
