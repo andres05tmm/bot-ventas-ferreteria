@@ -1055,33 +1055,65 @@ async def comando_consistencia(update, context):
         solo_mem  = resultado["solo_memoria"]
         solo_xls  = resultado["solo_excel"]
 
-        def _esc(s):
-            # Escapa caracteres especiales de Markdown de Telegram
-            for ch in ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
-                s = s.replace(ch, f"\\{ch}")
-            return s
-
-        texto = "📊 Consistencia de precios\n\n"
-        texto += f"✅ Iguales: {iguales}\n"
-        texto += f"⚠️ Con diferencias: {len(diferentes)}\n"
-        if solo_mem:
-            texto += f"🧠 Solo en memoria: {len(solo_mem)}\n"
-        if solo_xls:
-            texto += f"📋 Solo en Excel: {len(solo_xls)}\n"
+        lineas = []
+        lineas.append("📊 CONSISTENCIA DE PRECIOS")
+        lineas.append("─" * 30)
+        lineas.append(f"✅ Iguales:          {iguales}")
+        lineas.append(f"⚠️  Con diferencias: {len(diferentes)}")
+        lineas.append(f"🧠 Solo en memoria:  {len(solo_mem)}")
+        lineas.append(f"📋 Solo en Excel:    {len(solo_xls)}")
 
         if diferentes:
-            texto += "\nDiferencias encontradas:\n"
+            lineas.append("")
+            lineas.append("── DIFERENCIAS DE PRECIO ──")
             for d in diferentes[:10]:
-                texto += f"• {_esc(d['nombre'])}\n"
-                for diff in d["diffs"][:2]:
-                    texto += f"  → {_esc(diff)}\n"
+                lineas.append(f"\n📦 {d['nombre']}")
+                for diff in d["diffs"]:
+                    # diff viene como "precio_unidad: mem=7000 xls=8000"
+                    # o "fraccion 1/2: mem=None xls=5000"
+                    partes = diff.split(": ", 1)
+                    if len(partes) == 2:
+                        campo, valores = partes
+                        # extraer mem y xls
+                        mem_val = valores.split(" xls=")[0].replace("mem=", "")
+                        xls_val = valores.split(" xls=")[1] if " xls=" in valores else "?"
+                        if "fraccion" in campo:
+                            frac = campo.replace("fraccion ", "").strip()
+                            lineas.append(f"   Fracción {frac}:")
+                        else:
+                            lineas.append(f"   Precio unidad:")
+                        lineas.append(f"     Memoria → ${mem_val}")
+                        lineas.append(f"     Excel   → ${xls_val}")
+                    else:
+                        lineas.append(f"   {diff}")
             if len(diferentes) > 10:
-                texto += f"  …y {len(diferentes)-10} más\n"
+                lineas.append(f"\n   …y {len(diferentes)-10} productos más con diferencias")
+
+        if solo_mem and len(solo_mem) <= 5:
+            lineas.append("")
+            lineas.append("── SOLO EN MEMORIA (no están en Excel) ──")
+            for nombre in solo_mem:
+                lineas.append(f"  • {nombre}")
+        elif solo_mem:
+            lineas.append("")
+            lineas.append(f"── {len(solo_mem)} productos en memoria que no están en Excel ──")
+            lineas.append("  Usa /actualizar_catalogo para reimportar desde Excel.")
+
+        if solo_xls and len(solo_xls) <= 5:
+            lineas.append("")
+            lineas.append("── SOLO EN EXCEL (no están en memoria) ──")
+            for nombre in solo_xls[:5]:
+                lineas.append(f"  • {nombre}")
+        elif solo_xls:
+            lineas.append("")
+            lineas.append(f"── {len(solo_xls)} productos en Excel que no están en memoria ──")
+            lineas.append("  Usa /actualizar_catalogo para cargarlos.")
 
         if not diferentes and not solo_mem and not solo_xls:
-            texto += "\n🎉 ¡Todo sincronizado correctamente!"
+            lineas.append("")
+            lineas.append("🎉 ¡Todo sincronizado correctamente!")
 
-        await update.message.reply_text(texto)
+        await update.message.reply_text("\n".join(lineas))
     except Exception as e:
         await update.message.reply_text(f"❌ Error en verificación: {e}")
 
