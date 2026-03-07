@@ -543,6 +543,78 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         else:
             print("[PRECALCULADO DEBUG] No se generó precalculado para este mensaje")
 
+    # ── Precalcular tornillos mayorista y unidad_suelta ──────────────────────
+    # Estos casos no los cubre el bloque mixto de arriba.
+    # Construimos totales determinísticos antes de que Claude los vea.
+    _lineas_pre_extra = []
+    _segs_pre = re.split(r'[,\n]+', mensaje_usuario.lower())
+    for _seg in _segs_pre:
+        _seg = _seg.strip()
+        if not _seg:
+            continue
+        # Extraer cantidad entera del segmento (primer número)
+        _m_cant = re.match(r'^[^\d]*(\d+)', _seg)
+        if not _m_cant:
+            continue
+        _cant = int(_m_cant.group(1))
+
+        # Buscar producto en el segmento
+        _palabras = _seg.split()
+        _prod_encontrado = None
+        for _largo in [4, 3, 2, 1]:
+            for _i in range(len(_palabras) - _largo + 1):
+                _frag = " ".join(_palabras[_i:_i+_largo])
+                if len(_frag) < 3:
+                    continue
+                _p = buscar_producto_en_catalogo(_frag)
+                if _p:
+                    _prod_encontrado = _p
+                    break
+            if _prod_encontrado:
+                break
+
+        if not _prod_encontrado:
+            continue
+
+        _pxc = _prod_encontrado.get("precio_por_cantidad")
+        _fracs = _prod_encontrado.get("precios_fraccion", {})
+        _nombre = _prod_encontrado["nombre"]
+
+        # Tornillos/mayorista: calcular precio correcto según umbral
+        if _pxc and _cant > 0:
+            _umbral = _pxc.get("umbral", 50)
+            _p_bajo = _pxc.get("precio_bajo_umbral", 0)
+            _p_sobre = _pxc.get("precio_sobre_umbral", 0)
+            if _p_bajo and _p_sobre:
+                _precio_u = _p_sobre if _cant >= _umbral else _p_bajo
+                _total = _cant * _precio_u
+                _tier = f"mayorista x{_umbral}+" if _cant >= _umbral else "normal"
+                _lineas_pre_extra.append(
+                    f"{_nombre}: cantidad={_cant}, precio_unit={_precio_u}({_tier}), total={_total}"
+                )
+
+        # unidad_suelta: si tiene unidad_suelta y el segmento NO menciona kilo/kg
+        elif _fracs and "unidad_suelta" in _fracs:
+            _kilo_mencionado = any(k in _seg for k in ("kilo", "kg", "medio kilo"))
+            if not _kilo_mencionado:
+                _p_suelta = _fracs["unidad_suelta"]
+                _precio_suelta = _p_suelta["precio"] if isinstance(_p_suelta, dict) else _p_suelta
+                _total = _cant * _precio_suelta
+                _lineas_pre_extra.append(
+                    f"{_nombre}: cantidad={_cant}, precio_unit={_precio_suelta}(unidad_suelta), total={_total}"
+                )
+
+    if _lineas_pre_extra:
+        _bloque_pre = (
+            "TOTALES PRECALCULADOS (USA EXACTAMENTE, NO recalcules):\n"
+            + "\n".join(_lineas_pre_extra)
+        )
+        if info_fracciones_extra:
+            info_fracciones_extra += "\n" + _bloque_pre
+        else:
+            info_fracciones_extra = _bloque_pre
+        print(f"[PRECALCULADO EXTRA]\n{_bloque_pre}")
+
     # ── Candidatos del catálogo para este mensaje específico ──
     info_candidatos_extra = ""
     # palabras_clave ya definida arriba con _es_keyword_relevante (incluye t1/t2/t3)
