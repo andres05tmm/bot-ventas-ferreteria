@@ -14,6 +14,7 @@ from telegram.ext import (
 import config
 from drive import sincronizar_archivos
 from excel import inicializar_excel
+import skill_loader
 from sheets import _obtener_hoja_sheets
 
 from handlers.comandos import (
@@ -36,6 +37,7 @@ def main():
     print(f"🚀 Iniciando FerreBot {config.VERSION}")
     sincronizar_archivos()
     inicializar_excel()
+    skill_loader.precargar_todos()  # Precarga skills en RAM al inicio
 
     if config.SHEETS_ID:
         print(f"📊 Google Sheets configurado: {config.SHEETS_ID}")
