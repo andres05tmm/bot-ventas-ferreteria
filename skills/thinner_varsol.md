@@ -10,6 +10,10 @@ Precios: 1=26000 | 3/4=20000 | 1/2=13000
 Cantidades mixtas: "1-1/2 galón"=1+0.5=1.5 galones → (1×26000)+(13000)=39000
 "2 y medio galones"=2+0.5=2.5 galones → (2×26000)+(13000)=65000
 
+### NÚMERO SOLO SIN UNIDAD = GALONES
+"1 thinner", "2 thinner", "1 varsol" → N galones. "1 thinner"=1 galón=26000. "2 thinner"=2 galones=52000.
+NUNCA interpretar "1 thinner" como precio ni como fracción. El número SIN unidad siempre es galones.
+
 ### ALIAS DE FRACCIÓN (thinner/varsol)
 litro=1/4 galón | botella=1/8 galón | media botella=1/16 galón | cuarto=1/4 galón
 Ventas con alias: "1 litro thinner"=1/4 galón thinner=8000 | "1 botella thinner"=1/8 galón=5000
