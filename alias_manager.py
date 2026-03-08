@@ -24,6 +24,17 @@ logger = logging.getLogger("ferrebot.alias")
 # Archivo de persistencia (Railway persiste el volumen entre deploys)
 _RUTA_ALIASES = os.getenv("ALIASES_PATH", "aliases_dinamicos.json")
 
+# Aliases PREDETERMINADOS — siempre activos, no se pueden borrar con /alias
+# Solo términos coloquiales muy comunes que el bypass necesita resolver
+_ALIASES_DEFAULT: dict[str, str] = {
+    "tiner":       "thinner",
+    "tinner":      "thinner",
+    "barsol":      "varsol",
+    "sellador":    "sellante",
+    "pagaternit":  "pegaternit",
+    "pega ternit": "pegaternit",
+}
+
 # Cache en RAM — cargado una vez al iniciar, actualizado en cada /alias
 _aliases: dict[str, str] = {}  # {termino_lower: reemplazo}
 _lock = threading.Lock()
@@ -136,11 +147,14 @@ def aplicar_aliases_dinamicos(mensaje: str) -> str:
     with _lock:
         aliases_activos = dict(_aliases)
 
-    if not aliases_activos:
+    # Combinar defaults + dinámicos (dinámicos tienen prioridad)
+    todos = {**_ALIASES_DEFAULT, **aliases_activos}
+
+    if not todos:
         return mensaje
 
     resultado = mensaje
-    for termino, reemplazo in aliases_activos.items():
+    for termino, reemplazo in todos.items():
         # Word boundary para evitar falsos positivos
         patron = r'\b' + re.escape(termino) + r'\b'
         resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
