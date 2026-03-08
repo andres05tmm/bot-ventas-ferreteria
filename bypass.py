@@ -41,6 +41,8 @@ logger = logging.getLogger("ferrebot.bypass")
 _PALABRAS_CLIENTE = {
     "para", "fiado", "a nombre", "cuenta de", "credito",
     "a credito", "de parte", "factura", "facturar",
+    "abono", "abonó", "abono de", "pago de", "pagó",
+    "debe", "saldo", "deuda",
 }
 
 _PALABRAS_CONSULTA = {
