@@ -1030,14 +1030,15 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
 async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /catalogo — Reimporta todos los productos desde BASE_DE_DATOS_PRODUCTOS.xlsx.
-    El archivo debe estar en Google Drive o enviarse como documento al bot.
+    Descarga desde Drive, importa, y reporta problemas detallados.
     """
+    import os
+
     await update.message.reply_text(
-        "📦 Actualizando catálogo de productos...\n"
-        "Buscando BASE_DE_DATOS_PRODUCTOS.xlsx en Drive..."
+        "📦 Actualizando catálogo...\n"
+        "Descargando BASE_DE_DATOS_PRODUCTOS.xlsx desde Drive..."
     )
 
-    # Intentar descargar desde Drive
     ruta_local = "BASE_DE_DATOS_PRODUCTOS.xlsx"
     descargado = False
 
@@ -1047,70 +1048,104 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
             descargar_de_drive, "BASE_DE_DATOS_PRODUCTOS.xlsx", ruta_local
         )
     except Exception as e:
-        print(f"Error descargando de Drive: {e}")
+        print(f"[catalogo] Error descargando de Drive: {e}")
 
     if not descargado:
         await update.message.reply_text(
             "⚠️ No encontré el archivo en Drive.\n\n"
-            "Envíame el archivo BASE_DE_DATOS_PRODUCTOS.xlsx directamente en este chat "
-            "y lo importaré automáticamente."
+            "Envíame BASE_DE_DATOS_PRODUCTOS.xlsx directamente en este chat."
         )
         return
 
-    # Importar el catalogo
+    # ── Análisis previo a importar ────────────────────────────────────────
+    try:
+        import openpyxl as _oxl
+        import unicodedata, re
+
+        def _norm(s):
+            s = s.lower().strip()
+            s = unicodedata.normalize("NFD", s)
+            s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+            s = re.sub(r"[^a-z0-9\s\-_./\"]", "", s)
+            return re.sub(r"\s+", " ", s).strip()
+
+        wb_pre = _oxl.load_workbook(ruta_local, data_only=True)
+        hoja   = wb_pre["Datos"] if "Datos" in wb_pre.sheetnames else wb_pre.active
+        sin_precio, duplicados = [], []
+        vistos = {}
+        for row in hoja.iter_rows(min_row=2, values_only=True):
+            nombre = str(row[1] or "").strip()
+            if not nombre or nombre.lower() == "nan":
+                continue
+            q = row[16] if len(row) > 16 else None
+            clave = _norm(nombre).replace(" ", "_")
+            # Sin precio
+            if q is None or not isinstance(q, (int, float)) or float(q) <= 0:
+                sin_precio.append(nombre)
+            # Duplicado
+            if clave in vistos:
+                prev_nombre, prev_precio = vistos[clave]
+                prev_q = prev_precio
+                curr_q = q if isinstance(q, (int, float)) else 0
+                if round(float(prev_q or 0)) != round(float(curr_q or 0)):
+                    duplicados.append(
+                        f"{nombre}: fila anterior=${int(prev_q or 0):,} vs actual=${int(curr_q or 0):,}"
+                    )
+            else:
+                vistos[clave] = (nombre, q)
+    except Exception as e:
+        sin_precio, duplicados = [], []
+        print(f"[catalogo] análisis previo falló: {e}")
+
+    # ── Importar ──────────────────────────────────────────────────────────
     try:
         resultado = await asyncio.to_thread(importar_catalogo_desde_excel, ruta_local)
-        importados = resultado["importados"]
-        omitidos   = resultado["omitidos"]
-        errores    = resultado["errores"]
-
-        texto = (
-            f"✅ Catálogo actualizado exitosamente\n\n"
-            f"📦 {importados} productos importados\n"
-            f"⏭️ {omitidos} filas omitidas (sin nombre o precio)"
-        )
-        if errores:
-            texto += f"\n⚠️ {len(errores)} errores:\n" + "\n".join(f"  • {e}" for e in errores[:5])
-
-        await update.message.reply_text(texto)
-
-        import os
-        if os.path.exists(ruta_local):
-            os.remove(ruta_local)
-
-        # Generar reporte de consistencia post-importación
-        try:
-            from precio_sync import verificar_consistencia, generar_reporte_discrepancias
-            await update.message.reply_text("🔍 Verificando consistencia post-importación...")
-            resultado = await asyncio.to_thread(verificar_consistencia)
-            hay_disc = (resultado.get("diferentes") or resultado.get("solo_memoria") or resultado.get("solo_excel"))
-            if hay_disc:
-                ruta_rep = await asyncio.to_thread(generar_reporte_discrepancias, resultado)
-                iguales  = resultado.get("iguales", 0)
-                dif      = len(resultado.get("diferentes", []))
-                s_mem    = len(resultado.get("solo_memoria", []))
-                s_xls    = len(resultado.get("solo_excel", []))
-                resumen  = (
-                    f"📊 Post-importación:\n"
-                    f"✅ Iguales: {iguales}\n"
-                    f"⚠️ Con diferencias: {dif}\n"
-                    f"🧠 Solo en memoria: {s_mem}\n"
-                    f"📋 Solo en Excel: {s_xls}"
-                )
-                with open(ruta_rep, "rb") as f:
-                    await update.message.reply_document(
-                        document=f,
-                        filename="reporte_post_importacion.xlsx",
-                        caption=resumen
-                    )
-                os.remove(ruta_rep)
-            else:
-                await update.message.reply_text("✅ Post-importación: todo sincronizado correctamente.")
-        except Exception as e:
-            pass  # El reporte es opcional, no interrumpir si falla
-
     except Exception as e:
         await update.message.reply_text(f"❌ Error importando: {e}")
+        if os.path.exists(ruta_local):
+            os.remove(ruta_local)
+        return
+
+    importados = resultado["importados"]
+    omitidos   = resultado["omitidos"]
+    errores    = resultado["errores"]
+
+    # ── Resumen principal ─────────────────────────────────────────────────
+    texto = (
+        f"✅ Catálogo actualizado\n\n"
+        f"📦 {importados} productos importados\n"
+        f"⏭️ {omitidos} filas sin nombre (ignoradas)\n"
+    )
+    if sin_precio:
+        texto += f"⚠️ {len(sin_precio)} productos con precio $0 (no importados)\n"
+    if duplicados:
+        texto += f"🔁 {len(duplicados)} duplicados con precio diferente\n"
+    if errores:
+        texto += f"❌ {len(errores)} errores de parseo\n"
+
+    await update.message.reply_text(texto)
+
+    # ── Detalle de problemas ──────────────────────────────────────────────
+    if sin_precio:
+        lista = "\n".join(f"  • {n}" for n in sin_precio[:30])
+        if len(sin_precio) > 30:
+            lista += f"\n  ... y {len(sin_precio)-30} más"
+        await update.message.reply_text(
+            f"⚠️ Productos con precio $0 (agrégales precio en el Excel):\n{lista}"
+        )
+
+    if duplicados:
+        lista = "\n".join(f"  • {d}" for d in duplicados[:20])
+        await update.message.reply_text(
+            f"🔁 Duplicados con precios distintos (se usó el último):\n{lista}"
+        )
+
+    if errores:
+        lista = "\n".join(f"  • {e}" for e in errores[:10])
+        await update.message.reply_text(f"❌ Errores de parseo:\n{lista}")
+
+    if os.path.exists(ruta_local):
+        os.remove(ruta_local)
 
 
 
