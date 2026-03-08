@@ -1,13 +1,20 @@
-## TORNILLOS DRYWALL
-Formato: "TORNILLO DRYWALL CALIBRExMEDIDA". Total=cantidad*precio_u.
-Voz: "por 1"=X1 | "y cuarto"=+1/4 | "y medio"=+1/2 | "por 2"=X2 | "por 3"=X3
-<50uds=precio1, >=50=precio2:
+## TORNILLOS Y PUNTILLAS — PRECIOS POR CANTIDAD
 
-Calibre 6:  X1/2=25/25 | X3/4=58/30 | X1=38/35 | X1-1/4=42/40 | X1-1/2=58/55 | X2=67/60 | X2-1/2=75/70 | X3=83/80
-Calibre 8:  X3/4=33/30 | X1=38/35 | X1-1/2=58/55 | X2=67/60 | X3=83/80
-Calibre 10: X1=83/70 | X1-1/2=125/100 | X2=150/120 | X2-1/2=167/160 | X3=167/160 | X3-1/2=208/200 | X4=208/200
+### Precio mayorista (umbral: 50 unidades)
+Todos los tornillos drywall tienen DOS precios: normal (<50) y mayorista (≥50).
+Ejemplos: TORNILLO DRYWALL 8x1: normal=$38, mayorista=$35
+Aplicar precio mayorista cuando cantidad_total ≥ 50, sin importar cómo se exprese.
 
-CRITICO: 10X3(sin "medio") != 10X3-1/2(con "medio"/"y medio"). Productos distintos.
+### UNIDADES DE CONVERSIÓN (aplicar ANTES de evaluar precio)
+1 docena = 12 unidades | 1 media docena = 6 unidades | 1 gruesa = 144 unidades
+"7 docenas" = 84 unidades → 84 ≥ 50 → precio mayorista
+"3 docenas" = 36 unidades → 36 < 50 → precio normal
+"2 gruesas" = 288 unidades → precio mayorista
 
-## MEDIDAS EN NOMBRE
-Medidas en el nombre NO son cantidad: chazos(3/8), puntillas(2"), arandelas(1/2), soldadura(60/11,7018). Total=cantidad*precio_u catálogo.
+### PRECIOS POR CANTIDAD — TORNILLOS DRYWALL (precio_bajo_umbral/precio_sobre_umbral × umbral=50)
+6x1/2=25 | 6x3/4=58/30 | 6x1=38/35 | 6x1-1/4=42/40 | 6x1-1/2=58/55 | 6x2=67/60 | 6x2-1/2=75/70 | 6x3=83/80 | 6 x 3=83/80
+8x1=38/35 | 8x3/4=33/30 | 8x1-1/2=58/55 | 8x 2=67/60 | 8x3=83/80
+10x1=83/70 | 10x1-1/2=125/100 | 10x2=150/120 | 10x2-1/2=167/160 | 10x3=167/160 | 10x4=208/200
+
+### PUNTILLAS — precio por libra (precio_unidad fijo, sin mayorista)
+Venta por libra. "2 libras puntilla 2"" = 2 × precio_libra.
