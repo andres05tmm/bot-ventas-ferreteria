@@ -248,10 +248,24 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
     if not m:
         return None
 
-    cantidad   = int(m.group(1))
-    nombre_txt = m.group(2).strip()
+    cantidad_raw = int(m.group(1))
+    nombre_txt   = m.group(2).strip()
 
-    if cantidad <= 0 or cantidad > 9999:
+    # ── Conversión de unidades: docenas, gruesas ──
+    _UNIDADES = {
+        "docenas": 12, "docena": 12,
+        "medias docenas": 6, "media docena": 6,
+        "gruesas": 144, "gruesa": 144,
+    }
+    cantidad = cantidad_raw
+    for unidad, factor in _UNIDADES.items():
+        patron_u = r'^' + unidad + r'\s+'
+        if re.match(patron_u, nombre_txt, re.IGNORECASE):
+            cantidad   = cantidad_raw * factor
+            nombre_txt = re.sub(patron_u, '', nombre_txt, flags=re.IGNORECASE).strip()
+            break
+
+    if cantidad <= 0 or cantidad > 99999:
         return None
 
     prod = _buscar_producto_exacto(nombre_txt, catalogo)
