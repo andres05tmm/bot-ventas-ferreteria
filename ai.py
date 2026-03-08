@@ -1173,13 +1173,16 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     memoria        = cargar_memoria()
 
     # BYPASS PYTHON — ventas simples/fracciones sin Claude
-    _bypass = bypass.intentar_bypass_python(mensaje_usuario, memoria.get("catalogo", {}))
+    # El mensaje llega como "{vendedor}: {texto}" — stripear prefijo antes del bypass
+    import re as _re
+    _msg_bypass = _re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
+    _bypass = bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
     if _bypass:
         import json as _jbp
         _txt, _venta = _bypass
         return f"{_txt}\n[VENTA]{_jbp.dumps(_venta, ensure_ascii=False)}[/VENTA]"
 
-    logging.getLogger("ferrebot.ai").info(f"[→ CLAUDE] '{mensaje_usuario[:60]}'")
+    logging.getLogger("ferrebot.ai").info(f"[→ CLAUDE] '{_msg_bypass[:60]}'")
 
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
