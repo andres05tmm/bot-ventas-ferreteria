@@ -324,28 +324,27 @@ def _texto_vinilo() -> str:
                      if "cunete" in p["nombre_lower"] and "1/2" not in p["nombre_lower"]
                      and "masilla" not in p["nombre_lower"]], key=lambda x: x["precio_unidad"], reverse=True)
     medio  = sorted([p for p in cat.values()
-                     if "1/2 cuñete" in p["nombre_lower"] or "medio cuñete" in p["nombre_lower"]],
+                     if "1/2 cunete" in p["nombre_lower"] or "1/2 cuñete" in p["nombre_lower"]
+                     or "medio cunete" in p["nombre_lower"]],
                     key=lambda x: x["precio_unidad"], reverse=True)
 
     txt = "🖌️ <b>Vinilos y Cuñetes</b>\n\n"
-    txt += "<b>▸ Galón — colores disponibles</b>\n" + "─" * 36 + "\n"
+    txt += "<b>▸ Galón</b>\n" + "─" * 36 + "\n"
     for precio in sorted(por_precio.keys(), reverse=True):
         colores = por_precio[precio]
         precio_fmt = f"${precio:,.0f}".replace(",", ".")
-        # Detectar tono
         if precio >= 50000:
             tono = "T1"
         elif precio >= 35000:
             tono = "T2"
         else:
             tono = "T3"
-        txt += f"  <b>{tono} — {precio_fmt}</b>  ({len(colores)} colores)\n"
-        txt += f"  <i>{' · '.join(sorted(colores))}</i>\n\n"
+        txt += f"  Galón Vinilo {tono}    {precio_fmt}    ({len(colores)} colores)\n"
 
-    txt += "<b>▸ Cuñete — 5 galones</b>\n" + "─" * 36 + "\n"
+    txt += "\n<b>▸ Cuñete — 5 galones</b>\n" + "─" * 36 + "\n"
     for p in cunete:
         txt += _fmt_row(p["nombre"], _precio(p))
-    txt += "\n<b>▸ Medio Cuñete — 2.5 gal · solo blanco</b>\n" + "─" * 36 + "\n"
+    txt += "\n<b>▸ Medio Cuñete — 2.5 gal</b>\n" + "─" * 36 + "\n"
     for p in medio:
         txt += _fmt_row(p["nombre"], _precio(p))
     return txt
