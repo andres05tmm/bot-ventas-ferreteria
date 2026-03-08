@@ -1179,6 +1179,8 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
         _txt, _venta = _bypass
         return f"{_txt}\n[VENTA]{_jbp.dumps(_venta, ensure_ascii=False)}[/VENTA]"
 
+    logging.getLogger("ferrebot.ai").info(f"[→ CLAUDE] '{mensaje_usuario[:60]}'")
+
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
 
