@@ -26,7 +26,7 @@ from excel import (
 from memoria import (
     cargar_memoria, obtener_resumen_caja, cargar_gastos_hoy,
     cargar_inventario, verificar_alertas_inventario,
-    resumen_fiados, detalle_fiado_cliente,
+    resumen_fiados, detalle_fiado_cliente, abonar_fiado,
     importar_catalogo_desde_excel,
     registrar_conteo_inventario, ajustar_inventario,
     buscar_productos_inventario, buscar_clave_inventario,
@@ -80,7 +80,8 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👥 CLIENTES Y FIADOS\n"
         "/clientes — Ver lista de clientes\n"
         "/fiados — Ver todas las cuentas fiadas\n"
-        "/fiados [nombre] — Ver detalle de un cliente\n\n"
+        "/fiados [nombre] — Ver detalle de un cliente\n"
+        "/abono [nombre] [monto] — Registrar abono\n\n"
         "⚙️ SISTEMA\n"
         "/agregar_producto — Agregar nuevo producto al catalogo\n"
         "/consistencia — Verificar consistencia del catalogo\n"
@@ -698,6 +699,46 @@ async def comando_fiados(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         texto = resumen_fiados()
     await update.message.reply_text(texto, parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
+# /abono
+# ─────────────────────────────────────────────
+
+async def comando_abono(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /abono [nombre] [monto]
+    Ej: /abono Juan Perez 50000
+    """
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "⚠️ Uso: /abono [nombre] [monto]\n"
+            "Ejemplo: /abono Juan Perez 50000"
+        )
+        return
+
+    # Último argumento es el monto, el resto es el nombre
+    try:
+        monto = float(context.args[-1].replace(",", "").replace(".", ""))
+    except ValueError:
+        await update.message.reply_text("❌ El monto debe ser un número. Ej: /abono Juan Perez 50000")
+        return
+
+    nombre = " ".join(context.args[:-1])
+
+    ok, msg = await asyncio.to_thread(abonar_fiado, nombre, monto)
+    if ok:
+        from memoria import detalle_fiado_cliente
+        detalle = detalle_fiado_cliente(nombre)
+        await update.message.reply_text(
+            f"✅ Abono registrado\n\n"
+            f"👤 {nombre.upper()}\n"
+            f"💰 Abono: ${monto:,.0f}\n\n"
+            f"{detalle}",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(f"❌ {msg}")
 
 
 # ─────────────────────────────────────────────
