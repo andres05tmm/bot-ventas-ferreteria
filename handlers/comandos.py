@@ -59,8 +59,10 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/borrar [#] — Borrar consecutivo completo\n\n"
         "💰 CAJA Y GASTOS\n"
         "/caja — Estado actual de caja\n"
+        "/caja abrir [monto] — Abrir caja del dia (ej: /caja abrir 50000)\n"
         "/gastos — Gastos registrados hoy\n"
-        "/cerrar — Cierre del dia (Excel + limpia Sheets)\n"
+        "/cerrar — Cierre del dia (Excel + limpia Sheets + cierra caja)\n"
+        "/resetventas CONFIRMAR — Limpiar ventas del dia actual\n"
         "/resetventas excel CONFIRMAR DD/MM/YYYY — Borrar ventas de una fecha\n\n"
         "📊 REPORTES\n"
         "/grafica — Graficas de ventas\n"
@@ -70,8 +72,8 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/inventario — Ver inventario actual\n"
         "/inv [cantidad] [producto] — Registrar conteo de inventario\n"
         "/stock [producto] — Detalle de stock\n"
-        "/ajuste [producto] [cantidad] — Ajustar stock manualmente\n"
-        "/compra — Registrar compra de mercancia\n"
+        "/ajuste [+/-cantidad] [producto] — Ajustar stock (ej: /ajuste +10 brocha)\n"
+        "/compra [cantidad] [producto] a [costo] — Registrar compra\n"
         "/precios — Ver catalogo de precios\n"
         "/margenes — Ver margenes de ganancia\n"
         "/actualizar_catalogo — Recargar catalogo desde Excel\n\n"
@@ -84,7 +86,7 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/consistencia — Verificar consistencia del catalogo\n"
         "/exportar_precios — Exportar lista de precios a Excel\n"
         "/alias — Gestionar alias de productos (ver /alias para ayuda)\n"
-        "/keepalive — Activar/desactivar cache para dias movidos\n\n"
+        "/keepalive on/off — Activar/desactivar cache de prompts\n\n"
         f"{estado_drive} | {estado_sheets}"
     )
 
@@ -196,7 +198,7 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Buscar todas las filas del consecutivo - PRIORIZAR SHEETS
     filas = []
-    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+    if config.SHEETS_ID and config._get_sheets_disponible():
         from sheets import sheets_obtener_ventas_por_consecutivo
         filas = await asyncio.to_thread(sheets_obtener_ventas_por_consecutivo, numero)
     
@@ -780,7 +782,18 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     ventas_sheets = await asyncio.to_thread(sheets_leer_ventas_del_dia)
     if not ventas_sheets:
-        await update.message.reply_text("📭 El Sheets no tiene ventas hoy.")
+        # Sheets vacío — igual cerrar caja y subir Excel si tiene ventas
+        from memoria import cargar_caja, guardar_caja
+        caja = cargar_caja()
+        resumen_caja = ""
+        if caja.get("abierta"):
+            resumen_caja = obtener_resumen_caja()
+            caja["abierta"] = False
+            guardar_caja(caja)
+        msg = "📭 Sheets sin ventas hoy — nada que sincronizar."
+        if resumen_caja:
+            msg += f"\n\n💰 Caja cerrada:\n{resumen_caja}"
+        await update.message.reply_text(msg)
         return
 
     diferencias = await asyncio.to_thread(sheets_detectar_ediciones_vs_excel)
