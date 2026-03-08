@@ -80,6 +80,111 @@ async def _enviar_pregunta_cliente(message, chat_id: int):
         await message.reply_text("¿Cuál es el correo electrónico? (escribe 'no tiene' si no aplica)")
 
 
+
+
+# ─────────────────────────────────────────────────────────────────
+# ACTUALIZACIÓN MASIVA DE PRECIOS (sin llamar a Claude)
+# ─────────────────────────────────────────────────────────────────
+
+import re as _re
+
+def _parsear_actualizacion_masiva(mensaje: str):
+    """
+    Detecta un mensaje con múltiples líneas "producto = precio".
+    Retorna lista de (nombre, precio, fraccion) si hay ≥2 líneas válidas.
+    Retorna None si no es un mensaje de actualización masiva.
+
+    Formatos aceptados:
+      brocha 1" = 2500
+      brocha 1" : 2500
+      brocha 1" → 2500
+      brocha 1" 2500        (solo número al final)
+    Con fracciones opcionales:
+      thinner 1/4 = 8000
+      vinilo t1 galon = 52000
+    """
+    # Encabezados opcionales que se ignoran
+    _ENCABEZADOS = {
+        "actualizar precios", "actualizar precios:", "update precios",
+        "precios:", "cambiar precios", "nuevos precios", "subir precios",
+        "bajar precios", "precios nuevos",
+    }
+
+    lineas = [l.strip() for l in mensaje.strip().splitlines()]
+    lineas = [l for l in lineas if l]  # quitar vacías
+
+    # Quitar primera línea si es encabezado
+    if lineas and lineas[0].lower().rstrip(":") in _ENCABEZADOS:
+        lineas = lineas[1:]
+
+    # Patrón: <nombre> [=|:|→|-] <precio>
+    # precio puede ser 2500, 2.500, 2,500, $2500, $2.500
+    PAT = _re.compile(
+        r"^(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)$",
+        _re.UNICODE
+    )
+    # Patrón alternativo: <nombre> <precio> (espacio, número al final)
+    PAT2 = _re.compile(
+        r"^(.+?)\s+\$?([\d][\d.,]*)$",
+        _re.UNICODE
+    )
+
+    _FRACCIONES = {"1/16", "1/8", "1/4", "1/3", "3/8", "1/2", "3/4", "galon", "galón"}
+
+    resultados = []
+    for linea in lineas:
+        if not linea:
+            continue
+        m = PAT.match(linea) or PAT2.match(linea)
+        if not m:
+            return None  # línea que no encaja → no es actualización masiva
+        nombre_raw = m.group(1).strip().rstrip(":")
+        precio_str = m.group(2).replace(".", "").replace(",", "")
+        try:
+            precio = float(precio_str)
+        except ValueError:
+            return None
+
+        # Detectar fracción al final del nombre
+        fraccion = None
+        nombre_lower = nombre_raw.lower()
+        for frac in _FRACCIONES:
+            if nombre_lower.endswith(" " + frac):
+                fraccion = frac if frac not in ("galon", "galón") else None
+                nombre_raw = nombre_raw[:-(len(frac)+1)].strip()
+                break
+
+        resultados.append((nombre_raw, precio, fraccion))
+
+    return resultados if len(resultados) >= 2 else None
+
+
+async def _manejar_actualizacion_masiva(update, vendedor: str, pares: list):
+    """Actualiza todos los precios y responde con resumen."""
+    from precio_sync import actualizar_precio as _ap
+    from memoria import buscar_producto_en_catalogo, invalidar_cache_memoria
+
+    exitos, errores = [], []
+    for nombre, precio, fraccion in pares:
+        try:
+            ok, msg = _ap(nombre, precio, fraccion)
+            prod = buscar_producto_en_catalogo(nombre)
+            nombre_display = prod["nombre"] if prod else nombre
+            if fraccion:
+                exitos.append(f"✅ {nombre_display} {fraccion} → ${int(precio):,}".replace(",", "."))
+            else:
+                exitos.append(f"✅ {nombre_display} → ${int(precio):,}".replace(",", "."))
+        except Exception as e:
+            errores.append(f"❌ {nombre}: {e}")
+
+    invalidar_cache_memoria()
+
+    resumen = f"💰 *{len(exitos)} precio(s) actualizado(s):*\n" + "\n".join(exitos)
+    if errores:
+        resumen += "\n\n" + "\n".join(errores)
+
+    await update.message.reply_text(resumen, parse_mode="Markdown")
+
 async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje  = update.message.text
     chat_id  = update.message.chat_id
@@ -372,6 +477,12 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 else:
                     await _enviar_botones_pago(update.message, chat_id, ventas_para_registrar)
                 return
+
+    # ── Actualización masiva de precios (intercepta antes de Claude) ──
+    pares_precio = _parsear_actualizacion_masiva(mensaje)
+    if pares_precio:
+        await _manejar_actualizacion_masiva(update, vendedor, pares_precio)
+        return
 
     # ── Flujo normal con Claude ──
     try:
