@@ -819,6 +819,44 @@ def generar_excel_personalizado(titulo: str, encabezados: list, filas: list, nom
 # WRAPPERS ASYNC
 # ─────────────────────────────────────────────
 
+def obtener_ventas_hoy_excel() -> dict:
+    """
+    Suma solo las ventas del día actual en el Excel.
+    Usado por obtener_resumen_caja() para mostrar Total ventas de hoy, no del mes.
+    """
+    from datetime import datetime as _dt
+    inicializar_excel()
+    hoy = _dt.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+    try:
+        wb          = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
+        nombre_hoja = obtener_nombre_hoja()
+        if nombre_hoja not in wb.sheetnames:
+            wb.close()
+            return {"total": 0, "num_ventas": 0}
+        ws        = wb[nombre_hoja]
+        cols      = detectar_columnas(ws)
+        col_total = next((v for k, v in cols.items() if k == "total"), None)
+        col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
+        total_hoy = 0
+        num_hoy   = 0
+        for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
+            if not any(fila):
+                continue
+            fecha_fila = str(fila[col_fecha - 1] or "")[:10] if col_fecha else ""
+            if fecha_fila != hoy:
+                continue
+            num_hoy += 1
+            if col_total and fila[col_total - 1]:
+                try:
+                    total_hoy += float(fila[col_total - 1])
+                except Exception:
+                    pass
+        wb.close()
+        return {"total": total_hoy, "num_ventas": num_hoy}
+    except Exception:
+        return {"total": 0, "num_ventas": 0}
+
+
 async def guardar_venta_excel_async(*args, **kwargs) -> int:
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, lambda: guardar_venta_excel(*args, **kwargs))
