@@ -1169,13 +1169,13 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
 
 
 async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list) -> str:
-    mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
-    memoria        = cargar_memoria()
-
-    # BYPASS PYTHON — ventas simples/fracciones sin Claude
+    # BYPASS PYTHON — ANTES de alias_ferreteria (que transforma fracciones y rompería el match)
+    # Solo se aplican aliases DINÁMICOS (simples word-substitutions: tiner→thinner, etc.)
     # El mensaje llega como "{vendedor}: {texto}" — stripear prefijo antes del bypass
     import re as _re
     _msg_bypass = _re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
+    _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
+    memoria = cargar_memoria()
     _bypass = bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
     if _bypass:
         import json as _jbp
@@ -1183,6 +1183,9 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
         return f"{_txt}\n[VENTA]{_jbp.dumps(_venta, ensure_ascii=False)}[/VENTA]"
 
     logging.getLogger("ferrebot.ai").info(f"[→ CLAUDE] '{_msg_bypass[:60]}'")
+
+    # Alias solo para Claude — después de que bypass descartó el mensaje
+    mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
 
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
