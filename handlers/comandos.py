@@ -80,6 +80,10 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/fiados — Ver todas las cuentas fiadas\n"
         "/fiados [nombre] — Ver detalle de un cliente\n\n"
         "⚙️ SISTEMA\n"
+        "/agregar_producto — Agregar nuevo producto al catalogo\n"
+        "/consistencia — Verificar consistencia del catalogo\n"
+        "/exportar_precios — Exportar lista de precios a Excel\n"
+        "/alias — Gestionar alias de productos (ver /alias para ayuda)\n"
         "/keepalive — Activar/desactivar cache para dias movidos\n\n"
         f"{estado_drive} | {estado_sheets}"
     )
