@@ -112,12 +112,19 @@ def _get_precio_fraccion(prod: dict, clave: str) -> int | None:
         return None
     return int(v["precio"]) if isinstance(v, dict) else int(v)
 
+def _slug(s: str) -> str:
+    """Quita comillas y caracteres especiales, deja alfanuméricos y espacios."""
+    return re.sub(r'[^\w\s]', '', _norm(s)).strip()
+
 def _buscar_producto_exacto(nombre_msg: str, catalogo: dict) -> dict | None:
-    """Busca producto por match exacto de nombre_lower."""
-    nombre_n = _norm(nombre_msg.strip())
+    """
+    Busca producto por match exacto normalizado.
+    Usa slug (sin comillas ni especiales) para tolerar 'brocha de 4' == 'Brocha de 4"'.
+    """
+    slug_msg = _slug(nombre_msg.strip())
     for prod in catalogo.values():
-        nl = _norm(prod.get("nombre_lower", prod.get("nombre", "")))
-        if nl == nombre_n:
+        slug_prod = _slug(prod.get("nombre_lower", prod.get("nombre", "")))
+        if slug_prod == slug_msg:
             return prod
     return None
 
