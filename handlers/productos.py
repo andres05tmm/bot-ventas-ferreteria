@@ -25,7 +25,7 @@ def _precio(prod: dict) -> str:
     return f"${p:,.0f}".replace(",", ".")
 
 
-def _precio_may(prod: dict) -> str | None:
+def _precio_may(prod: dict):
     """Devuelve 'X.XXX ×N' si tiene precio mayorista, None si no."""
     ppc = prod.get("precio_por_cantidad")
     if not ppc:
@@ -35,7 +35,7 @@ def _precio_may(prod: dict) -> str | None:
     return f"${sobre:,.0f}".replace(",", ".") + f" ×{umbral}"
 
 
-def _buscar(nombre_lower: str) -> dict | None:
+def _buscar(nombre_lower: str):
     """Busca un producto por nombre_lower exacto."""
     return _catalogo().get(nombre_lower)
 
@@ -140,7 +140,7 @@ def _kbd_volver(destino: str):
 # Generadores de texto para cada submenú
 # ─────────────────────────────────────────────────────────────
 
-def _fmt_row(nombre: str, precio: str, mayorista: str | None = None) -> str:
+def _fmt_row(nombre: str, precio: str, mayorista=None) -> str:
     """Línea producto: Nombre ............ $precio  ($may ×N)"""
     if mayorista:
         return f"  {nombre:<28} {precio}  <i>{mayorista}</i>\n"
