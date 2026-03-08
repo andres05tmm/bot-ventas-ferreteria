@@ -777,12 +777,13 @@ def guardar_caja(caja: dict):
 
 
 def obtener_resumen_caja() -> str:
-    from excel import obtener_resumen_ventas
+    from excel import obtener_ventas_hoy_excel
     caja = cargar_caja()
     if not caja.get("abierta"):
         return "La caja no está abierta hoy."
-    resumen           = obtener_resumen_ventas()
-    total_ventas      = resumen["total"] if resumen else 0
+    resumen_hoy       = obtener_ventas_hoy_excel()
+    total_ventas_hoy  = resumen_hoy["total"]
+    num_ventas_hoy    = resumen_hoy["num_ventas"]
     gastos_hoy        = cargar_gastos_hoy()
     total_gastos_caja = sum(g["monto"] for g in gastos_hoy if g.get("origen") == "caja")
     efectivo_esperado = caja["monto_apertura"] + caja["efectivo"] - total_gastos_caja
@@ -792,7 +793,7 @@ def obtener_resumen_caja() -> str:
         f"Ventas efectivo: ${caja['efectivo']:,.0f}\n"
         f"Transferencias: ${caja['transferencias']:,.0f}\n"
         f"Datafono: ${caja['datafono']:,.0f}\n"
-        f"Total ventas: ${total_ventas:,.0f}\n"
+        f"Total ventas hoy ({num_ventas_hoy}): ${total_ventas_hoy:,.0f}\n"
         f"Gastos de caja: ${total_gastos_caja:,.0f}\n"
         f"Efectivo esperado en caja: ${efectivo_esperado:,.0f}"
     )
