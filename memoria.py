@@ -93,20 +93,35 @@ def buscar_producto_en_catalogo(nombre_buscado: str) -> dict | None:
         if prod.get("nombre_lower") == nombre_lower:
             return prod
 
-    palabras = [p for p in nombre_lower.split() if len(p) > 2]
+    # Incluir números cortos (ej: "60", "80") además de palabras de >2 chars
+    def _es_token_relevante_busq(p: str) -> bool:
+        return len(p) > 2 or p.isdigit() or (len(p) == 2 and any(c.isdigit() for c in p))
+
+    palabras = [p for p in nombre_lower.split() if _es_token_relevante_busq(p)]
     if not palabras:
         return None
+
+    import re as _re_busq
+    numeros_busqueda = {p for p in palabras if p.isdigit()}
 
     candidatos = []
     for prod in catalogo.values():
         nl = prod.get("nombre_lower", "")
         coincidencias = sum(1 for p in palabras if p in nl)
         if coincidencias == len(palabras):
-            candidatos.append((3, coincidencias, len(nl), prod))
+            score_base = 3
         elif len(palabras) > 1 and coincidencias >= len(palabras) - 1:
-            candidatos.append((2, coincidencias, len(nl), prod))
+            score_base = 2
         elif coincidencias >= 1:
-            candidatos.append((1, coincidencias, len(nl), prod))
+            score_base = 1
+        else:
+            continue
+
+        # Bonus si el número exacto coincide (evita confundir N°60 con N°36)
+        nl_numeros = set(_re_busq.findall(r'\d+', nl))
+        bonus_numero = sum(1 for n in numeros_busqueda if n in nl_numeros)
+
+        candidatos.append((score_base + bonus_numero, coincidencias, len(nl), prod))
 
     if candidatos:
         candidatos.sort(key=lambda x: (-x[0], -x[1], x[2]))
