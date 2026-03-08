@@ -7,3 +7,4 @@ google-api-python-client==2.108.0
 google-auth==2.25.2
 gspread>=6.0.0
 matplotlib
+rapidfuzz>=3.0.0
