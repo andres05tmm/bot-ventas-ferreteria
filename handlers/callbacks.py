@@ -201,6 +201,62 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     # ── Métodos de pago (botones 💵📱💳) ──
+    # ── Fiado ──
+    if data.startswith("pago_fiado_"):
+        chat_id  = int(data.split("_")[2])
+        vendedor = update.effective_user.first_name
+
+        with _estado_lock:
+            ventas = ventas_pendientes.get(chat_id)
+
+        if not ventas:
+            await query.edit_message_text("Esta sesión de pago expiró o ya fue procesada.")
+            return
+
+        # Extraer nombre del cliente de las ventas (si Claude lo detectó)
+        nombre_cliente = next(
+            (v.get("cliente") for v in ventas if v.get("cliente")), None
+        )
+
+        if not nombre_cliente:
+            await query.edit_message_text("❌ No se detectó nombre de cliente para el fiado.")
+            return
+
+        # Registrar como fiado
+        await query.edit_message_text("⏳ Registrando venta...")
+        try:
+            conf = await asyncio.to_thread(
+                registrar_ventas_con_metodo, ventas, "fiado", vendedor, chat_id
+            )
+            # Guardar movimiento en fiados
+            from memoria import guardar_fiado_movimiento
+            total_fiado = sum(
+                float(v.get("total", 0) or v.get("precio_unitario", 0))
+                for v in ventas
+            )
+            concepto = ", ".join(v.get("producto", "") for v in ventas)
+            saldo = await asyncio.to_thread(
+                guardar_fiado_movimiento, nombre_cliente, concepto, total_fiado, 0
+            )
+            await query.edit_message_text(
+                f"✅ Fiado registrado — 🤝 {nombre_cliente}\n\n"
+                + "\n".join(conf)
+                + f"\n💳 Saldo fiado: ${saldo:,.0f}"
+            )
+        except Exception as _e:
+            import logging
+            logging.getLogger("ferrebot.ai").error(f"[FIADO] Error: {_e}")
+            await query.edit_message_text(f"❌ Error registrando fiado: {_e}\nIntenta de nuevo.")
+            return
+
+        with _estado_lock:
+            pendientes = mensajes_standby.pop(chat_id, [])
+        if pendientes:
+            await _procesar_siguiente_standby(
+                context.bot, query.message, chat_id, pendientes, vendedor
+            )
+        return
+
     if data.startswith("pago_"):
         partes   = data.split("_")
         metodo   = partes[1]
@@ -334,15 +390,19 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
         lineas.append(f"• {cantidad_leg} {producto} ${valor_final:,.0f}")
 
+    tiene_cliente = any(v.get("cliente") for v in ventas)
+    fila_extra = []
+    if tiene_cliente:
+        fila_extra.append(InlineKeyboardButton("🤝 Fiado", callback_data=f"pago_fiado_{chat_id}"))
+    fila_extra.append(InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"))
+
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("💵 Efectivo",        callback_data=f"pago_efectivo_{chat_id}"),
-            InlineKeyboardButton("📱 Transf.",          callback_data=f"pago_transferencia_{chat_id}"),
-            InlineKeyboardButton("💳 Datáfono",         callback_data=f"pago_datafono_{chat_id}"),
+            InlineKeyboardButton("💵 Efectivo",  callback_data=f"pago_efectivo_{chat_id}"),
+            InlineKeyboardButton("📱 Transf.",   callback_data=f"pago_transferencia_{chat_id}"),
+            InlineKeyboardButton("💳 Datáfono",  callback_data=f"pago_datafono_{chat_id}"),
         ],
-        [
-            InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"),
-        ]
+        fila_extra,
     ])
     await message.reply_text(
         "¿Cómo fue el pago?\n\n" + "\n".join(lineas),
@@ -494,15 +554,19 @@ async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
 
+    tiene_cliente = any(v.get("cliente") for v in ventas)
+    fila_extra = []
+    if tiene_cliente:
+        fila_extra.append(InlineKeyboardButton("🤝 Fiado", callback_data=f"pago_fiado_{chat_id}"))
+    fila_extra.append(InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"))
+
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("💵 Efectivo",        callback_data=f"pago_efectivo_{chat_id}"),
-            InlineKeyboardButton("📱 Transf.",          callback_data=f"pago_transferencia_{chat_id}"),
-            InlineKeyboardButton("💳 Datáfono",         callback_data=f"pago_datafono_{chat_id}"),
+            InlineKeyboardButton("💵 Efectivo",  callback_data=f"pago_efectivo_{chat_id}"),
+            InlineKeyboardButton("📱 Transf.",   callback_data=f"pago_transferencia_{chat_id}"),
+            InlineKeyboardButton("💳 Datáfono",  callback_data=f"pago_datafono_{chat_id}"),
         ],
-        [
-            InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"),
-        ]
+        fila_extra,
     ])
     await bot.send_message(
         chat_id=chat_id,
