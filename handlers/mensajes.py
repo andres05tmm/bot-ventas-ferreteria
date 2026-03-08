@@ -93,43 +93,38 @@ def _parsear_actualizacion_masiva(mensaje: str):
     Detecta un mensaje con múltiples líneas "producto = precio".
     Retorna lista de (nombre, precio, fraccion) si hay ≥2 líneas válidas.
     Retorna None si no es un mensaje de actualización masiva.
-
-    Formatos aceptados:
-      brocha 1" = 2500
-      brocha 1" : 2500
-      brocha 1" → 2500
-      brocha 1" 2500        (solo número al final)
-    Con fracciones opcionales:
-      thinner 1/4 = 8000
-      vinilo t1 galon = 52000
     """
-    # Encabezados opcionales que se ignoran
+    _FRACCIONES = {"1/16", "1/8", "1/4", "1/3", "3/8", "1/2", "3/4", "galon", "galon"}
+
+    # Encabezados que se ignoran (normalizados sin espacios extra)
     _ENCABEZADOS = {
-        "actualizar precios", "actualizar precios:", "update precios",
-        "precios:", "cambiar precios", "nuevos precios", "subir precios",
-        "bajar precios", "precios nuevos",
+        "actualizar precios", "update precios", "precios",
+        "cambiar precios", "nuevos precios", "subir precios",
+        "bajar precios", "precios nuevos", "actualizar",
     }
 
     lineas = [l.strip() for l in mensaje.strip().splitlines()]
-    lineas = [l for l in lineas if l]  # quitar vacías
+    lineas = [l for l in lineas if l]
 
-    # Quitar primera línea si es encabezado
-    if lineas and lineas[0].lower().rstrip(":") in _ENCABEZADOS:
-        lineas = lineas[1:]
+    # Quitar primera línea si es encabezado (robusto: quitar : y espacios)
+    if lineas:
+        primera = lineas[0].lower().strip().rstrip(": ")
+        if primera in _ENCABEZADOS:
+            lineas = lineas[1:]
 
-    # Patrón: <nombre> [=|:|→|-] <precio>
-    # precio puede ser 2500, 2.500, 2,500, $2500, $2.500
+    if not lineas:
+        return None
+
+    # Patrón: <nombre> [= | : | → | ->] <precio>
     PAT = _re.compile(
         r"^(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)$",
         _re.UNICODE
     )
-    # Patrón alternativo: <nombre> <precio> (espacio, número al final)
+    # Alternativo: <nombre> <precio> (número al final, sin separador)
     PAT2 = _re.compile(
         r"^(.+?)\s+\$?([\d][\d.,]*)$",
         _re.UNICODE
     )
-
-    _FRACCIONES = {"1/16", "1/8", "1/4", "1/3", "3/8", "1/2", "3/4", "galon", "galón"}
 
     resultados = []
     for linea in lineas:
@@ -144,13 +139,15 @@ def _parsear_actualizacion_masiva(mensaje: str):
             precio = float(precio_str)
         except ValueError:
             return None
+        if precio <= 0:
+            return None
 
         # Detectar fracción al final del nombre
         fraccion = None
         nombre_lower = nombre_raw.lower()
         for frac in _FRACCIONES:
             if nombre_lower.endswith(" " + frac):
-                fraccion = frac if frac not in ("galon", "galón") else None
+                fraccion = frac if frac not in ("galon",) else None
                 nombre_raw = nombre_raw[:-(len(frac)+1)].strip()
                 break
 
