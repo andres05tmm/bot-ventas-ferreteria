@@ -14,15 +14,12 @@ from telegram.ext import (
 import config
 from drive import sincronizar_archivos
 from excel import inicializar_excel
-import skill_loader
-import alias_manager
-import fuzzy_match
 from sheets import _obtener_hoja_sheets
 
 from handlers.comandos import (
     comando_inicio, comando_excel, comando_ventas, comando_buscar,
     comando_borrar, comando_precios, comando_caja, comando_gastos,
-    comando_inventario, comando_clientes, comando_grafica, comando_fiados,
+    comando_inventario, comando_clientes, comando_grafica, comando_fiados, comando_abono,
     manejar_callback_grafica, comando_sheets, comando_cerrar_dia,
     comando_reset_ventas, comando_actualizar_catalogo, comando_consistencia,
     comando_exportar_precios, comando_keepalive,
@@ -39,12 +36,6 @@ def main():
     print(f"🚀 Iniciando FerreBot {config.VERSION}")
     sincronizar_archivos()
     inicializar_excel()
-    skill_loader.precargar_todos()  # Precarga skills en RAM al inicio
-
-    alias_manager.cargar_aliases()
-
-    from memoria import cargar_memoria as _cm
-    fuzzy_match.construir_indice(_cm().get("catalogo", {}))
 
     if config.SHEETS_ID:
         print(f"📊 Google Sheets configurado: {config.SHEETS_ID}")
@@ -77,6 +68,7 @@ def main():
     app.add_handler(CommandHandler("clientes",   comando_clientes))
     app.add_handler(CommandHandler("grafica",    comando_grafica))
     app.add_handler(CommandHandler("fiados",     comando_fiados))
+    app.add_handler(CommandHandler("abono",      comando_abono))
     app.add_handler(CommandHandler("sheets",     comando_sheets))
     app.add_handler(CommandHandler("cerrar",     comando_cerrar_dia))
     app.add_handler(CommandHandler("resetventas", comando_reset_ventas))
@@ -87,9 +79,6 @@ def main():
     app.add_handler(CommandHandler("keepalive",       comando_keepalive))
     app.add_handler(CommandHandler("agregar_producto", comando_agregar_producto))
     app.add_handler(CommandHandler("nuevo_producto",   comando_agregar_producto))
-
-    from handlers.alias_handler import manejar_alias
-    app.add_handler(CommandHandler("alias", manejar_alias))
 
     # Mensajes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))
