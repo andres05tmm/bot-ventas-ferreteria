@@ -78,7 +78,7 @@ _KEYWORDS_SKILLS: dict[str, list[str]] = {
         "pintura", "pintar", "davinci", "sherwin"
     ],
     "granel": [
-        "cemento blanco", "yeso", "talco", "marmolina", "granito",
+        "cemento", "yeso", "talco", "marmolina", "granito",
         "carbonato", "acronal", "kilo", "kilos"
     ],
     "clientes": [
