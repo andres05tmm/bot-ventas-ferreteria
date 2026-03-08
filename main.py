@@ -29,6 +29,7 @@ from handlers.comandos import (
 )
 from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento
 from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente
+from handlers.productos import comando_productos, manejar_callback_productos
 from keepalive import loop_keepalive
 
 
@@ -79,6 +80,7 @@ def main():
     app.add_handler(CommandHandler("keepalive",       comando_keepalive))
     app.add_handler(CommandHandler("agregar_producto", comando_agregar_producto))
     app.add_handler(CommandHandler("nuevo_producto",   comando_agregar_producto))
+    app.add_handler(CommandHandler("productos",        comando_productos))
 
     # Mensajes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))
@@ -92,6 +94,7 @@ def main():
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_tipoid_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_persona_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_grafica,  pattern="^grafica_"))
+    app.add_handler(CallbackQueryHandler(manejar_callback_productos, pattern="^prod_"))
 
     if config.WEBHOOK_URL:
         print(f"🌐 Iniciando en modo WEBHOOK: {config.WEBHOOK_URL}")
