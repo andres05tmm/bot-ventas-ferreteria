@@ -27,6 +27,9 @@ from datetime import datetime
 
 import config
 import skill_loader  # Skills separados por archivo .md
+import alias_manager
+import bypass
+import fuzzy_match
 # Cache RAM de precios recién actualizados (override del cache de Anthropic, TTL 5 min)
 import time as _time
 _precios_recientes: dict = {}  # {nombre_lower: (precio, timestamp)}
@@ -105,7 +108,7 @@ _ALIAS_FERRETERIA = [
 
 def aplicar_alias_ferreteria(mensaje: str) -> str:
     """Transforma alias comunes antes de enviar a Claude."""
-    resultado = mensaje
+    resultado = alias_manager.aplicar_aliases_dinamicos(mensaje)
     for patron, reemplazo in _ALIAS_FERRETERIA:
         if callable(reemplazo):
             # Lambda/función: re.sub la llama directamente con el match
@@ -778,10 +781,18 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             info_candidatos_extra = "MATCH:\n" + "\n".join(lineas)
             print(f"[CANDIDATOS DEBUG]\n{info_candidatos_extra}")
         else:
-            # MATCH vacío: el producto no existe en el catálogo.
-            # Informar al bot para que responda "No tengo ese producto" en vez de inventar.
-            info_candidatos_extra = "MATCH: (sin resultados — producto no encontrado en catalogo)"
-            print("[CANDIDATOS DEBUG] MATCH vacío — producto no en catálogo")
+            _frag_fuzzy = " ".join(palabras_clave[:4]) if palabras_clave else ""
+            _sugs = fuzzy_match.buscar_fuzzy(_frag_fuzzy) if _frag_fuzzy else []
+            if _sugs:
+                _lf = [f"  {_p['nombre']}:{_p.get('precio_unidad',0)} ({_s:.0f}% similar)"
+                       for _p, _s in _sugs]
+                info_candidatos_extra = (
+                    "MATCH_DIFUSO (similares, NO exactos — pregunta cuál es):\n"
+                    + "\n".join(_lf)
+                )
+            else:
+                info_candidatos_extra = "MATCH: (sin resultados — producto no encontrado en catalogo)"
+                print("[CANDIDATOS DEBUG] MATCH vacío — producto no en catálogo")
 
     # ── Clientes recientes ──
     clientes_recientes_texto = ""
@@ -1160,6 +1171,14 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
 async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list) -> str:
     mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
     memoria        = cargar_memoria()
+
+    # BYPASS PYTHON — ventas simples/fracciones sin Claude
+    _bypass = bypass.intentar_bypass_python(mensaje_usuario, memoria.get("catalogo", {}))
+    if _bypass:
+        import json as _jbp
+        _txt, _venta = _bypass
+        return f"{_txt}\n[VENTA]{_jbp.dumps(_venta, ensure_ascii=False)}[/VENTA]"
+
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
 
