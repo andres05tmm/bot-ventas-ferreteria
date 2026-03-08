@@ -115,8 +115,13 @@ def _get_precio_fraccion(prod: dict, clave: str) -> int | None:
     return int(v["precio"]) if isinstance(v, dict) else int(v)
 
 def _slug(s: str) -> str:
-    """Quita comillas y caracteres especiales, deja alfanuméricos y espacios."""
-    return re.sub(r'[^\w\s]', '', _norm(s)).strip()
+    """Quita comillas y caracteres especiales, deja alfanuméricos y espacios.
+    También normaliza plurales: tornillos→tornillo, puntillas→puntilla.
+    """
+    s = _norm(s)
+    s = re.sub(r'\btornillos\b', 'tornillo', s)
+    s = re.sub(r'\bpuntillas\b', 'puntilla', s)
+    return re.sub(r'[^\w\s]', '', s).strip()
 
 def _buscar_producto_exacto(nombre_msg: str, catalogo: dict) -> dict | None:
     """
@@ -172,9 +177,6 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
         if not prod:
             return None
 
-        if prod.get("precio_por_cantidad"):
-            return None
-
         precio_galon = prod.get("precio_unidad", 0)
         precio_frac  = _get_precio_fraccion(prod, frac_clave)
 
@@ -223,9 +225,6 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
         if not prod:
             return None
 
-        if prod.get("precio_por_cantidad"):
-            return None
-
         precio_frac = _get_precio_fraccion(prod, frac_clave)
         if not precio_frac:
             return None  # fracción no en catálogo → Claude
@@ -259,15 +258,16 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
     if not prod:
         return None
 
-    if prod.get("precio_por_cantidad"):
-        return None
-
-    precio = prod.get("precio_unidad", 0)
+    precio = _precio_segun_cantidad(prod, cantidad)
     if not precio or precio <= 0:
         return None
 
     total          = cantidad * precio
     nombre_oficial = prod["nombre"]
+    es_mayorista   = (
+        prod.get("precio_por_cantidad")
+        and cantidad >= prod["precio_por_cantidad"].get("umbral", 50)
+    )
 
     venta = {
         "producto":       nombre_oficial,
@@ -276,12 +276,13 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
         "precio_unitario": precio,
         "metodo_pago":    "",
     }
-    texto = (
-        f"{nombre_oficial} — ${total:,.0f}"
-        if cantidad == 1
-        else f"{cantidad} {nombre_oficial} — ${total:,.0f} (${precio:,.0f} c/u)"
-    )
-    logger.info(f"[BYPASS ENTERO] ✅ '{msg}' → {nombre_oficial} x{cantidad} = ${total:,}")
+    if cantidad == 1:
+        texto = f"{nombre_oficial} — ${total:,.0f}"
+    elif es_mayorista:
+        texto = f"{cantidad} {nombre_oficial} — ${total:,.0f} (${precio:,.0f} c/u 🏭)"
+    else:
+        texto = f"{cantidad} {nombre_oficial} — ${total:,.0f} (${precio:,.0f} c/u)"
+    logger.info(f"[BYPASS ENTERO] ✅ '{msg}' → {nombre_oficial} x{cantidad} = ${total:,}" + (" [mayorista]" if es_mayorista else ""))
     return texto, venta
 
 
@@ -292,3 +293,14 @@ def _frac_a_decimal(clave: str) -> float:
         "3/8":  0.375,  "1/2": 0.5,    "3/4": 0.75,
     }
     return mapa.get(clave, 0.5)
+
+def _precio_segun_cantidad(prod: dict, cantidad: float) -> int:
+    """Retorna el precio unitario correcto según cantidad (mayorista o normal)."""
+    ppc = prod.get("precio_por_cantidad")
+    if ppc:
+        umbral = ppc.get("umbral", 50)
+        if cantidad >= umbral:
+            return int(ppc["precio_sobre_umbral"])
+        else:
+            return int(ppc["precio_bajo_umbral"])
+    return int(prod.get("precio_unidad", 0))
