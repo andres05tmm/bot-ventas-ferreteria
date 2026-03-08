@@ -302,22 +302,47 @@ def _texto_varios_ferr() -> str:
 def _texto_vinilo() -> str:
     cat = _catalogo()
 
-    galon   = sorted([p for p in cat.values()
-                      if "vinilo" in p["nombre_lower"] and "cuñete" not in p["nombre_lower"]
-                      and "1/2" not in p["nombre_lower"] and "viniltex" not in p["nombre_lower"]
-                      and "vinilico" not in p["nombre_lower"]], key=lambda x: x["precio_unidad"], reverse=True)
-    cunete  = sorted([p for p in cat.values()
-                      if "cuñete" in p["nombre_lower"] and "1/2" not in p["nombre_lower"]
-                      and "masilla" not in p["nombre_lower"]], key=lambda x: x["precio_unidad"], reverse=True)
-    medio   = sorted([p for p in cat.values()
-                      if "1/2 cuñete" in p["nombre_lower"] or "medio cuñete" in p["nombre_lower"]],
-                     key=lambda x: x["precio_unidad"], reverse=True)
+    # Agrupar galones por precio (T1/T2/T3) — listar colores en línea
+    por_precio = {}
+    for p in cat.values():
+        nl = p["nombre_lower"]
+        if ("vinilo" not in nl or "cunete" in nl or "1/2" in nl
+                or "viniltex" in nl or "vinilico" in nl):
+            continue
+        precio = p["precio_unidad"]
+        color = p["nombre"]
+        # Extraer solo el color (quitar "Vinilo Davinci T1 " etc.)
+        for prefix in ["Vinilo Davinci T1 ", "Vinilo Davinci T2 ", "Vinilo Davinci T3 ",
+                        "VINILO DAVINCI T1 ", "VINILO DAVINCI T2 ", "VINILO DAVINCI T3 ",
+                        "Vinilo T1 ", "Vinilo T2 ", "Vinilo T3 ", "Vinilo ICO "]:
+            if color.startswith(prefix):
+                color = color[len(prefix):]
+                break
+        por_precio.setdefault(precio, []).append(color)
+
+    cunete = sorted([p for p in cat.values()
+                     if "cunete" in p["nombre_lower"] and "1/2" not in p["nombre_lower"]
+                     and "masilla" not in p["nombre_lower"]], key=lambda x: x["precio_unidad"], reverse=True)
+    medio  = sorted([p for p in cat.values()
+                     if "1/2 cuñete" in p["nombre_lower"] or "medio cuñete" in p["nombre_lower"]],
+                    key=lambda x: x["precio_unidad"], reverse=True)
 
     txt = "🖌️ <b>Vinilos y Cuñetes</b>\n\n"
-    txt += "<b>▸ Galón</b>  <i>todos los colores al mismo precio</i>\n" + "─" * 36 + "\n"
-    for p in galon:
-        txt += _fmt_row(p["nombre"], _precio(p))
-    txt += "\n<b>▸ Cuñete — 5 galones</b>\n" + "─" * 36 + "\n"
+    txt += "<b>▸ Galón — colores disponibles</b>\n" + "─" * 36 + "\n"
+    for precio in sorted(por_precio.keys(), reverse=True):
+        colores = por_precio[precio]
+        precio_fmt = f"${precio:,.0f}".replace(",", ".")
+        # Detectar tono
+        if precio >= 50000:
+            tono = "T1"
+        elif precio >= 35000:
+            tono = "T2"
+        else:
+            tono = "T3"
+        txt += f"  <b>{tono} — {precio_fmt}</b>  ({len(colores)} colores)\n"
+        txt += f"  <i>{' · '.join(sorted(colores))}</i>\n\n"
+
+    txt += "<b>▸ Cuñete — 5 galones</b>\n" + "─" * 36 + "\n"
     for p in cunete:
         txt += _fmt_row(p["nombre"], _precio(p))
     txt += "\n<b>▸ Medio Cuñete — 2.5 gal · solo blanco</b>\n" + "─" * 36 + "\n"
@@ -502,7 +527,7 @@ def _texto_sellador() -> str:
 
 
 def _texto_otros_pint() -> str:
-    _excluir = ["vinilo", "esmalte", "anticorrosivo", "cuñete", "laca",
+    _excluir = ["vinilo", "esmalte", "anticorrosivo", "cunete", "laca",
                 "thinner", "varsol", "aerosol", "aersosol", "sellador",
                 "masilla", "poliuretano", "poliamida"]
     cat = _catalogo()
@@ -793,10 +818,28 @@ async def manejar_callback_productos(update: Update, context: ContextTypes.DEFAU
     # ── Hojas de producto (nivel 3) ──
     if data in _SUBMENUS:
         fn_texto, volver = _SUBMENUS[data]
-        texto = fn_texto()
-        await query.edit_message_text(
-            texto,
-            parse_mode="HTML",
-            reply_markup=_kbd_volver(volver),
-        )
+        try:
+            texto = fn_texto()
+            if not texto or not texto.strip():
+                texto = "⚠️ Sin productos en esta categoría."
+            # Telegram límite: 4096 chars
+            if len(texto) > 4000:
+                texto = texto[:3950] + "\n\n<i>... (lista truncada)</i>"
+            await query.edit_message_text(
+                texto,
+                parse_mode="HTML",
+                reply_markup=_kbd_volver(volver),
+            )
+        except Exception as e:
+            import traceback
+            err = traceback.format_exc()
+            print(f"[productos] ERROR en {data}: {err}")
+            try:
+                await query.edit_message_text(
+                    f"❌ Error al cargar categoría:\n<code>{e}</code>",
+                    parse_mode="HTML",
+                    reply_markup=_kbd_volver(volver),
+                )
+            except Exception:
+                pass
         return
