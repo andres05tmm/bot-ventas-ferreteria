@@ -15,6 +15,8 @@ import config
 from drive import sincronizar_archivos
 from excel import inicializar_excel
 import skill_loader
+import alias_manager
+import fuzzy_match
 from sheets import _obtener_hoja_sheets
 
 from handlers.comandos import (
@@ -38,6 +40,11 @@ def main():
     sincronizar_archivos()
     inicializar_excel()
     skill_loader.precargar_todos()  # Precarga skills en RAM al inicio
+
+    alias_manager.cargar_aliases()
+
+    from memoria import cargar_memoria as _cm
+    fuzzy_match.construir_indice(_cm().get("catalogo", {}))
 
     if config.SHEETS_ID:
         print(f"📊 Google Sheets configurado: {config.SHEETS_ID}")
@@ -80,6 +87,9 @@ def main():
     app.add_handler(CommandHandler("keepalive",       comando_keepalive))
     app.add_handler(CommandHandler("agregar_producto", comando_agregar_producto))
     app.add_handler(CommandHandler("nuevo_producto",   comando_agregar_producto))
+
+    from handlers.alias_handler import manejar_alias
+    app.add_handler(CommandHandler("alias", manejar_alias))
 
     # Mensajes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))
