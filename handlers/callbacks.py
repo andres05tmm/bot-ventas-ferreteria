@@ -180,11 +180,17 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await query.edit_message_text("⏳ Registrando venta...")
 
-        conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
-        emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
-        await query.edit_message_text(
-            f"✅ Venta confirmada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
-        )
+        try:
+            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
+            emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
+            await query.edit_message_text(
+                f"✅ Venta confirmada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
+            )
+        except Exception as _e:
+            import logging
+            logging.getLogger("ferrebot.ai").error(f"[CONFIRMAR] Error registrando venta: {_e}")
+            await query.edit_message_text(f"❌ Error registrando la venta: {_e}\nIntenta de nuevo.")
+            return
 
         with _estado_lock:
             pendientes = mensajes_standby.pop(chat_id, [])
@@ -210,11 +216,17 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await query.edit_message_text("⏳ Registrando venta...")
 
-        conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
-        emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
-        await query.edit_message_text(
-            f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
-        )
+        try:
+            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
+            emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
+            await query.edit_message_text(
+                f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
+            )
+        except Exception as _e:
+            import logging
+            logging.getLogger("ferrebot.ai").error(f"[PAGO] Error registrando venta: {_e}")
+            await query.edit_message_text(f"❌ Error registrando la venta: {_e}\nIntenta de nuevo.")
+            return
 
         with _estado_lock:
             pendientes = mensajes_standby.pop(chat_id, [])
