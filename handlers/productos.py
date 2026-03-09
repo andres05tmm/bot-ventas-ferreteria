@@ -307,7 +307,7 @@ def _texto_vinilo() -> str:
     for p in cat.values():
         nl = p["nombre_lower"]
         if ("vinilo" not in nl or "cunete" in nl or "1/2" in nl
-                or "viniltex" in nl or "vinilico" in nl):
+                or "viniltex" in nl or "vinilico" in nl or "ico" in nl):
             continue
         precio = p["precio_unidad"]
         color = p["nombre"]
@@ -328,6 +328,11 @@ def _texto_vinilo() -> str:
                      or "medio cunete" in p["nombre_lower"]],
                     key=lambda x: x["precio_unidad"], reverse=True)
 
+    # Separar ICO del resto
+    ico = sorted([p for p in cat.values()
+                  if "vinilo" in p["nombre_lower"] and "ico" in p["nombre_lower"]
+                  and "cunete" not in p["nombre_lower"]], key=lambda x: -x["precio_unidad"])
+
     txt = "🖌️ <b>Vinilos y Cuñetes</b>\n\n"
     txt += "<b>▸ Galón</b>\n" + "─" * 36 + "\n"
     for precio in sorted(por_precio.keys(), reverse=True):
@@ -340,6 +345,8 @@ def _texto_vinilo() -> str:
         else:
             tono = "T3"
         txt += f"  Galón Vinilo {tono}    {precio_fmt}    ({len(colores)} colores)\n"
+    for p in ico:
+        txt += _fmt_row(p["nombre"], _precio(p))
 
     txt += "\n<b>▸ Cuñete — 5 galones</b>\n" + "─" * 36 + "\n"
     for p in cunete:
@@ -558,7 +565,7 @@ def _texto_drywall(cabeza: str) -> str:
     txt += "─" * 36 + "\n"
     for p in prods:
         may = _precio_may(p)
-        n = p["nombre"].upper().replace("TORNILLO DRYWALL ", "").replace("-", "½").replace("1/2", "½").replace("1/4", "¼").replace("3/4", "¾")
+        n = p["nombre"].upper().replace("TORNILLO DRYWALL ", "").replace("-1/2", "½").replace("-1/4", "¼").replace("-3/4", "¾").replace("1/2", "½").replace("1/4", "¼").replace("3/4", "¾")
         txt += _fmt_row(n, _precio(p), may)
     return txt
 
