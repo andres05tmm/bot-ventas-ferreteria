@@ -96,9 +96,9 @@ def buscar_producto_en_catalogo(nombre_buscado: str) -> dict | None:
         if prod.get("nombre_lower") == nombre_lower:
             return prod
 
-    # Incluir tokens de ≥2 chars (cubre números cortos "60","80" y tallas "xl","xs","s","m","l")
+    # Incluir tokens de ≥2 chars + dígitos solos (1,2,3...) para "Rodillo de 2" vs "Rodillo de 1"
     def _es_token_relevante_busq(p: str) -> bool:
-        return len(p) >= 2
+        return len(p) >= 2 or p.isdigit()
 
     palabras = [p for p in nombre_lower.split() if _es_token_relevante_busq(p)]
     if not palabras:
@@ -120,11 +120,13 @@ def buscar_producto_en_catalogo(nombre_buscado: str) -> dict | None:
         else:
             continue
 
-        # Bonus si el número exacto coincide (evita confundir N°60 con N°36)
+        # Bonus si el número exacto coincide; penalizar si el número NO coincide
+        # Evita "Rodillo de 2" → "Rodillo de 1"" cuando todos tienen igual score base
         nl_numeros = set(_re_busq.findall(r'\d+', nl))
-        bonus_numero = sum(1 for n in numeros_busqueda if n in nl_numeros)
+        bonus_numero    = sum(1 for n in numeros_busqueda if n in nl_numeros)
+        penaliz_numero  = -sum(2 for n in numeros_busqueda if n not in nl_numeros)
 
-        candidatos.append((score_base + bonus_numero, coincidencias, len(nl), prod))
+        candidatos.append((score_base + bonus_numero + penaliz_numero, coincidencias, len(nl), prod))
 
     if candidatos:
         candidatos.sort(key=lambda x: (-x[0], -x[1], x[2]))
