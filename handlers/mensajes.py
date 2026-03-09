@@ -107,18 +107,46 @@ def _parsear_actualizacion_masiva(mensaje: str):
     lineas = [l.strip() for l in mensaje.strip().splitlines()]
     lineas = [l for l in lineas if l]
 
+    # FIX: mensaje llegó como 1 sola línea con espacios en vez de \n
+    # (ocurre cuando Telegram colapsa saltos de línea al pegar texto)
+    if len(lineas) == 1 and "  " in lineas[0]:
+        candidatos = [s.strip() for s in _re.split(r"  +", lineas[0]) if s.strip()]
+        if len(candidatos) >= 2:
+            lineas = candidatos
+
+    # Palabras de acción que indican que la primera línea es (o empieza con) un header
+    _PREFIJOS_ACCION = ("actualizar", "update", "cambiar", "subir", "bajar",
+                        "nuevos", "precios", "modificar")
+
     if lineas:
         primera = lineas[0].lower().strip()
         primera_norm = primera.rstrip(": ")
-        # Quitar encabezado si: está en la lista conocida, O si termina en ':'
-        # y no tiene número (no es una línea de precio disfrazada de encabezado)
-        es_encabezado = (
-            primera_norm in _ENCABEZADOS
-            or (primera.endswith(":") and not _re.search(r"\d", primera))
-            or (primera.endswith(":") and not _re.search(r"[=:→\->/].*\d", primera))
-        )
-        if es_encabezado:
-            lineas = lineas[1:]
+
+        # Caso especial: "actualizar precios de : Producto = precio"
+        # → la primera línea tiene header Y producto en la misma línea
+        # Detectar: empieza con palabra de acción, contiene ':', tiene precio después
+        _tiene_prefijo_accion = any(primera.startswith(p) for p in _PREFIJOS_ACCION)
+        if _tiene_prefijo_accion and ":" in primera:
+            # Separar en header y producto en el primer ':'
+            _idx_dos_puntos = primera.index(":")
+            _resto_original = lineas[0][_idx_dos_puntos + 1:].strip()
+            # Si lo que queda del ':' parece un producto con precio, insertarlo
+            if _resto_original and _re.search(r"[=:→\->].*\d", _resto_original):
+                lineas = [_resto_original] + lineas[1:]
+            elif _resto_original and _re.search(r"\d", _resto_original):
+                lineas = [_resto_original] + lineas[1:]
+            else:
+                lineas = lineas[1:]  # solo header, sin producto
+        else:
+            # Quitar encabezado si: está en la lista conocida, O si termina en ':'
+            # y no tiene número (no es una línea de precio disfrazada de encabezado)
+            es_encabezado = (
+                primera_norm in _ENCABEZADOS
+                or (primera.endswith(":") and not _re.search(r"\d", primera))
+                or (primera.endswith(":") and not _re.search(r"[=:→\->/].*\d", primera))
+            )
+            if es_encabezado:
+                lineas = lineas[1:]
 
     if not lineas:
         return None
