@@ -1488,6 +1488,50 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             print(f"Error precio: {e}")
         texto_limpio = texto_limpio.replace(f'[PRECIO]{precio_json}[/PRECIO]', '')
 
+    # ── Precio mayorista (tornillería) ──
+    for pm_json in re.findall(r'\[PRECIO_MAYORISTA\](.*?)\[/PRECIO_MAYORISTA\]', texto_respuesta, re.DOTALL):
+        try:
+            datos       = json.loads(pm_json.strip())
+            producto    = datos["producto"]
+            p_unidad    = float(datos.get("precio_unidad", 0) or 0)
+            p_mayorista = float(datos.get("precio_mayorista", 0) or 0)
+            umbral      = int(datos.get("umbral", 50))
+
+            prod = buscar_producto_en_catalogo(producto)
+            if not prod:
+                acciones.append(f"⚠️ Producto no encontrado: {producto}")
+            else:
+                from memoria import cargar_memoria, guardar_memoria, invalidar_cache_memoria as _inv
+                mem = cargar_memoria()
+                cat = mem.get("catalogo", {})
+                clave = next((k for k, v in cat.items() if v.get("nombre_lower") == prod.get("nombre_lower")), None)
+                if clave:
+                    if p_unidad > 0:
+                        cat[clave]["precio_unidad"] = round(p_unidad)
+                    pxc = cat[clave].get("precio_por_cantidad", {})
+                    if p_unidad > 0:
+                        pxc["precio_bajo_umbral"] = round(p_unidad)
+                    if p_mayorista > 0:
+                        pxc["precio_sobre_umbral"] = round(p_mayorista)
+                    if umbral:
+                        pxc["umbral"] = umbral
+                    cat[clave]["precio_por_cantidad"] = pxc
+                    mem["catalogo"] = cat
+                    guardar_memoria(mem, urgente=True)
+                    _inv()
+                    # Encolar Excel para precio unidad
+                    if p_unidad > 0:
+                        from precio_sync import actualizar_precio as _ap_m
+                        _ap_m(producto, p_unidad, None)
+                    nombre_display = prod.get("nombre", producto)
+                    msg = f"🧠 {nombre_display}: unidad=${p_unidad:,.0f}" if p_unidad else f"🧠 {nombre_display}"
+                    if p_mayorista > 0:
+                        msg += f" | mayorista ×{umbral}=${p_mayorista:,.0f}"
+                    acciones.append(msg)
+        except Exception as e:
+            print(f"Error precio_mayorista: {e}")
+        texto_limpio = texto_limpio.replace(f'[PRECIO_MAYORISTA]{pm_json}[/PRECIO_MAYORISTA]', '')
+
     # ── Código producto ──
     for cp_json in re.findall(r'\[CODIGO_PRODUCTO\](.*?)\[/CODIGO_PRODUCTO\]', texto_respuesta, re.DOTALL):
         try:
