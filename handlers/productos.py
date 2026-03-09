@@ -360,45 +360,84 @@ def _texto_vinilo() -> str:
 def _texto_esmalte() -> str:
     cat = _catalogo()
 
-    estandar  = sorted([p for p in cat.values()
-                        if "esmalte" in p["nombre_lower"]
-                        and "3 en 1" not in p["nombre_lower"]
-                        and "aluminio" not in p["nombre_lower"]
-                        and "dorado" not in p["nombre_lower"]], key=lambda x: x["nombre"])
-    anti      = sorted([p for p in cat.values() if "anticorrosivo" in p["nombre_lower"]], key=lambda x: x["nombre"])
-    tres      = sorted([p for p in cat.values() if "3 en 1" in p["nombre_lower"]], key=lambda x: x["nombre"])
-    especial  = sorted([p for p in cat.values()
-                        if "esmalte" in p["nombre_lower"]
-                        and any(k in p["nombre_lower"] for k in ["aluminio", "dorado"])],
-                       key=lambda x: x["precio_unidad"])
+    def _es_3en1(nl):
+        return "3 en 1" in nl or "3 en1" in nl or "3en1" in nl or "3en 1" in nl
+
+    # Estándar: solo los 7 colores base (excluye aluminio, dorado, 3en1)
+    estandar = sorted([p for p in cat.values()
+                       if "esmalte" in p["nombre_lower"]
+                       and not _es_3en1(p["nombre_lower"])
+                       and "aluminio" not in p["nombre_lower"]
+                       and "dorado" not in p["nombre_lower"]], key=lambda x: x["nombre"])
+
+    anti     = sorted([p for p in cat.values() if "anticorrosivo" in p["nombre_lower"]], key=lambda x: x["nombre"])
+
+    # Aluminio y Dorado como líneas individuales
+    aluminio = next((p for p in cat.values()
+                     if "esmalte aluminio" == p["nombre_lower"]), None)
+    dorado   = next((p for p in cat.values()
+                     if "esmalte dorado" == p["nombre_lower"]), None)
+
+    # 3 en 1: excluye aluminio
+    tres     = sorted([p for p in cat.values()
+                       if _es_3en1(p["nombre_lower"])
+                       and "esmalte" in p["nombre_lower"]
+                       and "aluminio" not in p["nombre_lower"]], key=lambda x: x["nombre"])
 
     txt = "🎨 <b>Esmalte / Anticorrosivo</b>\n\n"
 
+    def _ordenar_colores(productos, quitar_prefijo):
+        """Blanco primero, Negro segundo, resto alfabético."""
+        def _color(p):
+            return p["nombre"].replace(quitar_prefijo, "").replace(quitar_prefijo.upper(), "").strip()
+        prioridad = {"blanco": 0, "negro": 1}
+        return sorted(productos, key=lambda p: (prioridad.get(_color(p).lower(), 2), _color(p).lower()))
+
     if estandar:
-        p0 = estandar[0]
-        colores = " · ".join(p["nombre"].replace("Esmalte ", "").replace("ESMALTE ", "")
-                             for p in estandar)
+        p0 = next((p for p in estandar if p["precio_unidad"] > 0), estandar[0])
+        ordenados = _ordenar_colores(estandar, "Esmalte ")
+        colores = " · ".join(p["nombre"].replace("Esmalte ", "").replace("ESMALTE ", "").strip()
+                             for p in ordenados)
         txt += f"<b>▸ Esmalte estándar — {_precio(p0)}</b>\n"
         txt += f"  <i>{colores}</i>\n\n"
 
     if anti:
-        p0 = anti[0]
-        colores = " · ".join(p["nombre"].replace("Anticorrosivo ", "").replace("ANTICORROSIVO ", "")
-                             for p in anti)
+        p0 = next((p for p in anti if p["precio_unidad"] > 0), anti[0])
+        ordenados = _ordenar_colores(anti, "Anticorrosivo ")
+        colores = " · ".join(p["nombre"].replace("Anticorrosivo ", "").replace("ANTICORROSIVO ", "").strip()
+                             for p in ordenados)
         txt += f"<b>▸ Anticorrosivo — {_precio(p0)}</b>\n"
         txt += f"  <i>{colores}</i>\n\n"
 
+    # Aluminio y Dorado como filas individuales (sin sección "Especiales")
+    if aluminio:
+        txt += _fmt_row("Esmalte Aluminio", _precio(aluminio))
+    if dorado:
+        txt += _fmt_row("Esmalte Dorado", _precio(dorado))
+    if aluminio or dorado:
+        txt += "\n"
+
     if tres:
         p0 = tres[0]
-        colores = " · ".join(p["nombre"].replace("Esmalte 3 en 1 ", "").replace("ESMALTE 3 EN 1 ", "")
-                             for p in tres)
+        # Limpiar prefijos del nombre para mostrar solo el color/variante
+        def _color_3en1(nombre):
+            import re as _re
+            for pre in ["Esmalte 3 En 1 ", "Esmalte 3 en 1 ", "Esmalte 3 En1 ", "ESMALTE 3 EN 1 "]:
+                nombre = nombre.replace(pre, "")
+            # Quitar marca al final (davinci, tonner, pintuco, etc.)
+            nombre = _re.sub(r"\s+(davinci|tonner|pintuco|ico|placco)$", "", nombre.strip(), flags=_re.IGNORECASE)
+            return nombre.strip()
+        # Ordenar: Blanco primero, Negro segundo, resto alfabético
+        tres_ordenados = sorted(tres, key=lambda p: ({"blanco": 0, "negro": 1}.get(_color_3en1(p["nombre"]).lower(), 2), _color_3en1(p["nombre"]).lower()))
+        # Deduplicar colores (puede haber varias marcas del mismo color)
+        vistos = []
+        for p in tres_ordenados:
+            c = _color_3en1(p["nombre"])
+            if c not in vistos:
+                vistos.append(c)
+        colores = " · ".join(vistos)
         txt += f"<b>▸ Esmalte 3 en 1 — {_precio(p0)}</b>\n"
-        txt += f"  <i>{colores}</i>\n\n"
-
-    if especial:
-        txt += "<b>▸ Especiales</b>\n" + "─" * 36 + "\n"
-        for p in especial:
-            txt += _fmt_row(p["nombre"], _precio(p))
+        txt += f"  <i>{colores}</i>\n"
 
     return txt.strip()
 
