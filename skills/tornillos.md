@@ -18,3 +18,17 @@ Aplicar precio mayorista cuando cantidad_total ≥ 50, sin importar cómo se exp
 
 ### PUNTILLAS — precio por libra (precio_unidad fijo, sin mayorista)
 Venta por libra. "2 libras puntilla 2"" = 2 × precio_libra.
+
+### ACTUALIZAR PRECIOS DE TORNILLOS
+Cuando el usuario pida actualizar precios de tornillos, usa el tag [PRECIO_MAYORISTA]:
+- Si da un solo precio: úsalo como precio_unidad y precio_mayorista igual
+- Si da dos precios ("unidad / mayorista" o "normal y mayorista"): sepáralos correctamente
+- umbral siempre = 50
+
+Ejemplos de instrucciones del usuario:
+  "tornillo drywall 6x1 = 40 / 35"          → precio_unidad=40, precio_mayorista=35
+  "tornillo drywall 8x1 unidad 42 mayor 38"  → precio_unidad=42, precio_mayorista=38
+  "tornillo 10x3 = 170"                      → precio_unidad=170, precio_mayorista=170
+
+Formato del tag:
+[PRECIO_MAYORISTA]{"producto": "Tornillo Drywall 6X1", "precio_unidad": 40, "precio_mayorista": 35, "umbral": 50}[/PRECIO_MAYORISTA]
