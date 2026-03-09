@@ -87,7 +87,10 @@ def buscar_producto_en_catalogo(nombre_buscado: str) -> dict | None:
     if not catalogo:
         return None
 
-    nombre_lower = nombre_buscado.strip().lower()
+    # Normalizar el término de búsqueda igual que nombre_lower del catálogo
+    # (elimina °, tildes, caracteres especiales) para que "N°100" == "n100"
+    from utils import _normalizar as _norm_busq
+    nombre_lower = _norm_busq(nombre_buscado)
 
     for prod in catalogo.values():
         if prod.get("nombre_lower") == nombre_lower:
