@@ -307,10 +307,34 @@ class _ExcelWorker:
     def _loop(self):
         while True:
             tarea = self._q.get()
+            _MAX_REINTENTOS = 3
+            _ESPERA_INICIAL = 2  # segundos
             try:
-                ok, msg = _escribir_en_excel(
-                    tarea["nombre"], tarea["precio"], tarea["fraccion"]
-                )
+                ok, msg = False, "no intentado"
+                for intento in range(1, _MAX_REINTENTOS + 1):
+                    try:
+                        ok, msg = _escribir_en_excel(
+                            tarea["nombre"], tarea["precio"], tarea["fraccion"]
+                        )
+                        if ok:
+                            break  # éxito → salir del loop de reintentos
+                        # fallo no-excepción (ej: archivo no encontrado en Drive)
+                        if intento < _MAX_REINTENTOS:
+                            import time as _time
+                            espera = _ESPERA_INICIAL * intento
+                            log.warning("[excel] reintento %d/%d en %ds: %s → %s",
+                                        intento, _MAX_REINTENTOS, espera, tarea["nombre"], msg)
+                            _time.sleep(espera)
+                    except Exception as exc:
+                        if intento < _MAX_REINTENTOS:
+                            import time as _time
+                            espera = _ESPERA_INICIAL * intento
+                            log.warning("[excel] excepción reintento %d/%d en %ds: %s → %s",
+                                        intento, _MAX_REINTENTOS, espera, tarea["nombre"], exc)
+                            _time.sleep(espera)
+                        else:
+                            log.error("[excel] ❌ excepción tras %d intentos: %s → %s",
+                                      _MAX_REINTENTOS, tarea["nombre"], exc)
                 nivel = log.info if ok else log.warning
                 nivel("[excel] %s %s → %s", "✅" if ok else "⚠️", tarea["nombre"], msg)
             except Exception as e:
