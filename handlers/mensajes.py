@@ -548,6 +548,20 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
         _acciones_internas = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO")
 
+        # ── Separar aviso "no encontré en catálogo" del resto del texto ──
+        _aviso_no_encontrado = ""
+        if texto_respuesta:
+            import re as _re_msg
+            _lineas = texto_respuesta.splitlines()
+            _lineas_aviso = [l for l in _lineas if l.strip().startswith("⚠️") and "catálogo" in l]
+            _lineas_resto = [l for l in _lineas if not (l.strip().startswith("⚠️") and "catálogo" in l)]
+            _aviso_no_encontrado = "\n".join(_lineas_aviso).strip()
+            texto_respuesta      = "\n".join(_lineas_resto).strip()
+
+        # Enviar aviso de no encontrado PRIMERO, como mensaje separado
+        if _aviso_no_encontrado:
+            await update.message.reply_text(_aviso_no_encontrado)
+
         if texto_respuesta and not pago_pend_aviso and not cliente_desconocido and not pedir_metodo and not confirmacion_accion:
             await update.message.reply_text(texto_respuesta)
 
