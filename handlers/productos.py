@@ -163,27 +163,40 @@ def _fmt_grupo(titulo: str, productos: list[dict], key_nombre=None) -> str:
 # ── FERRETERÍA ────────────────────────────────────────────────
 
 def _texto_brochas() -> str:
+    import re as _re_rod
     cat = _catalogo()
     brochas = sorted(
         [p for p in cat.values() if "brocha" in p["nombre_lower"] and "%" not in p["nombre_lower"]],
         key=lambda x: x["precio_unidad"]
     )
-    rodillos = sorted(
-        [p for p in cat.values() if "rodillo" in p["nombre_lower"]],
-        key=lambda x: x["precio_unidad"]
+    # Rodillos de medida (ej: "Rodillo de 2"") — excluir bandeja y convencional
+    def _medida_rodillo(nombre_lower):
+        m = _re_rod.search(r'rodillo\s+de\s+(\d+(?:\.\d+)?)', nombre_lower)
+        return float(m.group(1)) if m else None
+
+    rodillos_medida = sorted(
+        [p for p in cat.values()
+         if "rodillo" in p["nombre_lower"]
+         and "bandeja" not in p["nombre_lower"]
+         and "convencional" not in p["nombre_lower"]
+         and _medida_rodillo(p["nombre_lower"]) is not None],
+        key=lambda x: _medida_rodillo(x["nombre_lower"])
     )
-    bandeja = [p for p in cat.values() if "bandeja" in p["nombre_lower"]]
+    rodillo_conv = [p for p in cat.values() if "rodillo_convencional" == p.get("nombre_lower","").replace(" ","_")
+                    or ("rodillo" in p["nombre_lower"] and "convencional" in p["nombre_lower"])]
+    bandeja      = [p for p in cat.values() if "bandeja" in p["nombre_lower"]]
 
     txt = "🖌️ <b>Brochas / Rodillos</b>\n\n"
     txt += "<b>▸ Brochas</b>\n" + "─" * 36 + "\n"
     for p in brochas:
         txt += _fmt_row(p["nombre"], _precio(p))
     txt += "\n<b>▸ Rodillos</b>\n" + "─" * 36 + "\n"
-    for p in rodillos:
+    for p in rodillos_medida:
         txt += _fmt_row(p["nombre"], _precio(p))
-    if bandeja:
-        for p in bandeja:
-            txt += _fmt_row(p["nombre"], _precio(p))
+    for p in rodillo_conv:
+        txt += _fmt_row(p["nombre"], _precio(p))
+    for p in bandeja:
+        txt += _fmt_row(p["nombre"], _precio(p))
     return txt
 
 
