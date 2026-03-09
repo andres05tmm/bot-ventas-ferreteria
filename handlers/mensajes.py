@@ -108,8 +108,16 @@ def _parsear_actualizacion_masiva(mensaje: str):
     lineas = [l for l in lineas if l]
 
     if lineas:
-        primera = lineas[0].lower().strip().rstrip(": ")
-        if primera in _ENCABEZADOS:
+        primera = lineas[0].lower().strip()
+        primera_norm = primera.rstrip(": ")
+        # Quitar encabezado si: está en la lista conocida, O si termina en ':'
+        # y no tiene número (no es una línea de precio disfrazada de encabezado)
+        es_encabezado = (
+            primera_norm in _ENCABEZADOS
+            or (primera.endswith(":") and not _re.search(r"\d", primera))
+            or (primera.endswith(":") and not _re.search(r"[=:→\->/].*\d", primera))
+        )
+        if es_encabezado:
             lineas = lineas[1:]
 
     if not lineas:
