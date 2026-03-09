@@ -71,6 +71,12 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
 _ALIAS_FERRETERIA = [
     # (patrón regex, reemplazo)
+    # PUNTILLAS: normalizar abreviaturas y quitar "caja de" → "puntilla X"
+    (r'\bcaja[s]?\s+de\s+puntilla[s]?\b', r'puntilla'),   # "caja de puntilla" → "puntilla"
+    (r'\bpuntilla[s]?\s+(.*?)\bs\.c\.?\b', r'puntilla \g<1> sin cabeza'),  # s.c → sin cabeza
+    (r'\bpuntilla[s]?\s+(.*?)\bc\.c\.?\b', r'puntilla \g<1> con cabeza'),  # c.c → con cabeza
+    (r'\bs\.c\.?\b', r'sin cabeza'),   # s.c genérico
+    (r'\bc\.c\.?\b', r'con cabeza'),   # c.c genérico
     # TORNILLOS DRYWALL: normalizar medidas para evitar confusión (6x3 vs 6x3/4)
     # Importante: estos patrones van PRIMERO para que se apliquen antes de otros
     (r'\btornillo[s]?\s*(?:de\s*)?drywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'tornillo drywall \g<1>x3'),
@@ -1054,6 +1060,17 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if overrides:
             precios_modificados_texto = "PRECIOS ACTUALIZADOS (usar estos, ignorar el catalogo):\n" + "\n".join(overrides)
 
+    # Si hay productos no encontrados en mensaje multi-producto, instruir a Claude
+    _tiene_match_vacio = "MATCH: (sin resultados" in (info_candidatos_extra or "")
+    _es_multiproducto  = "\n" in mensaje_usuario.strip() or mensaje_usuario.count(",") >= 2
+    _regla_no_encontrado = (
+        "REGLA MULTI-PRODUCTO: Si algún producto tiene MATCH vacío, "
+        "registra los que SÍ encontraste con [VENTA] y añade al final UNA línea: "
+        "⚠️ No encontré en catálogo: [nombre(s) no encontrados]. "
+        "NUNCA omitas en silencio productos no encontrados."
+        if (_tiene_match_vacio and _es_multiproducto) else ""
+    )
+
     partes = [
         p for p in [
             precios_modificados_texto,
@@ -1071,6 +1088,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             gastos_texto,
             aviso_drive,
             f"Vendedor:{nombre_usuario}",
+            _regla_no_encontrado,
             # Skills dinámicos: solo se inyectan cuando el mensaje los necesita
             skill_loader.obtener_skills_dinamicos(mensaje_usuario),
         ] if p
