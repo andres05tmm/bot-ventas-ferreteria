@@ -93,9 +93,9 @@ def buscar_producto_en_catalogo(nombre_buscado: str) -> dict | None:
         if prod.get("nombre_lower") == nombre_lower:
             return prod
 
-    # Incluir números cortos (ej: "60", "80") además de palabras de >2 chars
+    # Incluir tokens de ≥2 chars (cubre números cortos "60","80" y tallas "xl","xs","s","m","l")
     def _es_token_relevante_busq(p: str) -> bool:
-        return len(p) > 2 or p.isdigit() or (len(p) == 2 and any(c.isdigit() for c in p))
+        return len(p) >= 2
 
     palabras = [p for p in nombre_lower.split() if _es_token_relevante_busq(p)]
     if not palabras:
@@ -157,12 +157,15 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
 
     nombre_lower = _norm(nombre_buscado.strip())
 
+    _TALLAS_MEM = {"xl", "xs", "xxl", "s", "m", "l"}
     def _es_token_relevante(p: str) -> bool:
         if len(p) > 2:
             return True
         if p.isdigit():
             return True
         if len(p) == 2 and any(c.isdigit() for c in p):
+            return True
+        if p in _TALLAS_MEM:
             return True
         return False
 
