@@ -272,7 +272,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if p.isdigit():
             return True
         # Incluir códigos de variante de 2 chars: t1, t2, t3, x1, 6x, 8x, etc.
-        if len(p) == 2 and any(c.isdigit() for c in p):
+        _TALLAS_PC = {"xl", "xs", "xxl", "s", "m", "l"}
+        if (len(p) == 2 and any(c.isdigit() for c in p)) or p in _TALLAS_PC:
             return True
         return False
 
@@ -647,8 +648,9 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             for p in palabras_raw:
                 if p in stopwords:
                     continue
-                # Tokens alfanuméricos cortos como t1, t2, t3, x1 (2 chars con al menos un dígito)
-                if len(p) == 2 and any(c.isdigit() for c in p):
+                # Tokens cortos: alfanuméricos (t1,t2) y tallas (xl,xs,s,m,l)
+                _TALLAS_SEG = {"xl", "xs", "xxl", "s", "m", "l"}
+                if (len(p) == 2 and any(c.isdigit() for c in p)) or p in _TALLAS_SEG:
                     palabras_seg.append(p)
                     nombre_producto_encontrado = True
                 elif len(p) > 2 and not p.replace('.','').replace(',','').isdigit():
