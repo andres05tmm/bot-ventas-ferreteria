@@ -983,9 +983,14 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
     - Si fraccion es "1/4", "1/2", etc.: actualiza ese precio de fraccion.
     Retorna True si encontró y actualizó el producto, False si no lo encontró.
     """
+    import logging as _log_cat
+    _log = _log_cat.getLogger("ferrebot.memoria")
+
     mem      = cargar_memoria()
     catalogo = mem.get("catalogo", {})
     prod     = buscar_producto_en_catalogo(nombre_producto)
+
+    _log.info("[PRECIO_CAT] buscar('%s') → %s | nuevo_precio=%s", nombre_producto, prod.get("nombre") if prod else "None", nuevo_precio)
 
     if not prod:
         # Producto no en catalogo — no guardar en precios simples, solo retornar False
@@ -1056,8 +1061,10 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
 
     # urgente=True: sube a Drive sin debounce para evitar pérdida si el container
     # se reinicia antes de que expire el timer de 2s del debounce normal.
+    precio_antes = catalogo[clave].get("precio_unidad") if clave else None
     guardar_memoria(mem, urgente=True)
     invalidar_cache_memoria()
+    _log.info("[PRECIO_CAT] ✅ %s: $%s → $%s (fraccion=%s)", clave, precio_antes, nuevo_precio, fraccion)
     return True
 
 
