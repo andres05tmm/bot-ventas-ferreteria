@@ -435,10 +435,12 @@ def _escribir_en_excel(nombre: str, precio: float, fraccion: Optional[str]) -> t
 
     fila_encontrada[col_idx].value = val_celda
 
-    # 5 ── Guardar y subir
+    # 5 ── Guardar y subir (SÍNCRONO — el worker es hilo único, subida síncrona
+    #      garantiza que el próximo job descargue la versión ya actualizada)
     try:
         wb.save(NOMBRE_EXCEL_PRODUCTOS)
-        subir_a_drive_urgente(NOMBRE_EXCEL_PRODUCTOS)
+        from drive import _ejecutar_subida_real
+        _ejecutar_subida_real(NOMBRE_EXCEL_PRODUCTOS)  # síncrono, no lanza hilo
     except Exception as e:
         return False, f"error guardando/subiendo: {e}"
     finally:
