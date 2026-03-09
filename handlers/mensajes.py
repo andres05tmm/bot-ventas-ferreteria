@@ -90,23 +90,23 @@ import re as _re
 
 def _parsear_actualizacion_masiva(mensaje: str):
     """
-    Detecta un mensaje con múltiples líneas "producto = precio".
-    Retorna lista de (nombre, precio, fraccion) si hay ≥2 líneas válidas.
+    Detecta un mensaje con múltiples líneas "producto = precio" o
+    "producto = precio_unidad / precio_mayorista" (tornillos).
+    Retorna lista de (nombre, precio, fraccion, precio_mayorista) si hay ≥2 líneas válidas.
     Retorna None si no es un mensaje de actualización masiva.
     """
     _FRACCIONES = {"1/16", "1/8", "1/4", "1/3", "3/8", "1/2", "3/4", "galon", "galon"}
 
-    # Encabezados que se ignoran (normalizados sin espacios extra)
     _ENCABEZADOS = {
         "actualizar precios", "update precios", "precios",
         "cambiar precios", "nuevos precios", "subir precios",
         "bajar precios", "precios nuevos", "actualizar",
+        "actualizar tornillos", "tornillos",
     }
 
     lineas = [l.strip() for l in mensaje.strip().splitlines()]
     lineas = [l for l in lineas if l]
 
-    # Quitar primera línea si es encabezado (robusto: quitar : y espacios)
     if lineas:
         primera = lineas[0].lower().strip().rstrip(": ")
         if primera in _ENCABEZADOS:
@@ -115,30 +115,48 @@ def _parsear_actualizacion_masiva(mensaje: str):
     if not lineas:
         return None
 
-    # Patrón: <nombre> [= | : | → | ->] <precio>
-    PAT = _re.compile(
+    def _parse_precio(s):
+        """Convierte '2.500' o '2,500' o '2500' a float."""
+        return float(s.replace(".", "").replace(",", ""))
+
+    # Patrón con dos precios: <nombre> [=|:] <p1> / <p2>
+    PAT_DOS = _re.compile(
+        r"^(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)\s*/\s*\$?\s*([\d][\d.,]*)$",
+        _re.UNICODE
+    )
+    # Patrón un precio: <nombre> [=|:] <precio>
+    PAT_UNO = _re.compile(
         r"^(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)$",
         _re.UNICODE
     )
-    # Alternativo: <nombre> <precio> (número al final, sin separador)
-    PAT2 = _re.compile(
-        r"^(.+?)\s+\$?([\d][\d.,]*)$",
-        _re.UNICODE
-    )
+    # Sin separador: <nombre> <precio>
+    PAT_ESP = _re.compile(r"^(.+?)\s+\$?([\d][\d.,]*)$", _re.UNICODE)
 
     resultados = []
     for linea in lineas:
         if not linea:
             continue
-        m = PAT.match(linea) or PAT2.match(linea)
-        if not m:
-            return None  # línea que no encaja → no es actualización masiva
-        nombre_raw = m.group(1).strip().rstrip(":")
-        precio_str = m.group(2).replace(".", "").replace(",", "")
-        try:
-            precio = float(precio_str)
-        except ValueError:
-            return None
+
+        precio_mayorista = None
+
+        m = PAT_DOS.match(linea)
+        if m:
+            nombre_raw = m.group(1).strip().rstrip(":")
+            try:
+                precio = _parse_precio(m.group(2))
+                precio_mayorista = _parse_precio(m.group(3))
+            except ValueError:
+                return None
+        else:
+            m = PAT_UNO.match(linea) or PAT_ESP.match(linea)
+            if not m:
+                return None
+            nombre_raw = m.group(1).strip().rstrip(":")
+            try:
+                precio = _parse_precio(m.group(2))
+            except ValueError:
+                return None
+
         if precio <= 0:
             return None
 
@@ -151,7 +169,7 @@ def _parsear_actualizacion_masiva(mensaje: str):
                 nombre_raw = nombre_raw[:-(len(frac)+1)].strip()
                 break
 
-        resultados.append((nombre_raw, precio, fraccion))
+        resultados.append((nombre_raw, precio, fraccion, precio_mayorista))
 
     return resultados if len(resultados) >= 2 else None
 
@@ -159,18 +177,42 @@ def _parsear_actualizacion_masiva(mensaje: str):
 async def _manejar_actualizacion_masiva(update, vendedor: str, pares: list):
     """Actualiza todos los precios y responde con resumen."""
     from precio_sync import actualizar_precio as _ap
-    from memoria import buscar_producto_en_catalogo, invalidar_cache_memoria
+    from memoria import (buscar_producto_en_catalogo, invalidar_cache_memoria,
+                         cargar_memoria, guardar_memoria)
 
     exitos, errores = [], []
-    for nombre, precio, fraccion in pares:
+    for item in pares:
+        nombre, precio, fraccion, precio_mayorista = item if len(item) == 4 else (*item, None)
         try:
-            ok, msg = _ap(nombre, precio, fraccion)
             prod = buscar_producto_en_catalogo(nombre)
             nombre_display = prod["nombre"] if prod else nombre
-            if fraccion:
-                exitos.append(f"✅ {nombre_display} {fraccion} → ${int(precio):,}".replace(",", "."))
+
+            if precio_mayorista is not None:
+                # Actualizar precio_por_cantidad (tornillos)
+                mem = cargar_memoria()
+                cat = mem.get("catalogo", {})
+                clave = next((k for k, v in cat.items()
+                              if v.get("nombre_lower") == (prod.get("nombre_lower") if prod else "")), None)
+                if clave:
+                    cat[clave]["precio_unidad"] = round(precio)
+                    pxc = cat[clave].get("precio_por_cantidad", {})
+                    pxc["precio_bajo_umbral"]  = round(precio)
+                    pxc["precio_sobre_umbral"] = round(precio_mayorista)
+                    pxc.setdefault("umbral", 50)
+                    cat[clave]["precio_por_cantidad"] = pxc
+                    mem["catalogo"] = cat
+                    guardar_memoria(mem, urgente=True)
+                    _ap(nombre, precio, None)  # actualizar col Q en Excel
+                    linea = f"✅ {nombre_display}: ${int(precio):,} / ${int(precio_mayorista):,} ×50".replace(",", ".")
+                else:
+                    linea = f"❌ {nombre}: no encontrado"
             else:
-                exitos.append(f"✅ {nombre_display} → ${int(precio):,}".replace(",", "."))
+                ok, msg = _ap(nombre, precio, fraccion)
+                if fraccion:
+                    linea = f"✅ {nombre_display} {fraccion} → ${int(precio):,}".replace(",", ".")
+                else:
+                    linea = f"✅ {nombre_display} → ${int(precio):,}".replace(",", ".")
+            exitos.append(linea)
         except Exception as e:
             errores.append(f"❌ {nombre}: {e}")
 
