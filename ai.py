@@ -75,8 +75,11 @@ _ALIAS_FERRETERIA = [
     (r'\bcaja[s]?\s+de\s+puntilla[s]?\b', r'puntilla'),   # "caja de puntilla" → "puntilla"
     (r'\bpuntilla[s]?\s+(.*?)\bs\.c\.?\b', r'puntilla \g<1> sin cabeza'),  # s.c → sin cabeza
     (r'\bpuntilla[s]?\s+(.*?)\bc\.c\.?\b', r'puntilla \g<1> con cabeza'),  # c.c → con cabeza
+    (r'\bpuntilla[s]?\s+(.*?)\bsc\b',      r'puntilla \g<1> sin cabeza'),  # sc → sin cabeza (sin puntos)
+    (r'\bpuntilla[s]?\s+(.*?)\bcc\b',      r'puntilla \g<1> con cabeza'),  # cc → con cabeza (sin puntos)
     (r'\bs\.c\.?\b', r'sin cabeza'),   # s.c genérico
     (r'\bc\.c\.?\b', r'con cabeza'),   # c.c genérico
+    (r'\bsc\b(?=.*puntilla|\bpuntilla)', r'sin cabeza'),  # sc genérico cerca de puntilla
     # TORNILLOS DRYWALL: normalizar medidas para evitar confusión (6x3 vs 6x3/4)
     # Importante: estos patrones van PRIMERO para que se apliquen antes de otros
     (r'\btornillo[s]?\s*(?:de\s*)?drywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'tornillo drywall \g<1>x3'),
@@ -90,6 +93,9 @@ _ALIAS_FERRETERIA = [
     (r'\bpagaternit\b', r'pegaternit'),
     (r'\bpega\s*ternit\b', r'pegaternit'),
     (r'\bpegaeternit\b', r'pegaternit'),
+    # Esmalte 3en1: normalizar variantes sin espacios
+    (r'\b3en1\b', r'3 en 1'),
+    (r'\b3-en-1\b', r'3 en 1'),
     # Thinner/Varsol: litro=1/4 galón (8000), botella=1/8 galón (5000).
     # Convertimos directo a precio total antes de llegar a Claude.
     # NOTA: (?:una?\s+)? consume artículo "una"/"un"
