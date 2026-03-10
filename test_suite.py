@@ -707,6 +707,212 @@ def test_pendientes(catalogo_dict=None):
 # SECCIÓN 9: ESTRUCTURA DE ARCHIVOS CRÍTICOS
 # ══════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════
+# SECCIÓN 9: AUDIO — NORMALIZACIÓN DE NÚMEROS Y FRACCIONES
+# ═══════════════════════════════════════════════════════════
+
+def test_audio_normalizacion(normalizar_fn, bypass_fn=None, catalogo=None, corregir_fn=None):
+    """
+    Tests exhaustivos de normalizar_numeros_audio + bypass con texto de audio.
+    Cubre: cantidades, fracciones simples, fracciones mixtas, medidas NxM,
+           compuestos (treinta y cuatro), multi-producto con comas, bypass end-to-end.
+    """
+    seccion("9. AUDIO — NORMALIZACIÓN DE NÚMEROS Y FRACCIONES")
+
+    # ── 9a. Cantidades simples ──────────────────────────────────────
+    caso("9a. Cantidades simples en letras → dígitos")
+    _n = [
+        ("un martillo",          "1 martillo"),
+        ("una brocha",           "1 brocha"),
+        ("dos tornillos",        "2 tornillos"),
+        ("tres chazos",          "3 chazos"),
+        ("cuatro brochas",       "4 brochas"),
+        ("cinco kilos",          "5 kilos"),
+        ("seis metros",          "6 metros"),
+        ("siete puntillas",      "7 puntillas"),
+        ("ocho arandelas",       "8 arandelas"),
+        ("nueve bisagras",       "9 bisagras"),
+        ("diez tornillos",       "10 tornillos"),
+        ("once rodillos",        "11 rodillos"),
+        ("doce chazos",          "12 chazos"),
+        ("trece lijas",          "13 lijas"),
+        ("catorce brochas",      "14 brochas"),
+        ("quince puntillas",     "15 puntillas"),
+        ("veinte metros",        "20 metros"),
+        ("cincuenta chazos",     "50 chazos"),
+        ("cien tornillos",       "100 tornillos"),
+    ]
+    for entrada, esperado in _n:
+        r = normalizar_fn(entrada)
+        if r == esperado:
+            ok(f"'{entrada}' → '{esperado}'")
+        else:
+            fail(f"'{entrada}'", esperado, r)
+
+    # ── 9b. Números compuestos (decena + unidad) ────────────────────
+    caso("9b. Compuestos: 'treinta y cuatro' → '34'")
+    _comp = [
+        ("veintiun tornillos",           "21 tornillos"),
+        ("veintidos chazos",             "22 chazos"),
+        ("veinticuatro tornillos",       "24 tornillos"),
+        ("treinta y dos tornillos",      "32 tornillos"),
+        ("treinta y cuatro tornillos",   "34 tornillos"),
+        ("cuarenta y cinco puntillas",   "45 puntillas"),
+        ("cincuenta y seis chazos",      "56 chazos"),
+        ("sesenta y tres bisagras",      "63 bisagras"),
+    ]
+    for entrada, esperado in _comp:
+        r = normalizar_fn(entrada)
+        if r == esperado:
+            ok(f"'{entrada}' → '{esperado}'")
+        else:
+            fail(f"'{entrada}'", esperado, r)
+
+    # ── 9c. Fracciones simples habladas ────────────────────────────
+    caso("9c. Fracciones simples: 'tres octavos' → '3/8'")
+    _fracs = [
+        ("chazo de tres octavos",         "chazo de 3/8"),
+        ("chazo de tres cuartos",         "chazo de 3/4"),
+        ("broca de un cuarto",            "broca de 1/4"),
+        ("broca de un octavo",            "broca de 1/8"),
+        ("broca de cinco octavos",        "broca de 5/8"),
+        ("broca de siete octavos",        "broca de 7/8"),
+        ("tornillo de medio",             "tornillo de 1/2"),
+        ("tornillo de media pulgada",     "tornillo de 1/2 pulgada"),
+        ("broca de tres dieciseis",       "broca de 3/16"),
+        ("broca de cinco dieciseis",      "broca de 5/16"),
+    ]
+    for entrada, esperado in _fracs:
+        r = normalizar_fn(entrada)
+        if r == esperado:
+            ok(f"'{entrada}' → '{esperado}'")
+        else:
+            fail(f"'{entrada}'", esperado, r)
+
+    # ── 9d. Fracciones mixtas genéricas ────────────────────────────
+    caso("9d. Mixtas: 'dos y tres cuartos' → '2-3/4'")
+    _mixtas = [
+        ("uno y medio",                  "1-1/2"),
+        ("dos y medio",                  "2-1/2"),
+        ("tres y medio",                 "3-1/2"),
+        ("cuatro y medio",               "4-1/2"),
+        ("uno y un cuarto",              "1-1/4"),
+        ("dos y un cuarto",              "2-1/4"),
+        ("tres y un cuarto",             "3-1/4"),
+        ("uno y tres cuartos",           "1-3/4"),
+        ("dos y tres cuartos",           "2-3/4"),
+        ("cuatro y tres cuartos",        "4-3/4"),
+        ("cinco y tres cuartos",         "5-3/4"),
+        ("uno y un octavo",              "1-1/8"),
+        ("dos y tres octavos",           "2-3/8"),
+        ("tres y cinco octavos",         "3-5/8"),
+        ("cuatro y siete octavos",       "4-7/8"),
+        ("dos y tres dieciseis",         "2-3/16"),
+    ]
+    for entrada, esperado in _mixtas:
+        r = normalizar_fn(entrada)
+        if r == esperado:
+            ok(f"'{entrada}' → '{esperado}'")
+        else:
+            fail(f"'{entrada}'", esperado, r)
+
+    # ── 9e. Medidas tipo NxM (tornillos) ───────────────────────────
+    caso("9e. Medidas NxM: 'seis por uno' → '6x1'")
+    _medidas = [
+        ("tornillo seis por uno",                 "tornillo 6x1"),
+        ("tornillo seis por tres cuartos",        "tornillo 6x3/4"),
+        ("tornillo ocho por uno",                 "tornillo 8x1"),
+        ("tornillo ocho por dos",                 "tornillo 8x2"),
+        ("tornillo ocho por dos y medio",         "tornillo 8x2-1/2"),
+        ("tornillo ocho por uno y tres cuartos",  "tornillo 8x1-3/4"),
+        ("tornillo diez por dos y medio",         "tornillo 10x2-1/2"),
+        ("tornillo diez por tres",                "tornillo 10x3"),
+        ("chazo de tres por ocho",                "chazo de 3x8"),
+    ]
+    for entrada, esperado in _medidas:
+        r = normalizar_fn(entrada)
+        if r == esperado:
+            ok(f"'{entrada}' → '{esperado}'")
+        else:
+            fail(f"'{entrada}'", esperado, r)
+
+    # ── 9f. Frases completas de audio (como Whisper las transcribe) ─
+    caso("9f. Frases completas de audio")
+    _frases = [
+        ("dos martillos tres tornillos drywall seis por uno doce chazos plasticos de tres octavos",
+         "2 martillos 3 tornillos drywall 6x1 12 chazos plasticos de 3/8"),
+        ("veinticuatro tornillos drywall seis por uno y treinta y cuatro tornillos seis por tres cuartos",
+         "24 tornillos drywall 6x1 y 34 tornillos 6x3/4"),
+        ("un kilo de acronal",
+         "1 kilo de acronal"),
+        ("una brocha de dos pulgadas",
+         "1 brocha de 2 pulgadas"),
+        ("doce chazos plasticos de tres octavos",
+         "12 chazos plasticos de 3/8"),
+        ("tres tornillos drywall ocho por dos y medio",
+         "3 tornillos drywall 8x2-1/2"),
+        ("cincuenta chazos de tres octavos",
+         "50 chazos de 3/8"),
+        ("cuatro brochas para metal de cinco dieciseis",
+         "4 brochas para metal de 5/16"),
+    ]
+    for entrada, esperado in _frases:
+        r = normalizar_fn(entrada)
+        if r == esperado:
+            ok(f"'{entrada[:45]}...' → OK")
+        else:
+            fail(f"frase: '{entrada[:45]}'", esperado, r)
+
+    # ── 9g. Casos límite y no debe romperse ────────────────────────
+    caso("9g. Casos límite — no debe alterar lo que ya está bien")
+    _limites = [
+        ("2 martillos",                "2 martillos"),      # ya tiene dígito
+        ("24 tornillos drywall 6x1",   "24 tornillos drywall 6x1"),  # ya normalizado
+        ("3/4 de vinilo",              "3/4 de vinilo"),    # fracción ya escrita
+        ("12 chazos 3/8",              "12 chazos 3/8"),    # ya correcto
+        ("hola como estas",            "hola como estas"),  # sin números, no tocar
+        ("",                           ""),                  # vacío
+    ]
+    for entrada, esperado in _limites:
+        r = normalizar_fn(entrada)
+        if r == esperado:
+            ok(f"'{entrada}' sin cambios ✓")
+        else:
+            fail(f"no debía cambiar: '{entrada}'", esperado, r)
+
+    # ── 9h. Bypass end-to-end con texto de audio ───────────────────
+    if bypass_fn and catalogo:
+        caso("9h. Bypass end-to-end con texto normalizado de audio")
+        # Cada par: (texto como lo dice el cliente en audio, debe_bypassear)
+        # Se aplica normalizar_fn (números en letras → dígitos) antes de bypass
+        _e2e = [
+            ("dos martillos",                                          True),
+            ("doce chazos plasticos de tres octavos",                  True),
+            ("veinticuatro tornillos drywall seis por uno",            True),
+            ("tres tornillos drywall ocho por dos y medio",            True),
+            ("dos martillos, tres tornillos drywall seis por uno",     True),
+            ("dos martillos para juan",                                False),  # cliente → Claude
+            ("cuanto vale un martillo",                                False),  # consulta → Claude
+        ]
+        for raw, debe in _e2e:
+            try:
+                normalizado = normalizar_fn(raw)  # letras → dígitos
+                r = bypass_fn(normalizado, catalogo)
+
+                paso = r is not None
+                if paso == debe:
+                    destino = "BYPASS ✅" if paso else "CLAUDE ✅"
+                    ok(f"'{raw[:45]}' → {destino}")
+                else:
+                    destino_real = "BYPASS" if paso else "CLAUDE"
+                    destino_esp  = "BYPASS" if debe else "CLAUDE"
+                    fail(f"'{raw[:45]}'", f"→ {destino_esp}", f"→ {destino_real}")
+            except Exception as e:
+                error(f"'{raw[:45]}'", e)
+    else:
+        skip("9h. Bypass end-to-end", "bypass o catálogo no disponible")
+
+
 def test_archivos_criticos():
     seccion("9. ESTRUCTURA DE ARCHIVOS CRÍTICOS")
 
@@ -942,6 +1148,27 @@ def main():
     )
 
     test_pendientes(catalogo_dict)
+
+    # Sección 9: Audio
+    try:
+        with mock.patch.dict(sys.modules, {"config": mock.MagicMock()}):
+            import utils as _utils_audio
+            normalizar_audio_fn = _utils_audio.normalizar_numeros_audio
+        # Forzar carga fresca de bypass (puede estar cacheado con versión vieja por ai.py)
+        sys.modules.pop("bypass", None)
+        # Asegurar que el directorio correcto esté primero en sys.path
+        if base not in sys.path or sys.path.index(base) != 0:
+            sys.path.insert(0, base)
+        import bypass as _bypass_audio
+        test_audio_normalizacion(
+            normalizar_audio_fn,
+            bypass_fn=_bypass_audio.intentar_bypass_python,
+            catalogo=catalogo_dict,
+            corregir_fn=_utils_audio.corregir_texto_audio,
+        )
+    except Exception as _e_audio:
+        seccion("9. AUDIO — NORMALIZACIÓN")
+        skip("Todos los tests de audio", f"no disponible: {_e_audio}")
 
     test_archivos_criticos()
 
