@@ -452,7 +452,7 @@ def test_bugs_conocidos(buscar, parsear_bulk=None):
     # Bug 5: precio sync race condition (test lógico, no de I/O)
     caso("BUG #5 — Sync síncrono en _escribir_en_excel (no race condition)")
     try:
-        with open(os.path.join(os.path.dirname(__file__), "precio_sync.py")) as f:
+        with open(os.path.join(os.path.dirname(__file__), "precio_sync.py"), encoding="utf-8") as f:
             codigo = f.read()
         # Extraer solo la función _escribir_en_excel con límite estricto (hasta la próxima def)
         lineas = codigo.split("\n")
@@ -582,7 +582,7 @@ def test_archivos_criticos():
     caso("Imports críticos en mensajes.py")
     try:
         ruta = os.path.join(base, "handlers/mensajes.py")
-        with open(ruta) as f:
+        with open(ruta, encoding="utf-8") as f:
             src = f.read()
         checks = [
             ("mensaje_contexto_pendiente", "fix contexto perdido"),
@@ -601,7 +601,7 @@ def test_archivos_criticos():
     caso("nuevo_cliente registrado en main.py")
     try:
         ruta = os.path.join(base, "main.py")
-        with open(ruta) as f:
+        with open(ruta, encoding="utf-8") as f:
             src = f.read()
         if "nuevo_cliente" in src:
             ok("comando /nuevo_cliente registrado en main.py")
@@ -670,17 +670,21 @@ def main():
     convertir_fn   = None
     catalogo_dict  = None
 
-    # 1. Cargar catálogo desde memoria__4_.json
+    # 1. Cargar catálogo desde memoria.json (buscar en varias ubicaciones)
     memoria_json = None
-    for path in [
-        "/mnt/user-data/uploads/memoria__4_.json",
+    _posibles_memoria = [
         os.path.join(base, "memoria.json"),
-    ]:
+        os.path.join(base, "memoria__4_.json"),
+        os.path.join(base, "memoria__3_.json"),
+        os.path.join(base, "memoria__2_.json"),
+        "/mnt/user-data/uploads/memoria__4_.json",
+    ]
+    for path in _posibles_memoria:
         if os.path.exists(path):
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 memoria_json = json.load(f)
             catalogo_dict = memoria_json.get("catalogo", {})
-            print(f"\n{GREEN}✓ Catálogo cargado:{RESET} {len(catalogo_dict)} productos desde {path}")
+            print(f"\n{GREEN}✓ Catálogo cargado:{RESET} {len(catalogo_dict)} productos desde {os.path.basename(path)}")
             break
 
     if not catalogo_dict:
