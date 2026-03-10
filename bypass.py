@@ -39,11 +39,16 @@ logger = logging.getLogger("ferrebot.bypass")
 # ─────────────────────────────────────────────
 
 _PALABRAS_CLIENTE = {
-    "para", "fiado", "a nombre", "cuenta de", "credito",
+    "fiado", "a nombre", "cuenta de", "credito",
     "a credito", "de parte", "factura", "facturar",
     "abono", "abonó", "abono de", "pago de", "pagó",
     "debe", "saldo", "deuda",
 }
+
+# "para" se revisa por separado: solo bloquea si va seguido de mayúscula o nombre
+# "bandeja para rodillo" ✅  |  "2 tornillos para Juan" ❌
+import re as _re_para
+_PATRON_PARA_CLIENTE = _re_para.compile(r'\bpara\s+[a-záéíóúñ]{3,}', _re_para.IGNORECASE)
 
 _PALABRAS_CONSULTA = {
     "cuanto", "cuánto", "vale", "precio", "cuesta",
@@ -122,6 +127,9 @@ def _slug(s: str) -> str:
     s = re.sub(r'\bpuntillas\b', 'puntilla', s)
     s = re.sub(r'\bchazos\b',    'chazo',    s)
     s = re.sub(r'\bplasticos\b', 'plastico', s)
+    # Plurales genéricos: quitar 's' o 'es' final si el producto existe sin él
+    s = re.sub(r'\b(\w{4,})es\b', r'\1', s)   # martilles→martill (no aplica bien)
+    s = re.sub(r'\b(\w{4,})s\b',  r'\1', s)   # martillos→martillo, brochas→brocha
     # Quitar 'de' suelto: "chazo de 3/8" → "chazo 3/8"
     s = re.sub(r'\s+de\s+', ' ', s)
     # Normalizar fracción con espacio: "8x2 1/2" → "8x2-1/2"
@@ -176,14 +184,19 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
             return resultado
         return None  # multi-línea con productos no bypasseables → Claude
 
-    # ── Sin comas → un solo producto ──
+    # ── Con comas → intentar multi-producto por comas ──
     if "," in msg:
+        resultado = _intentar_bypass_multilinea(msg.replace(",", "\n"), catalogo)
+        if resultado is not None:
+            return resultado
         return None
 
     # ── Sin palabras problemáticas ──
     for palabra in _PALABRAS_CLIENTE | _PALABRAS_CONSULTA | _PALABRAS_MODIFICACION:
         if palabra in msg_norm:
             return None
+    # Nota: "para" se verifica más abajo, después de intentar encontrar el producto
+    # (para no bloquear "bandeja para rodillo", "rieles para gaveta", etc.)
 
     # ════════════════════════════════════════════
     # CASO 1: FRACCIÓN MIXTA  "1-1/2 vinilo azul"
@@ -297,6 +310,9 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
 
     prod = _buscar_producto_exacto(nombre_txt, catalogo)
     if not prod:
+        # Si no encontramos el producto Y el mensaje tiene "para nombre", es un cliente
+        if _PATRON_PARA_CLIENTE.search(msg_norm):
+            return None
         return None
 
     precio = _precio_segun_cantidad(prod, cantidad)
