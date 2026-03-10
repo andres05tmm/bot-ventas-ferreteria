@@ -114,6 +114,38 @@ def _parsear_actualizacion_masiva(mensaje: str):
         if len(candidatos) >= 2:
             lineas = candidatos
 
+    # FIX: una "línea" puede contener múltiples pares nombre=precio pegados con espacios
+    # Ej: "Cinta Pele L= 17000   Cinta pele XL= 30000"
+    # El regex PAT_UNO ancla al final ($) y captura el ÚLTIMO =precio como precio,
+    # perdiendo todas las entradas anteriores.
+    # Solución: para cada línea, detectar si hay múltiples pares y separarlos.
+    _PAT_MULTI = _re.compile(
+        r"([^=\n]+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)\s*(?=\S)",
+        _re.UNICODE
+    )
+    def _expandir_linea(linea):
+        """Si la línea tiene múltiples pares nombre=precio, los separa en sublíneas."""
+        # Busca todos los matches de nombre=precio dentro de la línea
+        matches = list(_re.finditer(
+            r"(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)(?=\s+\S|\s*$)",
+            linea, _re.UNICODE
+        ))
+        if len(matches) <= 1:
+            return [linea]
+        # Verificar que los nombres no sean vacíos y los precios sean válidos
+        result = []
+        for m in matches:
+            nombre_part = m.group(1).strip()
+            precio_part = m.group(2).strip()
+            if nombre_part and precio_part:
+                result.append(f"{nombre_part}= {precio_part}")
+        return result if len(result) >= 2 else [linea]
+
+    lineas_expandidas = []
+    for l in lineas:
+        lineas_expandidas.extend(_expandir_linea(l))
+    lineas = lineas_expandidas
+
     # Palabras de acción que indican que la primera línea es (o empieza con) un header
     _PREFIJOS_ACCION = ("actualizar", "update", "cambiar", "subir", "bajar",
                         "nuevos", "precios", "modificar")
