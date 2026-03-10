@@ -712,7 +712,8 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                         for n in _re_pend.split(r',| y ', _nombres_raw)
                         if n.strip()
                     ]
-                    _mem_pend = cargar_memoria()
+                    from memoria import cargar_memoria as _cm_pend, guardar_memoria as _gm_pend
+                    _mem_pend = _cm_pend()
                     if "productos_pendientes" not in _mem_pend:
                         _mem_pend["productos_pendientes"] = []
                     _hoy = _dt.now().strftime("%Y-%m-%d")
@@ -733,7 +734,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                             _nombres_existentes.add(_np)
                             _nuevos += 1
                     if _nuevos:
-                        guardar_memoria(_mem_pend)
+                        _gm_pend(_mem_pend)
                         logger.info(f"[PENDIENTES] +{_nuevos} productos guardados: {_nombres_lista}")
             except Exception as _e_pend:
                 logger.warning(f"[PENDIENTES] Error guardando pendientes: {_e_pend}")
