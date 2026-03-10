@@ -689,6 +689,30 @@ async def comando_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
+# /nuevo_cliente
+# ─────────────────────────────────────────────
+
+async def comando_nuevo_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inicia el flujo de creación de cliente sin necesidad de una venta."""
+    from ventas_state import clientes_en_proceso, _estado_lock
+    from handlers.mensajes import _enviar_pregunta_flujo_cliente
+
+    chat_id = update.effective_chat.id
+
+    # Si viene con nombre como argumento: /nuevo_cliente Juan Pérez
+    if context.args:
+        nombre = " ".join(context.args).strip()
+        with _estado_lock:
+            clientes_en_proceso[chat_id] = {"paso": "tipo_id", "nombre": nombre}
+        await _enviar_pregunta_flujo_cliente(update.message, chat_id)
+    else:
+        # Sin nombre → preguntar
+        with _estado_lock:
+            clientes_en_proceso[chat_id] = {"paso": "nombre"}
+        await _enviar_pregunta_flujo_cliente(update.message, chat_id)
+
+
+# ─────────────────────────────────────────────
 # /fiados
 # ─────────────────────────────────────────────
 
