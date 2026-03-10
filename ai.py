@@ -1076,6 +1076,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     # Regla siempre activa en multi-producto: Claude debe listar lo que no pudo registrar
     _es_multiproducto = "\n" in mensaje_usuario.strip() or mensaje_usuario.count(",") >= 2
+    # La regla aplica SIEMPRE (producto único o múltiple) para que el formato ⚠️
+    # sea consistente y el sistema pueda guardarlo automáticamente en /pendientes.
     _regla_no_encontrado = (
         "REGLA MULTI-PRODUCTO: Para CADA producto en el mensaje, verifica si existe en el MATCH. "
         "Registra con [VENTA] SOLO los que SÍ encontraste con buena coincidencia. "
@@ -1083,7 +1085,10 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         "NO lo registres y agrégalo a una línea final: "
         "⚠️ No encontré en catálogo: [nombre(s)]. "
         "NUNCA omitas en silencio productos no encontrados ni uses matches dudosos."
-        if _es_multiproducto else ""
+        if _es_multiproducto else
+        "Si el MATCH está vacío o no coincide con el producto pedido, responde EXACTAMENTE: "
+        "⚠️ No encontré en catálogo: [nombre del producto]. "
+        "NUNCA uses otra frase como 'No tengo X' o 'X no está disponible'."
     )
 
     partes = [
