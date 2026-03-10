@@ -126,6 +126,24 @@ def buscar_producto_en_catalogo(nombre_buscado: str) -> dict | None:
         bonus_numero    = sum(1 for n in numeros_busqueda if n in nl_numeros)
         penaliz_numero  = -sum(2 for n in numeros_busqueda if n not in nl_numeros)
 
+        # Filtro anti-match-espurio: requiere mínimo de palabras sustantivas en común
+        # Ej: "cepillo de acero" NO debe matchear "Regadera" ni "Bisagra acero"
+        _STOPWORDS = {"de", "el", "la", "los", "las", "un", "una", "unos", "unas",
+                      "para", "con", "por", "en", "del", "al"}
+        # Adjetivos descriptores que no identifican el producto — no cuentan para el umbral
+        _ADJETIVOS_DESC = {"economico", "economica", "pequeno", "pequeña", "grande",
+                           "simple", "corriente", "comun", "basico", "normal",
+                           "plastico", "plastica", "metalico", "metalica"}
+        palabras_sustantivas = [p for p in palabras if p not in _STOPWORDS and not p.isdigit()]
+        palabras_identificadoras = [p for p in palabras_sustantivas if p not in _ADJETIVOS_DESC]
+        if palabras_sustantivas:
+            coincidencias_sustantivas = sum(1 for p in palabras_sustantivas if p in nl)
+            # Con 2+ palabras identificadoras: deben coincidir al menos 2
+            # Con 1 identificadora: basta con que esa 1 coincida
+            minimo_requerido = 2 if len(palabras_identificadoras) >= 2 else 1
+            if coincidencias_sustantivas < minimo_requerido:
+                continue
+
         candidatos.append((score_base + bonus_numero + penaliz_numero, coincidencias, len(nl), prod))
 
     if candidatos:
