@@ -1206,6 +1206,20 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     if _bypass:
         import json as _jbp
         _txt, _venta = _bypass
+        # Multi-producto: expandir a múltiples tags [VENTA]
+        if _venta.get("multi"):
+            _tags = ""
+            for _item in _venta.get("items", []):
+                _v = {
+                    "producto":        _item["producto"],
+                    "cantidad":        _item["cantidad"],
+                    "total":           _item["total"],
+                    "precio_unitario": _item["precio_unitario"],
+                    "metodo_pago":     "",
+                }
+                _tags += f"[VENTA]{_jbp.dumps(_v, ensure_ascii=False)}[/VENTA]"
+            return f"{_txt}\n{_tags}"
+        # Single producto
         return f"{_txt}\n[VENTA]{_jbp.dumps(_venta, ensure_ascii=False)}[/VENTA]"
 
     logging.getLogger("ferrebot.ai").info(f"[→ CLAUDE] '{_msg_bypass[:60]}'")
