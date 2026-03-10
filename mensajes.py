@@ -658,10 +658,33 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             def _es_aviso_catalogo(l):
                 ls = l.strip()
                 return ls.startswith("⚠️") and ("catálogo" in ls.lower() or "catalogo" in ls.lower())
-            _lineas_aviso = [l for l in _lineas if _es_aviso_catalogo(l)]
-            _lineas_resto = [l for l in _lineas if not _es_aviso_catalogo(l)]
-            _aviso_no_encontrado = "\n".join(_lineas_aviso).strip()
-            texto_respuesta      = "\n".join(_lineas_resto).strip()
+
+            # El aviso puede estar en múltiples líneas — capturar la línea ⚠️
+            # Y TODAS las líneas de continuación hasta la próxima acción/emoji
+            _aviso_lineas_out = []
+            _resto_lineas_out = []
+            _en_aviso = False
+            for _l in _lineas:
+                if _es_aviso_catalogo(_l):
+                    _en_aviso = True
+                    _aviso_lineas_out.append(_l)
+                elif _en_aviso:
+                    # Continuar en aviso si la línea NO empieza una nueva acción
+                    _ls = _l.strip()
+                    _es_nueva_accion = (_ls.startswith("✅") or _ls.startswith("🧠")
+                                        or _ls.startswith("[VENTA]") or _ls.startswith("🧾")
+                                        or _ls.startswith("💰") or _ls.startswith("📋")
+                                        or (_ls.startswith("⚠️") and "catálogo" not in _ls.lower()))
+                    if _es_nueva_accion or not _ls:
+                        _en_aviso = False
+                        _resto_lineas_out.append(_l)
+                    else:
+                        _aviso_lineas_out.append(_l)
+                else:
+                    _resto_lineas_out.append(_l)
+
+            _aviso_no_encontrado = "\n".join(_aviso_lineas_out).strip()
+            texto_respuesta      = "\n".join(_resto_lineas_out).strip()
 
         # Enviar aviso de no encontrado PRIMERO, como mensaje separado
         if _aviso_no_encontrado:
@@ -674,10 +697,12 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 # Extraer nombres después de "⚠️ No encontré en catálogo: X, Y, Z"
                 # Regex flexible: acepta con/sin tilde, separador : o solo espacio,
                 # y captura hasta fin de línea o fin de texto (re.DOTALL por si hay newlines)
+                # Aplanar multilinea para que el regex funcione en todos los casos
+                _aviso_flat = " ".join(_aviso_no_encontrado.splitlines())
                 _match_pend = _re_pend.search(
-                    r'no encontr[eé] en cat[aá]logo[:\s]+(.+?)(?:\n|$)',
-                    _aviso_no_encontrado,
-                    _re_pend.IGNORECASE | _re_pend.DOTALL
+                    r'no encontr[eé] en cat[aá]logo[:\s]+(.+)',
+                    _aviso_flat,
+                    _re_pend.IGNORECASE
                 )
                 if _match_pend:
                     _nombres_raw = _match_pend.group(1).strip().rstrip('.')
