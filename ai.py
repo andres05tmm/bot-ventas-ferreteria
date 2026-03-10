@@ -1066,15 +1066,16 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if overrides:
             precios_modificados_texto = "PRECIOS ACTUALIZADOS (usar estos, ignorar el catalogo):\n" + "\n".join(overrides)
 
-    # Si hay productos no encontrados en mensaje multi-producto, instruir a Claude
-    _tiene_match_vacio = "MATCH: (sin resultados" in (info_candidatos_extra or "")
-    _es_multiproducto  = "\n" in mensaje_usuario.strip() or mensaje_usuario.count(",") >= 2
+    # Regla siempre activa en multi-producto: Claude debe listar lo que no pudo registrar
+    _es_multiproducto = "\n" in mensaje_usuario.strip() or mensaje_usuario.count(",") >= 2
     _regla_no_encontrado = (
-        "REGLA MULTI-PRODUCTO: Si algún producto tiene MATCH vacío, "
-        "registra los que SÍ encontraste con [VENTA] y añade al final UNA línea: "
-        "⚠️ No encontré en catálogo: [nombre(s) no encontrados]. "
-        "NUNCA omitas en silencio productos no encontrados."
-        if (_tiene_match_vacio and _es_multiproducto) else ""
+        "REGLA MULTI-PRODUCTO: Para CADA producto en el mensaje, verifica si existe en el MATCH. "
+        "Registra con [VENTA] SOLO los que SÍ encontraste con buena coincidencia. "
+        "Si un producto NO tiene match claro en el catálogo (o el match es dudoso/diferente), "
+        "NO lo registres y agrégalo a una línea final: "
+        "⚠️ No encontré en catálogo: [nombre(s)]. "
+        "NUNCA omitas en silencio productos no encontrados ni uses matches dudosos."
+        if _es_multiproducto else ""
     )
 
     partes = [
