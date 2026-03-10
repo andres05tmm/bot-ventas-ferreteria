@@ -656,10 +656,33 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         if texto_respuesta:
             import re as _re_msg
             _lineas = texto_respuesta.splitlines()
-            _lineas_aviso = [l for l in _lineas if l.strip().startswith("⚠️") and "catálogo" in l]
-            _lineas_resto = [l for l in _lineas if not (l.strip().startswith("⚠️") and "catálogo" in l)]
-            _aviso_no_encontrado = "\n".join(_lineas_aviso).strip()
-            texto_respuesta      = "\n".join(_lineas_resto).strip()
+            def _es_aviso_catalogo(l):
+                ls = l.strip()
+                return ls.startswith("⚠️") and ("catálogo" in ls.lower() or "catalogo" in ls.lower())
+
+            _aviso_lineas_out = []
+            _resto_lineas_out = []
+            _en_aviso = False
+            for _l in _lineas:
+                if _es_aviso_catalogo(_l):
+                    _en_aviso = True
+                    _aviso_lineas_out.append(_l)
+                elif _en_aviso:
+                    _ls = _l.strip()
+                    _es_nueva_accion = (_ls.startswith("✅") or _ls.startswith("🧠")
+                                        or _ls.startswith("[VENTA]") or _ls.startswith("🧾")
+                                        or _ls.startswith("💰") or _ls.startswith("📋")
+                                        or (_ls.startswith("⚠️") and "catálogo" not in _ls.lower()))
+                    if _es_nueva_accion or not _ls:
+                        _en_aviso = False
+                        _resto_lineas_out.append(_l)
+                    else:
+                        _aviso_lineas_out.append(_l)
+                else:
+                    _resto_lineas_out.append(_l)
+
+            _aviso_no_encontrado = "\n".join(_aviso_lineas_out).strip()
+            texto_respuesta      = "\n".join(_resto_lineas_out).strip()
 
         # Enviar aviso de no encontrado PRIMERO, como mensaje separado
         if _aviso_no_encontrado:
@@ -669,21 +692,23 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             try:
                 import re as _re_pend
                 from datetime import datetime as _dt
-                # Extraer nombres: soporta "⚠️ No encontré en catálogo: X" Y "No tengo X en el catálogo"
+                # Regex flexible: acepta con/sin tilde, aplanar multilinea
+                _aviso_flat = " ".join(_aviso_no_encontrado.splitlines())
                 _match_pend = _re_pend.search(
-                    r'no encontré en catálogo[:\s]+(.+)|no tengo (.+?) en el catálogo',
-                    _aviso_no_encontrado,
+                    r'no encontr[eé] en cat[aá]logo[:\s]+(.+)',
+                    _aviso_flat,
                     _re_pend.IGNORECASE
                 )
                 if _match_pend:
-                    _nombres_raw = (_match_pend.group(1) or _match_pend.group(2) or "").strip().rstrip('.')
+                    _nombres_raw = _match_pend.group(1).strip().rstrip('.')
                     # Pueden venir separados por coma o "y"
                     _nombres_lista = [
                         n.strip().strip('"\'').lower()
                         for n in _re_pend.split(r',| y ', _nombres_raw)
                         if n.strip()
                     ]
-                    _mem_pend = cargar_memoria()
+                    from memoria import cargar_memoria as _cm_pend, guardar_memoria as _gm_pend
+                    _mem_pend = _cm_pend()
                     if "productos_pendientes" not in _mem_pend:
                         _mem_pend["productos_pendientes"] = []
                     _hoy = _dt.now().strftime("%Y-%m-%d")
@@ -704,7 +729,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                             _nombres_existentes.add(_np)
                             _nuevos += 1
                     if _nuevos:
-                        guardar_memoria(_mem_pend)
+                        _gm_pend(_mem_pend)
                         logger.info(f"[PENDIENTES] +{_nuevos} productos guardados: {_nombres_lista}")
             except Exception as _e_pend:
                 logger.warning(f"[PENDIENTES] Error guardando pendientes: {_e_pend}")
