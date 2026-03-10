@@ -682,11 +682,19 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             es_familia = any(f in seg.lower() or _stem(f) in seg.lower() for f in _familias_con_tallas)
             _limite_seg = 8 if es_familia else 3
 
+            # Palabras que no identifican un producto por sí solas (no usar en largo=1)
+            _SOLO_ADJETIVOS = {"pequeno", "pequeña", "pequeño", "grande", "economico",
+                                "economica", "simple", "corriente", "basico", "normal",
+                                "plastico", "plastica", "metalico", "metalica", "acero",
+                                "madera", "hierro", "metal", "comun", "especial"}
             for largo in [4, 3, 2, 1]:
                 encontrado_seg = False
                 for i in range(len(palabras_seg) - largo + 1):
                     fragmento = " ".join(palabras_seg[i:i + largo])
                     if len(fragmento) < 3:
+                        continue
+                    # En largo=1, no buscar con palabras que son solo adjetivos/materiales
+                    if largo == 1 and fragmento in _SOLO_ADJETIVOS:
                         continue
                     resultados = buscar_multiples_con_alias(fragmento, limite=_limite_seg)
                     primer = True
