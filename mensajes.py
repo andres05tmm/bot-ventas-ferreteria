@@ -655,8 +655,11 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         if texto_respuesta:
             import re as _re_msg
             _lineas = texto_respuesta.splitlines()
-            _lineas_aviso = [l for l in _lineas if l.strip().startswith("⚠️") and "catálogo" in l]
-            _lineas_resto = [l for l in _lineas if not (l.strip().startswith("⚠️") and "catálogo" in l)]
+            def _es_aviso_catalogo(l):
+                ls = l.strip()
+                return ls.startswith("⚠️") and ("catálogo" in ls.lower() or "catalogo" in ls.lower())
+            _lineas_aviso = [l for l in _lineas if _es_aviso_catalogo(l)]
+            _lineas_resto = [l for l in _lineas if not _es_aviso_catalogo(l)]
             _aviso_no_encontrado = "\n".join(_lineas_aviso).strip()
             texto_respuesta      = "\n".join(_lineas_resto).strip()
 
@@ -669,10 +672,12 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 import re as _re_pend
                 from datetime import datetime as _dt
                 # Extraer nombres después de "⚠️ No encontré en catálogo: X, Y, Z"
+                # Regex flexible: acepta con/sin tilde, separador : o solo espacio,
+                # y captura hasta fin de línea o fin de texto (re.DOTALL por si hay newlines)
                 _match_pend = _re_pend.search(
-                    r'no encontré en catálogo[:\s]+(.+)', 
-                    _aviso_no_encontrado, 
-                    _re_pend.IGNORECASE
+                    r'no encontr[eé] en cat[aá]logo[:\s]+(.+?)(?:\n|$)',
+                    _aviso_no_encontrado,
+                    _re_pend.IGNORECASE | _re_pend.DOTALL
                 )
                 if _match_pend:
                     _nombres_raw = _match_pend.group(1).strip().rstrip('.')
