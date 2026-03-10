@@ -664,6 +664,50 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         if _aviso_no_encontrado:
             await update.message.reply_text(_aviso_no_encontrado)
 
+            # ── Guardar productos no encontrados en memoria ────────────────
+            try:
+                import re as _re_pend
+                from datetime import datetime as _dt
+                # Extraer nombres después de "⚠️ No encontré en catálogo: X, Y, Z"
+                _match_pend = _re_pend.search(
+                    r'no encontré en catálogo[:\s]+(.+)', 
+                    _aviso_no_encontrado, 
+                    _re_pend.IGNORECASE
+                )
+                if _match_pend:
+                    _nombres_raw = _match_pend.group(1).strip().rstrip('.')
+                    # Pueden venir separados por coma o "y"
+                    _nombres_lista = [
+                        n.strip().strip('"\'').lower()
+                        for n in _re_pend.split(r',| y ', _nombres_raw)
+                        if n.strip()
+                    ]
+                    _mem_pend = cargar_memoria()
+                    if "productos_pendientes" not in _mem_pend:
+                        _mem_pend["productos_pendientes"] = []
+                    _hoy = _dt.now().strftime("%Y-%m-%d")
+                    _hora = _dt.now().strftime("%H:%M")
+                    _nombres_existentes = {
+                        p["nombre"].lower() 
+                        for p in _mem_pend["productos_pendientes"]
+                        if p.get("fecha") == _hoy
+                    }
+                    _nuevos = 0
+                    for _np in _nombres_lista:
+                        if _np and _np not in _nombres_existentes:
+                            _mem_pend["productos_pendientes"].append({
+                                "nombre": _np,
+                                "fecha": _hoy,
+                                "hora": _hora
+                            })
+                            _nombres_existentes.add(_np)
+                            _nuevos += 1
+                    if _nuevos:
+                        guardar_memoria(_mem_pend)
+                        logger.info(f"[PENDIENTES] +{_nuevos} productos guardados: {_nombres_lista}")
+            except Exception as _e_pend:
+                logger.warning(f"[PENDIENTES] Error guardando pendientes: {_e_pend}")
+
         if texto_respuesta and not pago_pend_aviso and not cliente_desconocido and not pedir_metodo and not confirmacion_accion:
             await update.message.reply_text(texto_respuesta)
 
