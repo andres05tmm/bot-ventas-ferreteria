@@ -333,7 +333,8 @@ def normalizar_numeros_audio(texto: str) -> str:
 
     # ── 2. Números en letras → dígitos (de mayor a menor para evitar solapamientos) ──
     _NUMS = [
-        (r'\bveintiuno\b','21'),(r'\bveintidós\b','22'),(r'\bveintidos\b','22'),
+        (r'\bveintiuno\b','21'),(r'\bveintiun\b','21'),
+        (r'\bveintidós\b','22'),(r'\bveintidos\b','22'),
         (r'\bveintitrés\b','23'),(r'\bveintitres\b','23'),(r'\bveinticuatro\b','24'),
         (r'\bveinticinco\b','25'),(r'\bveintiséis\b','26'),(r'\bveintiseis\b','26'),
         (r'\bveintisiete\b','27'),(r'\bveintiocho\b','28'),(r'\bveintinueve\b','29'),
