@@ -52,6 +52,10 @@ clientes_en_proceso: dict[int, dict] = {}
 # {chat_id: {"ventas": [...], "metodo": "efectivo"|None}}
 ventas_esperando_cliente: dict[int, dict] = {}
 
+# {chat_id: str} — guarda el mensaje original cuando Claude solo hizo una pregunta
+# (sin registrar venta). El siguiente mensaje del usuario se combina con este contexto.
+mensaje_contexto_pendiente: dict[int, str] = {}
+
 _chat_locks: dict[int, asyncio.Lock] = {}
 _chat_locks_meta = threading.Lock()
 
