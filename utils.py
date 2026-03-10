@@ -303,6 +303,63 @@ _CORRECCIONES_AUDIO: dict[str, str] = {
 }
 
 
+
+def normalizar_numeros_audio(texto: str) -> str:
+    """
+    Convierte números escritos en letras a dígitos para que el bypass pueda procesarlos.
+    Ejemplo: "dos martillos, tres tornillos seis por uno" → "2 martillos, 3 tornillos 6x1"
+    Orden: fracciones primero, luego números individuales, luego compuestos, luego "por" → "x".
+    """
+    import re as _re
+
+    # ── 1. Fracciones habladas PRIMERO (antes de convertir números sueltos) ──
+    _FRACS = [
+        (r'\bdos y (?:un )?medio\b',   '2-1/2'),
+        (r'\bdos y (?:una )?media\b',  '2-1/2'),
+        (r'\buno y (?:un )?medio\b',   '1-1/2'),
+        (r'\buno y (?:una )?media\b',  '1-1/2'),
+        (r'\bdos y un cuarto\b',       '2-1/4'),
+        (r'\buno y un cuarto\b',       '1-1/4'),
+        (r'\btres cuartos\b',          '3/4'),
+        (r'\btres octavos\b',          '3/8'),
+        (r'\bun cuarto\b',             '1/4'),
+        (r'\bun octavo\b',             '1/8'),
+        (r'\bmedio\b',                 '1/2'),
+        (r'\bmedia\b',                 '1/2'),
+    ]
+    for patron, valor in _FRACS:
+        texto = _re.sub(patron, valor, texto, flags=_re.IGNORECASE)
+
+    # ── 2. Números en letras → dígitos (de mayor a menor para evitar solapamientos) ──
+    _NUMS = [
+        (r'\bveintiuno\b','21'),(r'\bveintidós\b','22'),(r'\bveintidos\b','22'),
+        (r'\bveintitrés\b','23'),(r'\bveintitres\b','23'),(r'\bveinticuatro\b','24'),
+        (r'\bveinticinco\b','25'),(r'\bveintiséis\b','26'),(r'\bveintiseis\b','26'),
+        (r'\bveintisiete\b','27'),(r'\bveintiocho\b','28'),(r'\bveintinueve\b','29'),
+        (r'\bveinte\b','20'),(r'\btreinta\b','30'),(r'\bcuarenta\b','40'),
+        (r'\bcincuenta\b','50'),(r'\bsesenta\b','60'),(r'\bsetenta\b','70'),
+        (r'\bochenta\b','80'),(r'\bnoventa\b','90'),(r'\bcien\b','100'),
+        (r'\bonce\b','11'),(r'\bdoce\b','12'),(r'\btrece\b','13'),
+        (r'\bcatorce\b','14'),(r'\bquince\b','15'),(r'\bdiez\b','10'),
+        (r'\bnueve\b','9'),(r'\bocho\b','8'),(r'\bsiete\b','7'),
+        (r'\bseis\b','6'),(r'\bcinco\b','5'),(r'\bcuatro\b','4'),
+        (r'\btres\b','3'),(r'\bdos\b','2'),
+        (r'\buno\b','1'),(r'\buna\b','1'),(r'\bun\b','1'),
+    ]
+    for patron, digito in _NUMS:
+        texto = _re.sub(patron, digito, texto, flags=_re.IGNORECASE)
+
+    # ── 3. Compuestos: "30 y 4" → "34", "20 y 4" → "24" ──
+    def _comp(m): return str(int(m.group(1)) + int(m.group(2)))
+    texto = _re.sub(r'\b(10|20|30|40|50|60|70|80|90)\s+y\s+([1-9])\b', _comp, texto)
+
+    # ── 4. "N por M" → "NxM" (medidas de tornillo) ──
+    texto = _re.sub(r'\b(\d+)\s+por\s+(\d+(?:[/-]\d+)?)\b', r'\1x\2', texto, flags=_re.IGNORECASE)
+
+    # ── 5. Limpiar espacios múltiples ──
+    texto = _re.sub(r' {2,}', ' ', texto).strip()
+    return texto
+
 def corregir_texto_audio(texto: str) -> str:
     """
     Corrige errores comunes de transcripción de Whisper antes de enviar a la IA.
@@ -346,4 +403,6 @@ def corregir_texto_audio(texto: str) -> str:
         lambda m: f'broca{m.group(1)} para metal {m.group(2)}',
         texto, flags=re.IGNORECASE
     )
+    # Normalizar números en letras → dígitos para que el bypass pueda procesar audio
+    texto = normalizar_numeros_audio(texto)
     return texto
