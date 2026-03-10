@@ -31,6 +31,7 @@ from ventas_state import (
 from excel import guardar_cliente_nuevo
 from handlers.comandos import manejar_flujo_agregar_producto
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
+from memoria import cargar_memoria, guardar_memoria
 
 logger = logging.getLogger("ferrebot.mensajes")
 
