@@ -1140,8 +1140,6 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
         f"📦 {importados} productos importados\n"
         f"⏭️ {omitidos} filas sin nombre (ignoradas)\n"
     )
-    if sin_precio:
-        texto += f"⚠️ {len(sin_precio)} productos con precio $0 (no importados)\n"
     if duplicados:
         texto += f"🔁 {len(duplicados)} duplicados con precio diferente\n"
     if errores:
@@ -1150,14 +1148,6 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
     await update.message.reply_text(texto)
 
     # ── Detalle de problemas ──────────────────────────────────────────────
-    if sin_precio:
-        lista = "\n".join(f"  • {n}" for n in sin_precio[:30])
-        if len(sin_precio) > 30:
-            lista += f"\n  ... y {len(sin_precio)-30} más"
-        await update.message.reply_text(
-            f"⚠️ Productos con precio $0 (agrégales precio en el Excel):\n{lista}"
-        )
-
     if duplicados:
         lista = "\n".join(f"  • {d}" for d in duplicados[:20])
         await update.message.reply_text(
