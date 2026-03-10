@@ -6,7 +6,10 @@ CORRECCIONES v2:
   - manejar_texto_cliente eliminada — era código muerto (nunca se llamaba desde ningún handler)
   - Docstring ANTES del import logging
 
-CORRECCIONES v3 — FIX CRÍTICO standby:
+CORRECCIONES v4 — FIX standby async:
+  _procesar_siguiente_standby usaba procesar_acciones (síncrona), bloqueando
+  el event loop completo mientras escribe en Excel/Drive. Cambiado a
+  procesar_acciones_async para no congelar otros chats.
   Antes: el loop procesaba TODOS los mensajes del standby de golpe.
     Mensaje 1 → dejaba venta nueva en ventas_pendientes
     Mensaje 2 → veía ventas_pendientes ocupado → [VENTA] ignorado → pérdida silenciosa
@@ -45,7 +48,7 @@ async def _procesar_siguiente_standby(bot, message, chat_id: int, pendientes: li
     - El resto de los mensajes se guarda de vuelta en mensajes_standby antes de procesar,
       para que no se pierdan si hay un error.
     """
-    from ai import procesar_con_claude, procesar_acciones
+    from ai import procesar_con_claude, procesar_acciones_async
     from ventas_state import agregar_al_historial, get_historial
 
     if not pendientes:
@@ -62,7 +65,7 @@ async def _procesar_siguiente_standby(bot, message, chat_id: int, pendientes: li
     historial     = get_historial(chat_id)
     agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
     respuesta_raw            = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
-    texto_resp, acciones2, _ = procesar_acciones(respuesta_raw, vendedor, chat_id)
+    texto_resp, acciones2, _ = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
     agregar_al_historial(chat_id, "assistant", texto_resp)
 
     confirmacion_accion = next((a for a in acciones2 if a.startswith("PEDIR_CONFIRMACION:")), None)
@@ -177,11 +180,17 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await query.edit_message_text("⏳ Registrando venta...")
 
-        conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
-        emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
-        await query.edit_message_text(
-            f"✅ Venta confirmada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
-        )
+        try:
+            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
+            emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
+            await query.edit_message_text(
+                f"✅ Venta confirmada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
+            )
+        except Exception as _e:
+            import logging
+            logging.getLogger("ferrebot.ai").error(f"[CONFIRMAR] Error registrando venta: {_e}")
+            await query.edit_message_text(f"❌ Error registrando la venta: {_e}\nIntenta de nuevo.")
+            return
 
         with _estado_lock:
             pendientes = mensajes_standby.pop(chat_id, [])
@@ -192,6 +201,62 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     # ── Métodos de pago (botones 💵📱💳) ──
+    # ── Fiado ──
+    if data.startswith("pago_fiado_"):
+        chat_id  = int(data.split("_")[2])
+        vendedor = update.effective_user.first_name
+
+        with _estado_lock:
+            ventas = ventas_pendientes.get(chat_id)
+
+        if not ventas:
+            await query.edit_message_text("Esta sesión de pago expiró o ya fue procesada.")
+            return
+
+        # Extraer nombre del cliente de las ventas (si Claude lo detectó)
+        nombre_cliente = next(
+            (v.get("cliente") for v in ventas if v.get("cliente")), None
+        )
+
+        if not nombre_cliente:
+            await query.edit_message_text("❌ No se detectó nombre de cliente para el fiado.")
+            return
+
+        # Registrar como fiado
+        await query.edit_message_text("⏳ Registrando venta...")
+        try:
+            conf = await asyncio.to_thread(
+                registrar_ventas_con_metodo, ventas, "fiado", vendedor, chat_id
+            )
+            # Guardar movimiento en fiados
+            from memoria import guardar_fiado_movimiento
+            total_fiado = sum(
+                float(v.get("total", 0) or v.get("precio_unitario", 0))
+                for v in ventas
+            )
+            concepto = ", ".join(v.get("producto", "") for v in ventas)
+            saldo = await asyncio.to_thread(
+                guardar_fiado_movimiento, nombre_cliente, concepto, total_fiado, 0
+            )
+            await query.edit_message_text(
+                f"✅ Fiado registrado — 🤝 {nombre_cliente}\n\n"
+                + "\n".join(conf)
+                + f"\n💳 Saldo fiado: ${saldo:,.0f}"
+            )
+        except Exception as _e:
+            import logging
+            logging.getLogger("ferrebot.ai").error(f"[FIADO] Error: {_e}")
+            await query.edit_message_text(f"❌ Error registrando fiado: {_e}\nIntenta de nuevo.")
+            return
+
+        with _estado_lock:
+            pendientes = mensajes_standby.pop(chat_id, [])
+        if pendientes:
+            await _procesar_siguiente_standby(
+                context.bot, query.message, chat_id, pendientes, vendedor
+            )
+        return
+
     if data.startswith("pago_"):
         partes   = data.split("_")
         metodo   = partes[1]
@@ -207,11 +272,17 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await query.edit_message_text("⏳ Registrando venta...")
 
-        conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
-        emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
-        await query.edit_message_text(
-            f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
-        )
+        try:
+            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
+            emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
+            await query.edit_message_text(
+                f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
+            )
+        except Exception as _e:
+            import logging
+            logging.getLogger("ferrebot.ai").error(f"[PAGO] Error registrando venta: {_e}")
+            await query.edit_message_text(f"❌ Error registrando la venta: {_e}\nIntenta de nuevo.")
+            return
 
         with _estado_lock:
             pendientes = mensajes_standby.pop(chat_id, [])
@@ -230,8 +301,22 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             numero = borrados_pendientes.pop(chat_id, None)
 
         if confirm == "si" and numero:
+            # Borrar de Sheets primero (si está disponible)
+            sheets_borradas = 0
+            if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
+                from sheets import sheets_borrar_consecutivo
+                sheets_borradas, _ = await asyncio.to_thread(sheets_borrar_consecutivo, numero)
+            
+            # También borrar del Excel local
             exito, msg = await asyncio.to_thread(borrar_venta_excel, numero)
-            await query.edit_message_text(msg)
+            
+            # Mensaje de confirmación
+            if sheets_borradas > 0:
+                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado ({sheets_borradas} productos borrados de Sheets).")
+            elif exito:
+                await query.edit_message_text(msg)
+            else:
+                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
         else:
             await query.edit_message_text("Borrado cancelado.")
 
@@ -305,15 +390,19 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
         lineas.append(f"• {cantidad_leg} {producto} ${valor_final:,.0f}")
 
+    tiene_cliente = any(v.get("cliente") for v in ventas)
+    fila_extra = []
+    if tiene_cliente:
+        fila_extra.append(InlineKeyboardButton("🤝 Fiado", callback_data=f"pago_fiado_{chat_id}"))
+    fila_extra.append(InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"))
+
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("💵 Efectivo",        callback_data=f"pago_efectivo_{chat_id}"),
-            InlineKeyboardButton("📱 Transf.",          callback_data=f"pago_transferencia_{chat_id}"),
-            InlineKeyboardButton("💳 Datáfono",         callback_data=f"pago_datafono_{chat_id}"),
+            InlineKeyboardButton("💵 Efectivo",  callback_data=f"pago_efectivo_{chat_id}"),
+            InlineKeyboardButton("📱 Transf.",   callback_data=f"pago_transferencia_{chat_id}"),
+            InlineKeyboardButton("💳 Datáfono",  callback_data=f"pago_datafono_{chat_id}"),
         ],
-        [
-            InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"),
-        ]
+        fila_extra,
     ])
     await message.reply_text(
         "¿Cómo fue el pago?\n\n" + "\n".join(lineas),
@@ -465,15 +554,19 @@ async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
         cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
 
+    tiene_cliente = any(v.get("cliente") for v in ventas)
+    fila_extra = []
+    if tiene_cliente:
+        fila_extra.append(InlineKeyboardButton("🤝 Fiado", callback_data=f"pago_fiado_{chat_id}"))
+    fila_extra.append(InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"))
+
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("💵 Efectivo",        callback_data=f"pago_efectivo_{chat_id}"),
-            InlineKeyboardButton("📱 Transf.",          callback_data=f"pago_transferencia_{chat_id}"),
-            InlineKeyboardButton("💳 Datáfono",         callback_data=f"pago_datafono_{chat_id}"),
+            InlineKeyboardButton("💵 Efectivo",  callback_data=f"pago_efectivo_{chat_id}"),
+            InlineKeyboardButton("📱 Transf.",   callback_data=f"pago_transferencia_{chat_id}"),
+            InlineKeyboardButton("💳 Datáfono",  callback_data=f"pago_datafono_{chat_id}"),
         ],
-        [
-            InlineKeyboardButton("✏️ Modificar venta", callback_data=f"pago_modificar_{chat_id}"),
-        ]
+        fila_extra,
     ])
     await bot.send_message(
         chat_id=chat_id,

@@ -520,12 +520,41 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
 def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
     from drive import subir_a_drive
     from sheets import sheets_borrar_fila
+    from memoria import cargar_caja, guardar_caja
 
     inicializar_excel()
     wb = openpyxl.load_workbook(config.EXCEL_FILE)
 
     total_borradas = 0
     hojas_buscar   = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+
+    # Recoger totales y métodos de la hoja mensual ANTES de borrar
+    # para poder descontar de la caja correctamente
+    totales_por_metodo = {}  # {"efectivo": 50000, "transferencia": 0, ...}
+    hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+
+    nombre_hoja_mes = obtener_nombre_hoja()
+    if nombre_hoja_mes in wb.sheetnames:
+        ws_mes = wb[nombre_hoja_mes]
+        cols   = detectar_columnas(ws_mes)
+        col_id     = cols.get("consecutivo de venta")
+        col_total  = next((v for k, v in cols.items() if k == "total"), None)
+        col_metodo = next((v for k, v in cols.items() if "metodo" in k), None)
+        col_fecha  = next((v for k, v in cols.items() if "fecha" in k), None)
+
+        if col_id and col_total:
+            for fila in range(config.EXCEL_FILA_DATOS, ws_mes.max_row + 1):
+                val = ws_mes.cell(row=fila, column=col_id).value
+                try:
+                    if val is not None and int(float(str(val))) == int(numero_venta):
+                        # Solo descontar si la venta es de hoy (caja es del día)
+                        fecha_fila = str(ws_mes.cell(row=fila, column=col_fecha).value or "")[:10] if col_fecha else ""
+                        if fecha_fila == hoy:
+                            t = float(ws_mes.cell(row=fila, column=col_total).value or 0)
+                            m = str(ws_mes.cell(row=fila, column=col_metodo).value or "efectivo").lower() if col_metodo else "efectivo"
+                            totales_por_metodo[m] = totales_por_metodo.get(m, 0) + t
+                except (ValueError, TypeError):
+                    pass
 
     for nombre_sh in hojas_buscar:
         if nombre_sh in wb.sheetnames:
@@ -534,7 +563,6 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
             col_id = cols.get("consecutivo de venta") or cols.get("alias")
             if not col_id:
                 continue
-            # Recoger todas las filas a borrar primero, luego borrar en reversa
             filas_a_borrar = []
             for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
                 val = ws.cell(row=fila, column=col_id).value
@@ -551,9 +579,76 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
         wb.save(config.EXCEL_FILE)
         subir_a_drive(config.EXCEL_FILE)
         sheets_borrar_fila(numero_venta)
+
+        # Descontar de la caja si la venta era de hoy
+        if totales_por_metodo:
+            caja = cargar_caja()
+            if caja.get("abierta"):
+                _map = {"efectivo": "efectivo", "transferencia": "transferencias",
+                        "transferencias": "transferencias", "datafono": "datafono"}
+                for metodo, monto in totales_por_metodo.items():
+                    campo = _map.get(metodo, "efectivo")
+                    caja[campo] = max(0, caja.get(campo, 0) - monto)
+                guardar_caja(caja)
+
         return True, f"✅ Consecutivo #{numero_venta} borrado — {total_borradas} fila(s) eliminadas del Excel y del Sheets."
 
     return False, f"No encontré el consecutivo #{numero_venta}."
+
+
+def recalcular_caja_desde_excel():
+    """
+    Recalcula los totales de la caja leyendo las ventas de HOY desde la hoja mensual.
+    Útil después de borrar ventas para que la caja quede consistente.
+    Solo actúa si la caja está abierta.
+    """
+    from memoria import cargar_caja, guardar_caja
+
+    caja = cargar_caja()
+    if not caja.get("abierta"):
+        return
+
+    hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+
+    efectivo      = 0.0
+    transferencias = 0.0
+    datafono      = 0.0
+
+    if os.path.exists(config.EXCEL_FILE):
+        try:
+            wb          = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
+            nombre_hoja = obtener_nombre_hoja()
+            if nombre_hoja in wb.sheetnames:
+                ws        = wb[nombre_hoja]
+                cols      = detectar_columnas(ws)
+                col_fecha  = next((v for k, v in cols.items() if "fecha"  in k), None)
+                col_total  = next((v for k, v in cols.items() if k == "total"), None)
+                col_metodo = next((v for k, v in cols.items() if "metodo" in k), None)
+
+                if col_fecha and col_total:
+                    for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
+                        fecha_fila = str(fila[col_fecha - 1] or "")[:10]
+                        if fecha_fila != hoy:
+                            continue
+                        try:
+                            t = float(fila[col_total - 1] or 0)
+                            m = str(fila[col_metodo - 1] or "efectivo").lower() if col_metodo else "efectivo"
+                            if "transfer" in m:
+                                transferencias += t
+                            elif "datafono" in m or "tarjeta" in m:
+                                datafono += t
+                            else:
+                                efectivo += t
+                        except (TypeError, ValueError):
+                            pass
+            wb.close()
+        except Exception as e:
+            print(f"Error recalculando caja: {e}")
+
+    caja["efectivo"]       = efectivo
+    caja["transferencias"] = transferencias
+    caja["datafono"]       = datafono
+    guardar_caja(caja)
 
 
 def obtener_ventas_por_consecutivo(numero_venta) -> list:
@@ -723,6 +818,44 @@ def generar_excel_personalizado(titulo: str, encabezados: list, filas: list, nom
 # ─────────────────────────────────────────────
 # WRAPPERS ASYNC
 # ─────────────────────────────────────────────
+
+def obtener_ventas_hoy_excel() -> dict:
+    """
+    Suma solo las ventas del día actual en el Excel.
+    Usado por obtener_resumen_caja() para mostrar Total ventas de hoy, no del mes.
+    """
+    from datetime import datetime as _dt
+    inicializar_excel()
+    hoy = _dt.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+    try:
+        wb          = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
+        nombre_hoja = obtener_nombre_hoja()
+        if nombre_hoja not in wb.sheetnames:
+            wb.close()
+            return {"total": 0, "num_ventas": 0}
+        ws        = wb[nombre_hoja]
+        cols      = detectar_columnas(ws)
+        col_total = next((v for k, v in cols.items() if k == "total"), None)
+        col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
+        total_hoy = 0
+        num_hoy   = 0
+        for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
+            if not any(fila):
+                continue
+            fecha_fila = str(fila[col_fecha - 1] or "")[:10] if col_fecha else ""
+            if fecha_fila != hoy:
+                continue
+            num_hoy += 1
+            if col_total and fila[col_total - 1]:
+                try:
+                    total_hoy += float(fila[col_total - 1])
+                except Exception:
+                    pass
+        wb.close()
+        return {"total": total_hoy, "num_ventas": num_hoy}
+    except Exception:
+        return {"total": 0, "num_ventas": 0}
+
 
 async def guardar_venta_excel_async(*args, **kwargs) -> int:
     loop = asyncio.get_event_loop()

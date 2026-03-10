@@ -7,12 +7,14 @@ Integración con Claude AI (modelo: claude-haiku-4-5-20251001):
 OPTIMIZACIONES DE COSTO ACTIVAS:
   1. Prompt caching  — la parte estática del prompt (reglas + catálogo) se cachea 5 min.
                        Costo de tokens cacheados = 10% del precio normal.
-  2. Historial corto — se envían solo los últimos 4 mensajes.
-  3. max_tokens cap  — techo de 2000 tokens de respuesta.
+  2. Historial corto — se envían solo los últimos 1-4 mensajes (adaptativo).
+  3. max_tokens cap  — techo adaptativo de respuesta.
   4. Catálogo simplificado — parte estática solo precio base, fracciones vía MATCH dinámico (~26% menos tokens cacheados).
 
-CORRECCIONES v2:
-  - Comentario de modelo corregido: era "Claude 3.5", el modelo real es claude-haiku-4-5-20251001
+CORRECCIONES v4:
+  - Bug precedencia and/or en filtro tornillos drywall corregido
+  - _quitar_tildes (redefinida en loop) eliminada, reemplazada por _normalizar
+  - Todos los `import re as _re*` dentro de funciones eliminados (re ya importado al top)
 """
 
 import logging
@@ -24,6 +26,28 @@ import traceback
 from datetime import datetime
 
 import config
+import skill_loader  # Skills separados por archivo .md
+import alias_manager
+import bypass
+import fuzzy_match
+# Cache RAM de precios recién actualizados (override del cache de Anthropic, TTL 5 min)
+import time as _time
+_precios_recientes: dict = {}  # {nombre_lower: (precio, timestamp)}
+_PRECIO_TTL = 300  # 5 minutos
+
+def _registrar_precio_reciente(nombre_lower: str, precio: float, fraccion: str = None):
+    # Limpiar entradas anteriores del mismo producto antes de guardar
+    claves_borrar = [k for k in _precios_recientes if k == nombre_lower or k.startswith(nombre_lower + "___")]
+    for k in claves_borrar:
+        del _precios_recientes[k]
+    key = f"{nombre_lower}___{fraccion}" if fraccion else nombre_lower
+    _precios_recientes[key] = (precio, _time.time())
+
+def _get_precios_recientes_activos() -> dict:
+    ahora = _time.time()
+    return {k: v[0] for k, v in _precios_recientes.items() if ahora - v[1] < _PRECIO_TTL}
+
+
 from memoria import (
     cargar_memoria, guardar_memoria, invalidar_cache_memoria,
     buscar_producto_en_catalogo, buscar_multiples_en_catalogo,
@@ -41,6 +65,85 @@ from excel import (
 )
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
 
+# ─────────────────────────────────────────────
+# ALIAS DE FERRETERÍA (pre-procesamiento)
+# ─────────────────────────────────────────────
+
+_ALIAS_FERRETERIA = [
+    # (patrón regex, reemplazo)
+    # PUNTILLAS: normalizar abreviaturas y quitar "caja de" → "puntilla X"
+    (r'\bcaja[s]?\s+de\s+puntilla[s]?\b', r'puntilla'),   # "caja de puntilla" → "puntilla"
+    (r'\bpuntilla[s]?\s+(.*?)\bs\.c\.?\b', r'puntilla \g<1> sin cabeza'),  # s.c → sin cabeza
+    (r'\bpuntilla[s]?\s+(.*?)\bc\.c\.?\b', r'puntilla \g<1> con cabeza'),  # c.c → con cabeza
+    (r'\bpuntilla[s]?\s+(.*?)\bsc\b',      r'puntilla \g<1> sin cabeza'),  # sc → sin cabeza (sin puntos)
+    (r'\bpuntilla[s]?\s+(.*?)\bcc\b',      r'puntilla \g<1> con cabeza'),  # cc → con cabeza (sin puntos)
+    (r'\bs\.c\.?\b', r'sin cabeza'),   # s.c genérico
+    (r'\bc\.c\.?\b', r'con cabeza'),   # c.c genérico
+    (r'\bsc\b(?=.*puntilla|\bpuntilla)', r'sin cabeza'),  # sc genérico cerca de puntilla
+    # TORNILLOS DRYWALL: normalizar medidas para evitar confusión (6x3 vs 6x3/4)
+    # Importante: estos patrones van PRIMERO para que se apliquen antes de otros
+    (r'\btornillo[s]?\s*(?:de\s*)?drywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'tornillo drywall \g<1>x3'),
+    (r'\bdrywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'drywall \g<1>x3'),
+    (r'\b(\d+)\s*[xX]\s*3\b(?!/)\s*(?=.*(?:tornillo|drywall))', r'\g<1>x3'),
+    # Rodillo sin medida → Rodillo Convencional
+    # Evita que "3 rodillos" matchee "Rodillo de 1"", "Rodillo de 2"", etc.
+    # Solo aplica cuando NO va seguido de una medida explícita (número o pulgadas)
+    (r'\b(\d+)\s+rodillos?\b(?!\s*(?:de\s+)?\d)', lambda m: f"{m.group(1)} rodillo convencional"),
+    # Pegaternit: normalizar variantes de escritura
+    (r'\bpagaternit\b', r'pegaternit'),
+    (r'\bpega\s*ternit\b', r'pegaternit'),
+    (r'\bpegaeternit\b', r'pegaternit'),
+    # Esmalte 3en1: normalizar variantes sin espacios
+    (r'\b3en1\b', r'3 en 1'),
+    (r'\b3-en-1\b', r'3 en 1'),
+    # Thinner/Varsol: litro=1/4 galón (8000), botella=1/8 galón (5000).
+    # Convertimos directo a precio total antes de llegar a Claude.
+    # NOTA: (?:una?\s+)? consume artículo "una"/"un"
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?thinner\b',
+        lambda m: f"{int(m.group(1) or 1) * 5000} thinner" if int(m.group(1) or 1) > 1 else "thinner 5000"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?varsol\b',
+        lambda m: f"{int(m.group(1) or 1) * 5000} varsol" if int(m.group(1) or 1) > 1 else "varsol 5000"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?thinner\b',
+        lambda m: f"{int(m.group(1) or 1) * 8000} thinner" if int(m.group(1) or 1) > 1 else "thinner 8000"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?varsol\b',
+        lambda m: f"{int(m.group(1) or 1) * 8000} varsol" if int(m.group(1) or 1) > 1 else "varsol 8000"),
+    # Thinner/Varsol por galones (cantidades >= 1/2 galón)
+    # "1-1/2 galón de thinner", "1 y medio galón de thinner", "2-1/2 galones thinner"
+    (r'\b(\d+)\s*-\s*1/2\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
+    (r'\b(\d+)\s+y\s+(?:medio|1/2)\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
+    (r'\b(\d+)\s+(?:galon(?:es)?)\s+y\s+(?:medio|1/2)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
+    # "medio galón de thinner", "1/2 galón thinner"  
+    (r'\b(?:medio|1/2)\s*(?:galon)?\s*(?:de\s*)?(thinner|varsol)\b', r'0.5 galones \g<1>'),
+    # "2 galones de thinner", "1 galón thinner"
+    (r'\b(\d+)\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1> galones \g<2>'),
+]
+
+def aplicar_alias_ferreteria(mensaje: str) -> str:
+    """Transforma alias comunes antes de enviar a Claude."""
+    resultado = alias_manager.aplicar_aliases_dinamicos(mensaje)
+    for patron, reemplazo in _ALIAS_FERRETERIA:
+        if callable(reemplazo):
+            # Lambda/función: re.sub la llama directamente con el match
+            resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
+        elif r'\g<1>' in reemplazo or r'\g<2>' in reemplazo:
+            def _hacer_reemplazo(m, repl=reemplazo):
+                resultado_repl = repl
+                try:
+                    g1 = m.group(1) if m.lastindex and m.lastindex >= 1 and m.group(1) else "1"
+                    resultado_repl = resultado_repl.replace(r'\g<1>', g1)
+                except IndexError:
+                    resultado_repl = resultado_repl.replace(r'\g<1>', "1")
+                try:
+                    if m.lastindex and m.lastindex >= 2 and m.group(2):
+                        resultado_repl = resultado_repl.replace(r'\g<2>', m.group(2))
+                except IndexError:
+                    pass
+                return resultado_repl.strip()
+            resultado = re.sub(patron, _hacer_reemplazo, resultado, flags=re.IGNORECASE)
+        else:
+            resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
+    return resultado
+  
 # ─────────────────────────────────────────────
 # PARTE ESTÁTICA DEL SYSTEM PROMPT (cacheable)
 # ─────────────────────────────────────────────
@@ -105,86 +208,14 @@ def _construir_parte_estatica(memoria: dict) -> str:
 
     negocio_json = json.dumps(memoria.get("negocio", {}), ensure_ascii=False)
 
-    return f"""FerreBot — asistente ferreteria colombiana.
-Acciones:[VENTA][EXCEL][PRECIO][PRECIO_FRACCION][INVENTARIO][GASTO][FIADO][ABONO_FIADO][BORRAR_CLIENTE][NEGOCIO][CODIGO_PRODUCTO]
+    # Skills estáticos: core + precios_base (siempre necesarios, muy cacheables)
+    skills_estaticos = skill_loader.obtener_skills_estaticos()
 
-CLIENTES: pregunta SOLO si mensaje tiene "cliente","para X","a nombre de","factura","a credito","fiado","cuenta de".
-- Si se menciona un nombre y está en la base: incluye "cliente":"Nombre" en el JSON.
-- Si se menciona un nombre y NO está en la base: incluye igual "cliente":"Nombre" en el JSON. El sistema preguntará si quiere crearlo — TU no preguntes nada ni uses [INICIAR_CLIENTE].
-- NUNCA uses [INICIAR_CLIENTE]. SIEMPRE emite [VENTA] aunque el cliente sea desconocido.
-
-PRECIOS: numero al final ES el total, NUNCA multipliques por defecto.
-"2 brochas 8000"->8000|"15 tornillos 14000"->14000|"1/2 vinilo 21000"->21000
-Multiplica SOLO si dice "c/u","cada uno/a","por unidad".
-FRACCIONES: 1/4=0.25|1/2=0.5|3/4=0.75|1/8=0.125|1/16=0.0625. Precio=total.
-MIXTAS — REGLA CRITICA:
-Cantidades como "2 y 1/2", "1-1/4", "3 y medio" = enteros + fraccion.
-PASO 1: Identificar parte entera y fraccion (2-1/2 = 2 enteros + 1/2)
-PASO 2: Buscar precio de 1 galon y precio de fraccion en MATCH
-PASO 3: total = (enteros × precio_galon) + precio_fraccion
-NUNCA multiplicar decimal por precio_unidad.
-Ejemplos:
-- "2-1/2 vinilo T2"(1=40000,1/2=21000): 2×40000=80000 + 21000 = 101000 ✓
-- "1 y 1/4 esmalte"(1=65000,1/4=17000): 1×65000=65000 + 17000 = 82000 ✓
-- "3 y medio acronal"(kg=13000,1/2=7000): 3×13000=39000 + 7000 = 46000 ✓
-DOCENAS: 1 docena=12|media=6|ciento=100. cantidad=docenas*12, total=cantidad*precio_u.
-
-TORNILLOS DRYWALL: "TORNILLO DRYWALL CALIBRExMEDIDA". Total=cantidad*precio_u.
-Voz: "por 1"=X1|"y cuarto"=+1/4|"y medio"=+1/2|"por 2"=X2|"por 3"=X3
-<50uds=precio1,>=50=precio2:
-6:X1/2=25/25|X3/4=58/30|X1=38/35|X1-1/4=42/40|X1-1/2=58/55|X2=67/60|X2-1/2=75/70|X3=83/80
-8:X3/4=33/30|X1=38/35|X1-1/2=58/55|X2=67/60|X3=83/80
-10:X1=83/70|X1-1/2=125/100|X2=150/120|X2-1/2=167/160|X3=167/160|X3-1/2=208/200|X4=208/200
-CRITICO: 10X3(sin "medio") != 10X3-1/2(con "medio"/"y medio"). Productos distintos.
-
-THINNER precio->fraccion: 3000=1/12|4000=1/10|5000=1/8|6000=1/6|8000=1/4|10000=1/3|13000=1/2|16000=5/9|20000=3/4|26000=1g
-cantidad=decimal, total=precio pagado.
-
-CUNETES(4gal,NO galon): T1=220000|T2=170000|T3=100000. "2 cunetes t1"->440000.
-MEDIO CUNETE: cantidad=1(NO 0.5),nombre="1/2 Cunete Vinilo TX",T1=120000|T2=90000|T3=60000.
-
-MEDIDAS EN NOMBRE no son cantidad: chazos(3/8),puntillas(2"),arandelas(1/2),soldadura(60/11,7018). Total=cantidad*precio_u catalogo.
-GRANEL/kg: CementoBlanco=2500|Yeso=1500|Talco=1500|Marmolina=1500|GranitoN1=1000|Acronal(kg=13000,1/2kg=7000). Carbonato=bolsa25kg=18000,NUNCA kilos sueltos.
-Cantidad kilos: "medio kilo"=0.5|"kilo y medio"=1.5.
-
-PINTURAS sin color->preguntar "De que color?". BROCHAS sin medida->preguntar. Precios:1"=2000|1.5"=3000|2"=4000|2.5"=5000|3"=6000|4"=8000.
-RODILLO: "rodillo" o "rodillos" SIN medida = Rodillo Convencional $7000. 
-"3 rodillos"=3 x Rodillo Convencional = 21000. "1 rodillo"=7000.
-SOLO usar Rodillo de X" si dice EXPLICITAMENTE la medida: "rodillo de 3", "rodillo 4 pulgadas", "rodillo de 2"".
-NUNCA interpretar "3 rodillos" como "Rodillo de 3"" — el 3 es CANTIDAD, no medida.
-BISAGRA 3x3 sin material=PAR$4500(INOX solo si dice "inox"/"inoxidable").
-SELLADOR=Corriente. AEROSOL=normal$9000("alta temperatura" solo si lo dice).
-MULTI-PRODUCTO(3+): registra TODO sin preguntar. Sin color->total:0,indica pendiente.
+    return f"""{skills_estaticos}
 
 INFORMACION DEL NEGOCIO: {negocio_json}
 
-{catalogo_seccion}
-
-RESPUESTA: espanol, sin markdown. Fracciones legibles (1/4 no 0.25).
-SILENCIO TOTAL si es registro de venta sin ambiguedades: emite SOLO los JSON [VENTA], cero texto antes ni despues. El sistema ya muestra el resumen al cliente automaticamente.
-Texto SOLO en: (1) falta dato obligatorio como color o medida, (2) producto no encontrado en catalogo, (3) precio contradictorio, (4) el usuario hace una pregunta explicita.
-
-ACCIONES al final (una por producto):
-[VENTA]{{"producto":"nombre","cantidad":1,"total":21000}}[/VENTA]
-- Solo campo "total" (NUNCA precio_unitario/precio/monto). Sin $ ni comas.
-- "producto" = nombre limpio del catalogo SIN fraccion. La fraccion va SOLO en "cantidad".
-  CORRECTO: {{"producto":"Laca Miel Catalizada","cantidad":0.25,"total":17000}}
-  INCORRECTO: {{"producto":"Laca Miel Catalizada 1/4","cantidad":0.25,"total":17000}}
-  INCORRECTO: {{"producto":"1/4 Laca Miel Catalizada","cantidad":0.25,"total":17000}}
-- metodo_pago si se menciona: efectivo|transferencia|datafono
-  cash/plata=efectivo | nequi/daviplata/transfer=transferencia | tarjeta/datafono=datafono
-- cliente si se menciona. Fiado+metodo: cargo=total,abono=0.
-[PRECIO]{{"producto":"nombre","precio":50000}}[/PRECIO]
-[PRECIO]{{"producto":"nombre","precio":15000,"fraccion":"1/4"}}[/PRECIO]
-USA [PRECIO] SOLO si el usuario dice explicitamente "el precio es X","cuesta X","vale X","cambia el precio a X". NUNCA si solo pregunta "precio del X" o "cuanto vale X" — eso es consulta, responde SOLO con los precios base del catalogo en una linea corta. NO calcules combinaciones ni variantes.
-[GASTO]{{"concepto":"x","monto":50000,"categoria":"varios","origen":"caja"}}[/GASTO]
-[FIADO]{{"cliente":"X","concepto":"x","cargo":50000,"abono":0}}[/FIADO]
-[ABONO_FIADO]{{"cliente":"X","monto":50000}}[/ABONO_FIADO]
-[INVENTARIO]{{"producto":"x","cantidad":10,"minimo":2,"unidad":"galones","accion":"actualizar"}}[/INVENTARIO]
-[BORRAR_CLIENTE]{{"nombre":"x"}}[/BORRAR_CLIENTE]
-[EXCEL]{{"titulo":"x","encabezados":["Col1"],"filas":[["dato"]]}}[/EXCEL]
-[NEGOCIO]{{"clave":"valor"}}[/NEGOCIO]
-[CODIGO_PRODUCTO]{{"producto":"n","codigo":"COD123"}}[/CODIGO_PRODUCTO]"""
+{catalogo_seccion}"""
 
 # ─────────────────────────────────────────────
 # PARTE DINÁMICA DEL SYSTEM PROMPT (por mensaje)
@@ -237,8 +268,12 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
                  "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en",
-                 "galon", "litro", "kilo", "metro", "pulgada", "pulgadas", "unidad", "unidades",
-                 "vendi", "vendo", "vendimos", "dame", "quiero", "necesito", "par"}
+                 "galon", "galones", "litro", "litros", "kilo", "kilos", "metro", "metros",
+                 "pulgada", "pulgadas", "unidad", "unidades",
+                 "botella", "botellas",
+                 "vendi", "vendo", "vendimos", "dame", "quiero", "necesito", "par",
+                 # palabras de cantidad fraccionaria — no son nombre de producto
+                 "y", "un", "cuarto", "medio", "media", "octavo", "tres"}
 
     def _es_keyword_relevante(p: str) -> bool:
         """Determina si una palabra debe incluirse como keyword de búsqueda."""
@@ -249,54 +284,252 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if p.isdigit():
             return True
         # Incluir códigos de variante de 2 chars: t1, t2, t3, x1, 6x, 8x, etc.
-        if len(p) == 2 and any(c.isdigit() for c in p):
+        _TALLAS_PC = {"xl", "xs", "xxl", "s", "m", "l"}
+        if (len(p) == 2 and any(c.isdigit() for c in p)) or p in _TALLAS_PC:
             return True
         return False
 
     palabras_clave = [p for p in mensaje_usuario.lower().split() if _es_keyword_relevante(p)]
     info_fracciones_extra = ""
-    palabras_frac = ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad", "octavo"]
-    if any(p in mensaje_usuario.lower() for p in palabras_frac):
-        palabras_msg = mensaje_usuario.lower().split()
-        for largo in [4, 3, 2]:
-            encontrado = False
-            for i in range(len(palabras_msg) - largo + 1):
-                fragmento = " ".join(palabras_msg[i:i + largo])
-                prod      = buscar_producto_en_catalogo(fragmento)
-                if prod and prod.get("precios_fraccion"):
-                    info = obtener_info_fraccion_producto(prod["nombre_lower"])
-                    if info:
-                        info_fracciones_extra = f"PRECIOS POR FRACCION DEL PRODUCTO MENCIONADO:\n{info}"
 
-                    # Calcular total mixto en Python para no depender de Claude
-                    fracs = prod.get("precios_fraccion", {})
-                    msg_lower = mensaje_usuario.lower()
-                    map_frac = {
-                        "un cuarto": "1/4", "1/4": "1/4",
-                        "medio": "1/2", "media": "1/2", "1/2": "1/2",
-                        "tres cuartos": "3/4", "3/4": "3/4",
-                        "un octavo": "1/8", "1/8": "1/8",
-                        "1/16": "1/16",
-                    }
-                    map_enteros = {"un ": 1, "uno ": 1, "1 ": 1, "dos ": 2, "2 ": 2, "tres ": 3, "3 ": 3}
-                    frac_key   = next((v for k, v in map_frac.items() if k in msg_lower), None)
-                    n_enteros  = next((v for k, v in map_enteros.items() if k in msg_lower), None)
-                    if frac_key and n_enteros and frac_key in fracs and "1" in fracs:
-                        p_galon   = fracs["1"]["precio"] if isinstance(fracs.get("1"), dict) else fracs.get("1", 0)
-                        p_frac    = fracs[frac_key]["precio"] if isinstance(fracs.get(frac_key), dict) else fracs.get(frac_key, 0)
-                        total_calc = p_galon * n_enteros + p_frac
-                        dec_map   = {"1/4": 0.25, "1/2": 0.5, "3/4": 0.75, "1/8": 0.125, "1/16": 0.0625}
-                        cantidad_calc = n_enteros + dec_map.get(frac_key, 0)
-                        info_fracciones_extra += (
-                            f"\nTOTAL YA CALCULADO: cantidad={cantidad_calc}, total={total_calc}"
-                            f" ({n_enteros}x${p_galon:,} + {frac_key}=${p_frac:,})"
-                            f"\nUSA EXACTAMENTE estos valores en el [VENTA], no calcules de nuevo."
-                        )
+    # Mapa decimal → fracción para buscar precio especial
+    _dec_a_frac = {0.5: "1/2", 0.25: "1/4", 0.75: "3/4", 0.125: "1/8", 0.0625: "1/16"}
+    _frac_a_dec = {"1/2": 0.5, "1/4": 0.25, "3/4": 0.75, "1/8": 0.125, "1/16": 0.0625}
 
-                    encontrado = True
-                    break
-            if encontrado:
+    def _extraer_cantidad_mixta(msg: str):
+        """
+        Extrae (n_enteros, frac_key, cantidad_total) del mensaje.
+        Maneja todas las formas: '2 y medio', '2-1/2', '1.5', '2.5 galones', etc.
+        Retorna (None, None, None) si no encuentra cantidad mixta.
+        """
+        m = msg.lower()
+
+        # Forma decimal: 2.5, 1.5, 3.5 (producida por alias)
+        match_dec = re.search(r'(\d+)\.5\b', m)
+        if match_dec:
+            enteros = int(match_dec.group(1))
+            return enteros, "1/2", enteros + 0.5
+
+        match_dec25 = re.search(r'(\d+)\.25\b', m)
+        if match_dec25:
+            enteros = int(match_dec25.group(1))
+            return enteros, "1/4", enteros + 0.25
+
+        match_dec75 = re.search(r'(\d+)\.75\b', m)
+        if match_dec75:
+            enteros = int(match_dec75.group(1))
+            return enteros, "3/4", enteros + 0.75
+
+        # Forma escrita: "2 y medio", "2 y media", "2-1/2", "2 1/2"
+        map_frac_texto = {
+            r'y\s+medio': "1/2", r'y\s+media': "1/2", r'y\s+un\s+medio': "1/2",
+            r'(?<!\d)1/2': "1/2",
+            r'y\s+cuarto': "1/4", r'y\s+un\s+cuarto': "1/4", r'(?<!\d)1/4': "1/4",
+            r'tres\s+cuartos': "3/4", r'(?<!\d)3/4': "3/4",
+            r'y\s+octavo': "1/8", r'y\s+un\s+octavo': "1/8", r'(?<!\d)1/8': "1/8",
+        }
+        map_enteros_texto = {
+            # Solo detectar entero si está SEPARADO de fracciones:
+            # - palabras textuales: "un", "dos", "tres"...
+            # - número seguido de espacio y luego "y" o palabra (no fracción)
+            # Ej: "1 galón y" → sí | "1/4" → no | "24 tornillos" → no
+            r'\bun\b(?!\s*/)': 1, r'\buno\b': 1,
+            r'\b1\b(?!\s*/)': 1,
+            r'\bdos\b': 2, r'\b2\b(?!\s*/)': 2,
+            r'\btres\b': 3, r'\b3\b(?!\s*/)': 3,
+            r'\bcuatro\b': 4, r'\b4\b(?!\s*/)': 4,
+            r'\bcinco\b': 5, r'\b5\b(?!\s*/)': 5,
+        }
+
+        # Patrón especial N-1/frac: "2-1/2", "3-1/4", etc. — extraer N directamente
+        match_guion = re.search(r'\b(\d+)-1/(\d+)', m)
+        if match_guion:
+            enteros  = int(match_guion.group(1))
+            divisor  = int(match_guion.group(2))
+            frac_map = {2: "1/2", 4: "1/4", 8: "1/8"}
+            frac_g   = frac_map.get(divisor)
+            if frac_g:
+                return enteros, frac_g, enteros + _frac_a_dec[frac_g]
+
+        # Detectar si hay fracción — pero SOLO las que vienen precedidas de "y"
+        # son candidatas a cantidad mixta. Las fracciones solas (1/4 laca) se ignoran.
+        _patrones_con_y = [
+            r'y\s+medio', r'y\s+media', r'y\s+un\s+medio',
+            r'y\s+cuarto', r'y\s+un\s+cuarto',
+            r'tres\s+cuartos',
+            r'y\s+octavo', r'y\s+un\s+octavo',
+        ]
+        _patrones_fraccion_numerica = [
+            (r'(?<!\d)1/2', "1/2"), (r'(?<!\d)3/4', "3/4"),
+            (r'(?<!\d)1/4', "1/4"), (r'(?<!\d)1/8', "1/8"),
+        ]
+
+        frac_key = None
+        # Primero buscar fracciones con "y" (garantizado mixto)
+        for pat, v in map_frac_texto.items():
+            if pat in _patrones_con_y and re.search(pat, m):
+                frac_key = v
                 break
+
+        # Si no encontró con "y", buscar fracción numérica SOLO si hay un entero antes
+        if not frac_key:
+            for pat, v in _patrones_fraccion_numerica:
+                match_frac = re.search(pat, m)
+                if match_frac:
+                    # Verificar que haya un número entero ANTES de la fracción
+                    texto_antes = m[:match_frac.start()].strip()
+                    if re.search(r'\b[1-9]\d*\s+(?:galon|galones|litro|litros|y)\s*$', texto_antes):
+                        frac_key = v
+                        break
+
+        if not frac_key:
+            return None, None, None
+
+        n_enteros = next((v for pat, v in map_enteros_texto.items() if re.search(pat, m)), None)
+        if not n_enteros:
+            return None, None, None
+
+        return n_enteros, frac_key, n_enteros + _frac_a_dec[frac_key]
+
+    # Detectar si hay fracciones o decimales mixtos en el mensaje
+    _msg_lower_pre = mensaje_usuario.lower()
+    _tiene_mixto = any(p in _msg_lower_pre for p in
+                       ["1/4", "1/2", "3/4", "1/8", "1/16", "cuarto", "medio", "mitad",
+                        "octavo", ".5", ".25", ".75"])
+
+    if _tiene_mixto:
+        palabras_msg = _msg_lower_pre.split()
+        calculos_multi = []  # lista de (prod, n_enteros, frac_key, cantidad_calc, total_calc)
+
+        # Segmentar por producto para manejar multi-producto
+        def _norm_seg(s):
+            return (s.lower()
+                    .replace("á","a").replace("é","e").replace("í","i")
+                    .replace("ó","o").replace("ú","u").replace("ñ","n"))
+
+        _segs = re.split(r'[,\n]+', mensaje_usuario.lower())
+
+        for seg in _segs:
+            seg = _norm_seg(seg).strip()
+            if not seg:
+                continue
+            # Buscar producto con fracciones en este segmento
+            palabras_seg = seg.split()
+            # Extraer fracción una sola vez por segmento (no depende del producto)
+            n_enteros, frac_key, cantidad_calc = _extraer_cantidad_mixta(seg)
+
+            for largo in [4, 3, 2]:
+                encontrado_seg = False
+                for i in range(len(palabras_seg) - largo + 1):
+                    fragmento = " ".join(palabras_seg[i:i + largo])
+                    prod      = buscar_producto_en_catalogo(fragmento)
+                    if prod and prod.get("precios_fraccion"):
+                        fracs = prod.get("precios_fraccion", {})
+                        # Solo usar este producto si tiene la fracción que necesitamos.
+                        # Si no, seguir buscando — puede haber un fragmento más específico
+                        # adelante en el segmento que sí la tenga.
+                        if n_enteros and frac_key and frac_key in fracs:
+                            # Precio del galón: fracs["1"] si existe, sino precio_unidad
+                            if "1" in fracs:
+                                p_galon = fracs["1"]["precio"] if isinstance(fracs.get("1"), dict) else fracs.get("1", 0)
+                            else:
+                                p_galon = prod.get("precio_unidad", 0)
+                            p_frac = fracs[frac_key]["precio"] if isinstance(fracs.get(frac_key), dict) else fracs.get(frac_key, 0)
+                            if p_galon and p_frac:
+                                total_calc = p_galon * n_enteros + p_frac
+                                calculos_multi.append((prod["nombre"], n_enteros, frac_key, cantidad_calc, total_calc, p_galon, p_frac))
+                                encontrado_seg = True
+                                break  # producto correcto encontrado para este segmento
+                        # Producto encontrado pero sin la fracción requerida → seguir buscando
+                if encontrado_seg:
+                    break
+
+        if calculos_multi:
+            lineas = []
+            for nombre, n_ent, frac, cant, total, p_gal, p_fr in calculos_multi:
+                lineas.append(
+                    f"{nombre}: cantidad={cant}, total={total} "
+                    f"({n_ent}x${p_gal:,} + {frac}=${p_fr:,})"
+                )
+            info_fracciones_extra = (
+                "TOTALES PRECALCULADOS (USA EXACTAMENTE, NO recalcules):\n"
+                + "\n".join(lineas)
+            )
+            print(f"[PRECALCULADO DEBUG]\n{info_fracciones_extra}")
+        else:
+            print("[PRECALCULADO DEBUG] No se generó precalculado para este mensaje")
+
+    # ── Precalcular tornillos mayorista y unidad_suelta ──────────────────────
+    # Estos casos no los cubre el bloque mixto de arriba.
+    # Construimos totales determinísticos antes de que Claude los vea.
+    _lineas_pre_extra = []
+    _segs_pre = re.split(r'[,\n]+', mensaje_usuario.lower())
+    for _seg in _segs_pre:
+        _seg = _seg.strip()
+        if not _seg:
+            continue
+        # Extraer cantidad entera del segmento (primer número)
+        _m_cant = re.match(r'^[^\d]*(\d+)', _seg)
+        if not _m_cant:
+            continue
+        _cant = int(_m_cant.group(1))
+
+        # Buscar producto en el segmento
+        _palabras = _seg.split()
+        _prod_encontrado = None
+        for _largo in [4, 3, 2, 1]:
+            for _i in range(len(_palabras) - _largo + 1):
+                _frag = " ".join(_palabras[_i:_i+_largo])
+                if len(_frag) < 3:
+                    continue
+                _p = buscar_producto_en_catalogo(_frag)
+                if _p:
+                    _prod_encontrado = _p
+                    break
+            if _prod_encontrado:
+                break
+
+        if not _prod_encontrado:
+            continue
+
+        _pxc = _prod_encontrado.get("precio_por_cantidad")
+        _fracs = _prod_encontrado.get("precios_fraccion", {})
+        _nombre = _prod_encontrado["nombre"]
+
+        # Tornillos/mayorista: calcular precio correcto según umbral
+        if _pxc and _cant > 0:
+            _umbral = _pxc.get("umbral", 50)
+            _p_bajo = _pxc.get("precio_bajo_umbral", 0)
+            _p_sobre = _pxc.get("precio_sobre_umbral", 0)
+            if _p_bajo and _p_sobre:
+                _precio_u = _p_sobre if _cant >= _umbral else _p_bajo
+                _total = _cant * _precio_u
+                _tier = f"mayorista x{_umbral}+" if _cant >= _umbral else "normal"
+                _lineas_pre_extra.append(
+                    f"{_nombre}: cantidad={_cant}, precio_unit={_precio_u}({_tier}), total={_total}"
+                )
+
+        # unidad_suelta: si tiene unidad_suelta y el segmento NO menciona kilo/kg
+        elif _fracs and "unidad_suelta" in _fracs:
+            _kilo_mencionado = any(k in _seg for k in ("kilo", "kg", "medio kilo"))
+            if not _kilo_mencionado:
+                _p_suelta = _fracs["unidad_suelta"]
+                _precio_suelta = _p_suelta["precio"] if isinstance(_p_suelta, dict) else _p_suelta
+                _total = _cant * _precio_suelta
+                _lineas_pre_extra.append(
+                    f"{_nombre}: cantidad={_cant}, precio_unit={_precio_suelta}(unidad_suelta), total={_total}"
+                )
+
+    if _lineas_pre_extra:
+        _bloque_pre = (
+            "TOTALES PRECALCULADOS (USA EXACTAMENTE, NO recalcules):\n"
+            + "\n".join(_lineas_pre_extra)
+        )
+        if info_fracciones_extra:
+            info_fracciones_extra += "\n" + _bloque_pre
+        else:
+            info_fracciones_extra = _bloque_pre
+        print(f"[PRECALCULADO EXTRA]\n{_bloque_pre}")
 
     # ── Candidatos del catálogo para este mensaje específico ──
     info_candidatos_extra = ""
@@ -310,6 +543,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         "medio": "1/2",  "media": "1/2",  "un medio": "1/2",
         "octavo": "1/8", "un octavo": "1/8",
         "tres cuartos": "3/4",
+        "botella": "botella", "botellas": "botella",
+        "litro": "litro",    "litros": "litro",
     }
     for palabra, frac in _mapa_palabras.items():
         if palabra in _msg_lower:
@@ -318,18 +553,9 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if token in ("1/4","1/2","3/4","1/8","1/16","3/8"):
             _fracs_mencionadas.add(token)
 
-    # Construir mapa: palabra_clave_producto -> fraccion adyacente en el mensaje
-    # Ej: "1/2 laca miel" -> laca miel tiene fraccion 1/2
+    # Tokenizar mensaje para detectar fracciones adyacentes a productos
     _tokens = mensaje_usuario.lower().replace(",","").split()
-    _frac_por_producto = {}  # nombre_lower -> fraccion mas cercana
-    _fracs_set = {"1/4","1/2","3/4","1/8","1/16","3/8"}
-    for idx_t, token in enumerate(_tokens):
-        if token in _fracs_set:
-            # Buscar palabra de producto en los 3 tokens siguientes
-            contexto = " ".join(_tokens[idx_t+1:idx_t+5])
-            for prod in catalogo.values() if False else []:
-                pass
-            _frac_por_producto[contexto[:30]] = token  # clave aproximada
+    _fracs_set = {"1/4","1/2","3/4","1/8","1/16","3/8","botella","litro"}
 
     def _linea_candidato(p: dict) -> str:
         # Formato comprimido: sin "  - ", sin "$", sin comas, fraccion relevante marcada con *
@@ -347,7 +573,16 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                         frac_este_prod = tok
                         break
             lineas_frac = []
+            # Siempre incluir precio_unidad como "1=X" primero — es el precio del
+            # galón/unidad completa. Sin esto, Claude no puede calcular fracciones
+            # mixtas como "1 galón y un cuarto" porque no tiene el precio base.
+            precio_unidad = p.get("precio_unidad", 0)
+            if precio_unidad:
+                marca_1 = "*" if frac_este_prod == "1" else ""
+                lineas_frac.append(f"1={precio_unidad}{marca_1}")
             for k, v in fracs.items():
+                if k == "1":
+                    continue  # evitar duplicar si ya está en precios_fraccion
                 precio = v['precio'] if isinstance(v, dict) else v
                 marca = "*" if k == frac_este_prod else ""
                 lineas_frac.append(f"{k}={precio}{marca}")
@@ -361,15 +596,14 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # FIX MULTI-PRODUCTO: segmentar el mensaje por producto para que cada uno
         # tenga garantizado su candidato, sin que unos "aplasten" a otros.
         # Ej: "1/4 vinilo blanco, 1/2 laca miel, 3/4 thinner" → 3 segmentos independientes
-        import re as _re
-        _segmentos_raw = _re.split(r',\s*|(?<!\w)\s+y\s+(?=\d)', mensaje_usuario.lower())
+        # Separar solo por coma. NO separar por 'y' — puede ser parte de cantidad mixta
+        # Ej: '1 galón y un cuarto vinilo' NO debe partirse
+        _segmentos_raw = re.split(r'[,\n]+', mensaje_usuario.lower())
         _segmentos = []
         for seg in _segmentos_raw:
             seg = seg.strip()
-            # Quitar fracciones y números del inicio para quedarnos con el nombre
-            seg_limpio = _re.sub(r'^[\d\-/\.\s]+', '', seg).strip()
-            if len(seg_limpio) > 3:
-                _segmentos.append(seg_limpio)
+            if len(seg) > 3:
+                _segmentos.append(seg)
 
         combinados = {}
         _candidatos_garantizados = {}  # nl → prod: el mejor hit por segmento, siempre incluido
@@ -385,23 +619,36 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
         # Stemming mínimo: quitar 's' final para que "lijas"→"lija", "discos"→"disco"
         def _stem(w):
-            return w[:-1] if w.endswith("s") and len(w) > 4 else w
+            if w.endswith("les") and len(w) > 5:
+                return w[:-2]   # aerosoles → aerosol
+            if w.endswith("es") and len(w) > 4:
+                return w[:-2]
+            if w.endswith("s") and len(w) > 4:
+                return w[:-1]   # tornillos → tornillo
+            return w
 
         # 1. Buscar candidato por cada segmento de producto (garantiza uno por producto)
         for seg in _segmentos:
+            # Limpiar símbolos de puntuación y basura al inicio del segmento
+            seg = re.sub(r'^[^\w]+', '', seg).strip()
+            # Normalizar tildes usando _normalizar (ya importada desde utils)
+            seg = _normalizar(seg)
             # Quitar palabras de acción y cantidades iniciales del segmento
             palabras_raw = seg.split()
-            # Saltar palabras de acción al inicio
-            while palabras_raw and palabras_raw[0] in _palabras_accion:
-                palabras_raw = palabras_raw[1:]
-            # Saltar números/fracciones iniciales (cantidades como "3", "1/2", "50")
-            while palabras_raw and _re.match(r'^[\d/\.]+$', palabras_raw[0]):
+            # Saltar tokens no-alfanuméricos, palabras de acción y cantidades al inicio
+            while palabras_raw and (
+                not re.search(r'[\w\d]', palabras_raw[0]) or
+                palabras_raw[0] in _palabras_accion or
+                re.match(r'^[\d/\.]+$', palabras_raw[0])
+            ):
                 palabras_raw = palabras_raw[1:]
             # Saltar palabras de volumen/unidad inmediatas tras la cantidad
             _unidades_volumen = {"galon", "galones", "cuarto", "cuartos", "litro", "litros",
                                   "kilo", "kilos", "gramo", "gramos", "metro", "metros",
                                   "unidad", "unidades", "caja", "cajas", "bolsa", "bolsas",
-                                  "rollo", "rollos", "par", "pares"}
+                                  "rollo", "rollos", "par", "pares", "y", "un", "una",
+                                  "botella", "botellas",
+                                  "medio", "media", "cuarto"}
             while palabras_raw and palabras_raw[0] in _unidades_volumen:
                 palabras_raw = palabras_raw[1:]
 
@@ -413,14 +660,15 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             for p in palabras_raw:
                 if p in stopwords:
                     continue
-                # Tokens alfanuméricos cortos como t1, t2, t3, x1 (2 chars con al menos un dígito)
-                if len(p) == 2 and any(c.isdigit() for c in p):
+                # Tokens cortos: alfanuméricos (t1,t2) y tallas (xl,xs,s,m,l)
+                _TALLAS_SEG = {"xl", "xs", "xxl", "s", "m", "l"}
+                if (len(p) == 2 and any(c.isdigit() for c in p)) or p in _TALLAS_SEG:
                     palabras_seg.append(p)
                     nombre_producto_encontrado = True
                 elif len(p) > 2 and not p.replace('.','').replace(',','').isdigit():
                     palabras_seg.append(_stem(p))  # con stemming
                     nombre_producto_encontrado = True
-                elif _re.match(r'^\d+x\d+', p):  # formatos como 3x3, 8x1
+                elif re.match(r'^\d+x\d+', p):  # formatos como 3x3, 8x1
                     palabras_seg.append(p)
                     nombre_producto_encontrado = True
                 elif nombre_producto_encontrado and p.isdigit() and 1 <= int(p) <= 999:
@@ -449,6 +697,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                             # El primer resultado es el mejor match — garantizarlo en la lista final
                             _candidatos_garantizados[nl] = prod
                             primer = False
+                            print(f"[SEG DEBUG] seg='{seg[:30]}' frag='{fragmento}' garantizado='{prod['nombre']}'")
                         encontrado_seg = True
                     if encontrado_seg:
                         break
@@ -465,6 +714,29 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     if frag_exact in prod["nombre_lower"]:
                         combinados[prod["nombre_lower"]] = prod
 
+        # 2.5 FILTRO TORNILLOS: evitar confusión entre medidas similares (6x3 vs 6x3/4)
+        # Si el mensaje menciona una medida exacta como "6x3", eliminar productos con medidas
+        # que la contengan pero sean diferentes (como "6x3/4", "6x3-1/2")
+        _medidas_exactas = re.findall(r'\b(\d+)\s*[xX]\s*(\d+)\b(?![/\-])', _msg_lower)
+        if _medidas_exactas and ("tornillo" in _msg_lower or "drywall" in _msg_lower):
+            for calibre, largo_med in _medidas_exactas:
+                medida_exacta = f"{calibre}x{largo_med}"
+                # Filtrar productos que tengan la medida como substring pero NO sean exactos
+                # Ej: si busca "6x3", eliminar "6x3/4" y "6x3-1/2" pero mantener "6x3"
+                productos_a_eliminar = []
+                for nl, prod in list(combinados.items()):
+                    if "tornillo" in nl or "drywall" in nl:
+                        # Buscar la medida en el nombre del producto
+                        medida_prod = re.search(r'(\d+)[xX](\d+(?:[/-]\d+(?:/\d+)?)?)', nl)
+                        if medida_prod:
+                            medida_completa = medida_prod.group(0).lower()
+                            # Si la medida del producto es más larga que la buscada, es diferente
+                            if medida_exacta in medida_completa and medida_completa != medida_exacta:
+                                productos_a_eliminar.append(nl)
+                for nl in productos_a_eliminar:
+                    if nl in combinados and nl not in _candidatos_garantizados:
+                        del combinados[nl]
+
         # 3. Ordenar: más palabras del mensaje completo en el nombre = mayor prioridad
         #    Los candidatos garantizados (mejor hit por segmento) siempre se incluyen primero.
         #    Luego se agregan hasta 25 adicionales del pool general, ordenados por relevancia.
@@ -478,32 +750,63 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         candidatos = _garantizados_lista + _resto
         candidatos = candidatos[:max(len(_garantizados_lista), 25)]
 
+        # Filtro de relevancia: se aplica SOLO al _resto (pool global), nunca a los
+        # candidatos garantizados. Un candidato garantizado ya fue validado por el
+        # segmentador (tiene su propio segmento que lo respaldó) — filtrarlo aquí con
+        # las palabras del mensaje completo sería incorrecto en ventas multi-producto,
+        # donde el mensaje tiene muchas palabras que no pertenecen a ese candidato.
+        #
+        # Para el _resto: comparar contra las palabras del segmento más cercano
+        # es complejo, así que se usa el mensaje completo pero con umbral ajustado:
+        #   - umbral fijo de 1 hit alfab: cualquier palabra del nombre debe aparecer en
+        #     algún lugar del mensaje. Esto filtra productos completamente ajenos (ej:
+        #     un tornillo que entró por un número suelto) sin afectar productos legítimos.
+
+        def _stem_simple(w):
+            if w.endswith("les") and len(w) > 5: return w[:-2]
+            if w.endswith("es") and len(w) > 4:  return w[:-2]
+            if w.endswith("s") and len(w) > 4:   return w[:-1]
+            return w
+
+        _palabras_alfab_msg = [
+            w for w in palabras_clave
+            if len(w) > 2 and not w.replace("/","").replace("-","").isdigit()
+        ]
+
+        def _es_relevante_resto(prod_nombre_lower):
+            """Filtro para candidatos del pool global (no garantizados).
+            Exige al menos 1 palabra alfabética del nombre en el mensaje completo."""
+            if not _palabras_alfab_msg:
+                return True
+            nl = _normalizar(prod_nombre_lower)
+            return any(
+                _normalizar(w) in nl or _stem_simple(_normalizar(w)) in nl
+                for w in _palabras_alfab_msg
+            )
+
+        # Garantizados: pasan siempre. Resto: pasan solo si son relevantes.
+        candidatos = (
+            _garantizados_lista +
+            [p for p in _resto if _es_relevante_resto(p.get("nombre_lower", ""))]
+        )
+
         if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = "MATCH:\n" + "\n".join(lineas)
             print(f"[CANDIDATOS DEBUG]\n{info_candidatos_extra}")
-        elif os.getenv("MODO_MATCH_ONLY", "false").lower() == "true":
-            # FALLBACK: MATCH no encontró nada — inyectar catálogo completo en parte dinámica
-            # Garantiza que Claude siempre tenga precios correctos aunque el MATCH falle
-            from memoria import cargar_memoria as _cm
-            _mem_fb = _cm()
-            _cat_fb = _mem_fb.get("catalogo", {})
-            if _cat_fb:
-                _lineas_fb = []
-                for _p in _cat_fb.values():
-                    _fracs = _p.get("precios_fraccion", {})
-                    _pxc   = _p.get("precio_por_cantidad")
-                    if _fracs:
-                        _lineas_fb.append(_p["nombre"] + ":" + "|".join(
-                            f'{k}={v["precio"] if isinstance(v,dict) else v}'
-                            for k, v in _fracs.items()
-                        ))
-                    elif _pxc:
-                        _lineas_fb.append(f'{_p["nombre"]}:{_pxc["precio_bajo_umbral"]}/{_pxc["precio_sobre_umbral"]}x{_pxc["umbral"]}')
-                    else:
-                        _lineas_fb.append(f'{_p["nombre"]}:{_p["precio_unidad"]}')
-                info_candidatos_extra = "CATALOGO COMPLETO (MATCH sin resultados):\n" + "\n".join(_lineas_fb)
-                print("[CANDIDATOS DEBUG] ⚠️ MATCH vacío — usando catálogo completo como fallback")
+        else:
+            _frag_fuzzy = " ".join(palabras_clave[:4]) if palabras_clave else ""
+            _sugs = fuzzy_match.buscar_fuzzy(_frag_fuzzy) if _frag_fuzzy else []
+            if _sugs:
+                _lf = [f"  {_p['nombre']}:{_p.get('precio_unidad',0)} ({_s:.0f}% similar)"
+                       for _p, _s in _sugs]
+                info_candidatos_extra = (
+                    "MATCH_DIFUSO (similares, NO exactos — pregunta cuál es):\n"
+                    + "\n".join(_lf)
+                )
+            else:
+                info_candidatos_extra = "MATCH: (sin resultados — producto no encontrado en catalogo)"
+                print("[CANDIDATOS DEBUG] MATCH vacío — producto no en catálogo")
 
     # ── Clientes recientes ──
     clientes_recientes_texto = ""
@@ -538,11 +841,10 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     if _menciona_cliente:
         try:
             from excel import buscar_cliente_con_resultado
-            import re as _re_cli
             # Extraer nombre despues de "para", "a nombre de", "de parte de", etc.
-            _match_nombre = _re_cli.search(
+            _match_nombre = re.search(
                 r'(?:para|a nombre de|de parte de|cuenta de)\s+([A-Za-záéíóúÁÉÍÓÚñÑ]+(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]+){0,3})',
-                mensaje_usuario, _re_cli.IGNORECASE
+                mensaje_usuario, re.IGNORECASE
             )
             if _match_nombre:
                 termino_cliente = _match_nombre.group(1).strip()
@@ -612,20 +914,37 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
 
     # ── Acronal: precalcular total en Python ──
     acronal_calculado = ""
+    _acronal_precio_kg = 13000
+    _acronal_precio_medio = 7000
+    # precios_fraccion esta en la RAIZ de memoria, no dentro del objeto catalogo.
+    # El catalogo puede tener precio_unidad desactualizado — precios_fraccion manda.
+    _frac_mem = memoria.get("precios_fraccion", {}).get("acronal", {})
+    if _frac_mem:
+        _v1 = _frac_mem.get("1", 0)
+        _acronal_precio_kg = int(_v1) if _v1 else _acronal_precio_kg
+        _vm = _frac_mem.get("1/2", 0)
+        _acronal_precio_medio = int(_vm) if _vm else _acronal_precio_medio
+    else:
+        # fallback: precio_unidad del catalogo si no hay precios_fraccion definidos
+        for _ak, _av in memoria.get("catalogo", {}).items():
+            if "acronal" in _av.get("nombre_lower", ""):
+                _pu = _av.get("precio_unidad", 0)
+                if _pu:
+                    _acronal_precio_kg = int(_pu)
+                break
     if "acronal" in msg_l:
-        import re as _re_ac
         # Normalizar "kilos y medio" -> "X.5", "medio kilo" -> "0.5"
         msg_ac = msg_l
-        msg_ac = _re_ac.sub(r'(\d+)\s+(?:kilo[s]?\s+)?y\s+medio', lambda m: str(int(m.group(1))) + '.5', msg_ac)
+        msg_ac = re.sub(r'(\d+)\s+(?:kilo[s]?\s+)?y\s+medio', lambda m: str(int(m.group(1))) + '.5', msg_ac)
         msg_ac = msg_ac.replace('medio kilo', '0.5').replace('kilo y medio', '1.5')
         # Buscar cantidad: "2-1/2", "2.5", "4", etc.
         # Detectar "1/2 kg" o "medio" antes del regex numerico
-        if _re_ac.search(r'(?:^|\s)(?:1/2|medio)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:1/2|medio)', msg_ac):
-            acronal_calculado = "ACRONAL PRECALCULADO: 0.5kg = $7,000 (precio especial). USA cantidad=0.5, total=7000 EXACTAMENTE."
+        if re.search(r'(?:^|\s)(?:1/2|medio)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:1/2|medio)', msg_ac):
+            acronal_calculado = f"ACRONAL PRECALCULADO: 0.5kg = ${_acronal_precio_medio:,} (precio especial). USA cantidad=0.5, total={_acronal_precio_medio} EXACTAMENTE."
             continue_ac = False
         else:
             continue_ac = True
-        m_ac = _re_ac.search(r'([\d]+(?:[.,]\d+)?(?:-1/2|-1/4)?)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:kilo[s]?|kg)?\s*([\d]+(?:[.,]\d+)?(?:-1/2|-1/4)?)', msg_ac) if continue_ac else None
+        m_ac = re.search(r'([\d]+(?:[.,]\d+)?(?:-1/2|-1/4)?)\s*(?:kilo[s]?|kg)?\s*(?:de\s+)?acronal|acronal\s*(?:kilo[s]?|kg)?\s*([\d]+(?:[.,]\d+)?(?:-1/2|-1/4)?)', msg_ac) if continue_ac else None
         if m_ac:
             raw = (m_ac.group(1) or m_ac.group(2) or '').strip()
             raw = raw.replace(',', '.').replace('-1/2', '.5').replace('-1/4', '.25')
@@ -634,37 +953,65 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 enteros = int(kg)
                 medio   = kg - enteros
                 if abs(medio - 0.5) < 0.01:
-                    total_ac = enteros * 13000 + 7000
+                    total_ac = enteros * _acronal_precio_kg + _acronal_precio_medio
                 elif abs(medio - 0.25) < 0.01:
-                    total_ac = enteros * 13000 + 3500  # 1/4 kg proporcional
+                    total_ac = enteros * _acronal_precio_kg + round(_acronal_precio_medio / 2)
                 else:
-                    total_ac = round(kg * 13000)
+                    total_ac = round(kg * _acronal_precio_kg)
                 acronal_calculado = (
                     f"ACRONAL PRECALCULADO: {kg}kg = ${total_ac:,} "
-                    f"({'%d*13000+7000' % enteros if abs(medio-0.5)<0.01 else '%g*13000' % kg}). "
+                    f"(1kg={_acronal_precio_kg},1/2kg={_acronal_precio_medio}). "
                     f"CRITICO: USA cantidad={kg}, total={total_ac} SIN MODIFICAR. PROHIBIDO recalcular."
                 )
             except Exception:
                 pass
 
-    # ── Thinner: precalcular fraccion en Python ──
+    # ── Thinner y Varsol: precalcular fraccion en Python ──
+    # CASO 1: "N litros/botellas de thinner/varsol" — el alias convirtió a "N litros/botellas thinner/varsol"
+    # CASO 2: "thinner/varsol 8000" (precio por fracción de galón) — tabla normal.
+    # Ambos productos usan la misma tabla de precios.
     thinner_calculado = ""
-    if "thinner" in msg_l:
-        tabla_thinner = {3000:"1/12",4000:"1/10",5000:"1/8",6000:"1/6",8000:"1/4",
-                         10000:"1/3",13000:"1/2",16000:"5/9",20000:"3/4",26000:"1 galon"}
-        dec_thinner   = {3000:1/12,4000:0.1,5000:0.125,6000:1/6,8000:0.25,
-                         10000:1/3,13000:0.5,16000:5/9,20000:0.75,26000:1.0}
-        import re as _re
-        m = _re.search(r'(\d[\d\.]*)\s*(?:de\s+)?thinner|thinner\s+(\d[\d\.]*)', msg_l)
-        if m:
-            precio_t = int(float(m.group(1) or m.group(2)))
-            if precio_t in tabla_thinner:
-                frac_t = tabla_thinner[precio_t]
-                dec_t  = dec_thinner[precio_t]
-                thinner_calculado = (
-                    f"THINNER PRECALCULADO: ${precio_t:,} de thinner = {frac_t} galon "
-                    f"(cantidad={dec_t:.4f}, total={precio_t}). USA EXACTAMENTE estos valores."
-                )
+    _tabla_tv = {3000:"1/12",4000:"1/10",5000:"1/8",6000:"1/6",8000:"1/4",
+                 10000:"1/3",13000:"1/2",20000:"3/4",26000:"1 galon"}
+    _dec_tv   = {3000:1/12,4000:0.1,5000:0.125,6000:1/6,8000:0.25,
+                 10000:1/3,13000:0.5,20000:0.75,26000:1.0}
+
+    for _producto_tv in ("thinner", "varsol"):
+        if _producto_tv not in msg_l:
+            continue
+        _m_litros   = re.search(rf'(\d+)\s+litros?\s+{_producto_tv}', msg_l)
+        _m_botellas = re.search(rf'(\d+)\s+botellas?\s+{_producto_tv}', msg_l)
+        if _m_litros:
+            _n = int(_m_litros.group(1))
+            _total_t = _n * 8000
+            thinner_calculado += (
+                f"{_producto_tv.upper()} PRECALCULADO: {_n} litro{'s' if _n > 1 else ''} = "
+                f"${_total_t:,} total (cantidad={_n} litros, precio_litro=8000). "
+                f"USA cantidad={_n}, total={_total_t} SIN MODIFICAR.\n"
+            )
+        elif _m_botellas:
+            _n = int(_m_botellas.group(1))
+            _total_t = _n * 4000
+            thinner_calculado += (
+                f"{_producto_tv.upper()} PRECALCULADO: {_n} botella{'s' if _n > 1 else ''} = "
+                f"${_total_t:,} total (cantidad={_n} botellas, precio_botella=4000). "
+                f"USA cantidad={_n}, total={_total_t} SIN MODIFICAR.\n"
+            )
+        else:
+            # CASO 2: precio por fracción de galón
+            _m_precio = re.search(
+                rf'(\d[\d\.]*)\s*(?:de\s+)?{_producto_tv}|{_producto_tv}\s+(\d[\d\.]*)', msg_l
+            )
+            if _m_precio:
+                precio_t = int(float(_m_precio.group(1) or _m_precio.group(2)))
+                if precio_t in _tabla_tv:
+                    frac_t = _tabla_tv[precio_t]
+                    dec_t  = _dec_tv[precio_t]
+                    thinner_calculado += (
+                        f"{_producto_tv.upper()} PRECALCULADO: ${precio_t:,} = {frac_t} galon "
+                        f"(cantidad={dec_t:.4f}, total={precio_t}). USA EXACTAMENTE estos valores.\n"
+                    )
+    thinner_calculado = thinner_calculado.strip()
 
     # ── Tornillos drywall: precalcular precio correcto ──
     tornillo_calculado = ""
@@ -681,12 +1028,11 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             ("2 y medio","2-1/2"),("2 y media","2-1/2"),
             ("1 y medio","1-1/2"),("1 y media","1-1/2"),("1 y cuarto","1-1/4"),
         ]
-        import re as _re
         # Normalizar voz a fraccion
         msg_norm = msg_l
         for voz, frac in voz_medida:
             msg_norm = msg_norm.replace(voz, frac)
-        m = _re.search(r'(\d+)\s+tornillo[s]?\s+drywall\s+(\d+)\s+[xXpor]+\s+([\d\-/½]+)', msg_norm)
+        m = re.search(r'(\d+)\s+tornillo[s]?\s+drywall\s+(\d+)\s+[xXpor]+\s+([\d\-/½]+)', msg_norm)
         if m:
             cant   = int(m.group(1))
             cal    = m.group(2)
@@ -705,21 +1051,31 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     # "DATOS HISTORICOS" solo se incluye cuando hay datos reales — no enviar "(no cargado)" innecesariamente
     datos_historicos_item = f"DATOS HISTORICOS:\n{datos_texto}" if datos_texto != "(no cargado)" else ""
 
-    # Precios modificados manualmente — override del cache estático
+    # Precios recién actualizados en RAM — override del cache de Anthropic (TTL 5 min)
     precios_modificados_texto = ""
-    _pm = memoria.get("precios_modificados", {})
-    if _pm and palabras_clave:
+    _pm_ram = _get_precios_recientes_activos()
+    if _pm_ram and palabras_clave:
         overrides = []
-        for clave_pm, val in _pm.items():
-            if any(p in clave_pm for p in palabras_clave):
-                if isinstance(val, dict):
-                    for k, v in val.items():
-                        frac = k.replace("fraccion_", "")
-                        overrides.append(f"{clave_pm} {frac}={v}")
+        for clave_pm, val in _pm_ram.items():
+            nombre_pm, _, frac = clave_pm.partition("___")
+            if any(p in nombre_pm for p in palabras_clave):
+                if frac:
+                    overrides.append(f"{nombre_pm} {frac}={val}")
                 else:
-                    overrides.append(f"{clave_pm}={val}")
+                    overrides.append(f"{nombre_pm}={val}")
         if overrides:
             precios_modificados_texto = "PRECIOS ACTUALIZADOS (usar estos, ignorar el catalogo):\n" + "\n".join(overrides)
+
+    # Si hay productos no encontrados en mensaje multi-producto, instruir a Claude
+    _tiene_match_vacio = "MATCH: (sin resultados" in (info_candidatos_extra or "")
+    _es_multiproducto  = "\n" in mensaje_usuario.strip() or mensaje_usuario.count(",") >= 2
+    _regla_no_encontrado = (
+        "REGLA MULTI-PRODUCTO: Si algún producto tiene MATCH vacío, "
+        "registra los que SÍ encontraste con [VENTA] y añade al final UNA línea: "
+        "⚠️ No encontré en catálogo: [nombre(s) no encontrados]. "
+        "NUNCA omitas en silencio productos no encontrados."
+        if (_tiene_match_vacio and _es_multiproducto) else ""
+    )
 
     partes = [
         p for p in [
@@ -738,28 +1094,149 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             gastos_texto,
             aviso_drive,
             f"Vendedor:{nombre_usuario}",
+            _regla_no_encontrado,
+            # Skills dinámicos: solo se inyectan cuando el mensaje los necesita
+            skill_loader.obtener_skills_dinamicos(mensaje_usuario),
         ] if p
     ]
     return "\n\n".join(partes)
+
+
+# ─────────────────────────────────────────────
+# FUNCIÓN AUXILIAR: calcular historial adaptativo
+# ─────────────────────────────────────────────
+
+def _calcular_historial(mensaje: str) -> int:
+    """
+    Determina cuántos mensajes de historial enviar según el contexto.
+    OPTIMIZACIÓN: ventas simples solo necesitan 1 mensaje, ahorrando ~100 tokens.
+    """
+    msg_l = mensaje.lower().strip()
+    
+    # Respuesta corta (1-2 palabras) = probablemente respuesta a pregunta anterior
+    # Necesita contexto completo para no perder la venta original
+    # Ej: "blanco", "rojo", "si", "no", "2 pulgadas"
+    palabras = msg_l.split()
+    if len(palabras) <= 2:
+        return 4
+    
+    # Necesita contexto completo (cliente, correcciones, fiados)
+    if any(k in msg_l for k in ("cliente", "fiado", "para ", "a nombre", 
+                                 "corrig", "modific", "error", "equivoque",
+                                 "cambia", "quita", "agrega")):
+        return 4
+    
+    # Análisis, reportes o consultas complejas
+    _kw_contexto = {"cuanto", "vendimos", "reporte", "analiz", "resumen", "estadistica",
+                    "inventario", "grafica", "top", "mas vendido", "caja", "gasto"}
+    if any(k in msg_l for k in _kw_contexto):
+        return 4
+    
+    # Multi-producto (comas o saltos de línea)
+    if "," in mensaje or mensaje.count("\n") > 0:
+        return 2
+    
+    # Venta simple: solo el mensaje actual basta
+    return 1
+
 
 # ─────────────────────────────────────────────
 # LLAMADA A CLAUDE CON PROMPT CACHING
 # ─────────────────────────────────────────────
 
+async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, max_reintentos=5):
+    """
+    Wrapper para llamar a Claude con reintentos adicionales para error 529 (overloaded).
+    El SDK ya hace 3 reintentos internos, pero agregamos una capa extra con backoff.
+    """
+    import random
+    from anthropic import APIError
+    
+    ultimo_error = None
+    for intento in range(max_reintentos):
+        try:
+            loop = asyncio.get_event_loop()
+            respuesta = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: cliente.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=max_tokens,
+                        system=system,
+                        messages=messages,
+                    )
+                ),
+                timeout=45.0,  # timeout más generoso
+            )
+            return respuesta
+        except asyncio.TimeoutError:
+            ultimo_error = RuntimeError("La IA tardó demasiado en responder (>45s).")
+            # No reintentar en timeout, probablemente es un problema de red
+            if intento >= 2:
+                raise ultimo_error
+        except Exception as e:
+            ultimo_error = e
+            error_str = str(e).lower()
+            # Solo reintentar en errores 529 (overloaded) o 503 (service unavailable)
+            if "529" in str(e) or "overload" in error_str or "503" in str(e) or "unavailable" in error_str:
+                if intento < max_reintentos - 1:
+                    # Backoff exponencial con jitter: 2^intento + random(0-1) segundos
+                    espera = (2 ** intento) + random.uniform(0, 1)
+                    logging.getLogger("ferrebot.ai").warning(
+                        f"[CLAUDE] Error 529/503, reintento {intento+1}/{max_reintentos} en {espera:.1f}s..."
+                    )
+                    await asyncio.sleep(espera)
+                    continue
+            # Otros errores: no reintentar
+            raise
+    
+    # Si llegamos aquí, agotamos los reintentos
+    raise ultimo_error or RuntimeError("Error desconocido al llamar a Claude")
+
+
 async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list) -> str:
-    memoria        = cargar_memoria()
+    # BYPASS PYTHON — ANTES de alias_ferreteria (que transforma fracciones y rompería el match)
+    # Solo se aplican aliases DINÁMICOS (simples word-substitutions: tiner→thinner, etc.)
+    # El mensaje llega como "{vendedor}: {texto}" — stripear prefijo antes del bypass
+    import re as _re
+    _msg_bypass = _re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
+    _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
+    memoria = cargar_memoria()
+    _bypass = bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
+    if _bypass:
+        import json as _jbp
+        _txt, _venta = _bypass
+        return f"{_txt}\n[VENTA]{_jbp.dumps(_venta, ensure_ascii=False)}[/VENTA]"
+
+    logging.getLogger("ferrebot.ai").info(f"[→ CLAUDE] '{_msg_bypass[:60]}'")
+
+    # Alias solo para Claude — después de que bypass descartó el mensaje
+    mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
+
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
 
-    _modo = "MATCH+SIMPLE-CAT 💡"  # fracciones en MATCH, precio_unidad en estático
-    # modo activo: MATCH provee fracciones, catálogo estático solo precio base
+    # BLOQUEO PYTHON: si el MATCH está vacío y el mensaje parece una venta
+    # (no es consulta, no es reporte), responder directamente sin llamar a Claude.
+    # Esto evita que el bot registre productos inexistentes con total:0.
+    _SEÑAL_MATCH_VACIO = "MATCH: (sin resultados — producto no encontrado en catalogo)"
+    _kw_no_venta = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
+                    "top","mas vendido","gasto","caja","inventario","cliente",
+                    "precio","vale","cuesta","cuanto vale","hay","stock","quedan"}
+    _es_consulta = any(p in mensaje_usuario.lower() for p in _kw_no_venta)
 
-    # Historial adaptativo: ventas simples solo necesitan 2 mensajes de contexto,
-    # análisis y correcciones necesitan 4. Ahorra ~75 tokens en el 70% de llamadas.
-    _kw_contexto = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
-                    "modificar","corregir","cambia","quita","agrega","error","equivoque",
-                    "fiado","debe","abono","inventario","grafica","top","mas vendido"}
-    _n_hist = 4 if any(p in mensaje_usuario.lower() for p in _kw_contexto) else 2
+    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta:
+        # Extraer nombre del producto del mensaje para respuesta clara
+        _msg_limpio = mensaje_usuario.strip().lower()
+        # Quitar cantidades y unidades del inicio para aislar el nombre
+        _msg_limpio = re.sub(r'^[\d\s/\.]+', '', _msg_limpio).strip()
+        _msg_limpio = re.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_limpio).strip()
+        return f"No tengo {_msg_limpio} en el catálogo."
+
+    _modo = "MATCH+SIMPLE-CAT 💡"  # fracciones en MATCH, precio_unidad en estático
+
+    # Historial adaptativo: usa _calcular_historial para determinar cuántos mensajes
+    _n_hist = _calcular_historial(mensaje_usuario)
 
     messages = []
     for msg in historial_chat[-_n_hist:]:
@@ -771,7 +1248,6 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     # - Venta simple (1 producto, sin comas ni saltos): solo JSON → 400 tok
     # - Venta multi-producto: JSON × N productos + posible texto → 250 × lineas
     # - Consulta/reporte/modificacion: respuesta larga → 2000 mínimo
-    # Esto evita pagar por tokens que nunca se van a usar
     _kw_reporte = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
                    "grafica","top","mas vendido","gasto","caja","inventario"}
     _kw_edicion = {"modificar","corregir","cambia","quita","agrega","error",
@@ -787,32 +1263,21 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     else:
         max_tokens = min(3000, max(800, num_lineas * 220))  # multi-producto
 
-    loop = asyncio.get_event_loop()
-    try:
-        respuesta = await asyncio.wait_for(
-            loop.run_in_executor(
-                None,
-                lambda: config.claude_client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=max_tokens,
-                    system=[
-                        {
-                            "type": "text",
-                            "text": parte_estatica,
-                            "cache_control": {"type": "ephemeral"},
-                        },
-                        {
-                            "type": "text",
-                            "text": parte_dinamica,
-                        },
-                    ],
-                    messages=messages,
-                )
-            ),
-            timeout=30.0,
-        )
-    except asyncio.TimeoutError:
-        raise RuntimeError("La IA tardó demasiado en responder (>30s). Intenta de nuevo.")
+    system = [
+        {
+            "type": "text",
+            "text": parte_estatica,
+            "cache_control": {"type": "ephemeral"},
+        },
+        {
+            "type": "text",
+            "text": parte_dinamica,
+        },
+    ]
+
+    respuesta = await _llamar_claude_con_reintentos(
+        config.claude_client, max_tokens, system, messages
+    )
 
     # ── Log de uso de tokens y cache ──
     uso = respuesta.usage
@@ -1001,9 +1466,21 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             fraccion = datos.get("fraccion", "").strip()
             precio   = float(datos.get("precio", 0))
             if producto and fraccion and precio:
-                mem = cargar_memoria()
-                mem.setdefault("precios_fraccion", {}).setdefault(producto.lower(), {})[fraccion] = round(precio)
-                guardar_memoria(mem)
+                # Intentar actualizar en catálogo (fuente única de verdad)
+                en_cat = actualizar_precio_en_catalogo(producto, precio, fraccion)
+                if en_cat:
+                    # Override RAM 5 min + encolar Excel vía precio_sync (sin hilo manual)
+                    _pf_prod = buscar_producto_en_catalogo(producto)
+                    _pf_key  = _pf_prod.get("nombre_lower", producto.lower()) if _pf_prod else producto.lower()
+                    _registrar_precio_reciente(_pf_key, precio, fraccion)
+                    invalidar_cache_memoria()
+                    from precio_sync import actualizar_precio as _ap_frac
+                    _ap_frac(producto, precio, fraccion)  # encola Excel internamente
+                else:
+                    # Producto no en catálogo: guardar en precios_fraccion como fallback
+                    mem = cargar_memoria()
+                    mem.setdefault("precios_fraccion", {}).setdefault(producto.lower(), {})[fraccion] = round(precio)
+                    guardar_memoria(mem, urgente=True)
                 acciones.append(f"Precio de fracción guardado: {producto} {fraccion} = ${precio:,.0f}")
         except Exception as e:
             print(f"Error precio fraccion: {e}")
@@ -1017,25 +1494,15 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             precio   = float(datos["precio"])
             fraccion = datos.get("fraccion")  # opcional: "1/4", "1/2", etc.
 
-            # Actualizar en catálogo (permanente)
-            en_catalogo = actualizar_precio_en_catalogo(producto, precio, fraccion)
+            # Actualizar en catálogo (fuente única de verdad) + encolar Excel
+            from precio_sync import actualizar_precio as _ap_precio
+            en_catalogo, _ = _ap_precio(producto, precio, fraccion)
 
-            # Limpiar precio viejo de precios simples para que no haya conflicto
-            mem = cargar_memoria()
-            precios_simples = mem.get("precios", {})
-            # Borrar cualquier variante del nombre del producto en precios simples
-            from memoria import buscar_producto_en_catalogo as _bpc
-            prod_encontrado = _bpc(producto)
-            if prod_encontrado:
-                nombre_lower = prod_encontrado.get("nombre_lower", "")
-                claves_borrar = [k for k in precios_simples if k == nombre_lower or nombre_lower in k or k in nombre_lower]
-                for k in claves_borrar:
-                    del precios_simples[k]
-            # Guardar precio nuevo también en simples como referencia actualizada
-            precios_simples[producto.lower()] = precio
-            mem["precios"] = precios_simples
-            guardar_memoria(mem)
-            invalidar_cache_memoria()  # Forzar recarga inmediata
+            # Override RAM 5 min
+            prod_encontrado = buscar_producto_en_catalogo(producto)
+            nombre_lower_pc = prod_encontrado.get("nombre_lower", producto.lower()) if prod_encontrado else producto.lower()
+            _registrar_precio_reciente(nombre_lower_pc, precio, fraccion)
+            invalidar_cache_memoria()
 
             if fraccion:
                 acciones.append(f"🧠 Precio actualizado: {producto} {fraccion} = ${precio:,.0f}")
@@ -1044,6 +1511,50 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             print(f"Error precio: {e}")
         texto_limpio = texto_limpio.replace(f'[PRECIO]{precio_json}[/PRECIO]', '')
+
+    # ── Precio mayorista (tornillería) ──
+    for pm_json in re.findall(r'\[PRECIO_MAYORISTA\](.*?)\[/PRECIO_MAYORISTA\]', texto_respuesta, re.DOTALL):
+        try:
+            datos       = json.loads(pm_json.strip())
+            producto    = datos["producto"]
+            p_unidad    = float(datos.get("precio_unidad", 0) or 0)
+            p_mayorista = float(datos.get("precio_mayorista", 0) or 0)
+            umbral      = int(datos.get("umbral", 50))
+
+            prod = buscar_producto_en_catalogo(producto)
+            if not prod:
+                acciones.append(f"⚠️ Producto no encontrado: {producto}")
+            else:
+                from memoria import cargar_memoria, guardar_memoria, invalidar_cache_memoria as _inv
+                mem = cargar_memoria()
+                cat = mem.get("catalogo", {})
+                clave = next((k for k, v in cat.items() if v.get("nombre_lower") == prod.get("nombre_lower")), None)
+                if clave:
+                    if p_unidad > 0:
+                        cat[clave]["precio_unidad"] = round(p_unidad)
+                    pxc = cat[clave].get("precio_por_cantidad", {})
+                    if p_unidad > 0:
+                        pxc["precio_bajo_umbral"] = round(p_unidad)
+                    if p_mayorista > 0:
+                        pxc["precio_sobre_umbral"] = round(p_mayorista)
+                    if umbral:
+                        pxc["umbral"] = umbral
+                    cat[clave]["precio_por_cantidad"] = pxc
+                    mem["catalogo"] = cat
+                    guardar_memoria(mem, urgente=True)
+                    _inv()
+                    # Encolar Excel para precio unidad
+                    if p_unidad > 0:
+                        from precio_sync import actualizar_precio as _ap_m
+                        _ap_m(producto, p_unidad, None)
+                    nombre_display = prod.get("nombre", producto)
+                    msg = f"🧠 {nombre_display}: unidad=${p_unidad:,.0f}" if p_unidad else f"🧠 {nombre_display}"
+                    if p_mayorista > 0:
+                        msg += f" | mayorista ×{umbral}=${p_mayorista:,.0f}"
+                    acciones.append(msg)
+        except Exception as e:
+            print(f"Error precio_mayorista: {e}")
+        texto_limpio = texto_limpio.replace(f'[PRECIO_MAYORISTA]{pm_json}[/PRECIO_MAYORISTA]', '')
 
     # ── Código producto ──
     for cp_json in re.findall(r'\[CODIGO_PRODUCTO\](.*?)\[/CODIGO_PRODUCTO\]', texto_respuesta, re.DOTALL):

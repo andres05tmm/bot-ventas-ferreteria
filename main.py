@@ -19,14 +19,17 @@ from sheets import _obtener_hoja_sheets
 from handlers.comandos import (
     comando_inicio, comando_excel, comando_ventas, comando_buscar,
     comando_borrar, comando_precios, comando_caja, comando_gastos,
-    comando_inventario, comando_clientes, comando_grafica, comando_fiados,
+    comando_inventario, comando_clientes, comando_nuevo_cliente, comando_grafica, comando_fiados, comando_abono,
     manejar_callback_grafica, comando_sheets, comando_cerrar_dia,
-    comando_reset_ventas, comando_actualizar_catalogo, comando_keepalive,
+    comando_reset_ventas, comando_actualizar_catalogo, comando_consistencia,
+    comando_exportar_precios, comando_keepalive,
+    comando_agregar_producto,
     comando_inv, comando_stock, comando_ajuste,
     comando_compra, comando_margenes,
 )
 from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento
 from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente
+from handlers.productos import comando_productos, manejar_callback_productos
 from keepalive import loop_keepalive
 
 
@@ -63,14 +66,22 @@ def main():
     app.add_handler(CommandHandler("ajuste",     comando_ajuste))
     app.add_handler(CommandHandler("compra",     comando_compra))
     app.add_handler(CommandHandler("margenes",   comando_margenes))
-    app.add_handler(CommandHandler("clientes",   comando_clientes))
+    app.add_handler(CommandHandler("clientes",      comando_clientes))
+    app.add_handler(CommandHandler("nuevo_cliente", comando_nuevo_cliente))
     app.add_handler(CommandHandler("grafica",    comando_grafica))
     app.add_handler(CommandHandler("fiados",     comando_fiados))
+    app.add_handler(CommandHandler("abono",      comando_abono))
     app.add_handler(CommandHandler("sheets",     comando_sheets))
     app.add_handler(CommandHandler("cerrar",     comando_cerrar_dia))
     app.add_handler(CommandHandler("resetventas", comando_reset_ventas))
-    app.add_handler(CommandHandler("catalogo",   comando_actualizar_catalogo))
-    app.add_handler(CommandHandler("keepalive",  comando_keepalive))
+    app.add_handler(CommandHandler("catalogo",          comando_actualizar_catalogo))
+    app.add_handler(CommandHandler("actualizar_catalogo", comando_actualizar_catalogo))
+    app.add_handler(CommandHandler("consistencia",          comando_consistencia))
+    app.add_handler(CommandHandler("exportar_precios",        comando_exportar_precios))
+    app.add_handler(CommandHandler("keepalive",       comando_keepalive))
+    app.add_handler(CommandHandler("agregar_producto", comando_agregar_producto))
+    app.add_handler(CommandHandler("nuevo_producto",   comando_agregar_producto))
+    app.add_handler(CommandHandler("productos",        comando_productos))
 
     # Mensajes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))
@@ -84,10 +95,16 @@ def main():
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_tipoid_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_persona_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_grafica,  pattern="^grafica_"))
+    app.add_handler(CallbackQueryHandler(manejar_callback_productos, pattern="^prod_"))
 
     if config.WEBHOOK_URL:
         print(f"🌐 Iniciando en modo WEBHOOK: {config.WEBHOOK_URL}")
-        asyncio.get_event_loop().create_task(loop_keepalive())
+
+        async def _iniciar_keepalive(app):
+            """Inicia el loop de keepalive dentro del event loop correcto (post_init)."""
+            asyncio.create_task(loop_keepalive())
+
+        app.post_init = _iniciar_keepalive
         app.run_webhook(
             listen="0.0.0.0",
             port=config.WEBHOOK_PORT,

@@ -143,6 +143,25 @@ def descargar_de_drive(nombre_archivo: str, ruta_destino: str = None) -> bool:
         return False
 
 
+def subir_a_drive_urgente(nombre_archivo: str) -> None:
+    """
+    Sube inmediatamente sin debounce, en hilo aislado.
+    Usar para cambios críticos (precios, configuración) donde el debounce
+    puede causar pérdida de datos si el container se reinicia antes de 2s.
+    Cancela el timer de debounce pendiente para ese archivo si existe.
+    """
+    with _debounce_lock:
+        # Cancelar timer pendiente si existe — la subida urgente lo reemplaza
+        timer_anterior = _debounce_timers.pop(nombre_archivo, None)
+        if timer_anterior:
+            timer_anterior.cancel()
+        _debounce_pendiente.discard(nombre_archivo)
+
+    # Ejecutar en hilo aislado inmediatamente (no bloquea el caller)
+    t = threading.Thread(target=_ejecutar_subida_real, args=[nombre_archivo], daemon=True)
+    t.start()
+
+
 def subir_a_drive(nombre_archivo: str) -> bool:
     """
     Sube o actualiza un archivo en Drive con debounce:

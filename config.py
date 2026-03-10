@@ -1,6 +1,6 @@
 """
 Configuracion central: variables de entorno, constantes y clientes de API.
-Los clientes de Google se crean una sola vez aqui (cached) para evitar
+Los clientes de Google se crean una sola vez aqui (cached, con lock thread-safe) para evitar
 parsear las credenciales JSON y autenticar en cada llamada.
 """
 
@@ -135,16 +135,18 @@ _sheets_client  = None
 def get_drive_service():
     """Retorna el servicio de Drive, creandolo si aun no existe."""
     global _drive_service
-    if _drive_service is None:
-        _drive_service = _make_drive_service()
-    return _drive_service
+    with _google_init_lock:
+        if _drive_service is None:
+            _drive_service = _make_drive_service()
+        return _drive_service
 
 def get_sheets_client():
     """Retorna el cliente de gspread, creandolo si aun no existe."""
     global _sheets_client
-    if _sheets_client is None:
-        _sheets_client = _make_sheets_client()
-    return _sheets_client
+    with _google_init_lock:
+        if _sheets_client is None:
+            _sheets_client = _make_sheets_client()
+        return _sheets_client
 
 def reset_google_clients():
     """Fuerza recreacion de clientes Google en la proxima llamada (util tras errores de auth)."""
@@ -159,6 +161,7 @@ def reset_google_clients():
 import threading as _threading
 
 _flags_lock        = _threading.Lock()
+_google_init_lock  = _threading.Lock()
 _DRIVE_DISPONIBLE  = True
 _SHEETS_DISPONIBLE = bool(SHEETS_ID)
 
@@ -169,9 +172,10 @@ def _get_drive_disponible() -> bool:
 
 
 def _set_drive_disponible(valor: bool):
-    global _DRIVE_DISPONIBLE
+    global _DRIVE_DISPONIBLE, DRIVE_DISPONIBLE
     with _flags_lock:
         _DRIVE_DISPONIBLE = valor
+        DRIVE_DISPONIBLE  = valor
 
 
 def _get_sheets_disponible() -> bool:
@@ -180,15 +184,15 @@ def _get_sheets_disponible() -> bool:
 
 
 def _set_sheets_disponible(valor: bool):
-    global _SHEETS_DISPONIBLE
+    global _SHEETS_DISPONIBLE, SHEETS_DISPONIBLE
     with _flags_lock:
         _SHEETS_DISPONIBLE = valor
+        SHEETS_DISPONIBLE  = valor
 
 
-# Propiedades de compatibilidad: el resto del código puede seguir leyendo
-# config.DRIVE_DISPONIBLE / config.SHEETS_DISPONIBLE sin cambios,
-# pero AHORA las asignaciones directas también deben usar los setters.
-# Para compatibilidad total con código existente, mantenemos los atributos
-# de módulo pero las funciones anteriores son la vía recomendada para mutar.
+# Atributos públicos de módulo: el resto del código lee config.DRIVE_DISPONIBLE /
+# config.SHEETS_DISPONIBLE directamente. Los setters anteriores actualizan AMBOS
+# (la variable privada y este atributo público) para que los lectores directos
+# siempre vean el estado real, no el valor congelado del import inicial.
 DRIVE_DISPONIBLE   = _DRIVE_DISPONIBLE
 SHEETS_DISPONIBLE  = _SHEETS_DISPONIBLE

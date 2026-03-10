@@ -43,15 +43,24 @@ def cargar_memoria() -> dict:
         return _cache
 
 
-def guardar_memoria(memoria: dict):
+def guardar_memoria(memoria: dict, urgente: bool = False):
+    """
+    Guarda memoria en disco y sube a Drive.
+    urgente=True: sube inmediatamente sin debounce (para cambios de precio/catálogo).
+    urgente=False: sube con debounce 2s (para ventas, que pueden ser ráfagas).
+    """
     global _cache
     with _cache_lock:
         _cache = memoria
         with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
             json.dump(memoria, f, ensure_ascii=False, indent=2)
     if not _bloquear_subida_drive:
-        from drive import subir_a_drive
-        subir_a_drive(config.MEMORIA_FILE)
+        if urgente:
+            from drive import subir_a_drive_urgente
+            subir_a_drive_urgente(config.MEMORIA_FILE)
+        else:
+            from drive import subir_a_drive
+            subir_a_drive(config.MEMORIA_FILE)
 
 
 def invalidar_cache_memoria():
@@ -78,26 +87,46 @@ def buscar_producto_en_catalogo(nombre_buscado: str) -> dict | None:
     if not catalogo:
         return None
 
-    nombre_lower = nombre_buscado.strip().lower()
+    # Normalizar el término de búsqueda igual que nombre_lower del catálogo
+    # (elimina °, tildes, caracteres especiales) para que "N°100" == "n100"
+    from utils import _normalizar as _norm_busq
+    nombre_lower = _norm_busq(nombre_buscado)
 
     for prod in catalogo.values():
         if prod.get("nombre_lower") == nombre_lower:
             return prod
 
-    palabras = [p for p in nombre_lower.split() if len(p) > 2]
+    # Incluir tokens de ≥2 chars + dígitos solos (1,2,3...) para "Rodillo de 2" vs "Rodillo de 1"
+    def _es_token_relevante_busq(p: str) -> bool:
+        return len(p) >= 2 or p.isdigit()
+
+    palabras = [p for p in nombre_lower.split() if _es_token_relevante_busq(p)]
     if not palabras:
         return None
+
+    import re as _re_busq
+    numeros_busqueda = {p for p in palabras if p.isdigit()}
 
     candidatos = []
     for prod in catalogo.values():
         nl = prod.get("nombre_lower", "")
         coincidencias = sum(1 for p in palabras if p in nl)
         if coincidencias == len(palabras):
-            candidatos.append((3, coincidencias, len(nl), prod))
+            score_base = 3
         elif len(palabras) > 1 and coincidencias >= len(palabras) - 1:
-            candidatos.append((2, coincidencias, len(nl), prod))
+            score_base = 2
         elif coincidencias >= 1:
-            candidatos.append((1, coincidencias, len(nl), prod))
+            score_base = 1
+        else:
+            continue
+
+        # Bonus si el número exacto coincide; penalizar si el número NO coincide
+        # Evita "Rodillo de 2" → "Rodillo de 1"" cuando todos tienen igual score base
+        nl_numeros = set(_re_busq.findall(r'\d+', nl))
+        bonus_numero    = sum(1 for n in numeros_busqueda if n in nl_numeros)
+        penaliz_numero  = -sum(2 for n in numeros_busqueda if n not in nl_numeros)
+
+        candidatos.append((score_base + bonus_numero + penaliz_numero, coincidencias, len(nl), prod))
 
     if candidatos:
         candidatos.sort(key=lambda x: (-x[0], -x[1], x[2]))
@@ -112,57 +141,99 @@ def _stem_palabra(w: str) -> str:
 
 
 def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
-    """Retorna todos los candidatos que coincidan con el término, ordenados por relevancia.
-    Incluye stemming de plurales y bonus de score para números exactos (tallas).
+    """Retorna candidatos que coincidan con el término, ordenados por relevancia.
+    Umbral estricto para evitar falsos positivos:
+    - 1 palabra:  debe aparecer exactamente en el nombre
+    - 2 palabras: ambas deben aparecer (100%)
+    - 3+ palabras: al menos 2 deben aparecer
+    Las palabras de unidad (pulgada, metro, kilo...) son opcionales y no cuentan para el umbral.
     """
     catalogo = cargar_memoria().get("catalogo", {})
     if not catalogo:
         return []
 
-    nombre_lower = nombre_buscado.strip().lower()
-    # Incluir palabras largas (>2 chars), números, Y códigos alfanuméricos cortos como t1, t2, t3, x1
+    import re as _re_mem
+
+    # Normalizar tildes y ñ para búsqueda tolerante
+    def _norm(s: str) -> str:
+        return (s.lower()
+                .replace("ñ","n").replace("á","a").replace("é","e")
+                .replace("í","i").replace("ó","o").replace("ú","u"))
+
+    nombre_lower = _norm(nombre_buscado.strip())
+
+    _TALLAS_MEM = {"xl", "xs", "xxl", "s", "m", "l"}
     def _es_token_relevante(p: str) -> bool:
         if len(p) > 2:
             return True
         if p.isdigit():
             return True
-        # Tokens de 2 chars con al menos un dígito: t1, t2, t3, x1, 6x, 8x, etc.
         if len(p) == 2 and any(c.isdigit() for c in p):
+            return True
+        if p in _TALLAS_MEM:
             return True
         return False
 
-    palabras_raw = [p for p in nombre_lower.split() if _es_token_relevante(p)]
+    # Palabras de unidad: opcionales, no cuentan para el umbral mínimo
+    _UNIDADES = {"pulgada", "pulgadas", "metros", "metro", "centimetro", "centimetros",
+                 "litro", "litros", "kilo", "kilos", "gramo", "gramos",
+                 "galon", "galones", "unidad", "unidades"}
+
+    _STOPWORDS = {"que", "del", "los", "las", "una", "uno", "con", "por",
+                  "para", "como", "fue", "son", "de", "en", "la", "el",
+                  "vendi", "vendo", "dame", "quiero", "necesito"}
+
+    palabras_raw = [p for p in nombre_lower.split()
+                    if _es_token_relevante(p) and p not in _STOPWORDS]
     if not palabras_raw:
         return []
 
-    # Separar palabras normales de números/tallas para scoring diferenciado
-    palabras_variantes = []
-    numeros_busqueda = set()
-    for p in palabras_raw:
-        stem = _stem_palabra(p)
-        palabras_variantes.append((p, stem))
-        if p.isdigit():
-            numeros_busqueda.add(p)
+    palabras_producto = [p for p in palabras_raw if p not in _UNIDADES]
+    palabras_unidad   = [p for p in palabras_raw if p in _UNIDADES]
+
+    total_producto = len(palabras_producto)
+    if total_producto == 0:
+        return []
+
+    # Umbral mínimo de coincidencias sobre palabras_producto
+    if total_producto == 1:
+        min_hits = 1      # 100%
+    elif total_producto == 2:
+        min_hits = 2      # 100%
+    else:
+        min_hits = 2      # al menos 2 de 3+
+
+    numeros_busqueda = {p for p in palabras_producto if p.isdigit()}
 
     candidatos = []
     for prod in catalogo.values():
-        nl = prod.get("nombre_lower", "")
-        coincidencias = sum(1 for (orig, stem) in palabras_variantes if orig in nl or stem in nl)
-        total = len(palabras_variantes)
-        # Bonus: si el número exacto de la búsqueda aparece en el nombre → prioridad alta
-        # Usa regex para extraer números del nombre_lower (maneja n°80, 3", etc.)
-        import re as _re_mem
-        nl_numeros = set(_re_mem.findall(r'\d+', nl))
+        nl = _norm(prod.get("nombre_lower", ""))
+        coincidencias = sum(
+            1 for p in palabras_producto
+            if p in nl or _stem_palabra(p) in nl
+        )
+        if coincidencias < min_hits:
+            continue
+
+        # Bonus por número exacto de talla/medida
+        nl_numeros = set(_re_mem.findall(r'\d+', prod.get("nombre_lower","")))
         bonus_numero = sum(1 for n in numeros_busqueda if n in nl_numeros)
-        score_base = 0
-        if coincidencias == total:
+
+        # Penalización: si el producto empieza con fracción (ej: "1/2 cuñete")
+        # pero el usuario NO mencionó fracción, bajar prioridad
+        nl_orig = prod.get("nombre_lower", "")
+        penalizacion = -1 if (_re_mem.match(r'^[\d/]+\s', nl_orig)
+                               and not any(f in nombre_lower for f in ["1/2","1/4","3/4","1/8","medio","mitad"])) else 0
+
+        # Score base: más coincidencias = mejor
+        if coincidencias == total_producto:
             score_base = 3
-        elif total > 1 and coincidencias >= total - 1:
+        elif coincidencias >= total_producto - 1:
             score_base = 2
-        elif coincidencias >= 1:
+        else:
             score_base = 1
-        if score_base > 0:
-            candidatos.append((score_base + bonus_numero, coincidencias, len(nl), prod))
+
+        candidatos.append((score_base + bonus_numero + penalizacion, coincidencias, len(nl), prod))
 
     candidatos.sort(key=lambda x: (-x[0], -x[1], x[2]))
     return [c[3] for c in candidatos[:limite]]
@@ -174,40 +245,21 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
 
 # Mapa de sinónimos: palabra que dice el usuario → palabra que está en el catálogo
 _ALIAS_SINONIMOS = {
-    "imprimante":     "primario",
-    "primante":       "primario",
-    "primate":        "primario",    # error Whisper frecuente
-    "pintura":        "vinilo",
-    "pinturas":       "vinilo",
-    "lija":           "lija",
-    "lijas":          "lija",
-    "silicona":       "silicona",
-    "silicon":        "silicona",
-    "cinta masking":  "cinta enmascarar",
-    "masking":        "cinta enmascarar",
-    "enmascarar":     "cinta enmascarar",
-    "vinipel":        "cinta",
-    "esquinero":      "perfil",
-    "angelina":       "lana de vidrio",
-    "fibra vidrio":   "lana de vidrio",
-    "emplaste":       "masilla",
-    "empaste":        "masilla",
-    "palustre":       "llana",
-    "boquillera":     "masilla",
-    "sika":           "impermeabilizante",
-    "impermeabilizante": "impermeabilizante",
-    # Rodillo convencional
+    # Solo typos de escritura y variantes sin tilde del mismo nombre
+    "tiner":          "thinner",
+    "thiner":         "thinner",
+    "cunete":         "cuñete",
     "convencional":   "rodillo convencional",
-    "convencionañ":   "rodillo convencional",  # typo común
-    "convensional":   "rodillo convencional",  # typo común
+    "convencionañ":   "rodillo convencional",
+    "convensional":   "rodillo convencional",
     "rodillo normal": "rodillo convencional",
 }
 
 
 def expandir_con_alias(termino: str) -> list[str]:
     """
-    Dado un término de búsqueda, retorna variantes aplicando alias conocidos.
-    Ej: 'imprimante blanco' → ['imprimante blanco', 'primario blanco']
+    Dado un término de búsqueda, retorna variantes aplicando alias de escritura.
+    Ej: 'tiner' → ['tiner', 'thinner']
     """
     termino_lower = termino.lower().strip()
     variantes = [termino_lower]
@@ -218,11 +270,32 @@ def expandir_con_alias(termino: str) -> list[str]:
     return variantes
 
 
+def _limpiar_cantidad_inicial(query: str) -> str:
+    """
+    Elimina prefijos numéricos que son CANTIDADES, no tallas.
+    Ej: '2 brochas de 3'  → 'brochas de 3'
+        '1 brocha 2 pulgadas 4000' → 'brocha 2 pulgadas'
+        '5 lijas 80'       → 'lijas 80'
+    No elimina fracciones que son parte del nombre: '1/4 vinilo' → '1/4 vinilo'
+    No elimina precios finales (número > 1000 al final).
+    """
+    import re as _re_lc
+    q = query.strip()
+    # Eliminar número entero inicial seguido de espacio y palabra alfabética
+    # (ej: "2 brochas", "5 lijas", "1 brocha") — pero NO "1/4 vinilo" ni "2x4"
+    q = _re_lc.sub(r'^(\d+)\s+(?=[a-zA-ZáéíóúÁÉÍÓÚñÑ])', '', q).strip()
+    # Eliminar precio final obvio (número > 1000 al final sin contexto de medida)
+    q = _re_lc.sub(r'\s+\d{4,}$', '', q).strip()
+    return q
+
+
 def buscar_multiples_con_alias(nombre_buscado: str, limite: int = 8) -> list:
     """
     Igual que buscar_multiples_en_catalogo pero expande el término con alias/sinónimos.
     Úsala en lugar de buscar_multiples_en_catalogo cuando el MATCH falle frecuentemente.
     """
+    # Limpiar cantidad inicial antes de expandir alias
+    nombre_buscado = _limpiar_cantidad_inicial(nombre_buscado)
     variantes = expandir_con_alias(nombre_buscado)
     vistos = set()
     resultados_combinados = []
@@ -727,12 +800,13 @@ def guardar_caja(caja: dict):
 
 
 def obtener_resumen_caja() -> str:
-    from excel import obtener_resumen_ventas
+    from excel import obtener_ventas_hoy_excel
     caja = cargar_caja()
     if not caja.get("abierta"):
         return "La caja no está abierta hoy."
-    resumen           = obtener_resumen_ventas()
-    total_ventas      = resumen["total"] if resumen else 0
+    resumen_hoy       = obtener_ventas_hoy_excel()
+    total_ventas_hoy  = resumen_hoy["total"]
+    num_ventas_hoy    = resumen_hoy["num_ventas"]
     gastos_hoy        = cargar_gastos_hoy()
     total_gastos_caja = sum(g["monto"] for g in gastos_hoy if g.get("origen") == "caja")
     efectivo_esperado = caja["monto_apertura"] + caja["efectivo"] - total_gastos_caja
@@ -742,7 +816,7 @@ def obtener_resumen_caja() -> str:
         f"Ventas efectivo: ${caja['efectivo']:,.0f}\n"
         f"Transferencias: ${caja['transferencias']:,.0f}\n"
         f"Datafono: ${caja['datafono']:,.0f}\n"
-        f"Total ventas: ${total_ventas:,.0f}\n"
+        f"Total ventas hoy ({num_ventas_hoy}): ${total_ventas_hoy:,.0f}\n"
         f"Gastos de caja: ${total_gastos_caja:,.0f}\n"
         f"Efectivo esperado en caja: ${efectivo_esperado:,.0f}"
     )
@@ -914,14 +988,17 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
     - Si fraccion es "1/4", "1/2", etc.: actualiza ese precio de fraccion.
     Retorna True si encontró y actualizó el producto, False si no lo encontró.
     """
+    import logging as _log_cat
+    _log = _log_cat.getLogger("ferrebot.memoria")
+
     mem      = cargar_memoria()
     catalogo = mem.get("catalogo", {})
     prod     = buscar_producto_en_catalogo(nombre_producto)
 
+    _log.info("[PRECIO_CAT] buscar('%s') → %s | nuevo_precio=%s", nombre_producto, prod.get("nombre") if prod else "None", nuevo_precio)
+
     if not prod:
-        # Guardar en precios simples como fallback
-        mem.setdefault("precios", {})[nombre_producto.lower()] = nuevo_precio
-        guardar_memoria(mem)
+        # Producto no en catalogo — no guardar en precios simples, solo retornar False
         return False
 
     # Encontrar la clave exacta en el catálogo
@@ -940,10 +1017,37 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
     fraccion_en_nombre = fraccion and nombre_prod.startswith(fraccion)
     tiene_fracciones_reales = bool(catalogo[clave].get("precios_fraccion")) and not fraccion_en_nombre
 
+    _FRAC_A_DECIMAL = {
+        "1": 1.0, "3/4": 0.75, "1/2": 0.5, "1/4": 0.25,
+        "1/8": 0.125, "1/16": 0.0625, "1/3": 0.333, "1/6": 0.167,
+    }
     if fraccion and tiene_fracciones_reales:
-        catalogo[clave]["precios_fraccion"][fraccion] = {"precio": round(nuevo_precio)}
+        # Preservar campo 'decimal' y 'etiqueta' para consistencia con catálogo importado de Excel
+        decimal_val = _FRAC_A_DECIMAL.get(fraccion, 0.0)
+        entrada_frac = {"precio": round(nuevo_precio)}
+        if decimal_val:
+            entrada_frac["decimal"] = decimal_val
+        # Preservar etiqueta existente si la hay
+        frac_existente = catalogo[clave]["precios_fraccion"].get(fraccion, {})
+        if isinstance(frac_existente, dict) and "etiqueta" in frac_existente:
+            entrada_frac["etiqueta"] = frac_existente["etiqueta"]
+        catalogo[clave]["precios_fraccion"][fraccion] = entrada_frac
+        # Si la fraccion actualizada es "1" (= unidad completa), sincronizar precio_unidad también
+        if fraccion == "1":
+            catalogo[clave]["precio_unidad"] = round(nuevo_precio)
+            if catalogo[clave].get("precio_por_cantidad"):
+                catalogo[clave]["precio_por_cantidad"]["precio_bajo_umbral"] = round(nuevo_precio)
     else:
         catalogo[clave]["precio_unidad"] = round(nuevo_precio)
+        # Sincronizar precios_fraccion["1"] (= unidad completa) con precio_unidad
+        # Garantiza que ambos campos siempre estén iguales → sin desincronización futura
+        fracs = catalogo[clave].get("precios_fraccion", {})
+        if fracs and "1" in fracs:
+            frac1 = fracs["1"]
+            if isinstance(frac1, dict):
+                frac1["precio"] = round(nuevo_precio)
+            else:
+                fracs["1"] = {"precio": round(nuevo_precio), "decimal": 1.0}
         # Limpiar cualquier precios_fraccion corrupto si la fraccion era parte del nombre
         if fraccion_en_nombre:
             catalogo[clave]["precios_fraccion"] = {}
@@ -951,100 +1055,48 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
             catalogo[clave]["precio_por_cantidad"]["precio_bajo_umbral"] = round(nuevo_precio)
 
     mem["catalogo"] = catalogo
-    # Guardar en precios_modificados para que la parte dinámica lo inyecte como override
-    # (evita que el cache de Anthropic sirva el precio viejo)
-    pm = mem.setdefault("precios_modificados", {})
-    clave_pm = prod.get("nombre_lower", nombre_producto.lower())
-    if fraccion and tiene_fracciones_reales:
-        pm.setdefault(clave_pm, {})["fraccion_" + fraccion] = round(nuevo_precio)
-    else:
-        pm[clave_pm] = round(nuevo_precio)
-    mem["precios_modificados"] = pm
-    guardar_memoria(mem)
+
+    # Limpiar precio viejo de "precios" simples si existe
+    precios = mem.get("precios", {})
+    nombre_lower = prod.get("nombre_lower", nombre_producto.lower())
+    claves_borrar = [k for k in precios if k == nombre_lower or nombre_lower in k or k in nombre_lower]
+    for k in claves_borrar:
+        del precios[k]
+    mem["precios"] = precios
+
+    # urgente=True: sube a Drive sin debounce para evitar pérdida si el container
+    # se reinicia antes de que expire el timer de 2s del debounce normal.
+    precio_antes = catalogo[clave].get("precio_unidad") if clave else None
+    guardar_memoria(mem, urgente=True)
     invalidar_cache_memoria()
+    _log.info("[PRECIO_CAT] ✅ %s: $%s → $%s (fraccion=%s)", clave, precio_antes, nuevo_precio, fraccion)
     return True
 
 
 def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
     """
-    Lee BASE_DE_DATOS_PRODUCTOS.xlsx e importa todos los productos al catálogo en memoria.
-    Retorna {"importados": N, "omitidos": N, "errores": [...]}
+    Lee BASE_DE_DATOS_PRODUCTOS.xlsx e importa todos los productos al catálogo.
+    Delega a precio_sync que maneja correctamente:
+      - Campo "decimal" SIEMPRE presente en precios_fraccion.
+      - Pinturas/Impermeabilizantes: total = col_value × decimal_real.
+      - Tornillería Cat 3: precio_por_cantidad con umbral=50.
+      - Ferretería con cols extra: precios_fraccion directos.
     """
-    import openpyxl
-    try:
-        wb = openpyxl.load_workbook(ruta_excel, data_only=True)
-        ws = wb['Datos']
-    except Exception as e:
-        return {"importados": 0, "omitidos": 0, "errores": [str(e)]}
+    from precio_sync import importar_catalogo_desde_excel as _importar
+    return _importar(ruta_excel)
 
-    mem      = cargar_memoria()
-    catalogo = mem.get("catalogo", {})
+# ─────────────────────────────────────────────
+# SINCRONIZACIÓN DE PRECIO → BASE_DE_DATOS_PRODUCTOS.xlsx
+# ─────────────────────────────────────────────
 
-    importados = 0
-    omitidos   = 0
-    errores    = []
-
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        try:
-            nombre    = str(row[1] or "").strip()
-            categoria = str(row[3] or "").strip()
-            p_unidad  = row[16]   # COL 17 — precio 1 unidad / galon
-            p_075     = row[17]   # COL 18 — precio unitario para 3/4
-            p_05      = row[18]   # COL 19 — precio unitario para 1/2
-            p_025     = row[19]   # COL 20 — precio unitario para 1/4
-            p_013     = row[20]   # COL 21 — precio unitario para 1/8
-            p_006     = row[21]   # COL 22 — precio unitario para 1/16
-
-            if not nombre or nombre == "nan":
-                omitidos += 1
-                continue
-            if not p_unidad or not isinstance(p_unidad, (int, float)) or p_unidad <= 0:
-                omitidos += 1
-                continue
-
-            nombre_lower = _normalizar(nombre)
-            clave        = nombre_lower.replace(" ", "_")
-
-            prod_base = {
-                "nombre":      nombre,
-                "nombre_lower": nombre_lower,
-                "categoria":   categoria,
-                "precio_unidad": round(float(p_unidad)),
-            }
-
-            if _es_tornillo_drywall(nombre):
-                # Precio especial cuando compra >= 50 unidades
-                precio_x50 = round(float(p_075)) if p_075 and isinstance(p_075, (int, float)) and p_075 > 0 else round(float(p_unidad))
-                prod_base["precio_por_cantidad"] = {
-                    "umbral":               50,
-                    "precio_bajo_umbral":   round(float(p_unidad)),
-                    "precio_sobre_umbral":  precio_x50,
-                }
-
-            elif _es_producto_con_fracciones(nombre, categoria):
-                # Calcular precios totales por fraccion multiplicando precio_unitario x fraccion
-                fracs = {}
-                if p_075 and isinstance(p_075, (int, float)) and p_075 > 0:
-                    fracs["3/4"]  = {"precio": round(float(p_075) * 0.75)}
-                if p_05 and isinstance(p_05, (int, float)) and p_05 > 0:
-                    fracs["1/2"]  = {"precio": round(float(p_05)  * 0.5)}
-                if p_025 and isinstance(p_025, (int, float)) and p_025 > 0:
-                    fracs["1/4"]  = {"precio": round(float(p_025) * 0.25)}
-                if p_013 and isinstance(p_013, (int, float)) and p_013 > 0:
-                    fracs["1/8"]  = {"precio": round(float(p_013) * 0.125)}
-                if p_006 and isinstance(p_006, (int, float)) and p_006 > 0:
-                    fracs["1/16"] = {"precio": round(float(p_006) * 0.0625)}
-                if fracs:
-                    prod_base["precios_fraccion"] = fracs
-
-            catalogo[clave] = prod_base
-            importados += 1
-
-        except Exception as e:
-            errores.append(f"{row[1]}: {e}")
-
-    mem["catalogo"] = catalogo
-    guardar_memoria(mem)
-    invalidar_cache_memoria()
-
-    return {"importados": importados, "omitidos": omitidos, "errores": errores[:10]}
+def actualizar_precio_en_excel_drive(
+    nombre_producto: str,
+    nuevo_precio: float,
+    fraccion: str = None,
+) -> tuple[bool, str]:
+    """
+    DEPRECATED — mantenida por compatibilidad con código existente.
+    Ahora delega a precio_sync.actualizar_precio() que usa cola serializada.
+    """
+    from precio_sync import actualizar_precio as _ap
+    return _ap(nombre_producto, nuevo_precio, fraccion)

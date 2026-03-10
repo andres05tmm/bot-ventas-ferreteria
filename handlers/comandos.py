@@ -21,11 +21,12 @@ from excel import (
     detectar_columnas, buscar_ventas, obtener_ventas_recientes,
     buscar_clientes_multiples, cargar_clientes,
     registrar_compra_en_excel, actualizar_hoja_inventario,
+    recalcular_caja_desde_excel,
 )
 from memoria import (
     cargar_memoria, obtener_resumen_caja, cargar_gastos_hoy,
     cargar_inventario, verificar_alertas_inventario,
-    resumen_fiados, detalle_fiado_cliente,
+    resumen_fiados, detalle_fiado_cliente, abonar_fiado,
     importar_catalogo_desde_excel,
     registrar_conteo_inventario, ajustar_inventario,
     buscar_productos_inventario, buscar_clave_inventario,
@@ -58,8 +59,10 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/borrar [#] — Borrar consecutivo completo\n\n"
         "💰 CAJA Y GASTOS\n"
         "/caja — Estado actual de caja\n"
+        "/caja abrir [monto] — Abrir caja del dia (ej: /caja abrir 50000)\n"
         "/gastos — Gastos registrados hoy\n"
-        "/cerrar — Cierre del dia (Excel + limpia Sheets)\n"
+        "/cerrar — Cierre del dia (Excel + limpia Sheets + cierra caja)\n"
+        "/resetventas CONFIRMAR — Limpiar ventas del dia actual\n"
         "/resetventas excel CONFIRMAR DD/MM/YYYY — Borrar ventas de una fecha\n\n"
         "📊 REPORTES\n"
         "/grafica — Graficas de ventas\n"
@@ -69,17 +72,22 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/inventario — Ver inventario actual\n"
         "/inv [cantidad] [producto] — Registrar conteo de inventario\n"
         "/stock [producto] — Detalle de stock\n"
-        "/ajuste [producto] [cantidad] — Ajustar stock manualmente\n"
-        "/compra — Registrar compra de mercancia\n"
+        "/ajuste [+/-cantidad] [producto] — Ajustar stock (ej: /ajuste +10 brocha)\n"
+        "/compra [cantidad] [producto] a [costo] — Registrar compra\n"
         "/precios — Ver catalogo de precios\n"
         "/margenes — Ver margenes de ganancia\n"
         "/actualizar_catalogo — Recargar catalogo desde Excel\n\n"
         "👥 CLIENTES Y FIADOS\n"
         "/clientes — Ver lista de clientes\n"
         "/fiados — Ver todas las cuentas fiadas\n"
-        "/fiados [nombre] — Ver detalle de un cliente\n\n"
+        "/fiados [nombre] — Ver detalle de un cliente\n"
+        "/abono [nombre] [monto] — Registrar abono\n\n"
         "⚙️ SISTEMA\n"
-        "/keepalive — Activar/desactivar cache para dias movidos\n\n"
+        "/agregar_producto — Agregar nuevo producto al catalogo\n"
+        "/consistencia — Verificar consistencia del catalogo\n"
+        "/exportar_precios — Exportar lista de precios a Excel\n"
+        "/alias — Gestionar alias de productos (ver /alias para ayuda)\n"
+        "/keepalive on/off — Activar/desactivar cache de prompts\n\n"
         f"{estado_drive} | {estado_sheets}"
     )
 
@@ -189,9 +197,16 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.message.chat_id
 
-    # Buscar todas las filas del consecutivo
-    from excel import obtener_ventas_por_consecutivo
-    filas = await asyncio.to_thread(obtener_ventas_por_consecutivo, numero)
+    # Buscar todas las filas del consecutivo - PRIORIZAR SHEETS
+    filas = []
+    if config.SHEETS_ID and config._get_sheets_disponible():
+        from sheets import sheets_obtener_ventas_por_consecutivo
+        filas = await asyncio.to_thread(sheets_obtener_ventas_por_consecutivo, numero)
+    
+    # Fallback a Excel local si Sheets no tiene datos
+    if not filas:
+        from excel import obtener_ventas_por_consecutivo
+        filas = await asyncio.to_thread(obtener_ventas_por_consecutivo, numero)
 
     if not filas:
         await update.message.reply_text(f"No encontré el consecutivo #{numero}.")
@@ -204,15 +219,15 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lineas = []
     total_sum = 0
     for f in filas:
-        prod  = f.get(config.COL_PRODUCTO, "?")
-        total = f.get(config.COL_TOTAL, 0)
+        prod  = f.get("producto", f.get(config.COL_PRODUCTO, "?"))
+        total = f.get("total", f.get(config.COL_TOTAL, 0))
         try:
             total_sum += float(total)
             lineas.append(f"  • {prod} ${float(total):,.0f}")
         except Exception:
             lineas.append(f"  • {prod}")
-    fecha    = filas[0].get(config.COL_FECHA, "?")
-    vendedor = filas[0].get(config.COL_VENDEDOR, "?")
+    fecha    = filas[0].get("fecha", filas[0].get(config.COL_FECHA, "?"))
+    vendedor = filas[0].get("vendedor", filas[0].get(config.COL_VENDEDOR, "?"))
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Sí, borrar todo", callback_data=f"borrar_si_{chat_id}"),
@@ -300,7 +315,7 @@ async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caja["fecha"] = datetime.date.today().isoformat()
         caja["monto_apertura"] = monto
         caja["efectivo"] = 0
-        caja["transferencia"] = 0
+        caja["transferencias"] = 0
         caja["datafono"] = 0
         guardar_caja(caja)
         await update.message.reply_text(f"💰 Caja abierta con ${monto:,} de base.")
@@ -674,6 +689,30 @@ async def comando_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
+# /nuevo_cliente
+# ─────────────────────────────────────────────
+
+async def comando_nuevo_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inicia el flujo de creación de cliente sin necesidad de una venta."""
+    from ventas_state import clientes_en_proceso, _estado_lock
+    from handlers.mensajes import _enviar_pregunta_flujo_cliente
+
+    chat_id = update.effective_chat.id
+
+    # Si viene con nombre como argumento: /nuevo_cliente Juan Pérez
+    if context.args:
+        nombre = " ".join(context.args).strip()
+        with _estado_lock:
+            clientes_en_proceso[chat_id] = {"paso": "tipo_id", "nombre": nombre}
+        await _enviar_pregunta_flujo_cliente(update.message, chat_id)
+    else:
+        # Sin nombre → preguntar
+        with _estado_lock:
+            clientes_en_proceso[chat_id] = {"paso": "nombre"}
+        await _enviar_pregunta_flujo_cliente(update.message, chat_id)
+
+
+# ─────────────────────────────────────────────
 # /fiados
 # ─────────────────────────────────────────────
 
@@ -684,6 +723,46 @@ async def comando_fiados(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         texto = resumen_fiados()
     await update.message.reply_text(texto, parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
+# /abono
+# ─────────────────────────────────────────────
+
+async def comando_abono(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /abono [nombre] [monto]
+    Ej: /abono Juan Perez 50000
+    """
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "⚠️ Uso: /abono [nombre] [monto]\n"
+            "Ejemplo: /abono Juan Perez 50000"
+        )
+        return
+
+    # Último argumento es el monto, el resto es el nombre
+    try:
+        monto = float(context.args[-1].replace(",", "").replace(".", ""))
+    except ValueError:
+        await update.message.reply_text("❌ El monto debe ser un número. Ej: /abono Juan Perez 50000")
+        return
+
+    nombre = " ".join(context.args[:-1])
+
+    ok, msg = await asyncio.to_thread(abonar_fiado, nombre, monto)
+    if ok:
+        from memoria import detalle_fiado_cliente
+        detalle = detalle_fiado_cliente(nombre)
+        await update.message.reply_text(
+            f"✅ Abono registrado\n\n"
+            f"👤 {nombre.upper()}\n"
+            f"💰 Abono: ${monto:,.0f}\n\n"
+            f"{detalle}",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(f"❌ {msg}")
 
 
 # ─────────────────────────────────────────────
@@ -768,21 +847,21 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     ventas_sheets = await asyncio.to_thread(sheets_leer_ventas_del_dia)
     if not ventas_sheets:
-        await update.message.reply_text("📭 El Sheets no tiene ventas hoy.")
+        # Sheets vacío — igual cerrar caja y subir Excel si tiene ventas
+        from memoria import cargar_caja, guardar_caja
+        caja = cargar_caja()
+        resumen_caja = ""
+        if caja.get("abierta"):
+            resumen_caja = obtener_resumen_caja()
+            caja["abierta"] = False
+            guardar_caja(caja)
+        msg = "📭 Sheets sin ventas hoy — nada que sincronizar."
+        if resumen_caja:
+            msg += f"\n\n💰 Caja cerrada:\n{resumen_caja}"
+        await update.message.reply_text(msg)
         return
 
     diferencias = await asyncio.to_thread(sheets_detectar_ediciones_vs_excel)
-    if diferencias:
-        encabezado = "✏️ Correcciones manuales detectadas:\n\n"
-        bloque = encabezado
-        for d in diferencias:
-            linea = d + "\n"
-            if len(bloque) + len(linea) > 4000:
-                await update.message.reply_text(bloque)
-                bloque = ""
-            bloque += linea
-        if bloque.strip():
-            await update.message.reply_text(bloque)
 
     hoy       = datetime.now(config.COLOMBIA_TZ)
     fecha_str = hoy.strftime("%Y-%m-%d")
@@ -921,7 +1000,23 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
 
             await asyncio.to_thread(wb.save, config.EXCEL_FILE)
             await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
-            await update.message.reply_text(f"✅ Eliminadas {total_borradas} filas del {fecha_str_raw} (hoja del mes + acumulado).")
+
+            # Si la fecha borrada es hoy, recalcular caja y limpiar Sheets
+            hoy_iso = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+            sheets_msg = ""
+            if fecha_iso == hoy_iso:
+                try:
+                    await asyncio.to_thread(sheets_limpiar)
+                    sheets_msg = " y del Sheets de hoy"
+                except Exception:
+                    sheets_msg = " (Sheets no pudo limpiarse)"
+                # Recalcular caja desde lo que queda en el Excel
+                await asyncio.to_thread(recalcular_caja_desde_excel)
+
+            await update.message.reply_text(
+                f"✅ Eliminadas {total_borradas} filas del {fecha_str_raw} "
+                f"(hoja {hoja} + acumulado{sheets_msg})."
+            )
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
         return
@@ -932,14 +1027,8 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # 1. Limpiar Google Sheets
     await asyncio.to_thread(sheets_limpiar)
-    
-    # 2. Resetear el consecutivo de ventas
-    from memoria import cargar_memoria, guardar_memoria
-    mem = cargar_memoria()
-    mem["ultimo_consecutivo"] = 0
-    guardar_memoria(mem)
-    
-    # 3. Limpiar TODO el estado en memoria (Standbys, ventas a medias, clientes en proceso)
+
+    # 2. Limpiar TODO el estado en memoria (Standbys, ventas a medias, clientes en proceso)
     try:
         from ventas_state import (
             ventas_pendientes, borrados_pendientes, historiales,
@@ -956,20 +1045,24 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         print(f"Error limpiando memoria interna: {e}")
 
+    # 3. Recalcular caja desde lo que queda en el Excel
+    await asyncio.to_thread(recalcular_caja_desde_excel)
+
     await update.message.reply_text("✅ Reset del dia completado. Todos los procesos en standby fueron cancelados.")
 
 
 async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /catalogo — Reimporta todos los productos desde BASE_DE_DATOS_PRODUCTOS.xlsx.
-    El archivo debe estar en Google Drive o enviarse como documento al bot.
+    Descarga desde Drive, importa, y reporta problemas detallados.
     """
+    import os
+
     await update.message.reply_text(
-        "📦 Actualizando catálogo de productos...\n"
-        "Buscando BASE_DE_DATOS_PRODUCTOS.xlsx en Drive..."
+        "📦 Actualizando catálogo...\n"
+        "Descargando BASE_DE_DATOS_PRODUCTOS.xlsx desde Drive..."
     )
 
-    # Intentar descargar desde Drive
     ruta_local = "BASE_DE_DATOS_PRODUCTOS.xlsx"
     descargado = False
 
@@ -979,39 +1072,272 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
             descargar_de_drive, "BASE_DE_DATOS_PRODUCTOS.xlsx", ruta_local
         )
     except Exception as e:
-        print(f"Error descargando de Drive: {e}")
+        print(f"[catalogo] Error descargando de Drive: {e}")
 
     if not descargado:
         await update.message.reply_text(
             "⚠️ No encontré el archivo en Drive.\n\n"
-            "Envíame el archivo BASE_DE_DATOS_PRODUCTOS.xlsx directamente en este chat "
-            "y lo importaré automáticamente."
+            "Envíame BASE_DE_DATOS_PRODUCTOS.xlsx directamente en este chat."
         )
         return
 
-    # Importar el catalogo
+    # ── Análisis previo a importar ────────────────────────────────────────
+    try:
+        import openpyxl as _oxl
+        import unicodedata, re
+
+        def _norm(s):
+            s = s.lower().strip()
+            s = unicodedata.normalize("NFD", s)
+            s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+            s = re.sub(r"[^a-z0-9\s\-_./\"]", "", s)
+            return re.sub(r"\s+", " ", s).strip()
+
+        wb_pre = _oxl.load_workbook(ruta_local, data_only=True)
+        hoja   = wb_pre["Datos"] if "Datos" in wb_pre.sheetnames else wb_pre.active
+        sin_precio, duplicados = [], []
+        vistos = {}
+        for row in hoja.iter_rows(min_row=2, values_only=True):
+            nombre = str(row[1] or "").strip()
+            if not nombre or nombre.lower() == "nan":
+                continue
+            q = row[16] if len(row) > 16 else None
+            clave = _norm(nombre).replace(" ", "_")
+            # Sin precio
+            if q is None or not isinstance(q, (int, float)) or float(q) <= 0:
+                sin_precio.append(nombre)
+            # Duplicado
+            if clave in vistos:
+                prev_nombre, prev_precio = vistos[clave]
+                prev_q = prev_precio
+                curr_q = q if isinstance(q, (int, float)) else 0
+                if round(float(prev_q or 0)) != round(float(curr_q or 0)):
+                    duplicados.append(
+                        f"{nombre}: fila anterior=${int(prev_q or 0):,} vs actual=${int(curr_q or 0):,}"
+                    )
+            else:
+                vistos[clave] = (nombre, q)
+    except Exception as e:
+        sin_precio, duplicados = [], []
+        print(f"[catalogo] análisis previo falló: {e}")
+
+    # ── Importar ──────────────────────────────────────────────────────────
     try:
         resultado = await asyncio.to_thread(importar_catalogo_desde_excel, ruta_local)
-        importados = resultado["importados"]
-        omitidos   = resultado["omitidos"]
-        errores    = resultado["errores"]
-
-        texto = (
-            f"✅ Catálogo actualizado exitosamente\n\n"
-            f"📦 {importados} productos importados\n"
-            f"⏭️ {omitidos} filas omitidas (sin nombre o precio)"
-        )
-        if errores:
-            texto += f"\n⚠️ {len(errores)} errores:\n" + "\n".join(f"  • {e}" for e in errores[:5])
-
-        await update.message.reply_text(texto)
-
-        import os
-        if os.path.exists(ruta_local):
-            os.remove(ruta_local)
-
     except Exception as e:
         await update.message.reply_text(f"❌ Error importando: {e}")
+        if os.path.exists(ruta_local):
+            os.remove(ruta_local)
+        return
+
+    importados = resultado["importados"]
+    omitidos   = resultado["omitidos"]
+    errores    = resultado["errores"]
+
+    # ── Resumen principal ─────────────────────────────────────────────────
+    texto = (
+        f"✅ Catálogo actualizado\n\n"
+        f"📦 {importados} productos importados\n"
+        f"⏭️ {omitidos} filas sin nombre (ignoradas)\n"
+    )
+    if sin_precio:
+        texto += f"⚠️ {len(sin_precio)} productos con precio $0 (no importados)\n"
+    if duplicados:
+        texto += f"🔁 {len(duplicados)} duplicados con precio diferente\n"
+    if errores:
+        texto += f"❌ {len(errores)} errores de parseo\n"
+
+    await update.message.reply_text(texto)
+
+    # ── Detalle de problemas ──────────────────────────────────────────────
+    if sin_precio:
+        lista = "\n".join(f"  • {n}" for n in sin_precio[:30])
+        if len(sin_precio) > 30:
+            lista += f"\n  ... y {len(sin_precio)-30} más"
+        await update.message.reply_text(
+            f"⚠️ Productos con precio $0 (agrégales precio en el Excel):\n{lista}"
+        )
+
+    if duplicados:
+        lista = "\n".join(f"  • {d}" for d in duplicados[:20])
+        await update.message.reply_text(
+            f"🔁 Duplicados con precios distintos (se usó el último):\n{lista}"
+        )
+
+    if errores:
+        lista = "\n".join(f"  • {e}" for e in errores[:10])
+        await update.message.reply_text(f"❌ Errores de parseo:\n{lista}")
+
+    if os.path.exists(ruta_local):
+        os.remove(ruta_local)
+
+
+
+async def comando_exportar_precios(update, context):
+    """
+    /exportar_precios — Vuelca todos los precios de memoria.json al Excel en Drive.
+    Descarga el Excel una sola vez, actualiza todas las celdas respetando las
+    reglas de cada categoría, y lo sube de vuelta. Útil para poner el Excel
+    al día cuando la memoria tiene los precios correctos.
+    """
+    await update.message.reply_text(
+        "📤 Exportando precios de memoria → Excel...\n"
+        "Esto puede tomar unos segundos."
+    )
+    try:
+        from precio_sync import exportar_catalogo_a_excel
+        resultado = await asyncio.to_thread(exportar_catalogo_a_excel)
+
+        actualizados = resultado["actualizados"]
+        sin_match    = resultado["sin_match"]
+        errores      = resultado["errores"]
+
+        lineas = []
+        lineas.append("📤 EXPORTACIÓN COMPLETADA")
+        lineas.append("─" * 30)
+        lineas.append(f"✅ Productos actualizados: {actualizados}")
+
+        if sin_match:
+            lineas.append(f"⚠️  No encontrados en Excel: {len(sin_match)}")
+            if len(sin_match) <= 5:
+                for nombre in sin_match:
+                    lineas.append(f"   • {nombre}")
+            else:
+                for nombre in sin_match[:3]:
+                    lineas.append(f"   • {nombre}")
+                lineas.append(f"   …y {len(sin_match)-3} más")
+            lineas.append("   (estos productos están en memoria pero no en el Excel)")
+
+        if errores:
+            lineas.append(f"❌ Errores: {len(errores)}")
+            for e in errores[:3]:
+                lineas.append(f"   • {e}")
+
+        if not sin_match and not errores:
+            lineas.append("")
+            lineas.append("🎉 Excel actualizado correctamente.")
+            lineas.append("Usa /consistencia para verificar.")
+
+        await update.message.reply_text("\n".join(lineas))
+
+        # Generar y enviar reporte Excel si hay productos no encontrados
+        if sin_match:
+            try:
+                from precio_sync import generar_reporte_discrepancias
+                reporte_data = {"sin_match": sin_match, "diferentes": [], "solo_memoria": [], "solo_excel": []}
+                ruta = await asyncio.to_thread(generar_reporte_discrepancias, reporte_data)
+                with open(ruta, "rb") as f:
+                    await update.message.reply_document(
+                        document=f,
+                        filename="reporte_exportacion.xlsx",
+                        caption="📎 Productos en memoria que no se encontraron en el Excel"
+                    )
+                import os; os.remove(ruta)
+            except Exception as e:
+                await update.message.reply_text(f"⚠️ No se pudo generar el reporte: {e}")
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error en exportación: {e}")
+
+
+
+async def comando_consistencia(update, context):
+    """
+    /consistencia — Compara precios entre memoria.json y BASE_DE_DATOS_PRODUCTOS.xlsx en Drive.
+    Útil para detectar desincronizaciones.
+    """
+    await update.message.reply_text("🔍 Verificando consistencia entre memoria y Excel…")
+    try:
+        from precio_sync import verificar_consistencia
+        resultado = await asyncio.to_thread(verificar_consistencia)
+
+        if "error" in resultado:
+            await update.message.reply_text(f"❌ Error: {resultado['error']}")
+            return
+
+        iguales   = resultado["iguales"]
+        diferentes = resultado["diferentes"]
+        solo_mem  = resultado["solo_memoria"]
+        solo_xls  = resultado["solo_excel"]
+
+        lineas = []
+        lineas.append("📊 CONSISTENCIA DE PRECIOS")
+        lineas.append("─" * 30)
+        lineas.append(f"✅ Iguales:          {iguales}")
+        lineas.append(f"⚠️  Con diferencias: {len(diferentes)}")
+        lineas.append(f"🧠 Solo en memoria:  {len(solo_mem)}")
+        lineas.append(f"📋 Solo en Excel:    {len(solo_xls)}")
+
+        if diferentes:
+            lineas.append("")
+            lineas.append("── DIFERENCIAS DE PRECIO ──")
+            for d in diferentes[:10]:
+                lineas.append(f"\n📦 {d['nombre']}")
+                for diff in d["diffs"]:
+                    # diff viene como "precio_unidad: mem=7000 xls=8000"
+                    # o "fraccion 1/2: mem=None xls=5000"
+                    partes = diff.split(": ", 1)
+                    if len(partes) == 2:
+                        campo, valores = partes
+                        # extraer mem y xls
+                        mem_val = valores.split(" xls=")[0].replace("mem=", "")
+                        xls_val = valores.split(" xls=")[1] if " xls=" in valores else "?"
+                        if "fraccion" in campo:
+                            frac = campo.replace("fraccion ", "").strip()
+                            lineas.append(f"   Fracción {frac}:")
+                        else:
+                            lineas.append(f"   Precio unidad:")
+                        lineas.append(f"     Memoria → ${mem_val}")
+                        lineas.append(f"     Excel   → ${xls_val}")
+                    else:
+                        lineas.append(f"   {diff}")
+            if len(diferentes) > 10:
+                lineas.append(f"\n   …y {len(diferentes)-10} productos más con diferencias")
+
+        if solo_mem and len(solo_mem) <= 5:
+            lineas.append("")
+            lineas.append("── SOLO EN MEMORIA (no están en Excel) ──")
+            for nombre in solo_mem:
+                lineas.append(f"  • {nombre}")
+        elif solo_mem:
+            lineas.append("")
+            lineas.append(f"── {len(solo_mem)} productos en memoria que no están en Excel ──")
+            lineas.append("  Usa /actualizar_catalogo para reimportar desde Excel.")
+
+        if solo_xls and len(solo_xls) <= 5:
+            lineas.append("")
+            lineas.append("── SOLO EN EXCEL (no están en memoria) ──")
+            for nombre in solo_xls[:5]:
+                lineas.append(f"  • {nombre}")
+        elif solo_xls:
+            lineas.append("")
+            lineas.append(f"── {len(solo_xls)} productos en Excel que no están en memoria ──")
+            lineas.append("  Usa /actualizar_catalogo para cargarlos.")
+
+        if not diferentes and not solo_mem and not solo_xls:
+            lineas.append("")
+            lineas.append("🎉 ¡Todo sincronizado correctamente!")
+
+        await update.message.reply_text("\n".join(lineas))
+
+        # Generar y enviar reporte Excel si hay discrepancias
+        hay_discrepancias = diferentes or solo_mem or solo_xls
+        if hay_discrepancias:
+            try:
+                from precio_sync import generar_reporte_discrepancias
+                ruta = await asyncio.to_thread(generar_reporte_discrepancias, resultado)
+                with open(ruta, "rb") as f_rep:
+                    await update.message.reply_document(
+                        document=f_rep,
+                        filename="reporte_consistencia.xlsx",
+                        caption="📎 Detalle completo de discrepancias"
+                    )
+                import os; os.remove(ruta)
+            except Exception as e_rep:
+                await update.message.reply_text(f"⚠️ No se pudo generar el reporte: {e_rep}")
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error en verificación: {e}")
 
 
 async def comando_keepalive(update, context):
@@ -1066,4 +1392,302 @@ async def comando_keepalive(update, context):
         f"Intervalo: cada 4 minutos\n\n"
         f"/keepalive on  → activar\n"
         f"/keepalive off → desactivar"
+    )
+
+
+# ─────────────────────────────────────────────
+# AGREGAR PRODUCTO AL CATÁLOGO
+# ─────────────────────────────────────────────
+
+CATEGORIAS_DISPONIBLES = {
+    "1": "2 Pinturas y Disolventes",
+    "2": "1 Artículos de Ferreteria",
+    "3": "3 Tornilleria",
+    "4": "4 Impermeabilizantes y Materiales de construcción",
+    "5": "5 Materiales Electricos",
+}
+
+CATEGORIAS_CON_FRACCIONES = {"2 pinturas y disolventes"}
+CATEGORIAS_TORNILLERIA    = {"3 tornilleria"}
+
+
+async def comando_agregar_producto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /agregar_producto — Inicia flujo para agregar un producto nuevo al catálogo y al Excel.
+    """
+    context.user_data["nuevo_producto"] = {}
+    context.user_data["paso_producto"]  = "nombre"
+
+    await update.message.reply_text(
+        "➕ Agregar producto nuevo\n\n"
+        "Escribe el nombre del producto:"
+    )
+
+
+async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Maneja los pasos del flujo de agregar producto.
+    Retorna True si el mensaje fue consumido por este flujo, False si no.
+    """
+    paso = context.user_data.get("paso_producto")
+    if not paso:
+        return False
+
+    texto = update.message.text.strip()
+
+    # Cancelar en cualquier momento
+    if texto.lower() in {"cancelar", "/cancelar"}:
+        context.user_data.pop("nuevo_producto", None)
+        context.user_data.pop("paso_producto", None)
+        await update.message.reply_text("❌ Cancelado.")
+        return True
+
+    prod = context.user_data.get("nuevo_producto", {})
+
+    # ── Paso 1: nombre ──
+    if paso == "nombre":
+        if len(texto) < 2:
+            await update.message.reply_text("Nombre muy corto. Escribe el nombre del producto:")
+            return True
+        prod["nombre"] = texto
+        context.user_data["nuevo_producto"] = prod
+        context.user_data["paso_producto"]  = "categoria"
+
+        cats = "\n".join(f"  {k}. {v}" for k, v in CATEGORIAS_DISPONIBLES.items())
+        await update.message.reply_text(
+            f"Producto: {texto}\n\n"
+            f"Elige la categoría:\n{cats}\n\n"
+            f"Responde con el número (1-5):"
+        )
+        return True
+
+    # ── Paso 2: categoría ──
+    if paso == "categoria":
+        if texto not in CATEGORIAS_DISPONIBLES:
+            await update.message.reply_text("Responde con un número del 1 al 5:")
+            return True
+        categoria = CATEGORIAS_DISPONIBLES[texto]
+        prod["categoria"] = categoria
+        context.user_data["nuevo_producto"] = prod
+        context.user_data["paso_producto"]  = "precio"
+
+        await update.message.reply_text(
+            f"Categoría: {categoria}\n\n"
+            f"¿Cuál es el precio de la unidad completa?\n"
+            f"(solo el número, ej: 50000)"
+        )
+        return True
+
+    # ── Paso 3: precio base ──
+    if paso == "precio":
+        try:
+            precio = float(texto.replace(",", "").replace(".", "").replace("$", ""))
+            if precio <= 0:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text("Precio inválido. Escribe solo el número (ej: 50000):")
+            return True
+
+        prod["precio_unidad"] = precio
+        context.user_data["nuevo_producto"] = prod
+        cat_lower = prod["categoria"].lower()
+
+        # Según categoría, decidir siguiente paso
+        if cat_lower in CATEGORIAS_CON_FRACCIONES:
+            context.user_data["paso_producto"] = "fracciones_3_4"
+            await update.message.reply_text(
+                f"Precio base: ${precio:,.0f}\n\n"
+                f"Es de Pinturas/Disolventes — necesito los precios por fracción.\n"
+                f"(Escribe 0 si no aplica esa fracción)\n\n"
+                f"¿Precio unitario para vender 3/4?\n"
+                f"(precio que multiplicado × 0.75 da el total)"
+            )
+        elif cat_lower in CATEGORIAS_TORNILLERIA:
+            context.user_data["paso_producto"] = "mayorista"
+            await update.message.reply_text(
+                f"Precio base: ${precio:,.0f}\n\n"
+                f"Es Tornillería — ¿cuál es el precio unitario para compras de 50 o más unidades?\n"
+                f"(Escribe 0 si no aplica precio mayorista)"
+            )
+        else:
+            context.user_data["paso_producto"] = "confirmar"
+            await _mostrar_confirmacion(update, prod)
+        return True
+
+    # ── Paso 4a: fracciones (pinturas) ──
+    for frac_paso, frac_key, frac_mult, siguiente_paso, siguiente_texto in [
+        ("fracciones_3_4", "3/4",  0.75,   "fracciones_1_2", "¿Precio unitario para vender 1/2?\n(× 0.5 = total)"),
+        ("fracciones_1_2", "1/2",  0.5,    "fracciones_1_4", "¿Precio unitario para vender 1/4?\n(× 0.25 = total)"),
+        ("fracciones_1_4", "1/4",  0.25,   "fracciones_1_8", "¿Precio unitario para vender 1/8?\n(× 0.125 = total)"),
+        ("fracciones_1_8", "1/8",  0.125,  "fracciones_1_16","¿Precio unitario para vender 1/16?\n(× 0.0625 = total)"),
+        ("fracciones_1_16","1/16", 0.0625, "confirmar",       None),
+    ]:
+        if paso == frac_paso:
+            try:
+                val = float(texto.replace(",", "").replace(".", "").replace("$", ""))
+            except ValueError:
+                await update.message.reply_text("Escribe solo el número (ej: 52000 o 0):")
+                return True
+
+            if val > 0:
+                prod.setdefault("fracciones", {})[frac_key] = val
+            context.user_data["nuevo_producto"] = prod
+            context.user_data["paso_producto"]  = siguiente_paso
+
+            if siguiente_paso == "confirmar":
+                await _mostrar_confirmacion(update, prod)
+            else:
+                total_ejemplo = round(val * frac_mult) if val > 0 else 0
+                ejemplo = f"(ej: ${val:,.0f} × {frac_mult} = ${total_ejemplo:,.0f})\n\n" if val > 0 else ""
+                await update.message.reply_text(f"{ejemplo}{siguiente_texto}")
+            return True
+
+    # ── Paso 4b: mayorista (tornillería) ──
+    if paso == "mayorista":
+        try:
+            val = float(texto.replace(",", "").replace(".", "").replace("$", ""))
+        except ValueError:
+            await update.message.reply_text("Escribe solo el número (ej: 150 o 0):")
+            return True
+
+        if val > 0:
+            prod["precio_mayorista"] = val
+        context.user_data["nuevo_producto"] = prod
+        context.user_data["paso_producto"]  = "confirmar"
+        await _mostrar_confirmacion(update, prod)
+        return True
+
+    # ── Paso final: confirmación ──
+    if paso == "confirmar":
+        if texto.lower() in {"si", "sí", "s", "yes"}:
+            await _guardar_producto(update, context, prod)
+        else:
+            context.user_data.pop("nuevo_producto", None)
+            context.user_data.pop("paso_producto", None)
+            await update.message.reply_text("❌ Cancelado. El producto no fue guardado.")
+        return True
+
+    return False
+
+
+async def _mostrar_confirmacion(update, prod: dict):
+    """Muestra resumen del producto antes de guardar."""
+    lineas = [
+        f"📦 Confirmar producto nuevo:\n",
+        f"Nombre:    {prod['nombre']}",
+        f"Categoría: {prod['categoria']}",
+        f"Precio:    ${prod['precio_unidad']:,.0f}",
+    ]
+    fracs = prod.get("fracciones", {})
+    if fracs:
+        lineas.append("Fracciones:")
+        for frac, p_unit in fracs.items():
+            mult = {"3/4":0.75,"1/2":0.5,"1/4":0.25,"1/8":0.125,"1/16":0.0625}[frac]
+            total = round(p_unit * mult)
+            lineas.append(f"  {frac}: ${total:,.0f}  (unitario: ${p_unit:,.0f})")
+    if prod.get("precio_mayorista"):
+        lineas.append(f"Mayorista: ${prod['precio_mayorista']:,.0f} (x50+)")
+
+    lineas.append("\n¿Confirmas? (si / no)")
+    await update.message.reply_text("\n".join(lineas))
+
+
+async def _guardar_producto(update, context, prod: dict):
+    """Guarda el producto en memoria.json y en BASE_DE_DATOS_PRODUCTOS.xlsx."""
+    from utils import _normalizar
+    from memoria import (cargar_memoria, guardar_memoria, invalidar_cache_memoria,
+                         _es_producto_con_fracciones, _es_tornillo_drywall)
+
+    mem      = cargar_memoria()
+    catalogo = mem.get("catalogo", {})
+
+    nombre       = prod["nombre"]
+    categoria    = prod["categoria"]
+    precio_unidad = prod["precio_unidad"]
+    fracs_input  = prod.get("fracciones", {})
+    p_mayorista  = prod.get("precio_mayorista")
+
+    nombre_lower = _normalizar(nombre)
+    clave        = nombre_lower.replace(" ", "_")
+
+    # Construir entrada del catálogo
+    entrada = {
+        "nombre":       nombre,
+        "nombre_lower": nombre_lower,
+        "categoria":    categoria,
+        "precio_unidad": round(precio_unidad),
+    }
+
+    if _es_tornillo_drywall(nombre) and p_mayorista:
+        entrada["precio_por_cantidad"] = {
+            "umbral":              50,
+            "precio_bajo_umbral":  round(precio_unidad),
+            "precio_sobre_umbral": round(p_mayorista),
+        }
+    elif fracs_input:
+        mult_map = {"3/4":0.75,"1/2":0.5,"1/4":0.25,"1/8":0.125,"1/16":0.0625}
+        fracs_cat = {}
+        for frac, p_unit in fracs_input.items():
+            mult = mult_map[frac]
+            fracs_cat[frac] = {"precio": round(p_unit * mult)}
+        entrada["precios_fraccion"] = fracs_cat
+
+    catalogo[clave] = entrada
+    mem["catalogo"] = catalogo
+    guardar_memoria(mem)
+    invalidar_cache_memoria()
+
+    # Agregar al Excel BASE_DE_DATOS_PRODUCTOS.xlsx
+    excel_ok  = False
+    excel_msg = ""
+    try:
+        import openpyxl
+        from drive import descargar_de_drive, subir_a_drive
+        ruta = "BASE_DE_DATOS_PRODUCTOS_temp.xlsx"
+
+        descargado = await asyncio.to_thread(descargar_de_drive, "BASE_DE_DATOS_PRODUCTOS.xlsx", ruta)
+        if descargado:
+            wb = openpyxl.load_workbook(ruta)
+            ws = wb["Datos"]
+
+            # Construir fila con el mismo formato de columnas del importador
+            fila = [""] * 22  # columnas A-V
+            fila[1]  = nombre        # col B — nombre
+            fila[3]  = categoria     # col D — categoría
+            fila[16] = round(precio_unidad)  # col Q — precio unidad
+
+            mult_map = {"3/4":17,"1/2":18,"1/4":19,"1/8":20,"1/16":21}
+            for frac, col_idx in mult_map.items():
+                if frac in fracs_input:
+                    fila[col_idx] = round(fracs_input[frac])
+
+            if p_mayorista:
+                fila[17] = round(p_mayorista)  # col R — precio mayorista (3/4 slot)
+
+            ws.append(fila)
+            wb.save(ruta)
+
+            # Renombrar archivo temporal al nombre original antes de subir
+            import shutil
+            ruta_final = "BASE_DE_DATOS_PRODUCTOS.xlsx"
+            shutil.copy(ruta, ruta_final)
+            subido = await asyncio.to_thread(subir_a_drive, ruta_final)
+            excel_ok  = subido
+            excel_msg = "✅ También agregado al Excel en Drive." if subido else "⚠️ No se pudo subir el Excel a Drive."
+
+            import os
+            if os.path.exists(ruta):
+                os.remove(ruta)
+        else:
+            excel_msg = "⚠️ No se encontró BASE_DE_DATOS_PRODUCTOS.xlsx en Drive. Guardado solo en catálogo."
+    except Exception as e:
+        excel_msg = f"⚠️ Error actualizando Excel: {e}"
+
+    context.user_data.pop("nuevo_producto", None)
+    context.user_data.pop("paso_producto",  None)
+
+    await update.message.reply_text(
+        f"✅ Producto guardado en el catálogo.\n"
+        f"{excel_msg}\n\n"
+        f"Ya puedes registrar ventas de '{nombre}'."
     )
