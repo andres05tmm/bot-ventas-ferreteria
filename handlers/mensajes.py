@@ -26,6 +26,7 @@ from ventas_state import (
     get_chat_lock, registrar_ventas_con_metodo, mensajes_standby,
     esperando_correccion, ventas_esperando_cliente,
     agregar_a_standby,   # ← nueva función con cap de MAX_STANDBY
+    mensaje_contexto_pendiente,  # ← contexto previo cuando Claude solo preguntó
 )
 from excel import guardar_cliente_nuevo
 from handlers.comandos import manejar_flujo_agregar_producto
@@ -591,11 +592,40 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         await _manejar_actualizacion_masiva(update, vendedor, pares_precio)
         return
 
+    # ── Crear cliente sin venta: "agregar cliente: nombre" ──
+    _msg_lower_cli = mensaje.strip().lower()
+    _prefijos_cli = ("agregar cliente:", "nuevo cliente:", "crear cliente:", "add cliente:")
+    _match_cli = next((p for p in _prefijos_cli if _msg_lower_cli.startswith(p)), None)
+    if _match_cli:
+        nombre_nuevo = mensaje.strip()[len(_match_cli):].strip()
+        if nombre_nuevo:
+            with _estado_lock:
+                clientes_en_proceso[chat_id] = {"paso": "tipo_id", "nombre": nombre_nuevo}
+            await _enviar_pregunta_flujo_cliente(update.message, chat_id)
+        else:
+            with _estado_lock:
+                clientes_en_proceso[chat_id] = {"paso": "nombre"}
+            await _enviar_pregunta_flujo_cliente(update.message, chat_id)
+        return
+
     # ── Flujo normal con Claude ──
     try:
+        # ── Reinyectar contexto pendiente si Claude solo hizo una pregunta antes ──
+        _ctx_previo = None
+        with _estado_lock:
+            _ctx_previo = mensaje_contexto_pendiente.pop(chat_id, None)
+
+        _mensaje_para_claude = mensaje
+        if _ctx_previo and _ctx_previo != mensaje:
+            # Combinar: contexto original + respuesta actual
+            _mensaje_para_claude = f"{_ctx_previo} — {mensaje}"
+            logging.getLogger("ferrebot.mensajes").info(
+                f"[CONTEXTO] Reinyectando contexto previo: '{_ctx_previo}' + '{mensaje}'"
+            )
+
         historial     = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
-        respuesta_raw = await procesar_con_claude(f"{vendedor}: {mensaje}", vendedor, historial)
+        respuesta_raw = await procesar_con_claude(f"{vendedor}: {_mensaje_para_claude}", vendedor, historial)
         texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
@@ -605,6 +635,18 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
         cliente_desconocido = next((a for a in acciones if a.startswith("CLIENTE_DESCONOCIDO:")), None)
         logging.getLogger("ferrebot.mensajes").debug(f"[ACCIONES] acciones={acciones} | pedir_metodo={pedir_metodo}")
+
+        # ── Guardar contexto pendiente si Claude solo hizo una pregunta ──
+        # Condición: hay texto (una pregunta), pero NO hay ninguna acción de venta/pago/cliente
+        _acciones_venta = (pedir_metodo or confirmacion_accion or cliente_desconocido
+                           or pago_pend_aviso or iniciar_cliente
+                           or any(a.startswith("[VENTA]") or a.startswith("PRECIO_ACTUALIZADO") for a in acciones))
+        if texto_respuesta and not _acciones_venta and "?" in texto_respuesta:
+            with _estado_lock:
+                mensaje_contexto_pendiente[chat_id] = _mensaje_para_claude
+            logging.getLogger("ferrebot.mensajes").info(
+                f"[CONTEXTO] Guardando contexto pendiente para chat {chat_id}: '{_mensaje_para_claude[:60]}...'"
+            )
 
         _acciones_internas = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO")
 
