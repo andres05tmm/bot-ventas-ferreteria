@@ -313,19 +313,20 @@ def normalizar_numeros_audio(texto: str) -> str:
     import re as _re
 
     # ── 1. Fracciones habladas PRIMERO (antes de convertir números sueltos) ──
+    # Fracciones compuestas primero, luego simples
     _FRACS = [
-        (r'\bdos y (?:un )?medio\b',   '2-1/2'),
-        (r'\bdos y (?:una )?media\b',  '2-1/2'),
-        (r'\buno y (?:un )?medio\b',   '1-1/2'),
-        (r'\buno y (?:una )?media\b',  '1-1/2'),
-        (r'\bdos y un cuarto\b',       '2-1/4'),
-        (r'\buno y un cuarto\b',       '1-1/4'),
-        (r'\btres cuartos\b',          '3/4'),
-        (r'\btres octavos\b',          '3/8'),
-        (r'\bun cuarto\b',             '1/4'),
-        (r'\bun octavo\b',             '1/8'),
-        (r'\bmedio\b',                 '1/2'),
-        (r'\bmedia\b',                 '1/2'),
+        (r'\bcinco octavos\b',    '5/8'),
+        (r'\bsiete octavos\b',    '7/8'),
+        (r'\btres octavos\b',     '3/8'),
+        (r'\bun octavo\b',        '1/8'),
+        (r'\btres cuartos\b',     '3/4'),
+        (r'\bun cuarto\b',        '1/4'),
+        (r'\btres dieciséis\b',   '3/16'),
+        (r'\btres dieciseis\b',   '3/16'),
+        (r'\bcinco dieciséis\b',  '5/16'),
+        (r'\bcinco dieciseis\b',  '5/16'),
+        (r'\bmedio\b',            '1/2'),
+        (r'\bmedia\b',            '1/2'),
     ]
     for patron, valor in _FRACS:
         texto = _re.sub(patron, valor, texto, flags=_re.IGNORECASE)
@@ -353,10 +354,15 @@ def normalizar_numeros_audio(texto: str) -> str:
     def _comp(m): return str(int(m.group(1)) + int(m.group(2)))
     texto = _re.sub(r'\b(10|20|30|40|50|60|70|80|90)\s+y\s+([1-9])\b', _comp, texto)
 
-    # ── 4. "N por M" → "NxM" (medidas de tornillo) ──
+    # ── 4. Fracciones mixtas genéricas: "2 y 3/4" → "2-3/4" ──
+    # Funciona para cualquier combinación después de convertir números en letras:
+    # "uno y tres cuartos" → paso 1 "uno y 3/4" → paso 2 "1 y 3/4" → aquí "1-3/4"
+    texto = _re.sub(r'\b(\d+)\s+y\s+(\d+/\d+)\b', r'\1-\2', texto)
+
+    # ── 5. "N por M" → "NxM" (medidas de tornillo) ──
     texto = _re.sub(r'\b(\d+)\s+por\s+(\d+(?:[/-]\d+)?)\b', r'\1x\2', texto, flags=_re.IGNORECASE)
 
-    # ── 5. Limpiar espacios múltiples ──
+    # ── 6. Limpiar espacios múltiples ──
     texto = _re.sub(r' {2,}', ' ', texto).strip()
     return texto
 
