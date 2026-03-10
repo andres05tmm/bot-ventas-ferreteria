@@ -20,6 +20,7 @@ from handlers.comandos import (
     comando_inicio, comando_excel, comando_ventas, comando_buscar,
     comando_borrar, comando_precios, comando_caja, comando_gastos,
     comando_inventario, comando_clientes, comando_nuevo_cliente, comando_grafica, comando_fiados, comando_abono,
+    comando_pendientes,
     manejar_callback_grafica, comando_sheets, comando_cerrar_dia,
     comando_reset_ventas, comando_actualizar_catalogo, comando_consistencia,
     comando_exportar_precios, comando_keepalive,
@@ -82,6 +83,7 @@ def main():
     app.add_handler(CommandHandler("agregar_producto", comando_agregar_producto))
     app.add_handler(CommandHandler("nuevo_producto",   comando_agregar_producto))
     app.add_handler(CommandHandler("productos",        comando_productos))
+    app.add_handler(CommandHandler("pendientes",       comando_pendientes))
 
     # Mensajes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))

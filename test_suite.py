@@ -555,10 +555,162 @@ def test_integridad_catalogo(catalogo):
 # SECCIÓN 8: ESTRUCTURA DE ARCHIVOS CRÍTICOS
 # ══════════════════════════════════════════════════════════════════
 
-def test_archivos_criticos():
-    seccion("8. ESTRUCTURA DE ARCHIVOS CRÍTICOS")
+def test_pendientes(catalogo_dict=None):
+    seccion("8b. PRODUCTOS PENDIENTES")
 
-    base = os.path.dirname(__file__)
+    from datetime import datetime
+    import copy
+
+    # Simular memoria en RAM
+    mem_fake = {
+        "catalogo": catalogo_dict or {},
+        "productos_pendientes": []
+    }
+
+    def _guardar(m, urgente=False):
+        mem_fake.update(m)
+
+    def _cargar():
+        return copy.deepcopy(mem_fake)
+
+    # ── Simular detección de no-encontrado ────────────────────────────────
+    caso("Guardado automático desde aviso ⚠️")
+    try:
+        import re
+        aviso = "⚠️ No encontré en catálogo: copa sierra, llave stilson"
+        match = re.search(r'no encontré en catálogo[:\s]+(.+)', aviso, re.IGNORECASE)
+        assert match, "No matcheó el patrón"
+        nombres_raw = match.group(1).strip().rstrip('.')
+        nombres = [n.strip().lower() for n in re.split(r',| y ', nombres_raw) if n.strip()]
+        hoy = datetime.now().strftime("%Y-%m-%d")
+        hora = datetime.now().strftime("%H:%M")
+        mem = _cargar()
+        for np in nombres:
+            mem["productos_pendientes"].append({"nombre": np, "fecha": hoy, "hora": hora})
+        _guardar(mem)
+        assert len(mem_fake["productos_pendientes"]) == 2
+        ok("2 productos guardados desde aviso", str([p["nombre"] for p in mem_fake["productos_pendientes"]]))
+    except Exception as e:
+        error("Guardado automático", e)
+
+    caso("No duplica mismo producto el mismo día")
+    try:
+        hoy = datetime.now().strftime("%Y-%m-%d")
+        mem = _cargar()
+        existentes = {p["nombre"] for p in mem["productos_pendientes"] if p.get("fecha") == hoy}
+        nuevos_intentados = ["copa sierra", "martillo nuevo"]
+        agregados = 0
+        for np in nuevos_intentados:
+            if np not in existentes:
+                mem["productos_pendientes"].append({"nombre": np, "fecha": hoy, "hora": "15:00"})
+                existentes.add(np)
+                agregados += 1
+        _guardar(mem)
+        # "copa sierra" ya existía → solo "martillo nuevo" debe agregarse
+        if agregados == 1:
+            ok("No duplicó copa sierra, agregó martillo nuevo")
+        else:
+            fail("No duplicar", "1 nuevo", f"{agregados} nuevos")
+    except Exception as e:
+        error("No duplicar", e)
+
+    caso("Filtro por fecha (hoy vs otros días)")
+    try:
+        mem = _cargar()
+        mem["productos_pendientes"].append({"nombre": "producto viejo", "fecha": "2026-01-01", "hora": "10:00"})
+        _guardar(mem)
+        hoy = datetime.now().strftime("%Y-%m-%d")
+        solo_hoy = [p for p in mem_fake["productos_pendientes"] if p.get("fecha") == hoy]
+        todos = mem_fake["productos_pendientes"]
+        if len(solo_hoy) < len(todos):
+            ok(f"Filtro correcto: {len(solo_hoy)} hoy / {len(todos)} total")
+        else:
+            fail("Filtro por fecha", "menos hoy que total", f"hoy={len(solo_hoy)} total={len(todos)}")
+    except Exception as e:
+        error("Filtro fecha", e)
+
+    caso("Quitar producto de la lista")
+    try:
+        mem = _cargar()
+        antes = len(mem["productos_pendientes"])
+        mem["productos_pendientes"] = [
+            p for p in mem["productos_pendientes"]
+            if p["nombre"].lower() != "copa sierra"
+        ]
+        _guardar(mem)
+        despues = len(mem_fake["productos_pendientes"])
+        if despues == antes - 1:
+            ok(f"Quitado correctamente: {antes} → {despues} productos")
+        else:
+            fail("Quitar producto", f"{antes-1}", f"{despues}")
+    except Exception as e:
+        error("Quitar producto", e)
+
+    caso("Limpiar lista completa")
+    try:
+        mem = _cargar()
+        mem["productos_pendientes"] = []
+        _guardar(mem)
+        if len(mem_fake["productos_pendientes"]) == 0:
+            ok("Lista limpiada correctamente")
+        else:
+            fail("Limpiar lista", "0", str(len(mem_fake["productos_pendientes"])))
+    except Exception as e:
+        error("Limpiar lista", e)
+
+    caso("comando_pendientes existe en comandos.py")
+    try:
+        ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "handlers/comandos.py")
+        with open(ruta, encoding="utf-8") as f:
+            src = f.read()
+        checks = [
+            ("async def comando_pendientes",  "función definida"),
+            ("productos_pendientes",           "usa clave correcta en memoria"),
+            ("agregar ",                       "subcomando agregar"),
+            ("quitar ",                        "subcomando quitar"),
+            ("limpiar",                        "subcomando limpiar"),
+        ]
+        for sym, desc in checks:
+            if sym in src:
+                ok(f"  '{sym}' presente ({desc})")
+            else:
+                fail(f"  '{sym}'", "presente", f"NO encontrado ({desc})")
+    except Exception as e:
+        error("comando_pendientes en comandos.py", e)
+
+    caso("comando_pendientes registrado en main.py")
+    try:
+        ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py")
+        with open(ruta, encoding="utf-8") as f:
+            src = f.read()
+        if "comando_pendientes" in src:
+            ok("comando_pendientes importado y registrado en main.py")
+        else:
+            fail("main.py", "comando_pendientes", "NO encontrado")
+    except Exception as e:
+        error("main.py pendientes", e)
+
+    caso("Auto-guardado enganchado en mensajes.py")
+    try:
+        ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "handlers/mensajes.py")
+        with open(ruta, encoding="utf-8") as f:
+            src = f.read()
+        if "productos_pendientes" in src:
+            ok("Auto-guardado presente en mensajes.py")
+        else:
+            fail("mensajes.py", "productos_pendientes", "NO encontrado")
+    except Exception as e:
+        error("mensajes.py pendientes", e)
+
+
+# ══════════════════════════════════════════════════════════════════
+# SECCIÓN 9: ESTRUCTURA DE ARCHIVOS CRÍTICOS
+# ══════════════════════════════════════════════════════════════════
+
+def test_archivos_criticos():
+    seccion("9. ESTRUCTURA DE ARCHIVOS CRÍTICOS")
+
+    base = os.path.dirname(os.path.abspath(__file__))
     archivos = [
         ("ai.py",                    "Módulo principal IA"),
         ("memoria.py",               "Catálogo y fuzzy search"),
@@ -589,6 +741,7 @@ def test_archivos_criticos():
             ("_parsear_actualizacion_masiva", "parser bulk"),
             ("_enviar_pregunta_flujo_cliente", "flujo cliente"),
             ("_expandir_linea", "fix fusión L/XL"),
+            ("productos_pendientes", "auto-guardado pendientes"),
         ]
         for sym, desc in checks:
             if sym in src:
@@ -787,6 +940,8 @@ def main():
         buscar_fn or (lambda q: None),
         parsear_fn
     )
+
+    test_pendientes(catalogo_dict)
 
     test_archivos_criticos()
 

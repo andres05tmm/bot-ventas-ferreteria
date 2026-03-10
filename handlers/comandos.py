@@ -673,6 +673,126 @@ async def comando_margenes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────────
 # /clientes
 # ─────────────────────────────────────────────
+# /pendientes — productos no encontrados en catálogo
+# ─────────────────────────────────────────────
+
+async def comando_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /pendientes               → lista de hoy
+    /pendientes semana        → lista de los últimos 7 días
+    /pendientes todo          → lista completa
+    /pendientes agregar X     → agrega X manualmente
+    /pendientes quitar X      → quita X de la lista
+    /pendientes limpiar       → borra toda la lista
+    """
+    from memoria import cargar_memoria, guardar_memoria
+    from datetime import datetime, timedelta
+    import re
+
+    args = " ".join(context.args).strip() if context.args else ""
+    mem  = cargar_memoria()
+    lista = mem.get("productos_pendientes", [])
+
+    # ── AGREGAR ───────────────────────────────────────────────────────────
+    if args.lower().startswith("agregar "):
+        nombre = args[8:].strip().lower()
+        if not nombre:
+            await update.message.reply_text("Uso: /pendientes agregar nombre_producto")
+            return
+        hoy  = datetime.now().strftime("%Y-%m-%d")
+        hora = datetime.now().strftime("%H:%M")
+        # No duplicar si ya existe hoy
+        ya_existe = any(
+            p["nombre"].lower() == nombre and p.get("fecha") == hoy
+            for p in lista
+        )
+        if ya_existe:
+            await update.message.reply_text(f"ℹ️ *{nombre}* ya está en la lista de hoy.")
+            return
+        lista.append({"nombre": nombre, "fecha": hoy, "hora": hora})
+        mem["productos_pendientes"] = lista
+        guardar_memoria(mem, urgente=True)
+        await update.message.reply_text(f"✅ *{nombre}* agregado a pendientes.")
+        return
+
+    # ── QUITAR ────────────────────────────────────────────────────────────
+    if args.lower().startswith("quitar "):
+        nombre = args[7:].strip().lower()
+        if not nombre:
+            await update.message.reply_text("Uso: /pendientes quitar nombre_producto")
+            return
+        antes = len(lista)
+        lista = [p for p in lista if p["nombre"].lower() != nombre]
+        if len(lista) == antes:
+            await update.message.reply_text(f"ℹ️ No encontré *{nombre}* en la lista.")
+            return
+        mem["productos_pendientes"] = lista
+        guardar_memoria(mem, urgente=True)
+        await update.message.reply_text(f"🗑️ *{nombre}* quitado de pendientes.")
+        return
+
+    # ── LIMPIAR ───────────────────────────────────────────────────────────
+    if args.lower() == "limpiar":
+        mem["productos_pendientes"] = []
+        guardar_memoria(mem, urgente=True)
+        await update.message.reply_text("🧹 Lista de pendientes limpiada.")
+        return
+
+    # ── VER LISTA ─────────────────────────────────────────────────────────
+    hoy   = datetime.now().strftime("%Y-%m-%d")
+    desde = None
+
+    if args.lower() == "semana":
+        desde = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        titulo = "📋 *Productos pendientes — últimos 7 días:*"
+    elif args.lower() == "todo":
+        titulo = "📋 *Todos los productos pendientes:*"
+    else:
+        desde = hoy
+        titulo = "📋 *Productos pendientes de hoy:*"
+
+    if desde:
+        filtrados = [p for p in lista if p.get("fecha", "") >= desde]
+    else:
+        filtrados = lista
+
+    if not filtrados:
+        periodo = "hoy" if not args else args
+        await update.message.reply_text(
+            f"✅ No hay productos pendientes para {periodo}.\n\n"
+            f"Comandos disponibles:\n"
+            f"• /pendientes semana\n"
+            f"• /pendientes agregar nombre\n"
+            f"• /pendientes quitar nombre\n"
+            f"• /pendientes limpiar"
+        )
+        return
+
+    # Agrupar por fecha
+    por_fecha = {}
+    for p in filtrados:
+        fecha = p.get("fecha", "?")
+        por_fecha.setdefault(fecha, []).append(p)
+
+    lineas = [titulo, ""]
+    for fecha in sorted(por_fecha.keys(), reverse=True):
+        if args.lower() != "" and fecha != hoy:
+            lineas.append(f"📅 *{fecha}*")
+        items = por_fecha[fecha]
+        for p in items:
+            hora = p.get("hora", "")
+            lineas.append(f"  • {p['nombre']}" + (f" _{hora}_" if hora else ""))
+        lineas.append("")
+
+    lineas.append(f"_Total: {len(filtrados)} productos_")
+    lineas.append("")
+    lineas.append("Para quitar: /pendientes quitar nombre")
+    lineas.append("Para limpiar todo: /pendientes limpiar")
+
+    await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
 
 async def comando_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from sheets import sheets_sincronizar_clientes
@@ -1140,8 +1260,6 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
         f"📦 {importados} productos importados\n"
         f"⏭️ {omitidos} filas sin nombre (ignoradas)\n"
     )
-    if sin_precio:
-        texto += f"⚠️ {len(sin_precio)} productos con precio $0 (no importados)\n"
     if duplicados:
         texto += f"🔁 {len(duplicados)} duplicados con precio diferente\n"
     if errores:
@@ -1150,14 +1268,6 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
     await update.message.reply_text(texto)
 
     # ── Detalle de problemas ──────────────────────────────────────────────
-    if sin_precio:
-        lista = "\n".join(f"  • {n}" for n in sin_precio[:30])
-        if len(sin_precio) > 30:
-            lista += f"\n  ... y {len(sin_precio)-30} más"
-        await update.message.reply_text(
-            f"⚠️ Productos con precio $0 (agrégales precio en el Excel):\n{lista}"
-        )
-
     if duplicados:
         lista = "\n".join(f"  • {d}" for d in duplicados[:20])
         await update.message.reply_text(
