@@ -1,0 +1,5 @@
+.env
+ventas.xlsx
+__pycache__/
+dashboard/node_modules/
+dashboard/dist/
