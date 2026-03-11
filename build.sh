@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-# Instalar Node.js si no está disponible
+# Instalar Node.js via mise (ya está instalado en Railway)
 if ! command -v npm &> /dev/null; then
-    echo "📦 Instalando Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y nodejs
+    echo "📦 Instalando Node.js via mise..."
+    mise install node@20
+    eval "$(mise activate bash)"
 fi
 
 echo "✅ Node $(node --version) / npm $(npm --version)"
