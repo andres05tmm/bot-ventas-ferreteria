@@ -1,13 +1,14 @@
 """
 start.py — Proceso unificado para Railway.
 
-DISEÑO CORRECTO:
-  - API FastAPI → hilo SECUNDARIO (daemon)
-  - Bot Telegram → hilo PRINCIPAL
+DISEÑO:
+  - API FastAPI    → hilo SECUNDARIO (daemon)
+  - Bot Telegram   → hilo PRINCIPAL  (run_polling necesita signal handlers)
 
-Por qué: run_polling() registra signal handlers (SIGINT/SIGTERM) que
-Python solo permite en el hilo principal. Si el bot corre en un hilo
-secundario explota con: "set_wakeup_fd only works in main thread".
+SECUENCIA DE EVENT LOOPS:
+  1. asyncio.run(_delete_webhook()) — crea loop, lo usa, lo CIERRA
+  2. asyncio.new_event_loop()       — crea loop fresco para run_polling()
+  3. main() → run_polling()         — usa ese loop
 """
 import asyncio
 import os
@@ -38,7 +39,7 @@ api_thread = threading.Thread(target=_run_api, name="ferreapi", daemon=True)
 api_thread.start()
 log.info("🧵 Hilo de la API iniciado")
 
-# ── Borrar webhook viejo antes de arrancar polling ─────────────────────────────
+# ── Borrar webhook viejo ───────────────────────────────────────────────────────
 import config  # noqa: E402
 from telegram import Bot  # noqa: E402
 
@@ -48,8 +49,11 @@ async def _delete_webhook():
     log.info("🧹 Webhook eliminado — Telegram usará polling")
 
 asyncio.run(_delete_webhook())
+# asyncio.run() cierra el loop al terminar → crear uno nuevo para run_polling()
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
-# ── Bot en hilo PRINCIPAL (signal handlers requieren el hilo principal) ────────
+# ── Bot en hilo PRINCIPAL ──────────────────────────────────────────────────────
 log.info("🤖 Iniciando FerreBot en modo polling...")
 from main import main  # noqa: E402
 main()
