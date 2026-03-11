@@ -729,7 +729,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                             _nombres_existentes.add(_np)
                             _nuevos += 1
                     if _nuevos:
-                        _gm_pend(_mem_pend)
+                        _gm_pend(_mem_pend, urgente=True)
                         logger.info(f"[PENDIENTES] +{_nuevos} productos guardados: {_nombres_lista}")
             except Exception as _e_pend:
                 logger.warning(f"[PENDIENTES] Error guardando pendientes: {_e_pend}")
