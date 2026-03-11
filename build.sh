@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-# Instalar Node.js via mise (ya está instalado en Railway)
+# Instalar y activar Node.js via mise
 if ! command -v npm &> /dev/null; then
     echo "📦 Instalando Node.js via mise..."
-    mise install node@20
-    eval "$(mise activate bash)"
+    mise use -g node@20.20.1
+    export PATH="$HOME/.local/share/mise/shims:$PATH"
 fi
 
 echo "✅ Node $(node --version) / npm $(npm --version)"
