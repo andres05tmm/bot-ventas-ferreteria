@@ -775,16 +775,22 @@ async def comando_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE)
         por_fecha.setdefault(fecha, []).append(p)
 
     lineas = [titulo, ""]
+    total_mostrados = 0
     for fecha in sorted(por_fecha.keys(), reverse=True):
         if args.lower() != "" and fecha != hoy:
             lineas.append(f"📅 *{fecha}*")
         items = por_fecha[fecha]
+        # Deduplicar: solo mostrar una vez cada nombre exacto por fecha
+        vistos = set()
         for p in items:
-            hora = p.get("hora", "")
-            lineas.append(f"  • {p['nombre']}" + (f" _{hora}_" if hora else ""))
+            nombre = p['nombre'].strip().lower()
+            if nombre not in vistos:
+                vistos.add(nombre)
+                lineas.append(f"  • {p['nombre']}")
+                total_mostrados += 1
         lineas.append("")
 
-    lineas.append(f"_Total: {len(filtrados)} productos_")
+    lineas.append(f"_Total: {total_mostrados} productos_")
     lineas.append("")
     lineas.append("Para quitar: /pendientes quitar nombre")
     lineas.append("Para limpiar todo: /pendientes limpiar")
