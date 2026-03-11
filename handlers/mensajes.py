@@ -692,18 +692,11 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             try:
                 import re as _re_pend
                 from datetime import datetime as _dt
-<<<<<<< Updated upstream
                 # Regex flexible: acepta con/sin tilde, aplanar multilinea
                 _aviso_flat = " ".join(_aviso_no_encontrado.splitlines())
                 _match_pend = _re_pend.search(
                     r'no encontr[eé] en cat[aá]logo[:\s]+(.+)',
                     _aviso_flat,
-=======
-                # Extraer nombres después de "⚠️ No encontré en catálogo: X, Y, Z"
-                _match_pend = _re_pend.search(
-                    r'no encontré en catálogo[:\s]+(.+)', 
-                    _aviso_no_encontrado, 
->>>>>>> Stashed changes
                     _re_pend.IGNORECASE
                 )
                 if _match_pend:
@@ -714,12 +707,8 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                         for n in _re_pend.split(r',| y ', _nombres_raw)
                         if n.strip()
                     ]
-<<<<<<< Updated upstream
                     from memoria import cargar_memoria as _cm_pend, guardar_memoria as _gm_pend
                     _mem_pend = _cm_pend()
-=======
-                    _mem_pend = cargar_memoria()
->>>>>>> Stashed changes
                     if "productos_pendientes" not in _mem_pend:
                         _mem_pend["productos_pendientes"] = []
                     _hoy = _dt.now().strftime("%Y-%m-%d")
@@ -740,11 +729,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                             _nombres_existentes.add(_np)
                             _nuevos += 1
                     if _nuevos:
-<<<<<<< Updated upstream
                         _gm_pend(_mem_pend, urgente=True)
-=======
-                        guardar_memoria(_mem_pend)
->>>>>>> Stashed changes
                         logger.info(f"[PENDIENTES] +{_nuevos} productos guardados: {_nombres_lista}")
             except Exception as _e_pend:
                 logger.warning(f"[PENDIENTES] Error guardando pendientes: {_e_pend}")
