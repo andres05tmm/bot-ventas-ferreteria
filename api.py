@@ -13,10 +13,13 @@ import json
 import os
 from collections import defaultdict
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import openpyxl
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 import config
 from sheets import sheets_leer_ventas_del_dia
@@ -30,7 +33,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # restringe a tu dominio en producción
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,11 +50,6 @@ def _hace_n_dias(n: int) -> datetime:
 
 # ── Helper: leer Excel histórico ──────────────────────────────────────────────
 def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list[dict]:
-    """
-    Lee filas del Excel (ventas.xlsx) para los últimos `dias` días
-    o para todo el mes actual si mes_actual=True.
-    Retorna lista de dicts con las mismas claves que sheets_leer_ventas_del_dia().
-    """
     if not os.path.exists(config.EXCEL_FILE):
         return []
 
@@ -61,7 +59,6 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
         return []
 
     ahora = datetime.now(config.COLOMBIA_TZ)
-    # Hojas a revisar: mes actual y anterior (por si el rango cruza meses)
     hojas_candidatas = [
         f"{config.MESES[ahora.month]} {ahora.year}",
     ]
@@ -70,7 +67,6 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
     else:
         hojas_candidatas.append(f"{config.MESES[12]} {ahora.year - 1}")
 
-    # Límite inferior de fecha
     if dias is not None:
         limite = (_hace_n_dias(dias)).strftime("%Y-%m-%d")
     else:
@@ -82,7 +78,6 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
             continue
         ws = wb[nombre_hoja]
 
-        # Detectar columnas desde la fila de encabezados (fila 3)
         cols: dict[str, int] = {}
         for col in range(1, ws.max_column + 1):
             val = ws.cell(row=config.EXCEL_FILA_HEADERS, column=col).value
@@ -114,13 +109,11 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
             if fecha_raw is None:
                 continue
 
-            # Normalizar fecha a string YYYY-MM-DD
             if isinstance(fecha_raw, datetime):
                 fecha_str = fecha_raw.strftime("%Y-%m-%d")
             else:
                 fecha_str = str(fecha_raw)[:10]
 
-            # Filtro de rango
             if limite and fecha_str < limite:
                 continue
             if mes_actual and not fecha_str.startswith(f"{ahora.year}-{ahora.month:02d}"):
@@ -170,25 +163,21 @@ def _to_float(val) -> float:
 
 
 def _cantidad_a_float(val) -> float:
-    """Convierte cantidad (puede ser fracción '1 y 1/2' o decimal) a float."""
     if val is None:
         return 0.0
     s = str(val).strip()
     if not s:
         return 0.0
-    # Ya es número
     try:
         return float(s)
     except ValueError:
         pass
-    # Fracción simple: "1/2", "1/4", "3/4"
     if "/" in s and " " not in s:
         parts = s.split("/")
         try:
             return float(parts[0]) / float(parts[1])
         except (ValueError, ZeroDivisionError):
             return 0.0
-    # "N y P/Q" → N + P/Q
     if " y " in s:
         partes = s.split(" y ")
         try:
@@ -205,11 +194,9 @@ def _cantidad_a_float(val) -> float:
 
 @app.get("/ventas/hoy")
 def ventas_hoy():
-    """Ventas de hoy desde Google Sheets."""
     try:
         ventas = sheets_leer_ventas_del_dia()
         hoy = _hoy()
-        # Filtrar solo las de hoy (por si el sheet acumula varios días)
         filtradas = [v for v in ventas if str(v.get("fecha", ""))[:10] == hoy]
         return {"fecha": hoy, "ventas": filtradas, "total": len(filtradas)}
     except Exception as e:
@@ -218,7 +205,6 @@ def ventas_hoy():
 
 @app.get("/ventas/semana")
 def ventas_semana():
-    """Ventas de los últimos 7 días desde Excel."""
     try:
         ventas = _leer_excel_rango(dias=7)
         return {"ventas": ventas, "total": len(ventas)}
@@ -228,13 +214,11 @@ def ventas_semana():
 
 @app.get("/ventas/top")
 def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$")):
-    """Top 10 productos más vendidos por CANTIDAD en el período indicado."""
     try:
         dias = 7 if periodo == "semana" else None
         mes = periodo == "mes"
         ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
 
-        # Agrupar por producto
         por_producto: dict[str, dict] = defaultdict(lambda: {"unidades": 0.0, "ingresos": 0.0})
         for v in ventas:
             nombre = str(v.get("producto", "")).strip()
@@ -245,14 +229,12 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
             por_producto[nombre]["unidades"] += cantidad
             por_producto[nombre]["ingresos"] += total
 
-        # Ordenar por unidades desc, tomar top 10
         ranking = sorted(
             [{"producto": k, **v} for k, v in por_producto.items()],
             key=lambda x: x["unidades"],
             reverse=True,
         )[:10]
 
-        # Agregar posición
         for i, item in enumerate(ranking, 1):
             item["posicion"] = i
 
@@ -263,38 +245,31 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
 
 @app.get("/ventas/resumen")
 def ventas_resumen():
-    """Resumen: total hoy, total semana, número de pedidos, ticket promedio."""
     try:
         hoy = _hoy()
 
-        # Datos de hoy (desde Sheets)
         ventas_hoy_list = sheets_leer_ventas_del_dia()
         ventas_hoy_list = [v for v in ventas_hoy_list if str(v.get("fecha", ""))[:10] == hoy]
 
         total_hoy   = sum(_to_float(v.get("total", 0)) for v in ventas_hoy_list)
         pedidos_hoy = len({str(v.get("num", i)) for i, v in enumerate(ventas_hoy_list)})
 
-        # Datos de la semana (desde Excel)
         ventas_sem = _leer_excel_rango(dias=7)
         total_sem  = sum(_to_float(v.get("total", 0)) for v in ventas_sem)
 
-        # Ticket promedio: total semana / número de ventas únicas de la semana
         pedidos_sem = len({str(v.get("num", i)) for i, v in enumerate(ventas_sem)}) or 1
         ticket_prom = round(total_sem / pedidos_sem, 0) if pedidos_sem else 0
 
-        # Ventas diarias de la semana para gráfica de área
         ventas_por_dia: dict[str, float] = defaultdict(float)
         for v in ventas_sem:
             fecha = str(v.get("fecha", ""))[:10]
             ventas_por_dia[fecha] += _to_float(v.get("total", 0))
 
-        # Rellenar días sin ventas (semana)
         historico = []
         for i in range(6, -1, -1):
             dia = (_hace_n_dias(i)).strftime("%Y-%m-%d")
             historico.append({"fecha": dia, "total": ventas_por_dia.get(dia, 0)})
 
-        # Datos del mes actual para la gráfica mensual
         ventas_mes = _leer_excel_rango(mes_actual=True)
         total_mes  = sum(_to_float(v.get("total", 0)) for v in ventas_mes)
 
@@ -313,12 +288,12 @@ def ventas_resumen():
             current += timedelta(days=1)
 
         return {
-            "total_hoy":    total_hoy,
-            "pedidos_hoy":  pedidos_hoy,
-            "total_semana": total_sem,
-            "ticket_prom":  ticket_prom,
-            "historico_7d": historico,
-            "total_mes":    total_mes,
+            "total_hoy":     total_hoy,
+            "pedidos_hoy":   pedidos_hoy,
+            "total_semana":  total_sem,
+            "ticket_prom":   ticket_prom,
+            "historico_7d":  historico,
+            "total_mes":     total_mes,
             "historico_mes": historico_mes,
         }
     except Exception as e:
@@ -327,7 +302,6 @@ def ventas_resumen():
 
 @app.get("/productos")
 def productos():
-    """Todos los productos desde memoria.json."""
     try:
         if not os.path.exists(config.MEMORIA_FILE):
             return {"productos": []}
@@ -337,12 +311,12 @@ def productos():
         inventario = mem.get("inventario", {})
         lista = [
             {
-                "key":      k,
-                "nombre":   v.get("nombre", k),
+                "key":       k,
+                "nombre":    v.get("nombre", k),
                 "categoria": v.get("categoria", "Sin categoría"),
-                "precio":   v.get("precio_unidad", 0),
-                "codigo":   v.get("codigo", ""),
-                "stock":    inventario.get(k, None),
+                "precio":    v.get("precio_unidad", 0),
+                "codigo":    v.get("codigo", ""),
+                "stock":     inventario.get(k, None),
             }
             for k, v in catalogo.items()
         ]
@@ -353,7 +327,6 @@ def productos():
 
 @app.get("/inventario/bajo")
 def inventario_bajo():
-    """Productos con stock = 0 o sin precio definido."""
     try:
         if not os.path.exists(config.MEMORIA_FILE):
             return {"alertas": []}
@@ -387,11 +360,33 @@ def inventario_bajo():
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
-@app.get("/")
-def root():
-    return {
-        "servicio": "FerreBot Dashboard API",
-        "estado":   "activo",
-        "version":  "1.0.0",
-        "docs":     "/docs",
-    }
+@app.get("/api/health")
+def health():
+    return {"estado": "activo", "version": "1.0.0"}
+
+
+# ── Servir dashboard React (build estático) ───────────────────────────────────
+# Los archivos del build quedan en dashboard/dist/ después de `npm run build`
+_DIST = Path(__file__).parent / "dashboard" / "dist"
+
+if _DIST.exists():
+    # Archivos estáticos (JS, CSS, assets)
+    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+
+    # Cualquier ruta que no sea /api/* → devolver index.html (SPA routing)
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        index = _DIST / "index.html"
+        if index.exists():
+            return FileResponse(index)
+        return {"error": "Dashboard no buildeado. Ejecuta: cd dashboard && npm run build"}
+else:
+    @app.get("/")
+    def root():
+        return {
+            "servicio": "FerreBot Dashboard API",
+            "estado":   "activo",
+            "version":  "1.0.0",
+            "nota":     "Dashboard no buildeado. Ejecuta: cd dashboard && npm run build",
+            "docs":     "/docs",
+        }
