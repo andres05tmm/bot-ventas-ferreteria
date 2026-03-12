@@ -567,8 +567,9 @@ export default function TabVentasRapidas({ refreshKey }) {
         }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
       setCarrito([])
-      setToast('✅ Venta registrada')
+      setToast(`✅ Venta #${data.consecutivo} registrada · ${data.productos} producto${data.productos > 1 ? 's' : ''}`)
     } catch (e) {
       setToast(`⚠️ Error: ${e.message}`)
     } finally {
