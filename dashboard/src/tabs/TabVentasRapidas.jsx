@@ -528,19 +528,61 @@ export default function TabVentasRapidas({ refreshKey }) {
   if (loading) return <Spinner />
   if (error)   return <ErrorMsg msg={`Error cargando productos: ${error}`} />
 
+  // ── Filtro activo ──────────────────────────────────────────────────────────
+  const [filtro, setFiltro] = useState('todos')
+
+  // Botones de filtro dinámicos
+  const filtros = [
+    { key: 'todos',  label: 'Todos',           icono: '📦' },
+    { key: 'favs',   label: 'Favoritos',        icono: '⭐' },
+    { key: 'top',    label: 'Top productos',    icono: '🏆' },
+    ...catsOrdenadas.map(cat => ({ key: cat, label: catLabel(cat), icono: iconCat(cat) })),
+  ]
+
   // ── Render ─────────────────────────────────────────────────────────────────
   const seccionProps = { carrito, favKeys, onClickProd: clickProd, onFav: toggleFav }
+
+  // Qué mostrar según filtro activo
+  const mostrarSeccion = (key) => !busq.trim() && (filtro === 'todos' || filtro === key)
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 310px', gap: 16, alignItems: 'start' }}>
 
       {/* ══ PANEL IZQUIERDO ══ */}
       <div>
-        {/* Búsqueda */}
+
+        {/* ── Botones de filtro ── */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {filtros.map(f => {
+            const activo = filtro === f.key
+            return (
+              <button
+                key={f.key}
+                onClick={() => { setFiltro(f.key); setBusq('') }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '5px 12px', borderRadius: 99,
+                  background: activo ? t.accentSub : 'transparent',
+                  border: `1px solid ${activo ? t.accent : t.border}`,
+                  color: activo ? t.accent : t.textMuted,
+                  fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                  transition: 'all .15s', whiteSpace: 'nowrap',
+                }}
+                onMouseEnter={e => { if (!activo) { e.currentTarget.style.borderColor = t.accent + '66'; e.currentTarget.style.color = t.text } }}
+                onMouseLeave={e => { if (!activo) { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textMuted } }}
+              >
+                <span>{f.icono}</span>
+                {f.label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* ── Búsqueda ── */}
         <div style={{ position: 'relative', marginBottom: 18 }}>
           <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: t.textMuted, pointerEvents: 'none' }}>🔍</span>
           <input
-            value={busq} onChange={e => setBusq(e.target.value)}
+            value={busq} onChange={e => { setBusq(e.target.value); if (e.target.value) setFiltro('todos') }}
             placeholder="Buscar producto..."
             style={{
               width: '100%', background: t.card, border: `1px solid ${t.border}`,
@@ -553,41 +595,54 @@ export default function TabVentasRapidas({ refreshKey }) {
         </div>
 
         {busq.trim() ? (
-          /* Resultados de búsqueda */
           <Seccion icono="🔍" titulo={`"${busq}"`} cantidad={prodsFiltrados.length} productos={prodsFiltrados} {...seccionProps} />
         ) : (
           <>
             {/* ── Favoritos ── */}
-            {favs.length > 0 ? (
-              <Seccion icono="⭐" titulo="Favoritos" cantidad={favs.length} productos={favs} {...seccionProps} />
-            ) : (
-              <div style={{
-                border: `1px dashed ${t.border}`, borderRadius: 9,
-                padding: '12px 16px', marginBottom: 22,
-                display: 'flex', alignItems: 'center', gap: 10,
-              }}>
-                <span style={{ fontSize: 16, opacity: .4 }}>⭐</span>
-                <span style={{ fontSize: 11, color: t.textMuted }}>
-                  Marca la <strong style={{ color: '#fbbf24' }}>★</strong> en cualquier producto para agregarlo a favoritos
-                </span>
-              </div>
+            {mostrarSeccion('favs') && (
+              favs.length > 0 ? (
+                <Seccion icono="⭐" titulo="Favoritos" cantidad={favs.length} productos={favs} {...seccionProps} />
+              ) : filtro === 'favs' ? (
+                <div style={{
+                  border: `1px dashed ${t.border}`, borderRadius: 9,
+                  padding: '24px 16px', marginBottom: 22, textAlign: 'center',
+                }}>
+                  <div style={{ fontSize: 28, opacity: .3, marginBottom: 8 }}>⭐</div>
+                  <span style={{ fontSize: 12, color: t.textMuted }}>
+                    Aún no tienes favoritos.<br />Marca la <strong style={{ color: '#fbbf24' }}>★</strong> en cualquier producto para agregarlo.
+                  </span>
+                </div>
+              ) : (
+                <div style={{
+                  border: `1px dashed ${t.border}`, borderRadius: 9,
+                  padding: '12px 16px', marginBottom: 22,
+                  display: 'flex', alignItems: 'center', gap: 10,
+                }}>
+                  <span style={{ fontSize: 16, opacity: .4 }}>⭐</span>
+                  <span style={{ fontSize: 11, color: t.textMuted }}>
+                    Marca la <strong style={{ color: '#fbbf24' }}>★</strong> en cualquier producto para agregarlo a favoritos
+                  </span>
+                </div>
+              )
             )}
 
             {/* ── Top productos ── */}
-            {tops.length > 0 && (
+            {mostrarSeccion('top') && tops.length > 0 && (
               <Seccion icono="🏆" titulo="Top productos del mes" cantidad={tops.length} productos={tops} {...seccionProps} />
             )}
 
             {/* ── Categorías ── */}
             {catsOrdenadas.map(cat => (
-              <Seccion
-                key={cat}
-                icono={iconCat(cat)}
-                titulo={catLabel(cat)}
-                cantidad={catMap[cat].length}
-                productos={catMap[cat]}
-                {...seccionProps}
-              />
+              mostrarSeccion(cat) && (
+                <Seccion
+                  key={cat}
+                  icono={iconCat(cat)}
+                  titulo={catLabel(cat)}
+                  cantidad={catMap[cat].length}
+                  productos={catMap[cat]}
+                  {...seccionProps}
+                />
+              )
             ))}
           </>
         )}
