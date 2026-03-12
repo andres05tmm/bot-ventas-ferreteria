@@ -418,25 +418,44 @@ def caja():
         )
         total_gastos      = sum(g.get("monto", 0) for g in gastos_hoy)
 
-        efectivo     = _to_float(caja_data.get("efectivo", 0))
+        abierta = caja_data.get("abierta", False)
+
+        # Si la caja está cerrada, mostrar ceros — los valores guardados
+        # corresponden al último día activo y no deben mostrarse como "de hoy"
+        if not abierta:
+            return {
+                "abierta":           False,
+                "fecha":             caja_data.get("fecha"),
+                "monto_apertura":    0,
+                "efectivo":          0,
+                "transferencias":    0,
+                "datafono":          0,
+                "total_ventas":      0,
+                "total_gastos_caja": 0,
+                "total_gastos":      0,
+                "efectivo_esperado": 0,
+                "gastos":            [],
+            }
+
+        efectivo       = _to_float(caja_data.get("efectivo", 0))
         transferencias = _to_float(caja_data.get("transferencias", 0))
-        datafono     = _to_float(caja_data.get("datafono", 0))
-        apertura     = _to_float(caja_data.get("monto_apertura", 0))
-        total_ventas = efectivo + transferencias + datafono
+        datafono       = _to_float(caja_data.get("datafono", 0))
+        apertura       = _to_float(caja_data.get("monto_apertura", 0))
+        total_ventas      = efectivo + transferencias + datafono
         efectivo_esperado = apertura + efectivo - total_gastos_caja
 
         return {
-            "abierta":          caja_data.get("abierta", False),
-            "fecha":            caja_data.get("fecha"),
-            "monto_apertura":   apertura,
-            "efectivo":         efectivo,
-            "transferencias":   transferencias,
-            "datafono":         datafono,
-            "total_ventas":     total_ventas,
+            "abierta":           True,
+            "fecha":             caja_data.get("fecha"),
+            "monto_apertura":    apertura,
+            "efectivo":          efectivo,
+            "transferencias":    transferencias,
+            "datafono":          datafono,
+            "total_ventas":      total_ventas,
             "total_gastos_caja": total_gastos_caja,
-            "total_gastos":     total_gastos,
+            "total_gastos":      total_gastos,
             "efectivo_esperado": efectivo_esperado,
-            "gastos":           gastos_hoy,
+            "gastos":            gastos_hoy,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
