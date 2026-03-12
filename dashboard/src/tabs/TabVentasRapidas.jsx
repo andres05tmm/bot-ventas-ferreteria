@@ -405,6 +405,7 @@ export default function TabVentasRapidas({ refreshKey }) {
 
   const [favKeys,   setFavKeys]   = useState(loadFavs)
   const [busq,      setBusq]      = useState('')
+  const [filtro,    setFiltro]    = useState('todos')
   const [carrito,   setCarrito]   = useState([])
   const [metodo,    setMetodo]    = useState('efectivo')
   const [vendedor,  setVendedor]  = useState('Dashboard')
@@ -527,9 +528,6 @@ export default function TabVentasRapidas({ refreshKey }) {
 
   if (loading) return <Spinner />
   if (error)   return <ErrorMsg msg={`Error cargando productos: ${error}`} />
-
-  // ── Filtro activo ──────────────────────────────────────────────────────────
-  const [filtro, setFiltro] = useState('todos')
 
   // Botones de filtro dinámicos
   const filtros = [
