@@ -346,12 +346,13 @@ def productos():
         inventario = mem.get("inventario", {})
         lista = [
             {
-                "key":       k,
-                "nombre":    v.get("nombre", k),
-                "categoria": v.get("categoria", "Sin categoría"),
-                "precio":    v.get("precio_unidad", 0),
-                "codigo":    v.get("codigo", ""),
-                "stock":     inventario.get(k, None),
+                "key":              k,
+                "nombre":           v.get("nombre", k),
+                "categoria":        v.get("categoria", "Sin categoría"),
+                "precio":           v.get("precio_unidad", 0),
+                "codigo":           v.get("codigo", ""),
+                "stock":            inventario.get(k, None),
+                "precios_fraccion": v.get("precios_fraccion", None),
             }
             for k, v in catalogo.items()
         ]
