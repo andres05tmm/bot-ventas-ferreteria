@@ -23,7 +23,7 @@ const REFRESH_OPTIONS = [
   { label: '5min',  value: 300 },
 ]
 
-const TABS = ['Resumen', 'Top 10', 'Inventario', 'Historial', 'Caja', 'Gastos', 'Compras', 'Catálogo', 'Kárdex', 'Resultados', 'Ventas Rápidas']
+const TABS = ['Resumen', 'Ventas Rápidas', 'Top 10', 'Inventario', 'Historial', 'Caja', 'Gastos', 'Compras', 'Catálogo', 'Kárdex', 'Resultados']
 const TAB_ICONS = {
   Resumen: '📊', 'Top 10': '🏆', Inventario: '📦', Historial: '🧾',
   Caja: '💰', Gastos: '💸', Compras: '🚚', 'Catálogo': '🏷️',
