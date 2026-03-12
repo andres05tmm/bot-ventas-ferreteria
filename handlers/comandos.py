@@ -319,6 +319,28 @@ async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caja["datafono"] = 0
         guardar_caja(caja)
         await update.message.reply_text(f"💰 Caja abierta con ${monto:,} de base.")
+
+    elif args and args[0].lower() == "reset":
+        # /caja reset — limpia los montos guardados de la última caja cerrada
+        from memoria import cargar_caja, guardar_caja
+        caja = cargar_caja()
+        if caja.get("abierta"):
+            await update.message.reply_text("⚠️ La caja está abierta. Ciérrala primero con /cerrar antes de resetear.")
+            return
+        guardar_caja({
+            "abierta": False,
+            "fecha": None,
+            "monto_apertura": 0,
+            "efectivo": 0,
+            "transferencias": 0,
+            "datafono": 0,
+        })
+        await update.message.reply_text(
+            "🗑️ Caja reseteada. Los montos anteriores fueron borrados.\n"
+            "El dashboard ya no mostrará valores de la última sesión.\n\n"
+            "Usa /caja abrir [monto] para comenzar un nuevo día."
+        )
+
     else:
         # /caja → ver estado
         resumen = obtener_resumen_caja()
