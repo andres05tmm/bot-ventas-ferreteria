@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from typing import Union
 
 import config
 from sheets import sheets_leer_ventas_del_dia
@@ -466,7 +467,7 @@ def caja():
 # ── Ventas Rápidas (desde el Dashboard) ──────────────────────────────────────
 class VentaRapidaItem(BaseModel):
     nombre:   str
-    cantidad: float | str = 1
+    cantidad: Union[float, str] = 1
     total:    float
 
 class VentaRapidaPayload(BaseModel):
