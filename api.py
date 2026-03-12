@@ -494,7 +494,8 @@ def venta_rapida(payload: VentaRapidaPayload):
                 precio_unitario = precio_unitario,
                 total           = item.total,
                 vendedor        = payload.vendedor,
-                observaciones   = f"venta-rapida/{payload.metodo}",
+                observaciones   = "venta-rapida",
+                metodo_pago     = payload.metodo,
             )
             consecutivos.append(consecutivo)
 
