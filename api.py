@@ -478,17 +478,20 @@ class VentaRapidaPayload(BaseModel):
 @app.post("/venta-rapida")
 def venta_rapida(payload: VentaRapidaPayload):
     try:
-        from excel import guardar_venta_excel, recalcular_caja_desde_excel
-        consecutivos = []
+        from excel import guardar_venta_excel, recalcular_caja_desde_excel, obtener_siguiente_consecutivo
+
+        # Un solo consecutivo para toda la venta (todos los productos del carrito)
+        consecutivo = obtener_siguiente_consecutivo()
+
+        filas = []
         for item in payload.productos:
-            # Calcular precio unitario
             try:
                 cant_num = float(item.cantidad) if isinstance(item.cantidad, (int, float)) else 1.0
             except (ValueError, TypeError):
                 cant_num = 1.0
             precio_unitario = round(item.total / cant_num, 2) if cant_num else item.total
 
-            consecutivo = guardar_venta_excel(
+            fila = guardar_venta_excel(
                 producto        = item.nombre,
                 cantidad        = cant_num,
                 precio_unitario = precio_unitario,
@@ -496,15 +499,16 @@ def venta_rapida(payload: VentaRapidaPayload):
                 vendedor        = payload.vendedor,
                 observaciones   = "venta-rapida",
                 metodo_pago     = payload.metodo,
+                consecutivo     = consecutivo,   # mismo para todos
             )
-            consecutivos.append(consecutivo)
+            filas.append(fila)
 
-        # Recalcular caja con las nuevas ventas
         recalcular_caja_desde_excel()
 
         return {
             "ok":           True,
-            "consecutivos": consecutivos,
+            "consecutivo":  consecutivo,
+            "productos":    len(filas),
             "total":        sum(i.total for i in payload.productos),
             "metodo":       payload.metodo,
         }
