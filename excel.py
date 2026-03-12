@@ -426,7 +426,7 @@ def borrar_cliente(termino: str) -> tuple[bool, str]:
 
 def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
                         observaciones="", cliente_nombre=None, cliente_id=None,
-                        codigo_producto=None, consecutivo=None) -> int:
+                        codigo_producto=None, consecutivo=None, metodo_pago=None) -> int:
     from drive import subir_a_drive
     from sheets import sheets_agregar_venta
     from memoria import cargar_memoria
@@ -466,7 +466,7 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         "subtotal":             float(total),
         "consecutivo de venta": consecutivo_final,
         "vendedor":             str(vendedor),
-        "metodo de pago":       str(observaciones),
+        "metodo de pago":       str(metodo_pago) if metodo_pago else str(observaciones),
     }
 
     # Hojas donde guardar simultáneamente
