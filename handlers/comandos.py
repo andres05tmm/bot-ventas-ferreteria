@@ -1516,12 +1516,24 @@ async def comando_keepalive(update, context):
 # ─────────────────────────────────────────────
 
 CATEGORIAS_DISPONIBLES = {
-    "1": "2 Pinturas y Disolventes",
-    "2": "1 Artículos de Ferreteria",
+    "1": "1 Artículos de Ferreteria",
+    "2": "2 Pinturas y Disolventes",
     "3": "3 Tornilleria",
     "4": "4 Impermeabilizantes y Materiales de construcción",
     "5": "5 Materiales Electricos",
 }
+
+# Nombres limpios para mostrar al usuario (sin el prefijo numérico)
+CATEGORIAS_DISPLAY = {
+    "1": "Artículos de Ferreteria",
+    "2": "Pinturas y Disolventes",
+    "3": "Tornilleria",
+    "4": "Impermeabilizantes y Materiales de construcción",
+    "5": "Materiales Eléctricos",
+}
+
+# Orden de pasos para poder retroceder
+_PASOS_ORDEN = ["nombre", "categoria", "precio"]
 
 CATEGORIAS_CON_FRACCIONES = {"2 pinturas y disolventes"}
 CATEGORIAS_TORNILLERIA    = {"3 tornilleria"}
@@ -1536,7 +1548,19 @@ async def comando_agregar_producto(update: Update, context: ContextTypes.DEFAULT
 
     await update.message.reply_text(
         "➕ Agregar producto nuevo\n\n"
-        "Escribe el nombre del producto:"
+        "Escribe el nombre del producto:\n\n"
+        "_(Escribe 'cancelar' en cualquier momento para salir)_",
+        parse_mode="Markdown"
+    )
+
+
+def _texto_categoria_prompt(nombre_prod: str) -> str:
+    cats = "\n".join(f"  {k}. {v}" for k, v in CATEGORIAS_DISPLAY.items())
+    return (
+        f"Producto: *{nombre_prod}*\n\n"
+        f"Elige la categoría:\n{cats}\n\n"
+        f"Responde con el número (1-5):\n\n"
+        f"_(Escribe 'volver' para cambiar el nombre o 'cancelar' para salir)_"
     )
 
 
@@ -1555,10 +1579,84 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
     if texto.lower() in {"cancelar", "/cancelar"}:
         context.user_data.pop("nuevo_producto", None)
         context.user_data.pop("paso_producto", None)
-        await update.message.reply_text("❌ Cancelado.")
+        await update.message.reply_text("❌ Registro cancelado.")
         return True
 
     prod = context.user_data.get("nuevo_producto", {})
+
+    # ── Volver al paso anterior ──
+    if texto.lower() in {"volver", "atras", "atrás"}:
+        if paso == "categoria":
+            context.user_data["paso_producto"] = "nombre"
+            await update.message.reply_text(
+                "↩️ Volvemos al nombre.\n\nEscribe el nombre del producto:"
+            )
+            return True
+        elif paso == "precio":
+            context.user_data["paso_producto"] = "categoria"
+            await update.message.reply_text(
+                _texto_categoria_prompt(prod.get("nombre", "")),
+                parse_mode="Markdown"
+            )
+            return True
+        elif paso in {"fracciones_3_4", "mayorista"}:
+            context.user_data["paso_producto"] = "precio"
+            await update.message.reply_text(
+                f"↩️ Volvemos al precio.\n\n"
+                f"¿Cuál es el precio de la unidad completa?\n(solo el número, ej: 50000)\n\n"
+                f"_(Escribe 'volver' para cambiar la categoría)_",
+                parse_mode="Markdown"
+            )
+            return True
+        elif paso.startswith("fracciones_"):
+            # Dentro de fracciones, volver a la fracción anterior
+            orden_fracs = ["fracciones_3_4", "fracciones_1_2", "fracciones_1_4", "fracciones_1_8", "fracciones_1_16"]
+            idx = orden_fracs.index(paso) if paso in orden_fracs else -1
+            if idx > 0:
+                paso_ant = orden_fracs[idx - 1]
+                context.user_data["paso_producto"] = paso_ant
+                fracs_labels = {"fracciones_3_4": "3/4", "fracciones_1_2": "1/2",
+                                "fracciones_1_4": "1/4", "fracciones_1_8": "1/8", "fracciones_1_16": "1/16"}
+                frac_ant = fracs_labels.get(paso_ant, "")
+                # Limpiar la fracción anterior para re-ingresarla
+                prod.get("fracciones", {}).pop(frac_ant, None)
+                context.user_data["nuevo_producto"] = prod
+                await update.message.reply_text(
+                    f"↩️ Volvemos a la fracción {frac_ant}.\n\n"
+                    f"¿Precio unitario para vender {frac_ant}?\n(Escribe 0 si no aplica)"
+                )
+            else:
+                context.user_data["paso_producto"] = "precio"
+                await update.message.reply_text(
+                    f"↩️ Volvemos al precio.\n\n"
+                    f"¿Cuál es el precio de la unidad completa?\n(solo el número, ej: 50000)"
+                )
+            return True
+        elif paso == "confirmar":
+            # Volver al último paso de datos
+            cat_lower = prod.get("categoria", "").lower()
+            if cat_lower in CATEGORIAS_CON_FRACCIONES:
+                context.user_data["paso_producto"] = "fracciones_1_16"
+                await update.message.reply_text(
+                    "↩️ Volvemos a la última fracción.\n\n"
+                    "¿Precio unitario para vender 1/16?\n(Escribe 0 si no aplica)"
+                )
+            elif cat_lower in CATEGORIAS_TORNILLERIA:
+                context.user_data["paso_producto"] = "mayorista"
+                await update.message.reply_text(
+                    "↩️ Volvemos al precio mayorista.\n\n"
+                    "¿Cuál es el precio unitario para compras de 50 o más unidades?\n(Escribe 0 si no aplica)"
+                )
+            else:
+                context.user_data["paso_producto"] = "precio"
+                await update.message.reply_text(
+                    "↩️ Volvemos al precio.\n\n"
+                    "¿Cuál es el precio de la unidad completa?\n(solo el número, ej: 50000)"
+                )
+            return True
+        else:
+            await update.message.reply_text("Ya estás en el primer paso. Escribe 'cancelar' para salir.")
+            return True
 
     # ── Paso 1: nombre ──
     if paso == "nombre":
@@ -1569,11 +1667,9 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
         context.user_data["nuevo_producto"] = prod
         context.user_data["paso_producto"]  = "categoria"
 
-        cats = "\n".join(f"  {k}. {v}" for k, v in CATEGORIAS_DISPONIBLES.items())
         await update.message.reply_text(
-            f"Producto: {texto}\n\n"
-            f"Elige la categoría:\n{cats}\n\n"
-            f"Responde con el número (1-5):"
+            _texto_categoria_prompt(texto),
+            parse_mode="Markdown"
         )
         return True
 
@@ -1586,11 +1682,14 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
         prod["categoria"] = categoria
         context.user_data["nuevo_producto"] = prod
         context.user_data["paso_producto"]  = "precio"
+        nombre_display = CATEGORIAS_DISPLAY[texto]
 
         await update.message.reply_text(
-            f"Categoría: {categoria}\n\n"
+            f"Categoría: *{nombre_display}*\n\n"
             f"¿Cuál es el precio de la unidad completa?\n"
-            f"(solo el número, ej: 50000)"
+            f"(solo el número, ej: 50000)\n\n"
+            f"_(Escribe 'volver' para cambiar la categoría)_",
+            parse_mode="Markdown"
         )
         return True
 
@@ -1616,14 +1715,17 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
                 f"Es de Pinturas/Disolventes — necesito los precios por fracción.\n"
                 f"(Escribe 0 si no aplica esa fracción)\n\n"
                 f"¿Precio unitario para vender 3/4?\n"
-                f"(precio que multiplicado × 0.75 da el total)"
+                f"_(Escribe 'volver' para corregir el precio base)_",
+                parse_mode="Markdown"
             )
         elif cat_lower in CATEGORIAS_TORNILLERIA:
             context.user_data["paso_producto"] = "mayorista"
             await update.message.reply_text(
                 f"Precio base: ${precio:,.0f}\n\n"
                 f"Es Tornillería — ¿cuál es el precio unitario para compras de 50 o más unidades?\n"
-                f"(Escribe 0 si no aplica precio mayorista)"
+                f"(Escribe 0 si no aplica precio mayorista)\n\n"
+                f"_(Escribe 'volver' para corregir el precio base)_",
+                parse_mode="Markdown"
             )
         else:
             context.user_data["paso_producto"] = "confirmar"
@@ -1704,8 +1806,8 @@ async def _mostrar_confirmacion(update, prod: dict):
     if prod.get("precio_mayorista"):
         lineas.append(f"Mayorista: ${prod['precio_mayorista']:,.0f} (x50+)")
 
-    lineas.append("\n¿Confirmas? (si / no)")
-    await update.message.reply_text("\n".join(lineas))
+    lineas.append("\n¿Confirmas? (si / no)\n_(Escribe 'volver' para corregir el último dato)_")
+    await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
 
 
 async def _guardar_producto(update, context, prod: dict):
