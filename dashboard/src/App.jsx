@@ -4,6 +4,10 @@ import TabResumen      from './tabs/TabResumen.jsx'
 import TabTopProductos from './tabs/TabTopProductos.jsx'
 import TabInventario   from './tabs/TabInventario.jsx'
 import TabHistorial    from './tabs/TabHistorial.jsx'
+import TabCaja         from './tabs/TabCaja.jsx'
+import TabGastos       from './tabs/TabGastos.jsx'
+import TabCompras      from './tabs/TabCompras.jsx'
+import TabCatalogo     from './tabs/TabCatalogo.jsx'
 
 // ── API_BASE exportado para que los tabs lo importen desde aquí ───────────────
 export const API_BASE = import.meta.env.VITE_API_URL || ''
@@ -16,8 +20,11 @@ const REFRESH_OPTIONS = [
   { label: '5min',  value: 300 },
 ]
 
-const TABS = ['Resumen', 'Top 10', 'Inventario', 'Historial']
-const TAB_ICONS = { Resumen: '📊', 'Top 10': '🏆', Inventario: '📦', Historial: '🧾' }
+const TABS = ['Resumen', 'Top 10', 'Inventario', 'Historial', 'Caja', 'Gastos', 'Compras', 'Catálogo']
+const TAB_ICONS = {
+  Resumen: '📊', 'Top 10': '🏆', Inventario: '📦', Historial: '🧾',
+  Caja: '💰', Gastos: '💸', Compras: '🚚', 'Catálogo': '🏷️',
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HEADER
@@ -262,13 +269,17 @@ function AppShell({ themeId, setThemeId }) {
         {tab === 'Top 10'     && <TabTopProductos refreshKey={refreshKey} />}
         {tab === 'Inventario' && <TabInventario   refreshKey={refreshKey} />}
         {tab === 'Historial'  && <TabHistorial    refreshKey={refreshKey} />}
+        {tab === 'Caja'       && <TabCaja         refreshKey={refreshKey} />}
+        {tab === 'Gastos'     && <TabGastos       refreshKey={refreshKey} />}
+        {tab === 'Compras'    && <TabCompras      refreshKey={refreshKey} />}
+        {tab === 'Catálogo'   && <TabCatalogo     refreshKey={refreshKey} />}
       </div>
 
       <div style={{
         borderTop: `1px solid ${t.border}`, padding: '10px 22px', marginTop: 20,
         display: 'flex', justifyContent: 'space-between',
       }}>
-        <span style={{ fontSize: 10, color: t.textMuted }}>Ferretería Punto Rojo · Dashboard v3</span>
+        <span style={{ fontSize: 10, color: t.textMuted }}>Ferretería Punto Rojo · Dashboard v4</span>
         <span style={{ fontSize: 10, color: t.textMuted }}>Google Sheets · Excel · memoria.json</span>
       </div>
     </div>
