@@ -119,7 +119,7 @@ function ProdCard({ prod, onClick, isFav, onFav, cantCarrito }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // SECCIÓN
 // ══════════════════════════════════════════════════════════════════════════════
-function Seccion({ icono, titulo, cantidad, productos, carrito, favKeys, onClickProd, onFav }) {
+function Seccion({ icono, titulo, cantidad, productos, carrito, favKeys, onClickProd, onFav, columnas = 6 }) {
   const t = useTheme()
   if (!productos.length) return null
   return (
@@ -145,7 +145,7 @@ function Seccion({ icono, titulo, cantidad, productos, carrito, favKeys, onClick
       {/* Grid */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(128px, 1fr))',
+        gridTemplateColumns: `repeat(${columnas}, 1fr)`,
         gap: 7,
       }}>
         {productos.map(p => (
@@ -406,6 +406,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [favKeys,   setFavKeys]   = useState(loadFavs)
   const [busq,      setBusq]      = useState('')
   const [filtro,    setFiltro]    = useState('todos')
+  const [columnas,  setColumnas]  = useState(6)
   const [carrito,   setCarrito]   = useState([])
   const [metodo,    setMetodo]    = useState('efectivo')
   const [vendedor,  setVendedor]  = useState('Dashboard')
@@ -538,7 +539,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   ]
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  const seccionProps = { carrito, favKeys, onClickProd: clickProd, onFav: toggleFav }
+  const seccionProps = { carrito, favKeys, onClickProd: clickProd, onFav: toggleFav, columnas }
 
   // Qué mostrar según filtro activo
   const mostrarSeccion = (key) => !busq.trim() && (filtro === 'todos' || filtro === key)
@@ -549,8 +550,8 @@ export default function TabVentasRapidas({ refreshKey }) {
       {/* ══ PANEL IZQUIERDO ══ */}
       <div>
 
-        {/* ── Botones de filtro ── */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {/* ── Botones de filtro + selector columnas ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
           {filtros.map(f => {
             const activo = filtro === f.key
             return (
@@ -574,6 +575,28 @@ export default function TabVentasRapidas({ refreshKey }) {
               </button>
             )
           })}
+
+          {/* Espaciador */}
+          <div style={{ flex: 1 }} />
+
+          {/* Selector de columnas */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 10, color: t.textMuted, marginRight: 2 }}>Columnas:</span>
+            {[4, 5, 6].map(n => (
+              <button
+                key={n}
+                onClick={() => setColumnas(n)}
+                style={{
+                  width: 26, height: 26, borderRadius: 6,
+                  background: columnas === n ? t.accentSub : 'transparent',
+                  border: `1px solid ${columnas === n ? t.accent : t.border}`,
+                  color: columnas === n ? t.accent : t.textMuted,
+                  fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: 'inherit', transition: 'all .15s',
+                }}
+              >{n}</button>
+            ))}
+          </div>
         </div>
 
         {/* ── Búsqueda ── */}
