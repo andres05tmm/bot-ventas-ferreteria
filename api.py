@@ -359,6 +359,272 @@ def inventario_bajo():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Caja del día ─────────────────────────────────────────────────────────────
+@app.get("/caja")
+def caja():
+    try:
+        if not os.path.exists(config.MEMORIA_FILE):
+            return {"caja": {}, "gastos": []}
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        caja_data = mem.get("caja_actual", {
+            "abierta": False, "fecha": None,
+            "monto_apertura": 0, "efectivo": 0,
+            "transferencias": 0, "datafono": 0,
+        })
+
+        ahora     = datetime.now(config.COLOMBIA_TZ)
+        hoy       = ahora.strftime("%Y-%m-%d")
+        gastos_hoy = mem.get("gastos", {}).get(hoy, [])
+
+        total_gastos_caja = sum(
+            g.get("monto", 0) for g in gastos_hoy
+            if g.get("origen") == "caja"
+        )
+        total_gastos      = sum(g.get("monto", 0) for g in gastos_hoy)
+
+        efectivo     = _to_float(caja_data.get("efectivo", 0))
+        transferencias = _to_float(caja_data.get("transferencias", 0))
+        datafono     = _to_float(caja_data.get("datafono", 0))
+        apertura     = _to_float(caja_data.get("monto_apertura", 0))
+        total_ventas = efectivo + transferencias + datafono
+        efectivo_esperado = apertura + efectivo - total_gastos_caja
+
+        return {
+            "abierta":          caja_data.get("abierta", False),
+            "fecha":            caja_data.get("fecha"),
+            "monto_apertura":   apertura,
+            "efectivo":         efectivo,
+            "transferencias":   transferencias,
+            "datafono":         datafono,
+            "total_ventas":     total_ventas,
+            "total_gastos_caja": total_gastos_caja,
+            "total_gastos":     total_gastos,
+            "efectivo_esperado": efectivo_esperado,
+            "gastos":           gastos_hoy,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Gastos ────────────────────────────────────────────────────────────────────
+@app.get("/gastos")
+def gastos(dias: int = Query(default=7, ge=1, le=90)):
+    try:
+        if not os.path.exists(config.MEMORIA_FILE):
+            return {"gastos": [], "total": 0, "por_categoria": {}}
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        todos_gastos = mem.get("gastos", {})
+        ahora  = datetime.now(config.COLOMBIA_TZ)
+        limite = (ahora - timedelta(days=dias - 1)).strftime("%Y-%m-%d")
+
+        resultado = []
+        por_categoria: dict[str, float] = defaultdict(float)
+        por_dia: dict[str, float]       = defaultdict(float)
+
+        for fecha, lista in todos_gastos.items():
+            if fecha < limite:
+                continue
+            for g in lista:
+                monto = _to_float(g.get("monto", 0))
+                cat   = g.get("categoria", "Sin categoría")
+                resultado.append({**g, "fecha": fecha, "monto": monto})
+                por_categoria[cat]  += monto
+                por_dia[fecha]      += monto
+
+        resultado.sort(key=lambda x: (x["fecha"], x.get("hora", "")), reverse=True)
+
+        # Historico por día para gráfica
+        historico = []
+        for i in range(dias - 1, -1, -1):
+            dia = (ahora - timedelta(days=i)).strftime("%Y-%m-%d")
+            historico.append({"fecha": dia, "total": por_dia.get(dia, 0)})
+
+        return {
+            "gastos":        resultado,
+            "total":         sum(g["monto"] for g in resultado),
+            "por_categoria": dict(por_categoria),
+            "historico":     historico,
+            "dias":          dias,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Historial de compras a proveedores ────────────────────────────────────────
+@app.get("/compras")
+def compras(dias: int = Query(default=30, ge=1, le=365)):
+    try:
+        if not os.path.exists(config.MEMORIA_FILE):
+            return {"compras": [], "total_invertido": 0, "por_proveedor": {}}
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        historial = mem.get("historial_compras", [])
+        ahora  = datetime.now(config.COLOMBIA_TZ)
+        limite = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d")
+
+        filtradas      = [c for c in historial if str(c.get("fecha", ""))[:10] >= limite]
+        por_proveedor: dict[str, float] = defaultdict(float)
+        por_producto:  dict[str, float] = defaultdict(float)
+
+        for c in filtradas:
+            prov = c.get("proveedor") or "Sin proveedor"
+            por_proveedor[prov] += _to_float(c.get("costo_total", 0))
+            por_producto[c.get("producto", "")] += _to_float(c.get("costo_total", 0))
+
+        filtradas.sort(key=lambda x: x.get("fecha", ""), reverse=True)
+
+        return {
+            "compras":        filtradas,
+            "total_invertido": sum(_to_float(c.get("costo_total", 0)) for c in filtradas),
+            "por_proveedor":  dict(por_proveedor),
+            "por_producto":   dict(sorted(por_producto.items(), key=lambda x: -x[1])[:20]),
+            "dias":           dias,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Top ventas (v2 — por ingresos, frecuencia o categoría) ───────────────────
+@app.get("/ventas/top2")
+def ventas_top2(
+    periodo:  str = Query(default="semana", pattern="^(semana|mes)$"),
+    criterio: str = Query(default="ingresos", pattern="^(ingresos|frecuencia|categoria)$"),
+):
+    try:
+        dias = 7 if periodo == "semana" else None
+        mes  = periodo == "mes"
+        ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
+
+        # Leer catálogo para saber la categoría de cada producto
+        cat_map: dict[str, str] = {}
+        if os.path.exists(config.MEMORIA_FILE):
+            with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+                mem = json.load(f)
+            for v in mem.get("catalogo", {}).values():
+                nombre_lower = v.get("nombre_lower", "").strip()
+                cat_map[nombre_lower] = v.get("categoria", "Sin categoría")
+
+        # Acumular por producto
+        acum: dict[str, dict] = defaultdict(lambda: {
+            "ingresos": 0.0, "frecuencia": 0, "categoria": "Sin categoría"
+        })
+        for v in ventas:
+            nombre = str(v.get("producto", "")).strip()
+            if not nombre:
+                continue
+            total = _to_float(v.get("total", 0))
+            acum[nombre]["ingresos"]   += total
+            acum[nombre]["frecuencia"] += 1
+            if acum[nombre]["categoria"] == "Sin categoría":
+                acum[nombre]["categoria"] = cat_map.get(nombre.lower(), "Sin categoría")
+
+        if criterio == "ingresos":
+            ranking = sorted(acum.items(), key=lambda x: -x[1]["ingresos"])[:10]
+            items = [{"producto": k, "valor": v["ingresos"], "frecuencia": v["frecuencia"],
+                      "categoria": v["categoria"], "posicion": i+1}
+                     for i, (k, v) in enumerate(ranking)]
+
+        elif criterio == "frecuencia":
+            ranking = sorted(acum.items(), key=lambda x: -x[1]["frecuencia"])[:10]
+            items = [{"producto": k, "valor": v["frecuencia"], "ingresos": v["ingresos"],
+                      "categoria": v["categoria"], "posicion": i+1}
+                     for i, (k, v) in enumerate(ranking)]
+
+        else:  # categoria
+            # Top 5 por ingresos dentro de cada categoría
+            por_cat: dict[str, list] = defaultdict(list)
+            for nombre, datos in acum.items():
+                por_cat[datos["categoria"]].append({"producto": nombre, **datos})
+            result_cat = {}
+            for cat, prods in por_cat.items():
+                top = sorted(prods, key=lambda x: -x["ingresos"])[:5]
+                result_cat[cat] = [{"producto": p["producto"], "valor": p["ingresos"],
+                                    "frecuencia": p["frecuencia"], "posicion": i+1}
+                                   for i, p in enumerate(top)]
+            return {"periodo": periodo, "criterio": criterio, "por_categoria": result_cat}
+
+        return {"periodo": periodo, "criterio": criterio, "top": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Catálogo navegable (para dashboard) ──────────────────────────────────────
+@app.get("/catalogo/nav")
+def catalogo_nav(q: str = Query(default="")):
+    try:
+        if not os.path.exists(config.MEMORIA_FILE):
+            return {"categorias": {}, "total": 0}
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+
+        # Filtro de búsqueda
+        q_lower = q.strip().lower()
+
+        categorias: dict[str, list] = defaultdict(list)
+        for key, prod in catalogo.items():
+            nombre   = prod.get("nombre", key)
+            categoria = prod.get("categoria", "Sin categoría")
+
+            if q_lower and q_lower not in nombre.lower() and q_lower not in (prod.get("codigo","")).lower():
+                continue
+
+            # Stock info
+            inv_data = inventario.get(key)
+            if isinstance(inv_data, dict):
+                stock = inv_data.get("cantidad")
+                costo = inv_data.get("costo_promedio")
+            else:
+                stock = inv_data
+                costo = None
+
+            # Fracciones
+            fracs = {}
+            for frac_key, frac_val in (prod.get("precios_fraccion") or {}).items():
+                if isinstance(frac_val, dict):
+                    fracs[frac_key] = frac_val.get("precio", 0)
+                else:
+                    fracs[frac_key] = frac_val
+
+            # Precio mayorista
+            ppc = prod.get("precio_por_cantidad")
+            mayorista = None
+            if ppc:
+                mayorista = {
+                    "umbral":  ppc.get("umbral", 50),
+                    "precio":  ppc.get("precio_sobre_umbral", 0),
+                }
+
+            categorias[categoria].append({
+                "key":       key,
+                "nombre":    nombre,
+                "codigo":    prod.get("codigo", ""),
+                "precio":    prod.get("precio_unidad", 0),
+                "stock":     stock,
+                "costo":     costo,
+                "fracciones": fracs,
+                "mayorista":  mayorista,
+            })
+
+        # Ordenar por prefijo numérico de categoría y productos por nombre
+        result = {}
+        for cat in sorted(categorias.keys(), key=lambda c: (int(c.split()[0]) if c[0].isdigit() else 999)):
+            prods = sorted(categorias[cat], key=lambda p: p["nombre"].lower())
+            result[cat] = prods
+
+        total = sum(len(v) for v in result.values())
+        return {"categorias": result, "total": total, "query": q}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
