@@ -20,6 +20,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 import config
 from sheets import sheets_leer_ventas_del_dia
@@ -461,7 +462,54 @@ def caja():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Gastos ────────────────────────────────────────────────────────────────────
+# ── Ventas Rápidas (desde el Dashboard) ──────────────────────────────────────
+class VentaRapidaItem(BaseModel):
+    nombre:   str
+    cantidad: float | str = 1
+    total:    float
+
+class VentaRapidaPayload(BaseModel):
+    productos: list[VentaRapidaItem]
+    metodo:    str = "efectivo"
+    vendedor:  str = "Dashboard"
+
+@app.post("/venta-rapida")
+def venta_rapida(payload: VentaRapidaPayload):
+    try:
+        from excel import guardar_venta_excel, recalcular_caja_desde_excel
+        consecutivos = []
+        for item in payload.productos:
+            # Calcular precio unitario
+            try:
+                cant_num = float(item.cantidad) if isinstance(item.cantidad, (int, float)) else 1.0
+            except (ValueError, TypeError):
+                cant_num = 1.0
+            precio_unitario = round(item.total / cant_num, 2) if cant_num else item.total
+
+            consecutivo = guardar_venta_excel(
+                producto        = item.nombre,
+                cantidad        = cant_num,
+                precio_unitario = precio_unitario,
+                total           = item.total,
+                vendedor        = payload.vendedor,
+                observaciones   = f"venta-rapida/{payload.metodo}",
+            )
+            consecutivos.append(consecutivo)
+
+        # Recalcular caja con las nuevas ventas
+        recalcular_caja_desde_excel()
+
+        return {
+            "ok":           True,
+            "consecutivos": consecutivos,
+            "total":        sum(i.total for i in payload.productos),
+            "metodo":       payload.metodo,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @app.get("/gastos")
 def gastos(dias: int = Query(default=7, ge=1, le=90)):
     try:
