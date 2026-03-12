@@ -347,6 +347,14 @@ async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💰 {resumen}")
 
 
+async def comando_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📊 *Dashboard Ferretería Punto Rojo*\n\n"
+        "🔗 https://bot-ventas-ferreteria-production.up.railway.app/",
+        parse_mode="Markdown"
+    )
+
+
 async def comando_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gastos = cargar_gastos_hoy()
     if not gastos:
