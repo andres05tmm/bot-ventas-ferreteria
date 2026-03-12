@@ -209,17 +209,42 @@ function Modal({ show, onClose, title, subtitle, children, onConfirm, okLabel = 
   )
 }
 
-function ResumenModal({ desc, total }) {
+function PrecioEditor({ precioCalc, precioFinal, onChange, desc }) {
   const t = useTheme()
+  const mod = precioFinal !== precioCalc
   return (
     <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       background: t.id === 'light' ? '#f8fafc' : '#0f0f0f',
-      border: `1px solid ${t.border}`, borderRadius: 8,
-      padding: '10px 13px', marginBottom: 0,
+      border: `1px solid ${mod ? t.yellow + '88' : t.border}`,
+      borderRadius: 8, padding: '10px 13px',
     }}>
-      <span style={{ fontSize: 12, color: t.textMuted }}>{desc || '—'}</span>
-      <span style={{ fontSize: 18, fontFamily: 'monospace', color: t.accent, fontWeight: 700 }}>{cop(total)}</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 2 }}>{desc || '—'}</div>
+          {mod && <div style={{ fontSize: 9, color: t.yellow }}>✏️ Precio especial · base {cop(precioCalc)}</div>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontSize: 13, color: t.textMuted }}>$</span>
+          <input
+            type="number" min="0"
+            value={precioFinal === 0 ? '' : precioFinal}
+            onChange={e => onChange(parseInt(e.target.value) || 0)}
+            style={{
+              width: 100, background: 'transparent', border: 'none',
+              borderBottom: `1px solid ${mod ? t.yellow : t.accent + '66'}`,
+              color: mod ? t.yellow : t.accent,
+              fontSize: 18, fontFamily: 'monospace', fontWeight: 700,
+              outline: 'none', textAlign: 'right', padding: '2px 0',
+            }}
+          />
+        </div>
+      </div>
+      {mod && (
+        <button onClick={() => onChange(precioCalc)} style={{
+          marginTop: 5, fontSize: 9, color: t.textMuted, background: 'none',
+          border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit',
+        }}>↩ Volver al precio original</button>
+      )}
     </div>
   )
 }
@@ -231,20 +256,26 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
   const t = useTheme()
   const [unidades, setUnidades] = useState(0)
   const [fracKey,  setFracKey]  = useState(null)
+  const [precioCustom, setPrecioCustom] = useState(null)
   if (!prod) return null
 
   const fracs    = prod.precios_fraccion || {}
   const fracPrecio = fracKey && fracs[fracKey] ? fracs[fracKey].precio : 0
-  const total    = unidades * prod.precio + fracPrecio
+  const totalCalc  = unidades * prod.precio + fracPrecio
+  const precioFinal = precioCustom !== null ? precioCustom : totalCalc
   const parts    = []
   if (unidades > 0) parts.push(`${unidades} ${unidades === 1 ? 'unidad' : 'unidades'}`)
   if (fracKey)      parts.push(fracKey)
   const desc     = parts.join(' + ') || '—'
   const valid    = unidades > 0 || fracKey
 
+  // Reset precio custom cuando cambia selección
+  const setFrac = (k) => { setFracKey(k); setPrecioCustom(null) }
+  const setUnid = (fn) => { setUnidades(fn); setPrecioCustom(null) }
+
   return (
     <Modal show title={prod.nombre} subtitle={`Precio unidad: ${cop(prod.precio)}`}
-      onClose={onClose} onConfirm={() => onConfirm({ unidades, fracKey, total, desc })} okDisabled={!valid}>
+      onClose={onClose} onConfirm={() => onConfirm({ unidades, fracKey, total: precioFinal, desc })} okDisabled={!valid}>
 
       {/* Unidades */}
       <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
@@ -257,9 +288,9 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
         padding: '9px 13px', marginBottom: 14,
       }}>
         <span style={{ flex: 1, fontSize: 12, color: t.textMuted }}>Galones / unidades</span>
-        <button onClick={() => setUnidades(u => Math.max(0, u - 1))} style={{ width: 26, height: 26, background: t.card, border: `1px solid ${t.border}`, borderRadius: 5, color: t.text, cursor: 'pointer', fontSize: 16 }}>−</button>
+        <button onClick={() => setUnid(u => Math.max(0, u - 1))} style={{ width: 26, height: 26, background: t.card, border: `1px solid ${t.border}`, borderRadius: 5, color: t.text, cursor: 'pointer', fontSize: 16 }}>−</button>
         <span style={{ fontFamily: 'monospace', fontSize: 17, color: t.text, minWidth: 22, textAlign: 'center' }}>{unidades}</span>
-        <button onClick={() => setUnidades(u => u + 1)} style={{ width: 26, height: 26, background: t.card, border: `1px solid ${t.border}`, borderRadius: 5, color: t.text, cursor: 'pointer', fontSize: 16 }}>+</button>
+        <button onClick={() => setUnid(u => u + 1)} style={{ width: 26, height: 26, background: t.card, border: `1px solid ${t.border}`, borderRadius: 5, color: t.text, cursor: 'pointer', fontSize: 16 }}>+</button>
       </div>
 
       {/* Fracciones */}
@@ -271,7 +302,7 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
         gridTemplateColumns: `repeat(${Math.min(Object.keys(fracs).length + 1, 3)}, 1fr)`,
         gap: 6, marginBottom: 14,
       }}>
-        <div onClick={() => setFracKey(null)} style={{
+        <div onClick={() => setFrac(null)} style={{
           padding: '8px 4px', borderRadius: 7, cursor: 'pointer', textAlign: 'center',
           background: !fracKey ? t.accentSub : (t.id === 'light' ? '#f8fafc' : '#111'),
           border: `1px solid ${!fracKey ? t.accent : t.border}`, transition: 'all .15s',
@@ -280,7 +311,7 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
           <div style={{ fontSize: 9, color: t.textMuted, marginTop: 1 }}>sólo unidades</div>
         </div>
         {Object.entries(fracs).map(([k, v]) => (
-          <div key={k} onClick={() => setFracKey(k)} style={{
+          <div key={k} onClick={() => setFrac(k)} style={{
             padding: '8px 4px', borderRadius: 7, cursor: 'pointer', textAlign: 'center',
             background: fracKey === k ? t.accentSub : (t.id === 'light' ? '#f8fafc' : '#111'),
             border: `1px solid ${fracKey === k ? t.accent : t.border}`, transition: 'all .15s',
@@ -290,7 +321,7 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
           </div>
         ))}
       </div>
-      <ResumenModal desc={desc} total={total} />
+      <PrecioEditor precioCalc={totalCalc} precioFinal={precioFinal} onChange={setPrecioCustom} desc={desc} />
     </Modal>
   )
 }
@@ -301,13 +332,15 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
 function ModalCm({ prod, onClose, onConfirm }) {
   const t = useTheme()
   const [cm, setCm] = useState('')
+  const [precioCustom, setPrecioCustom] = useState(null)
   if (!prod) return null
-  const pxcm  = Math.round((prod.precio || 0) / 100)
-  const cmNum = parseInt(cm) || 0
-  const total = cmNum * pxcm
+  const pxcm     = Math.round((prod.precio || 0) / 100)
+  const cmNum    = parseInt(cm) || 0
+  const totalCalc = cmNum * pxcm
+  const precioFinal = precioCustom !== null ? precioCustom : totalCalc
   return (
     <Modal show title={prod.nombre} subtitle={`Pliego: ${cop(prod.precio)} · ${cop(pxcm)}/cm`}
-      onClose={onClose} onConfirm={() => onConfirm({ cm: cmNum, total, desc: `${cmNum} cm` })} okDisabled={cmNum <= 0}>
+      onClose={onClose} onConfirm={() => onConfirm({ cm: cmNum, total: precioFinal, desc: `${cmNum} cm` })} okDisabled={cmNum <= 0}>
       <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
         Cantidad en centímetros
       </div>
@@ -327,7 +360,7 @@ function ModalCm({ prod, onClose, onConfirm }) {
       <div style={{ fontSize: 11, color: t.textMuted, textAlign: 'center', marginBottom: 14 }}>
         Precio por cm: <span style={{ color: t.green, fontFamily: 'monospace' }}>{cop(pxcm)}</span>
       </div>
-      <ResumenModal desc={`${cmNum} cm`} total={total} />
+      <PrecioEditor precioCalc={totalCalc} precioFinal={precioFinal} onChange={(v) => { setPrecioCustom(v) }} desc={`${cmNum} cm`} />
     </Modal>
   )
 }
@@ -338,25 +371,40 @@ function ModalCm({ prod, onClose, onConfirm }) {
 function ModalQty({ prod, onClose, onConfirm }) {
   const t = useTheme()
   const [qty, setQty] = useState(1)
+  const [precioCustom, setPrecioCustom] = useState(null)
   if (!prod) return null
-  const total = qty * prod.precio
+  const totalCalc   = qty * prod.precio
+  const precioFinal = precioCustom !== null ? precioCustom : totalCalc
+  const desc        = `${qty} ${qty === 1 ? 'unidad' : 'unidades'}`
+
+  const cambiarQty = (fn) => { setQty(fn); setPrecioCustom(null) }
+
   return (
     <Modal show title={prod.nombre} subtitle={`Precio unitario: ${cop(prod.precio)}`}
-      onClose={onClose} onConfirm={() => onConfirm({ qty, total, desc: `${qty} ${qty === 1 ? 'unidad' : 'unidades'}` })}>
+      onClose={onClose} onConfirm={() => onConfirm({ qty, total: precioFinal, desc })}>
       <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
         Cantidad
       </div>
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
         background: t.id === 'light' ? '#f8fafc' : '#111',
         border: `1px solid ${t.accent}66`, borderRadius: 8,
         padding: 14, marginBottom: 14,
       }}>
-        <button onClick={() => setQty(q => Math.max(1, q - 1))} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>−</button>
-        <span style={{ fontSize: 28, fontFamily: 'monospace', color: t.text, minWidth: 44, textAlign: 'center' }}>{qty}</span>
-        <button onClick={() => setQty(q => q + 1)} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>+</button>
+        <button onClick={() => cambiarQty(q => Math.max(1, q - 1))} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>−</button>
+        <input
+          type="number" min="1" value={qty}
+          onChange={e => { const v = parseInt(e.target.value) || 1; cambiarQty(() => v) }}
+          style={{
+            width: 60, background: 'transparent', border: 'none',
+            borderBottom: `1px solid ${t.accent}66`,
+            color: t.text, fontSize: 26, fontFamily: 'monospace',
+            outline: 'none', textAlign: 'center', padding: '2px 0',
+          }}
+        />
+        <button onClick={() => cambiarQty(q => q + 1)} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>+</button>
       </div>
-      <ResumenModal desc={`${qty} ${qty === 1 ? 'unidad' : 'unidades'}`} total={total} />
+      <PrecioEditor precioCalc={totalCalc} precioFinal={precioFinal} onChange={setPrecioCustom} desc={desc} />
     </Modal>
   )
 }
