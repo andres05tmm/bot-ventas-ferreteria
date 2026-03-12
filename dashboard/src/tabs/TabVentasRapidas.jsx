@@ -183,7 +183,7 @@ function Modal({ show, onClose, title, subtitle, children, onConfirm, okLabel = 
         borderRadius: 14, width: '100%', maxWidth: 390,
         animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)',
       }}>
-        <style>{`@keyframes mIn{from{opacity:0;transform:scale(.92) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}`}</style>
+        <style>{`@keyframes mIn{from{opacity:0;transform:scale(.92) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}} input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}`}</style>
         <div style={{ padding: '16px 18px 12px', borderBottom: `1px solid ${t.border}` }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{title}</div>
           {subtitle && <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>{subtitle}</div>}
@@ -235,6 +235,7 @@ function PrecioEditor({ precioCalc, precioFinal, onChange, desc }) {
               color: mod ? t.yellow : t.accent,
               fontSize: 18, fontFamily: 'monospace', fontWeight: 700,
               outline: 'none', textAlign: 'right', padding: '2px 0',
+              MozAppearance: 'textfield', appearance: 'textfield',
             }}
           />
         </div>
@@ -352,7 +353,7 @@ function ModalCm({ prod, onClose, onConfirm }) {
       }}>
         <input autoFocus type="number" min="1" value={cm}
           onChange={e => setCm(e.target.value)}
-          style={{ flex: 1, background: 'transparent', border: 'none', color: t.text, fontSize: 24, fontFamily: 'monospace', outline: 'none', textAlign: 'center' }}
+          style={{ flex: 1, background: 'transparent', border: 'none', color: t.text, fontSize: 24, fontFamily: 'monospace', outline: 'none', textAlign: 'center', MozAppearance: 'textfield', appearance: 'textfield' }}
           placeholder="0"
         />
         <span style={{ fontSize: 13, color: t.textMuted }}>cm</span>
@@ -400,6 +401,7 @@ function ModalQty({ prod, onClose, onConfirm }) {
             borderBottom: `1px solid ${t.accent}66`,
             color: t.text, fontSize: 26, fontFamily: 'monospace',
             outline: 'none', textAlign: 'center', padding: '2px 0',
+            MozAppearance: 'textfield', appearance: 'textfield',
           }}
         />
         <button onClick={() => cambiarQty(q => q + 1)} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>+</button>
