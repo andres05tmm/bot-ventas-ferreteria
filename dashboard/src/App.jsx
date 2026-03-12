@@ -8,8 +8,9 @@ import TabCaja         from './tabs/TabCaja.jsx'
 import TabGastos       from './tabs/TabGastos.jsx'
 import TabCompras      from './tabs/TabCompras.jsx'
 import TabCatalogo     from './tabs/TabCatalogo.jsx'
-import TabKardex       from './tabs/TabKardex.jsx'
-import TabResultados   from './tabs/TabResultados.jsx'
+import TabKardex          from './tabs/TabKardex.jsx'
+import TabResultados      from './tabs/TabResultados.jsx'
+import TabVentasRapidas   from './tabs/TabVentasRapidas.jsx'
 
 // ── API_BASE exportado para que los tabs lo importen desde aquí ───────────────
 export const API_BASE = import.meta.env.VITE_API_URL || ''
@@ -22,11 +23,11 @@ const REFRESH_OPTIONS = [
   { label: '5min',  value: 300 },
 ]
 
-const TABS = ['Resumen', 'Top 10', 'Inventario', 'Historial', 'Caja', 'Gastos', 'Compras', 'Catálogo', 'Kárdex', 'Resultados']
+const TABS = ['Resumen', 'Top 10', 'Inventario', 'Historial', 'Caja', 'Gastos', 'Compras', 'Catálogo', 'Kárdex', 'Resultados', 'Ventas Rápidas']
 const TAB_ICONS = {
   Resumen: '📊', 'Top 10': '🏆', Inventario: '📦', Historial: '🧾',
   Caja: '💰', Gastos: '💸', Compras: '🚚', 'Catálogo': '🏷️',
-  'Kárdex': '📋', 'Resultados': '📈',
+  'Kárdex': '📋', 'Resultados': '📈', 'Ventas Rápidas': '⚡',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -277,7 +278,8 @@ function AppShell({ themeId, setThemeId }) {
         {tab === 'Compras'    && <TabCompras      refreshKey={refreshKey} />}
         {tab === 'Catálogo'   && <TabCatalogo     refreshKey={refreshKey} />}
         {tab === 'Kárdex'     && <TabKardex       refreshKey={refreshKey} />}
-        {tab === 'Resultados' && <TabResultados   refreshKey={refreshKey} />}
+        {tab === 'Resultados'      && <TabResultados   refreshKey={refreshKey} />}
+        {tab === 'Ventas Rápidas'  && <TabVentasRapidas refreshKey={refreshKey} />}
       </div>
 
       <div style={{
