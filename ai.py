@@ -96,13 +96,16 @@ _ALIAS_FERRETERIA = [
     # Esmalte 3en1: normalizar variantes sin espacios
     (r'\b3en1\b', r'3 en 1'),
     (r'\b3-en-1\b', r'3 en 1'),
-    # Thinner/Varsol: litro=1/4 galón (8000), botella=1/8 galón (5000).
+    # Thinner/Varsol: litro=1/4 galón (8000), botella/botellita=1/10 galón (4000).
     # Convertimos directo a precio total antes de llegar a Claude.
-    # NOTA: (?:una?\s+)? consume artículo "una"/"un"
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellitas?\s+(?:de\s+)?thinner\b',
+        lambda m: f"{int(m.group(1) or 1) * 4000} thinner" if int(m.group(1) or 1) > 1 else "thinner 4000"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellitas?\s+(?:de\s+)?varsol\b',
+        lambda m: f"{int(m.group(1) or 1) * 4000} varsol" if int(m.group(1) or 1) > 1 else "varsol 4000"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?thinner\b',
-        lambda m: f"{int(m.group(1) or 1) * 5000} thinner" if int(m.group(1) or 1) > 1 else "thinner 5000"),
+        lambda m: f"{int(m.group(1) or 1) * 4000} thinner" if int(m.group(1) or 1) > 1 else "thinner 4000"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?varsol\b',
-        lambda m: f"{int(m.group(1) or 1) * 5000} varsol" if int(m.group(1) or 1) > 1 else "varsol 5000"),
+        lambda m: f"{int(m.group(1) or 1) * 4000} varsol" if int(m.group(1) or 1) > 1 else "varsol 4000"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?thinner\b',
         lambda m: f"{int(m.group(1) or 1) * 8000} thinner" if int(m.group(1) or 1) > 1 else "thinner 8000"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?varsol\b',
