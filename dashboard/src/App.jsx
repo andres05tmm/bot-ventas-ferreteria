@@ -18,7 +18,7 @@ function Logo({ size = 40, themeId }) {
   const red    = themeId === 'brasa' ? '#F03418' : '#D42010'
   const txt    = isDark ? '#F0E8DC' : '#1C1410'
   const sub    = isDark ? 'rgba(240,232,220,.42)' : 'rgba(28,20,16,.38)'
-  const w      = Math.round(size * 3.6)
+  const w      = Math.round(size * 4.6)
   const h      = size
   const cx     = size / 2
   const cy     = size / 2
@@ -71,7 +71,7 @@ function Logo({ size = 40, themeId }) {
       >PUNTO ROJO</text>
 
       {/* Línea roja decorativa */}
-      <rect x={size + 8} y={h * 0.875} width={size * 1.14} height={h * 0.06}
+      <rect x={size + 8} y={h * 0.875} width={size * 2.0} height={h * 0.06}
         rx={h * 0.03} fill={red} opacity="0.8"/>
     </svg>
   )
