@@ -5,6 +5,28 @@ import { createContext, useContext, useState, useEffect } from 'react'
 // TEMAS
 // ─────────────────────────────────────────────────────────────────────────────
 export const THEMES = {
+  concreto: {
+    id: 'concreto',
+    label: '🏗️ Concreto',
+    bg:         '#e8e4de',
+    header:     '#f2ede8',
+    card:       '#faf8f5',
+    cardHover:  '#f4f0ea',
+    border:     '#d0c8be',
+    borderSoft: '#e0dbd4',
+    text:       '#1a1410',
+    textSub:    '#5a5048',
+    textMuted:  '#9a9088',
+    accent:     '#b81a10',
+    accentSub:  '#b81a1018',
+    accentHov:  '#8a1008',
+    green:      '#15803d',
+    yellow:     '#b45309',
+    blue:       '#1d4ed8',
+    tableAlt:   '#fdfcfa',
+    tableFoot:  '#f5f2ee',
+    shadow:     '0 2px 12px rgba(0,0,0,.08)',
+  },
   dark: {
     id: 'dark',
     label: '🌑 Oscuro',
@@ -17,9 +39,9 @@ export const THEMES = {
     text:       '#f0e6d8',
     textSub:    '#cccccc',
     textMuted:  '#555555',
-    accent:     '#dc2626',
-    accentSub:  '#dc262614',
-    accentHov:  '#b91c1c',
+    accent:     '#cc1111',
+    accentSub:  '#cc111114',
+    accentHov:  '#991010',
     green:      '#22c55e',
     yellow:     '#fbbf24',
     blue:       '#60a5fa',
@@ -29,7 +51,7 @@ export const THEMES = {
   },
   mid: {
     id: 'mid',
-    label: '🌒 Intermedio',
+    label: '🌒 Carbón',
     bg:         '#0f1117',
     header:     '#13161e',
     card:       '#1a1d27',
@@ -39,9 +61,9 @@ export const THEMES = {
     text:       '#e2e8f0',
     textSub:    '#94a3b8',
     textMuted:  '#475569',
-    accent:     '#dc2626',
-    accentSub:  '#dc262618',
-    accentHov:  '#b91c1c',
+    accent:     '#e02020',
+    accentSub:  '#e0202018',
+    accentHov:  '#b01818',
     green:      '#22c55e',
     yellow:     '#f59e0b',
     blue:       '#818cf8',
@@ -49,34 +71,12 @@ export const THEMES = {
     tableFoot:  '#13161e',
     shadow:     '0 4px 24px rgba(0,0,0,.5)',
   },
-  light: {
-    id: 'light',
-    label: '☀️ Claro',
-    bg:         '#f1f5f9',
-    header:     '#ffffff',
-    card:       '#ffffff',
-    cardHover:  '#f8fafc',
-    border:     '#e2e8f0',
-    borderSoft: '#f1f5f9',
-    text:       '#0f172a',
-    textSub:    '#334155',
-    textMuted:  '#94a3b8',
-    accent:     '#dc2626',
-    accentSub:  '#fef2f2',
-    accentHov:  '#b91c1c',
-    green:      '#16a34a',
-    yellow:     '#d97706',
-    blue:       '#3b82f6',
-    tableAlt:   '#f8fafc',
-    tableFoot:  '#f1f5f9',
-    shadow:     '0 2px 16px rgba(0,0,0,.08)',
-  },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME CONTEXT
 // ─────────────────────────────────────────────────────────────────────────────
-export const ThemeContext = createContext(THEMES.dark)
+export const ThemeContext = createContext(THEMES.concreto)
 
 export function useTheme() {
   return useContext(ThemeContext)
@@ -207,13 +207,14 @@ export function Spinner() {
 
 export function ErrorMsg({ msg }) {
   const t = useTheme()
+  const isDark = ['dark','mid'].includes(t.id)
   return (
     <div style={{
-      background:   t.id === 'light' ? '#fef2f2' : '#1a0808',
+      background:   isDark ? '#1a0808' : '#fef2f2',
       border:       `1px solid ${t.accent}44`,
       borderRadius: 8,
       padding:      '12px 16px',
-      color:        t.id === 'light' ? '#dc2626' : '#f87171',
+      color:        isDark ? '#f87171' : t.accent,
       fontSize:     13,
     }}>
       ⚠️ {msg}
