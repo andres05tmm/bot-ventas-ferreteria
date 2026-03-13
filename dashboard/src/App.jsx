@@ -11,6 +11,7 @@ import TabCatalogo      from './tabs/TabCatalogo.jsx'
 import TabKardex        from './tabs/TabKardex.jsx'
 import TabResultados    from './tabs/TabResultados.jsx'
 import TabVentasRapidas from './tabs/TabVentasRapidas.jsx'
+import logoImg          from './assets/logo.png'
 
 const REFRESH_OPTIONS = [
   { label: 'Off', value: 0   },
@@ -53,7 +54,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
       boxShadow:t.shadow, gap:12,
     }}>
       <div style={{ display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
-        <img src="/logo.png" alt="Ferretería Punto Rojo" style={{ height:36, width:'auto', display:'block' }} />
+        <img src={logoImg} alt="Ferretería Punto Rojo" style={{ height:36, width:'auto', display:'block' }} />
         <div style={{ width:1, height:18, background:t.border }} />
         <span style={{ fontSize:10, color:t.textMuted, letterSpacing:'.1em', textTransform:'uppercase' }}>Dashboard</span>
       </div>
@@ -115,7 +116,7 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
       boxShadow:t.shadow,
     }}>
       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-        <img src="/logo.png" alt="Ferretería Punto Rojo" style={{ height:30, width:'auto', display:'block' }} />
+        <img src={logoImg} alt="Ferretería Punto Rojo" style={{ height:30, width:'auto', display:'block' }} />
       </div>
       <span style={{ fontSize:12, color:t.textMuted, fontWeight:500 }}>
         {TAB_ICONS[activeTab]} {activeTab}
