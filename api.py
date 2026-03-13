@@ -352,7 +352,7 @@ def productos():
                 "categoria":        v.get("categoria", "Sin categoría"),
                 "precio":           v.get("precio_unidad", 0),
                 "codigo":           v.get("codigo", ""),
-                "stock":            inventario.get(k, None),
+                "stock":            (lambda v: v.get("cantidad") if isinstance(v, dict) else v)(inventario.get(k)),
                 "precios_fraccion": v.get("precios_fraccion", None),
             }
             for k, v in catalogo.items()
@@ -376,10 +376,11 @@ def inventario_bajo():
         alertas = []
         for key, prod in catalogo.items():
             precio = prod.get("precio_unidad", None)
-            stock  = inventario.get(key, None)
+            raw_stock = inventario.get(key, None)
+            stock = raw_stock.get("cantidad") if isinstance(raw_stock, dict) else raw_stock
 
             sin_precio = precio is None or precio == 0
-            sin_stock  = stock is not None and (stock == 0 or stock == "0")
+            sin_stock  = stock is not None and (stock == 0 or stock == "0" or stock == 0.0)
 
             if sin_precio or sin_stock:
                 alertas.append({
@@ -1210,6 +1211,121 @@ def proyeccion():
             "serie_diaria":         serie,
             "tiene_datos":          prom_ventas_dia > 0,
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class StockUpdate(BaseModel):
+    stock: Union[float, int, None]   # None = sin stock registrado
+
+@app.patch("/inventario/{key}/stock")
+def actualizar_stock(key: str, body: StockUpdate):
+    """
+    Actualiza la cantidad en inventario de un producto.
+    Guarda en memoria.json bajo la clave 'inventario'.
+    """
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        stock_anterior = inventario.get(key)
+        if body.stock is None:
+            inventario.pop(key, None)
+        else:
+            inventario[key] = float(body.stock)
+
+        mem["inventario"] = inventario
+        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        try:
+            from memoria import invalidar_cache_memoria
+            invalidar_cache_memoria()
+        except Exception:
+            pass
+
+        return {
+            "ok":              True,
+            "key":             key,
+            "nombre":          catalogo[key].get("nombre", key),
+            "stock_anterior":  stock_anterior,
+            "stock_nuevo":     body.stock,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class StockUpdate(BaseModel):
+    stock: Union[float, int, None]
+
+@app.patch("/inventario/{key}/stock")
+def actualizar_stock(key: str, body: StockUpdate):
+    """
+    Actualiza cantidad en inventario de un producto (memoria.json).
+    Guarda en el mismo formato que usa el bot: {"cantidad": X, "nombre_original": ..., "minimo": N}
+    para mantener sincronía completa bot <-> dashboard.
+    """
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        nombre_prod    = catalogo[key].get("nombre", key)
+        entrada_actual = inventario.get(key)
+
+        # Extraer stock_anterior independientemente del formato (dict o número)
+        if isinstance(entrada_actual, dict):
+            stock_anterior = entrada_actual.get("cantidad")
+        elif entrada_actual is not None:
+            stock_anterior = float(entrada_actual)
+        else:
+            stock_anterior = None
+
+        if body.stock is None:
+            inventario.pop(key, None)
+        else:
+            # Preservar minimo si ya existe, sino usar 0
+            minimo_actual = 0
+            if isinstance(entrada_actual, dict):
+                minimo_actual = entrada_actual.get("minimo", 0)
+
+            from datetime import datetime
+            inventario[key] = {
+                "nombre_original": nombre_prod,
+                "cantidad":        float(body.stock),
+                "minimo":          minimo_actual,
+                "unidad":          "und",
+                "fecha_conteo":    datetime.now().strftime("%Y-%m-%d %H:%M"),
+            }
+
+        mem["inventario"] = inventario
+        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        try:
+            from memoria import invalidar_cache_memoria
+            invalidar_cache_memoria()
+        except Exception:
+            pass
+
+        return {
+            "ok": True, "key": key,
+            "nombre":         nombre_prod,
+            "stock_anterior": stock_anterior,
+            "stock_nuevo":    body.stock,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
