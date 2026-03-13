@@ -842,6 +842,52 @@ def actualizar_fracciones(key: str, body: FraccionesUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Sync inverso: Excel → memoria.json ───────────────────────────────────────
+@app.post("/catalogo/sync-desde-excel")
+def sync_catalogo_desde_excel():
+    """
+    Descarga BASE_DE_DATOS_PRODUCTOS.xlsx desde Drive y reimporta
+    todos los precios a memoria.json.
+    Útil cuando el Excel se edita directamente (no desde el dashboard).
+    """
+    import tempfile, os
+    try:
+        from drive import descargar_de_drive
+        from precio_sync import importar_catalogo_desde_excel
+
+        # Descargar Excel fresco de Drive a un archivo temporal
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            ruta_tmp = tmp.name
+
+        try:
+            ok = descargar_de_drive("BASE_DE_DATOS_PRODUCTOS.xlsx", ruta_tmp)
+            if not ok:
+                raise HTTPException(status_code=502, detail="No se pudo descargar el Excel de Drive")
+
+            resultado = importar_catalogo_desde_excel(ruta_tmp)
+        finally:
+            try:
+                os.unlink(ruta_tmp)
+            except Exception:
+                pass
+
+        if resultado.get("errores"):
+            logging.getLogger("ferrebot.api").warning(
+                f"sync-desde-excel errores parciales: {resultado['errores']}"
+            )
+
+        return {
+            "ok":         True,
+            "importados": resultado.get("importados", 0),
+            "omitidos":   resultado.get("omitidos", 0),
+            "errores":    resultado.get("errores", []),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Kárdex por producto ───────────────────────────────────────────────────────
 @app.get("/kardex")
 def kardex(q: str = Query(default="")):
