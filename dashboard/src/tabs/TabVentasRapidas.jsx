@@ -52,7 +52,7 @@ const SUBCATS = {
     { key: 'ferr_varios',      icono: '📦', label: 'Varios',              fn: p => !['brocha','rodillo','lija','esmeril','cinta','pele','enmascarar','cerradura','candado','cerrojo','falleba','broca','disco','martillo','metro','destornillador','exacto','espatula','tijera','formon','grapadora','machete','taladro','llave','pulidora'].some(k => nl(p.nombre).includes(k)) },
   ],
   '2 pinturas y disolventes': [
-    { key: 'pint_vinilo',    icono: '🖌️', label: 'Vinilo / Cuñetes',     fn: p => nl(p.nombre).includes('vinilo') },
+    { key: 'pint_vinilo',    icono: '🖌️', label: 'Vinilo / Cuñetes',     fn: p => nl(p.nombre).includes('vinilo') || /cu[ñn]ete/i.test(p.nombre) },
     { key: 'pint_esmalte',   icono: '🎨', label: 'Esmalte / Anticorr.',  fn: p => nl(p.nombre).includes('esmalte') || nl(p.nombre).includes('anticorrosivo') },
     { key: 'pint_laca',      icono: '🪄', label: 'Laca',                 fn: p => nl(p.nombre).includes('laca') },
     { key: 'pint_thinner',   icono: '🧪', label: 'Thinner / Varsol',     fn: p => nl(p.nombre).includes('thinner') || nl(p.nombre).includes('varsol') || nl(p.nombre).includes('tiner') },
@@ -518,15 +518,39 @@ function CartItem({ item, idx, onRemove, onQtyChange }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // MODAL COLOR PREPARADO
 // ══════════════════════════════════════════════════════════════════════════════
+// Fracciones disponibles para color preparado
+const FRACS_CP = [
+  { k: null,    label: 'Galón',  mult: 1     },
+  { k: '3/4',   label: '3/4',    mult: 0.75  },
+  { k: '1/2',   label: '1/2',    mult: 0.5   },
+  { k: '1/4',   label: '1/4',    mult: 0.25  },
+  { k: '1/8',   label: '1/8',    mult: 0.125 },
+  { k: '1/10',  label: '1/10',   mult: 0.10  },
+  { k: '1/16',  label: '1/16',   mult: 0.0625},
+]
+
 function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
   const t = useTheme()
-  const [desc,   setDesc]   = useState('')
-  const [precio, setPrecio] = useState(precioBase || 0)
+  const [desc,    setDesc]    = useState('')
+  const [precio,  setPrecio]  = useState(precioBase || 0)
+  const [qty,     setQty]     = useState(1)
+  const [frac,    setFrac]    = useState(null)   // key de fracción adicional
+  const [modoPrecio, setModoPrecio] = useState(false)  // edición manual del precio
 
-  useEffect(() => { setPrecio(precioBase || 0); setDesc('') }, [precioBase, show])
+  useEffect(() => {
+    if (show) { setPrecio(precioBase || 0); setDesc(''); setQty(1); setFrac(null); setModoPrecio(false) }
+  }, [precioBase, show])
 
   if (!show) return null
-  const valid = desc.trim().length > 0 && precio > 0
+
+  // Precio calculado automáticamente
+  const precioCalc = precioBase ? Math.round(precioBase * qty + (frac ? precioBase * FRACS_CP.find(f=>f.k===frac)?.mult : 0)) : 0
+  const precioFinal = modoPrecio ? precio : precioCalc
+  const descCompleta = [
+    qty > 0 ? `${qty} galón${qty>1?'es':''}` : null,
+    frac || null,
+  ].filter(Boolean).join(' + ')
+  const valid = desc.trim().length > 0 && precioFinal > 0
 
   return (
     <div onClick={e => e.target === e.currentTarget && onClose()} style={{
@@ -536,7 +560,8 @@ function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
     }}>
       <div style={{
         background: t.card, border: `1px solid ${t.border}`, borderRadius: 14,
-        padding: '22px 20px', width: '100%', maxWidth: 380,
+        padding: '22px 20px', width: '100%', maxWidth: 400,
+        maxHeight: '90vh', overflowY: 'auto',
         animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)',
       }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 4 }}>🎨 Color Preparado</div>
@@ -547,35 +572,81 @@ function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
         {/* Descripción */}
         <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 6 }}>Descripción del color</div>
         <input
-          autoFocus
-          value={desc}
-          onChange={e => setDesc(e.target.value)}
-          placeholder="ej: Vinilo T1 color mostaza cliente"
+          autoFocus value={desc} onChange={e => setDesc(e.target.value)}
+          placeholder="ej: Vinilo T1 mostaza cliente"
           style={{
             width: '100%', background: t.id === 'light' ? '#f8fafc' : '#111',
             border: `1px solid ${t.accent}66`, borderRadius: 8,
             color: t.text, fontSize: 13, padding: '10px 12px',
-            fontFamily: 'inherit', outline: 'none', marginBottom: 14,
+            fontFamily: 'inherit', outline: 'none', marginBottom: 16,
           }}
-          onKeyDown={e => e.key === 'Enter' && valid && onConfirm({ desc: desc.trim(), precio })}
         />
 
-        {/* Precio */}
-        <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 6 }}>Precio</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-          <span style={{ color: t.textMuted, fontSize: 14 }}>$</span>
-          <input
-            type="number" min="0"
-            value={precio === 0 ? '' : precio}
-            onChange={e => setPrecio(parseInt(e.target.value) || 0)}
-            style={{
-              flex: 1, background: t.id === 'light' ? '#f8fafc' : '#111',
-              border: `1px solid ${t.accent}66`, borderRadius: 8,
-              color: t.accent, fontSize: 18, fontFamily: 'monospace', fontWeight: 700,
-              padding: '8px 12px', outline: 'none',
-              MozAppearance: 'textfield', appearance: 'textfield',
-            }}
+        {/* Cantidad en galones */}
+        <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Galones completos</div>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
+          background: t.id === 'light' ? '#f8fafc' : '#111',
+          border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+        }}>
+          <button onClick={() => { setQty(q => Math.max(0, q-1)); setModoPrecio(false) }}
+            style={{ width: 32, height: 32, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 18 }}>−</button>
+          <input type="number" min="0" value={qty}
+            onChange={e => { setQty(parseInt(e.target.value)||0); setModoPrecio(false) }}
+            style={{ width: 52, background: 'transparent', border: 'none', borderBottom: `1px solid ${t.border}`, color: t.text, fontSize: 22, fontFamily: 'monospace', outline: 'none', textAlign: 'center', MozAppearance: 'textfield', appearance: 'textfield' }}
           />
+          <button onClick={() => { setQty(q => q+1); setModoPrecio(false) }}
+            style={{ width: 32, height: 32, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 18 }}>+</button>
+        </div>
+
+        {/* Fracción adicional */}
+        <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Fracción adicional</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+          {FRACS_CP.map(f => (
+            <button key={f.k||'gal'} onClick={() => { if (f.k === null) return; setFrac(frac === f.k ? null : f.k); setModoPrecio(false) }}
+              style={{
+                padding: '5px 12px', borderRadius: 99, cursor: f.k ? 'pointer' : 'default',
+                background: frac === f.k ? t.accentSub : (t.id==='light'?'#f1f5f9':'#1a1a1a'),
+                border: `1px solid ${frac === f.k ? t.accent : t.border}`,
+                color: frac === f.k ? t.accent : (f.k ? t.text : t.textMuted),
+                fontSize: 11, fontFamily: 'inherit', fontWeight: frac===f.k ? 600 : 400,
+              }}
+            >{f.label}</button>
+          ))}
+        </div>
+
+        {/* Precio total */}
+        <div style={{
+          background: t.id==='light'?'#f8fafc':'#0f0f0f',
+          border: `1px solid ${modoPrecio ? t.yellow+'88' : t.border}`,
+          borderRadius: 8, padding: '10px 13px', marginBottom: 20,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 11, color: t.textMuted }}>{descCompleta || '—'}</div>
+              {modoPrecio && <div style={{ fontSize: 9, color: t.yellow }}>✏️ Precio manual</div>}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontSize: 13, color: t.textMuted }}>$</span>
+              <input type="number" min="0"
+                value={precioFinal === 0 ? '' : precioFinal}
+                onChange={e => { setPrecio(parseInt(e.target.value)||0); setModoPrecio(true) }}
+                style={{
+                  width: 100, background: 'transparent', border: 'none',
+                  borderBottom: `1px solid ${modoPrecio ? t.yellow : t.accent+'66'}`,
+                  color: modoPrecio ? t.yellow : t.accent,
+                  fontSize: 18, fontFamily: 'monospace', fontWeight: 700,
+                  outline: 'none', textAlign: 'right', padding: '2px 0',
+                  MozAppearance: 'textfield', appearance: 'textfield',
+                }}
+              />
+            </div>
+          </div>
+          {modoPrecio && (
+            <button onClick={() => setModoPrecio(false)} style={{ marginTop: 5, fontSize: 9, color: t.textMuted, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              ↩ Volver al precio calculado ({cop(precioCalc)})
+            </button>
+          )}
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -583,11 +654,11 @@ function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
             padding: 11, background: 'transparent', border: `1px solid ${t.border}`,
             borderRadius: 8, color: t.textMuted, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
           }}>Cancelar</button>
-          <button onClick={() => valid && onConfirm({ desc: desc.trim(), precio })} disabled={!valid} style={{
-            padding: 11, background: valid ? t.accent : t.border,
-            border: 'none', borderRadius: 8,
-            color: valid ? '#fff' : t.textMuted,
-            cursor: valid ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
+          <button onClick={() => valid && onConfirm({ desc: desc.trim(), descCompleta, precio: precioFinal })}
+            disabled={!valid} style={{
+              padding: 11, background: valid ? t.accent : t.border, border: 'none', borderRadius: 8,
+              color: valid ? '#fff' : t.textMuted,
+              cursor: valid ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
           }}>Agregar al carrito</button>
         </div>
       </div>
@@ -602,10 +673,10 @@ const GRUPOS_CONFIG = {
   pint_vinilo: [
     { key:'T1',      icono:'🖌️', titulo:'Galón Vinilo T1',     match: p => /vinilo davinci t1/i.test(p.nombre),     getColor: p => p.nombre.replace(/Vinilo Davinci T1 /i,'').trim() },
     { key:'T2',      icono:'🖌️', titulo:'Galón Vinilo T2',     match: p => /vinilo davinci t2/i.test(p.nombre),     getColor: p => p.nombre.replace(/Vinilo Davinci T2 /i,'').trim() },
-    { key:'T3',      icono:'🖌️', titulo:'Galón Vinilo T3',     match: p => /vinilo davinci t3/i.test(p.nombre),     getColor: p => p.nombre.replace(/Vinilo Davinci T3 /i,'').trim() },
-    { key:'ico',     icono:'🖌️', titulo:'Vinilo ICO',          match: p => /vinilo ico/i.test(p.nombre) && !/cuñete|cunete/i.test(p.nombre), getColor: p => p.nombre.replace(/Vinilo ICO /i,'').trim() },
-    { key:'cunete',  icono:'🪣', titulo:'Cuñete (5 gal)',      match: p => /cuñete|cunete/i.test(p.nombre) && !/1\/2|medio/i.test(p.nombre), getColor: p => p.nombre },
-    { key:'medio',   icono:'🪣', titulo:'½ Cuñete (2.5 gal)', match: p => /(1\/2\s*cu[ñn]ete|medio\s*cu[ñn]ete)/i.test(p.nombre), getColor: p => p.nombre },
+    { key:'T3',      icono:'🖌️', titulo:'Galón Vinilo T3',     sinColorPrep: true, match: p => /vinilo davinci t3/i.test(p.nombre),     getColor: p => p.nombre.replace(/Vinilo Davinci T3 /i,'').trim() },
+    { key:'ico',     icono:'🖌️', titulo:'Vinilo ICO',          sinColorPrep: true, match: p => /vinilo ico/i.test(p.nombre) && !/cuñete|cunete/i.test(p.nombre), getColor: p => p.nombre.replace(/Vinilo ICO /i,'').trim() },
+    { key:'cunete',  icono:'🪣', titulo:'Cuñete (5 gal)',      sinPrecio: true, match: p => /cu[ñn]ete/i.test(p.nombre) && !/1\/2|medio|masilla|placco/i.test(p.nombre), getColor: p => p.nombre },
+    { key:'medio',   icono:'🪣', titulo:'½ Cuñete (2.5 gal)', sinPrecio: true, match: p => /(1\/2\s*cu[ñn]ete|medio\s*cu[ñn]ete)/i.test(p.nombre), getColor: p => p.nombre },
   ],
   pint_esmalte: [
     { key:'std',   icono:'🎨', titulo:'Esmalte estándar',  match: p => /^esmalte /i.test(p.nombre)  && !/3.en|aluminio|dorado/i.test(p.nombre), getColor: p => p.nombre.replace(/^esmalte /i,'').trim() },
@@ -648,7 +719,6 @@ function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
   if (!grupo.items.length) return null
 
   const precioBase = grupo.items[0].precio
-  const items = expandido ? grupo.items : grupo.items.slice(0, MOSTRAR_INICIAL)
   const hay_mas = grupo.items.length > MOSTRAR_INICIAL
 
   // Ordenar: Blanco primero, Negro segundo, resto alfabético
@@ -659,6 +729,7 @@ function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
     return pri(ca) - pri(cb) || ca.localeCompare(cb)
   })
   const visibles = expandido ? ordenados : ordenados.slice(0, MOSTRAR_INICIAL)
+  const etiquetaCount = grupo.items.length === 1 ? '1 opción' : `${grupo.items.length} colores`
 
   return (
     <div style={{
@@ -670,9 +741,11 @@ function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           <span style={{ fontSize: 16 }}>{grupo.icono}</span>
           <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>{grupo.titulo}</span>
-          <span style={{ fontSize: 10, color: t.textMuted }}>({grupo.items.length} colores)</span>
+          <span style={{ fontSize: 10, color: t.textMuted }}>({etiquetaCount})</span>
         </div>
-        <span style={{ fontSize: 15, fontFamily: 'monospace', fontWeight: 700, color: t.accent }}>{cop(precioBase)}</span>
+        {!grupo.sinPrecio && (
+          <span style={{ fontSize: 15, fontFamily: 'monospace', fontWeight: 700, color: t.accent }}>{cop(precioBase)}</span>
+        )}
       </div>
 
       {/* Pills de colores */}
@@ -715,7 +788,7 @@ function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
         )}
 
         {/* Botón color preparado */}
-        {onColorPrep && (
+        {onColorPrep && !grupo.sinColorPrep && !grupo.sinPrecio && (
           <button
             onClick={() => onColorPrep(precioBase)}
             style={{
@@ -1004,11 +1077,12 @@ export default function TabVentasRapidas({ refreshKey }) {
     setPrecioBaseColor(precioBase)
     setModalColorPrep(true)
   }, [])
-  const confirmarColorPrep = useCallback(({ desc, precio }) => {
+  const confirmarColorPrep = useCallback(({ desc, descCompleta, precio }) => {
     setCarrito(prev => [...prev, {
       id: Date.now(), key: `color_prep_${Date.now()}`,
       nombre: `🎨 Color Preparado: ${desc}`,
-      precio, qty: 1, total: precio, desc: '1 unidad', tipo: 'simple',
+      precio, qty: 1, total: precio,
+      desc: descCompleta || '1 galón', tipo: 'simple',
     }])
     setModalColorPrep(false)
   }, [])
