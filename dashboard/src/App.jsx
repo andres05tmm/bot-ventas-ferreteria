@@ -7,7 +7,6 @@ import TabHistorial     from './tabs/TabHistorial.jsx'
 import TabCaja          from './tabs/TabCaja.jsx'
 import TabGastos        from './tabs/TabGastos.jsx'
 import TabCompras       from './tabs/TabCompras.jsx'
-import TabCatalogo      from './tabs/TabCatalogo.jsx'
 import TabKardex        from './tabs/TabKardex.jsx'
 import TabResultados    from './tabs/TabResultados.jsx'
 import TabVentasRapidas from './tabs/TabVentasRapidas.jsx'
@@ -86,12 +85,12 @@ const REFRESH_OPTIONS = [
 
 const TABS = [
   'Resumen','Ventas Rápidas','Top 10','Inventario','Historial',
-  'Caja','Gastos','Compras','Catálogo','Kárdex','Resultados',
+  'Caja','Gastos','Compras','Kárdex','Resultados',
 ]
 const TAB_ICONS = {
   'Resumen':'📊','Ventas Rápidas':'⚡','Top 10':'🏆','Inventario':'📦',
   'Historial':'🧾','Caja':'💰','Gastos':'💸','Compras':'🚚',
-  'Catálogo':'🏷️','Kárdex':'📋','Resultados':'📈',
+  'Kárdex':'📋','Resultados':'📈',
 }
 const BOTTOM_TABS = ['Ventas Rápidas','Resumen','Historial','Caja']
 
@@ -502,7 +501,6 @@ function AppShell({ themeId, setThemeId }) {
           {tab==='Caja'           && <TabCaja          refreshKey={refreshKey}/>}
           {tab==='Gastos'         && <TabGastos        refreshKey={refreshKey}/>}
           {tab==='Compras'        && <TabCompras       refreshKey={refreshKey}/>}
-          {tab==='Catálogo'       && <TabCatalogo      refreshKey={refreshKey}/>}
           {tab==='Kárdex'         && <TabKardex        refreshKey={refreshKey}/>}
           {tab==='Resultados'     && <TabResultados    refreshKey={refreshKey}/>}
         </div>
