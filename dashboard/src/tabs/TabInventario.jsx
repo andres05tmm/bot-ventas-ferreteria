@@ -162,10 +162,10 @@ export default function TabInventario({ refreshKey }) {
                         <tr key={p.key}
                           style={{
                             borderTop: `1px solid ${t.border}`,
-                            background: esAlerta ? (t.id === 'light' ? '#fef2f2' : '#1a0808') : 'transparent',
+                            background: esAlerta ? (t.id === 'caramelo' ? '#fef2f2' : '#1a0808') : 'transparent',
                           }}
                           onMouseEnter={e => e.currentTarget.style.background = t.cardHover}
-                          onMouseLeave={e => e.currentTarget.style.background = esAlerta ? (t.id === 'light' ? '#fef2f2' : '#1a0808') : 'transparent'}
+                          onMouseLeave={e => e.currentTarget.style.background = esAlerta ? (t.id === 'caramelo' ? '#fef2f2' : '#1a0808') : 'transparent'}
                         >
                           <td style={{ padding: '9px 14px', color: t.text }}>
                             {esAlerta && (
