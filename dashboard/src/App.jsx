@@ -11,7 +11,7 @@ import TabCatalogo      from './tabs/TabCatalogo.jsx'
 import TabKardex        from './tabs/TabKardex.jsx'
 import TabResultados    from './tabs/TabResultados.jsx'
 import TabVentasRapidas from './tabs/TabVentasRapidas.jsx'
-import logoImg          from './assets/logo.png'
+const logoImg = '/logo.png'
 
 const REFRESH_OPTIONS = [
   { label: 'Off', value: 0   },
