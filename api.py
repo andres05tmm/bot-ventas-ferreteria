@@ -741,20 +741,50 @@ class FraccionesUpdate(BaseModel):
     fracciones: dict   # { "1/4": 8000, "1/2": 13000, ... }
 
 @app.patch("/catalogo/{key}/precio")
-def actualizar_precio(key: str, body: PrecioUpdate):
-    """Actualiza precio_unidad de un producto y guarda memoria.json."""
+def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
+    """
+    Actualiza precio_unidad de un producto.
+    1. Guarda en memoria.json (inmediato).
+    2. Encola actualización en BASE_DE_DATOS_PRODUCTOS.xlsx via precio_sync.
+    """
     try:
         with open(config.MEMORIA_FILE, encoding="utf-8") as f:
             mem = json.load(f)
         catalogo = mem.get("catalogo", {})
         if key not in catalogo:
             raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        nombre_prod     = catalogo[key].get("nombre", key)
         precio_anterior = catalogo[key].get("precio_unidad", 0)
-        catalogo[key]["precio_unidad"] = int(body.precio)
+        nuevo_precio    = int(body.precio)
+
+        # 1 ── memoria.json
+        catalogo[key]["precio_unidad"] = nuevo_precio
         mem["catalogo"] = catalogo
         with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
             json.dump(mem, f, ensure_ascii=False, indent=2)
-        return {"ok": True, "key": key, "precio_anterior": precio_anterior, "precio_nuevo": int(body.precio)}
+
+        # 2 ── Excel BASE_DE_DATOS_PRODUCTOS (via precio_sync, cola FIFO)
+        try:
+            from precio_sync import actualizar_precio as _sync_precio
+            from memoria import invalidar_cache_memoria
+            _sync_precio(nombre_prod, nuevo_precio, None)
+            invalidar_cache_memoria()
+        except Exception as e_sync:
+            # No bloquear la respuesta si el sync falla (el json ya se guardó)
+            import logging
+            logging.getLogger("ferrebot.api").warning(
+                f"precio_sync falló para '{nombre_prod}': {e_sync}"
+            )
+
+        return {
+            "ok":            True,
+            "key":           key,
+            "nombre":        nombre_prod,
+            "precio_anterior": precio_anterior,
+            "precio_nuevo":  nuevo_precio,
+            "excel_encolado": True,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -762,13 +792,20 @@ def actualizar_precio(key: str, body: PrecioUpdate):
 
 @app.patch("/catalogo/{key}/fracciones")
 def actualizar_fracciones(key: str, body: FraccionesUpdate):
-    """Actualiza precios_fraccion de un producto."""
+    """
+    Actualiza precios_fraccion de un producto.
+    1. Guarda en memoria.json (inmediato).
+    2. Encola cada fracción en BASE_DE_DATOS_PRODUCTOS.xlsx via precio_sync.
+    """
     try:
         with open(config.MEMORIA_FILE, encoding="utf-8") as f:
             mem = json.load(f)
         catalogo = mem.get("catalogo", {})
         if key not in catalogo:
             raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        nombre_prod = catalogo[key].get("nombre", key)
+
         # Convertir a { frac: { "precio": X } } si llegan como { frac: precio }
         fracs_formateadas = {}
         for k, v in body.fracciones.items():
@@ -776,11 +813,29 @@ def actualizar_fracciones(key: str, body: FraccionesUpdate):
                 fracs_formateadas[k] = v
             else:
                 fracs_formateadas[k] = {"precio": int(v)}
+
+        # 1 ── memoria.json
         catalogo[key]["precios_fraccion"] = fracs_formateadas
         mem["catalogo"] = catalogo
         with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
             json.dump(mem, f, ensure_ascii=False, indent=2)
-        return {"ok": True, "key": key, "fracciones": fracs_formateadas}
+
+        # 2 ── Excel: encolar cada fracción via precio_sync
+        try:
+            from precio_sync import actualizar_precio as _sync_precio
+            from memoria import invalidar_cache_memoria
+            for frac_key, frac_val in fracs_formateadas.items():
+                precio_frac = frac_val["precio"] if isinstance(frac_val, dict) else int(frac_val)
+                if precio_frac > 0:
+                    _sync_precio(nombre_prod, precio_frac, frac_key)
+            invalidar_cache_memoria()
+        except Exception as e_sync:
+            import logging
+            logging.getLogger("ferrebot.api").warning(
+                f"precio_sync fracciones falló para '{nombre_prod}': {e_sync}"
+            )
+
+        return {"ok": True, "key": key, "nombre": nombre_prod, "fracciones": fracs_formateadas}
     except HTTPException:
         raise
     except Exception as e:
