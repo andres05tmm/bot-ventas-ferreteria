@@ -513,6 +513,169 @@ function CartItem({ item, idx, onRemove, onQtyChange }) {
 }
 
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CONFIG DE GRUPOS DE COLOR
+// ══════════════════════════════════════════════════════════════════════════════
+const GRUPOS_CONFIG = {
+  pint_vinilo: [
+    { key:'T1',      icono:'🖌️', titulo:'Galón Vinilo T1',     match: p => /vinilo davinci t1/i.test(p.nombre),     getColor: p => p.nombre.replace(/Vinilo Davinci T1 /i,'').trim() },
+    { key:'T2',      icono:'🖌️', titulo:'Galón Vinilo T2',     match: p => /vinilo davinci t2/i.test(p.nombre),     getColor: p => p.nombre.replace(/Vinilo Davinci T2 /i,'').trim() },
+    { key:'T3',      icono:'🖌️', titulo:'Galón Vinilo T3',     match: p => /vinilo davinci t3/i.test(p.nombre),     getColor: p => p.nombre.replace(/Vinilo Davinci T3 /i,'').trim() },
+    { key:'ico',     icono:'🖌️', titulo:'Vinilo ICO',          match: p => /vinilo ico/i.test(p.nombre) && !/cuñete|cunete/i.test(p.nombre), getColor: p => p.nombre.replace(/Vinilo ICO /i,'').trim() },
+    { key:'cunete',  icono:'🪣', titulo:'Cuñete (5 gal)',      match: p => /cuñete|cunete/i.test(p.nombre) && !/1\/2|medio/i.test(p.nombre), getColor: p => p.nombre },
+    { key:'medio',   icono:'🪣', titulo:'½ Cuñete (2.5 gal)', match: p => /(1\/2\s*cu[ñn]ete|medio\s*cu[ñn]ete)/i.test(p.nombre), getColor: p => p.nombre },
+  ],
+  pint_esmalte: [
+    { key:'std',   icono:'🎨', titulo:'Esmalte estándar',  match: p => /^esmalte /i.test(p.nombre)  && !/3.en|aluminio|dorado/i.test(p.nombre), getColor: p => p.nombre.replace(/^esmalte /i,'').trim() },
+    { key:'anti',  icono:'🔴', titulo:'Anticorrosivo',      match: p => /^anticorrosivo /i.test(p.nombre), getColor: p => p.nombre.replace(/^anticorrosivo /i,'').trim() },
+    { key:'3en1',  icono:'🎨', titulo:'Esmalte 3 en 1',    match: p => /3.en.?1/i.test(p.nombre) && !/aluminio/i.test(p.nombre), getColor: p => p.nombre.replace(/esmalte 3 en.?1\s*/i,'').replace(/\s*(davinci|tonner|pintuco)\s*/i,' ').trim() },
+  ],
+  pint_laca: [
+    { key:'cat',     icono:'🪄', titulo:'Laca Catalizada', match: p => /catalizada/i.test(p.nombre) && !/masilla/i.test(p.nombre), getColor: p => p.nombre.replace(/laca /i,'').replace(/ catalizada/i,'').trim() },
+    { key:'corr',    icono:'🪄', titulo:'Laca Corriente',  match: p => /laca corriente/i.test(p.nombre), getColor: p => p.nombre.replace(/laca corriente\s*/i,'').trim() },
+    { key:'masilla', icono:'🧴', titulo:'Masilla Laca',    match: p => /masilla laca/i.test(p.nombre), getColor: p => p.nombre.replace(/masilla laca\s*/i,'').trim() },
+  ],
+  pint_aerosol: [
+    { key:'std',  icono:'🎭', titulo:'Aerosol estándar', match: p => /aerosol/i.test(p.nombre) && !/alta\s*temp|fluorec|silicona/i.test(p.nombre), getColor: p => p.nombre.replace(/^aerosol\s*/i,'').trim() },
+  ],
+}
+
+const SUBCATS_COLORES = Object.keys(GRUPOS_CONFIG)
+
+// ─── buildGrupos: agrupa productos por config ─────────────────────────────────
+function buildGrupos(prods, subcatKey) {
+  const config = GRUPOS_CONFIG[subcatKey]
+  if (!config) return { grupos: [], sueltos: prods }
+  const asignados = new Set()
+  const grupos = config.map(gc => {
+    const items = prods.filter(p => { if (asignados.has(p.key)) return false; const ok = gc.match(p); if (ok) asignados.add(p.key); return ok })
+    return { ...gc, items }
+  }).filter(g => g.items.length > 0)
+  const sueltos = prods.filter(p => !asignados.has(p.key))
+  return { grupos, sueltos }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GRUPO COLORES — tarjeta grande con pills de colores
+// ══════════════════════════════════════════════════════════════════════════════
+const MOSTRAR_INICIAL = 8
+
+function GrupoColores({ grupo, carrito, onAgregar }) {
+  const t = useTheme()
+  const [expandido, setExpandido] = useState(false)
+  if (!grupo.items.length) return null
+
+  const precioBase = grupo.items[0].precio
+  const items = expandido ? grupo.items : grupo.items.slice(0, MOSTRAR_INICIAL)
+  const hay_mas = grupo.items.length > MOSTRAR_INICIAL
+
+  // Ordenar: Blanco primero, Negro segundo, resto alfabético
+  const ordenados = [...grupo.items].sort((a, b) => {
+    const ca = grupo.getColor(a).toLowerCase()
+    const cb = grupo.getColor(b).toLowerCase()
+    const pri = c => c.startsWith('blanco') ? 0 : c.startsWith('negro') ? 1 : 2
+    return pri(ca) - pri(cb) || ca.localeCompare(cb)
+  })
+  const visibles = expandido ? ordenados : ordenados.slice(0, MOSTRAR_INICIAL)
+
+  return (
+    <div style={{
+      background: t.card, border: `1px solid ${t.border}`, borderRadius: 11,
+      padding: '14px 16px', marginBottom: 12,
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <span style={{ fontSize: 16 }}>{grupo.icono}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>{grupo.titulo}</span>
+          <span style={{ fontSize: 10, color: t.textMuted }}>({grupo.items.length} colores)</span>
+        </div>
+        <span style={{ fontSize: 15, fontFamily: 'monospace', fontWeight: 700, color: t.accent }}>{cop(precioBase)}</span>
+      </div>
+
+      {/* Pills de colores */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+        {visibles.map(prod => {
+          const color = grupo.getColor(prod)
+          const enCarrito = carrito.some(c => c.key === prod.key)
+          return (
+            <button
+              key={prod.key}
+              onClick={() => onAgregar(prod)}
+              style={{
+                padding: '5px 11px', borderRadius: 99, cursor: 'pointer',
+                background: enCarrito ? t.accentSub : (t.id === 'light' ? '#f1f5f9' : '#1a1a1a'),
+                border: `1px solid ${enCarrito ? t.accent : t.border}`,
+                color: enCarrito ? t.accent : t.text,
+                fontSize: 11, fontFamily: 'inherit', fontWeight: enCarrito ? 600 : 400,
+                transition: 'all .12s', whiteSpace: 'nowrap',
+              }}
+            >
+              {enCarrito && <span style={{ marginRight: 4, fontSize: 9 }}>✓</span>}
+              {color}
+            </button>
+          )
+        })}
+
+        {/* Ver más / menos */}
+        {hay_mas && (
+          <button
+            onClick={() => setExpandido(v => !v)}
+            style={{
+              padding: '5px 11px', borderRadius: 99, cursor: 'pointer',
+              background: 'transparent',
+              border: `1px dashed ${t.border}`,
+              color: t.textMuted, fontSize: 11, fontFamily: 'inherit',
+            }}
+          >
+            {expandido ? '▲ ver menos' : `+${grupo.items.length - MOSTRAR_INICIAL} más`}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISTA GRUPOS — contenedor que usa GrupoColores + cards sueltas
+// ══════════════════════════════════════════════════════════════════════════════
+function VistaGrupos({ prods, subcatKey, carrito, onClickProd, favKeys, onFav, columnas }) {
+  const t = useTheme()
+  const { grupos, sueltos } = buildGrupos(prods, subcatKey)
+
+  // Para agregar directo desde pill (producto simple)
+  const agregarDirecto = (prod) => onClickProd(prod)
+
+  return (
+    <div>
+      {grupos.map(g => (
+        <GrupoColores key={g.key} grupo={g} carrito={carrito} onAgregar={agregarDirecto} />
+      ))}
+      {sueltos.length > 0 && (
+        <div>
+          {sueltos.length > 0 && (
+            <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 8, marginTop: 4 }}>
+              Otros
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columnas}, 1fr)`, gap: 8 }}>
+            {sueltos.map(prod => (
+              <ProdCard
+                key={prod.key} prod={prod}
+                onClick={onClickProd}
+                isFav={favKeys.includes(prod.key)}
+                onFav={onFav}
+                cantCarrito={carrito.filter(c => c.key === prod.key).reduce((s,c) => s+(c.qty||1), 0)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // PANEL CARRITO (compartido desktop + drawer móvil)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -962,6 +1125,28 @@ export default function TabVentasRapidas({ refreshKey }) {
               const titulo = subActiva && cat === catActivaKey
                 ? `${catLabel(cat)} › ${subActiva.icono} ${subActiva.label}`
                 : catLabel(cat)
+
+              // Vista grupos de color (vinilos, esmaltes, lacas, aerosoles)
+              const usarGrupos = subcatFiltro && SUBCATS_COLORES.includes(subcatFiltro)
+              if (usarGrupos) {
+                return (
+                  <div key={cat}>
+                    <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 10 }}>
+                      {iconCat(cat)} {titulo}
+                    </div>
+                    <VistaGrupos
+                      prods={prodsCat}
+                      subcatKey={subcatFiltro}
+                      carrito={carrito}
+                      onClickProd={clickProd}
+                      favKeys={favKeys}
+                      onFav={toggleFav}
+                      columnas={columnas}
+                    />
+                  </div>
+                )
+              }
+
               return (
                 <Seccion
                   key={cat}
