@@ -58,7 +58,7 @@ export default function TabCaja({ refreshKey }) {
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '10px 16px',
-        background: abierta ? (t.id === 'light' ? '#f0fdf4' : '#052e1688') : (t.id === 'light' ? '#fafafa' : t.card),
+        background: abierta ? (t.id === 'caramelo' ? '#f0fdf4' : '#052e1688') : (t.id === 'caramelo' ? '#fafafa' : t.card),
         border: `1px solid ${abierta ? '#4ade8044' : t.border}`,
         borderRadius: 9,
       }}>
