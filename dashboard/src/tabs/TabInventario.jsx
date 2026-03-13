@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import {
   useTheme, useFetch, Spinner, ErrorMsg,
   StyledInput, Badge, EmptyState, cop, API_BASE,
@@ -497,16 +498,15 @@ function ModalCrearProducto({ onClose, onCreado }) {
     codigo:        '',
     stock_inicial: '',
   })
-  const [estado,  setEstado]  = useState('idle') // idle | saving | ok | err
-  const [errMsg,  setErrMsg]  = useState('')
+  const [estado, setEstado] = useState('idle')
+  const [errMsg, setErrMsg] = useState('')
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const guardar = async () => {
-    if (!form.nombre.trim()) { setErrMsg('El nombre es obligatorio'); return }
+    if (!form.nombre.trim())                              { setErrMsg('El nombre es obligatorio'); return }
     if (!form.precio_unidad || isNaN(Number(form.precio_unidad))) { setErrMsg('El precio debe ser un número'); return }
-    setErrMsg('')
-    setEstado('saving')
+    setErrMsg(''); setEstado('saving')
     try {
       const body = {
         nombre:        form.nombre.trim(),
@@ -515,135 +515,179 @@ function ModalCrearProducto({ onClose, onCreado }) {
         unidad_medida: form.unidad_medida,
         codigo:        form.codigo.trim(),
       }
-      if (form.stock_inicial !== '' && !isNaN(Number(form.stock_inicial))) {
+      if (form.stock_inicial !== '' && !isNaN(Number(form.stock_inicial)))
         body.stock_inicial = Number(form.stock_inicial)
-      }
+
       const r = await fetch(`${API_BASE}/catalogo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
       const data = await r.json()
       if (!r.ok) throw new Error(data.detail || 'Error desconocido')
       setEstado('ok')
-      setTimeout(() => { onCreado(data); onClose() }, 900)
-    } catch (e) {
+      setTimeout(() => { onCreado(data); onClose() }, 800)
+    } catch(e) {
       setErrMsg(e.message || 'Error al crear el producto')
       setEstado('err')
     }
   }
 
-  const inputStyle = {
+  const inp = {
     width: '100%', boxSizing: 'border-box',
-    background: t.id==='caramelo' ? '#f8fafc' : '#111',
+    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
     border: `1px solid ${t.border}`, borderRadius: 7,
     color: t.text, fontSize: 12, padding: '8px 11px',
     outline: 'none', fontFamily: 'inherit',
   }
-  const labelStyle = { fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 4, display: 'block' }
+  const lbl = {
+    fontSize: 10, color: t.textMuted, textTransform: 'uppercase',
+    letterSpacing: '.07em', marginBottom: 4, display: 'block',
+  }
 
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 1000,
-      background: 'rgba(0,0,0,.55)', display: 'flex',
-      alignItems: 'center', justifyContent: 'center', padding: 16,
-    }} onClick={e => e.target === e.currentTarget && onClose()}>
+  // Renderizar via Portal directo al body — inmune a scroll/overflow del tab
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(0,0,0,.6)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+      }}
+      onMouseDown={e => e.target === e.currentTarget && onClose()}
+    >
       <div style={{
         background: t.bg, border: `1px solid ${t.border}`,
-        borderRadius: 14, padding: 24, width: '100%', maxWidth: 480,
-        boxShadow: '0 20px 60px rgba(0,0,0,.4)',
+        borderRadius: 14, width: '100%', maxWidth: 460,
+        maxHeight: '90vh', overflowY: 'auto',
+        boxShadow: '0 24px 64px rgba(0,0,0,.45)',
+        display: 'flex', flexDirection: 'column',
       }}>
-        {/* Título */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+          padding: '20px 22px 0', marginBottom: 18,
+        }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 15, color: t.text }}>➕ Crear producto</div>
-            <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>Se guardará en catálogo y en el Excel de productos</div>
+            <div style={{ fontSize: 11, color: t.textMuted, marginTop: 3 }}>
+              Se guardará en catálogo y en el Excel de productos
+            </div>
           </div>
-          <button onClick={onClose} style={{ background:'transparent', border:`1px solid ${t.border}`, borderRadius:7, color:t.textMuted, width:28, height:28, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+          <button onClick={onClose} style={{
+            background: 'transparent', border: `1px solid ${t.border}`,
+            borderRadius: 7, color: t.textMuted,
+            width: 28, height: 28, cursor: 'pointer', fontSize: 14, flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginLeft: 12,
+          }}>✕</button>
         </div>
 
-        {/* Formulario */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        {/* Cuerpo */}
+        <div style={{ padding: '0 22px 22px', display: 'flex', flexDirection: 'column', gap: 13 }}>
 
-          {/* Nombre — full width */}
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label style={labelStyle}>Nombre del producto *</label>
-            <input style={inputStyle} value={form.nombre} onChange={e=>set('nombre',e.target.value)} placeholder="Ej: Brocha de 2&quot;" autoFocus />
+          {/* Nombre */}
+          <div>
+            <label style={lbl}>Nombre del producto *</label>
+            <input style={inp} value={form.nombre} autoFocus
+              onChange={e => set('nombre', e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && guardar()}
+              placeholder='Ej: Brocha de 2"' />
           </div>
 
           {/* Categoría */}
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label style={labelStyle}>Categoría *</label>
-            <select style={inputStyle} value={form.categoria} onChange={e=>set('categoria',e.target.value)}>
+          <div>
+            <label style={lbl}>Categoría *</label>
+            <select style={inp} value={form.categoria} onChange={e => set('categoria', e.target.value)}>
               {CATEGORIAS_DISPONIBLES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
 
-          {/* Precio */}
-          <div>
-            <label style={labelStyle}>Precio unitario (COP) *</label>
-            <div style={{ position:'relative' }}>
-              <span style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:t.textMuted, fontSize:11 }}>$</span>
-              <input style={{ ...inputStyle, paddingLeft: 22 }} type="number" min="0" value={form.precio_unidad} onChange={e=>set('precio_unidad',e.target.value)} placeholder="0" />
+          {/* Precio + Unidad */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={lbl}>Precio unitario (COP) *</label>
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: t.textMuted, fontSize: 11 }}>$</span>
+                <input style={{ ...inp, paddingLeft: 22 }} type="number" min="0"
+                  value={form.precio_unidad}
+                  onChange={e => set('precio_unidad', e.target.value)}
+                  placeholder="0" />
+              </div>
+            </div>
+            <div>
+              <label style={lbl}>Unidad de medida (DIAN)</label>
+              <select style={inp} value={form.unidad_medida} onChange={e => set('unidad_medida', e.target.value)}>
+                {UNIDADES_DISPONIBLES.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
             </div>
           </div>
 
-          {/* Unidad de medida */}
-          <div>
-            <label style={labelStyle}>Unidad de medida (DIAN)</label>
-            <select style={inputStyle} value={form.unidad_medida} onChange={e=>set('unidad_medida',e.target.value)}>
-              {UNIDADES_DISPONIBLES.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
+          {/* Código + Stock */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={lbl}>Código (opcional)</label>
+              <input style={inp} value={form.codigo}
+                onChange={e => set('codigo', e.target.value)}
+                placeholder="Ej: 1brocha2" />
+            </div>
+            <div>
+              <label style={lbl}>Stock inicial (opcional)</label>
+              <input style={inp} type="number" min="0" step="0.01"
+                value={form.stock_inicial}
+                onChange={e => set('stock_inicial', e.target.value)}
+                placeholder="0" />
+            </div>
           </div>
 
-          {/* Código */}
-          <div>
-            <label style={labelStyle}>Código (opcional)</label>
-            <input style={inputStyle} value={form.codigo} onChange={e=>set('codigo',e.target.value)} placeholder="Ej: 1brocha2" />
-          </div>
-
-          {/* Stock inicial */}
-          <div>
-            <label style={labelStyle}>Stock inicial (opcional)</label>
-            <input style={inputStyle} type="number" min="0" step="0.01" value={form.stock_inicial} onChange={e=>set('stock_inicial',e.target.value)} placeholder="0" />
-          </div>
-        </div>
-
-        {/* Nota unidad medida */}
-        <div style={{ marginTop: 12, padding: '8px 11px', background: t.accentSub, border: `1px solid ${t.accent}22`, borderRadius: 7 }}>
-          <span style={{ fontSize: 10, color: t.accent }}>
-            💡 La unidad de medida se usará en la factura electrónica (DIAN). Galón para pinturas, Kg para productos por peso, Mts/Cms para cables/telas, Unidad para el resto.
-          </span>
-        </div>
-
-        {errMsg && (
-          <div style={{ marginTop: 10, padding: '7px 11px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 7, fontSize: 11, color: '#dc2626' }}>
-            ⚠ {errMsg}
-          </div>
-        )}
-
-        {/* Botones */}
-        <div style={{ display: 'flex', gap: 10, marginTop: 18, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{
-            background: 'transparent', border: `1px solid ${t.border}`,
-            borderRadius: 8, color: t.textMuted, padding: '8px 18px',
-            cursor: 'pointer', fontFamily: 'inherit', fontSize: 12,
-          }}>Cancelar</button>
-          <button onClick={guardar} disabled={estado==='saving'} style={{
-            background: estado==='ok' ? t.green : estado==='err' ? '#dc2626' : t.accent,
-            border: 'none', borderRadius: 8, color: '#fff',
-            padding: '8px 22px', cursor: estado==='saving'?'wait':'pointer',
-            fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
-            display: 'flex', alignItems: 'center', gap: 7,
-            opacity: estado==='saving' ? .75 : 1, transition: 'background .2s',
+          {/* Nota */}
+          <div style={{
+            padding: '8px 11px',
+            background: t.accentSub, border: `1px solid ${t.accent}22`, borderRadius: 7,
           }}>
-            {estado==='saving' && <span style={{ width:12, height:12, border:'2px solid #ffffff55', borderTop:'2px solid #fff', borderRadius:'50%', display:'inline-block', animation:'spin .7s linear infinite' }} />}
-            {estado==='ok'  ? '✓ Creado' : estado==='err' ? '✗ Error' : 'Crear producto'}
-          </button>
+            <span style={{ fontSize: 10, color: t.accent }}>
+              💡 Galón → pinturas · Kg → productos por peso · Mts/Cms → cables y telas · Unidad → resto
+            </span>
+          </div>
+
+          {/* Error */}
+          {errMsg && (
+            <div style={{
+              padding: '7px 11px', background: '#fef2f2',
+              border: '1px solid #fca5a5', borderRadius: 7,
+              fontSize: 11, color: '#dc2626',
+            }}>⚠ {errMsg}</div>
+          )}
+
+          {/* Botones */}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 2 }}>
+            <button onClick={onClose} style={{
+              background: 'transparent', border: `1px solid ${t.border}`,
+              borderRadius: 8, color: t.textMuted, padding: '8px 18px',
+              cursor: 'pointer', fontFamily: 'inherit', fontSize: 12,
+            }}>Cancelar</button>
+            <button onClick={guardar} disabled={estado === 'saving'} style={{
+              background: estado === 'ok' ? t.green : estado === 'err' ? '#dc2626' : t.accent,
+              border: 'none', borderRadius: 8, color: '#fff',
+              padding: '8px 22px', cursor: estado === 'saving' ? 'wait' : 'pointer',
+              fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+              display: 'flex', alignItems: 'center', gap: 7,
+              opacity: estado === 'saving' ? .75 : 1, transition: 'background .2s',
+            }}>
+              {estado === 'saving' && (
+                <span style={{
+                  width: 12, height: 12, border: '2px solid #ffffff55',
+                  borderTop: '2px solid #fff', borderRadius: '50%',
+                  display: 'inline-block', animation: 'spin .7s linear infinite',
+                }} />
+              )}
+              {estado === 'ok' ? '✓ Creado' : estado === 'err' ? '✗ Error' : 'Crear producto'}
+            </button>
+          </div>
         </div>
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-    </div>
+    </div>,
+    document.body   // ← Portal: se monta directamente en <body>, fuera del scroll del tab
   )
 }
 
