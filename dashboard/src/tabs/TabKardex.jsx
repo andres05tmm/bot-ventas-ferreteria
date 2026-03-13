@@ -15,7 +15,7 @@ function MovRow({ m, t }) {
       <td style={{ padding: '8px 12px' }}>
         <span style={{
           display: 'inline-flex', alignItems: 'center', gap: 5,
-          background: esEntrada ? (t.id === 'light' ? '#f0fdf4' : '#052e1650') : (t.id === 'light' ? '#fff7ed' : '#431a0850'),
+          background: esEntrada ? (t.id === 'caramelo' ? '#f0fdf4' : '#052e1650') : (t.id === 'caramelo' ? '#fff7ed' : '#431a0850'),
           color: esEntrada ? t.green : t.yellow,
           border: `1px solid ${esEntrada ? t.green : t.yellow}33`,
           padding: '2px 8px', borderRadius: 99, fontSize: 10, fontWeight: 600,
