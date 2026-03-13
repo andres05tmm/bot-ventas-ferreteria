@@ -1,46 +1,97 @@
-import { useState, useMemo, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import {
   useTheme, useFetch, Spinner, ErrorMsg,
-  Badge, StyledInput, EmptyState, Th, API_BASE,
+  StyledInput, Badge, EmptyState, cop, API_BASE,
 } from '../components/shared.jsx'
 
-// ── Utilidades de fracciones ──────────────────────────────────────────────────
+// ── Utilidades ────────────────────────────────────────────────────────────────
+const nl = s => (s || '').toLowerCase()
 
-// Convierte string a decimal: "2 3/4" → 2.75, "1/2" → 0.5, "3" → 3, "2.5" → 2.5
+function catIcon(cat) {
+  const c = nl(cat)
+  if (c.includes('pint') || c.includes('disol'))                               return '🎨'
+  if (c.includes('thinner') || c.includes('varsol'))                          return '🧪'
+  if (c.includes('lija') || c.includes('esmeril'))                            return '🪚'
+  if (c.includes('tornill') || c.includes('clav') || c.includes('puntilla'))  return '🔩'
+  if (c.includes('adhesiv') || c.includes('pega') || c.includes('silicon'))   return '🧲'
+  if (c.includes('ferret') || c.includes('herram') || c.includes('artículo')) return '🔧'
+  if (c.includes('construc') || c.includes('imperme'))                        return '🏗️'
+  if (c.includes('electric'))                                                  return '⚡'
+  return '📦'
+}
+
+// ── Subcategorías ─────────────────────────────────────────────────────────────
+const SUBCATS = {
+  '1 artículos de ferreteria': [
+    { key: 'ferr_brochas',    icono: '🖌️', label: 'Brochas / Rodillos', fn: p => nl(p.nombre).includes('brocha') || nl(p.nombre).includes('rodillo') },
+    { key: 'ferr_lijas',      icono: '📏', label: 'Lijas',               fn: p => nl(p.nombre).includes('lija') || nl(p.nombre).includes('esmeril') },
+    { key: 'ferr_cintas',     icono: '🔗', label: 'Cintas',              fn: p => nl(p.nombre).includes('cinta') || nl(p.nombre).includes('pele') || nl(p.nombre).includes('enmascarar') },
+    { key: 'ferr_cerraduras', icono: '🔒', label: 'Cerraduras',          fn: p => ['cerradura','candado','cerrojo','falleba'].some(k => nl(p.nombre).includes(k)) },
+    { key: 'ferr_brocas',     icono: '🪚', label: 'Brocas / Discos',     fn: p => nl(p.nombre).includes('broca') || nl(p.nombre).includes('disco') },
+    { key: 'ferr_herr',       icono: '🔧', label: 'Herramientas',        fn: p => ['martillo','metro','destornillador','exacto','espatula','tijera','formon','grapadora','machete','taladro','llave','pulidora'].some(k => nl(p.nombre).includes(k)) },
+    { key: 'ferr_varios',     icono: '📦', label: 'Varios',              fn: () => true },
+  ],
+  '2 pinturas y disolventes': [
+    { key: 'pint_vinilo',   icono: '🖌️', label: 'Vinilo / Cuñetes',    fn: p => nl(p.nombre).includes('vinilo') || /cu[ñn]ete/i.test(p.nombre) },
+    { key: 'pint_esmalte',  icono: '🎨', label: 'Esmalte / Anticorr.', fn: p => nl(p.nombre).includes('esmalte') || nl(p.nombre).includes('anticorrosivo') },
+    { key: 'pint_laca',     icono: '🪄', label: 'Laca',                fn: p => nl(p.nombre).includes('laca') },
+    { key: 'pint_thinner',  icono: '🧪', label: 'Thinner / Varsol',    fn: p => nl(p.nombre).includes('thinner') || nl(p.nombre).includes('varsol') || nl(p.nombre).includes('tiner') },
+    { key: 'pint_poli',     icono: '💧', label: 'Poliuretano',         fn: p => nl(p.nombre).includes('poliuretano') || nl(p.nombre).includes('poliamida') },
+    { key: 'pint_aerosol',  icono: '🎭', label: 'Aerosol',             fn: p => nl(p.nombre).includes('aerosol') },
+    { key: 'pint_sellador', icono: '🧴', label: 'Sellador / Masilla',  fn: p => nl(p.nombre).includes('sellador') || nl(p.nombre).includes('masilla') },
+    { key: 'pint_otros',    icono: '🎨', label: 'Otros',               fn: () => true },
+  ],
+  '3 tornilleria': [
+    { key: 'torn_dry6',      icono: '⚙️', label: 'Drywall ×6',          fn: p => nl(p.nombre).includes('drywall') && /6x/.test(nl(p.nombre).replace(/ /g,'')) },
+    { key: 'torn_dry8',      icono: '⚙️', label: 'Drywall ×8',          fn: p => nl(p.nombre).includes('drywall') && /8x/.test(nl(p.nombre).replace(/ /g,'')) },
+    { key: 'torn_dry10',     icono: '⚙️', label: 'Drywall ×10',         fn: p => nl(p.nombre).includes('drywall') && /10x/.test(nl(p.nombre).replace(/ /g,'')) },
+    { key: 'torn_hex',       icono: '🔩', label: 'Hex Galvanizado',      fn: p => nl(p.nombre).includes('hex') },
+    { key: 'torn_puntillas', icono: '📌', label: 'Puntillas',            fn: p => nl(p.nombre).includes('puntilla') },
+    { key: 'torn_tirafondo', icono: '🔩', label: 'Tira Fondo',           fn: p => nl(p.nombre).includes('tira fondo') },
+    { key: 'torn_arandelas', icono: '⚙️', label: 'Arandelas / Chazos',  fn: p => nl(p.nombre).includes('arandela') || nl(p.nombre).includes('chazo') },
+    { key: 'torn_otros',     icono: '📦', label: 'Otros',                fn: () => true },
+  ],
+  '4 impermeabilizantes y materiales de construcción': [
+    { key: 'imp_imp',     icono: '💧', label: 'Impermeabilizantes', fn: p => nl(p.nombre).includes('imperme') },
+    { key: 'imp_cemento', icono: '🏗️', label: 'Cemento / Mortero', fn: p => nl(p.nombre).includes('cemento') || nl(p.nombre).includes('mortero') || nl(p.nombre).includes('pega') },
+    { key: 'imp_otros',   icono: '📦', label: 'Otros',              fn: () => true },
+  ],
+  '5 materiales electricos': [
+    { key: 'elec_cable',    icono: '🔌', label: 'Cables',        fn: p => nl(p.nombre).includes('cable') || nl(p.nombre).includes('alambre') },
+    { key: 'elec_interrup', icono: '💡', label: 'Interruptores', fn: p => nl(p.nombre).includes('interruptor') || nl(p.nombre).includes('toma') },
+    { key: 'elec_otros',    icono: '⚡', label: 'Otros',         fn: () => true },
+  ],
+}
+
+function getSubcats(catKey) { return SUBCATS[catKey.toLowerCase()] || [] }
+
+function filtrarPorSubcat(prods, subcats, subcatKey) {
+  const idx = subcats.findIndex(s => s.key === subcatKey)
+  if (idx === -1) return prods
+  const sc = subcats[idx]
+  const esComodin = sc.label === 'Otros' || sc.label === 'Varios'
+  if (esComodin) {
+    const prevFns = subcats.slice(0, idx).map(s => s.fn)
+    return prods.filter(p => !prevFns.some(fn => fn(p)))
+  }
+  return prods.filter(sc.fn)
+}
+
+// ── Fracciones ────────────────────────────────────────────────────────────────
 function parseFraccion(str) {
-  if (!str || !str.trim()) return null
-  str = str.trim().replace(',', '.')
-
-  // Fracción mixta: "2 3/4"
-  const mixto = str.match(/^(\d+(?:\.\d+)?)\s+(\d+)\/(\d+)$/)
-  if (mixto) {
-    const entero = parseFloat(mixto[1])
-    const num    = parseFloat(mixto[2])
-    const den    = parseFloat(mixto[3])
-    if (den === 0) return null
-    return entero + num / den
-  }
-
-  // Fracción simple: "3/4"
+  if (!str) return null
+  str = String(str).trim().replace(',', '.')
+  const mixto  = str.match(/^(\d+(?:\.\d+)?)\s+(\d+)\/(\d+)$/)
+  if (mixto)  return parseFloat(mixto[1]) + parseFloat(mixto[2]) / parseFloat(mixto[3])
   const simple = str.match(/^(\d+)\/(\d+)$/)
-  if (simple) {
-    const num = parseFloat(simple[1])
-    const den = parseFloat(simple[2])
-    if (den === 0) return null
-    return num / den
-  }
-
-  // Número decimal o entero
+  if (simple) return parseFloat(simple[1]) / parseFloat(simple[2])
   const n = parseFloat(str)
   return isNaN(n) ? null : n
 }
 
-// Convierte decimal a string legible: 2.75 → "2 3/4", 0.5 → "1/2", 3 → "3"
 const FRACS_CONOCIDAS = [
-  [1/16, '1/16'], [1/8,  '1/8'],  [1/4,  '1/4'],
-  [1/3,  '1/3'],  [3/8,  '3/8'],  [1/2,  '1/2'],
-  [5/8,  '5/8'],  [2/3,  '2/3'],  [3/4,  '3/4'],
-  [7/8,  '7/8'],  [1/10, '1/10'],
+  [1/16,'1/16'],[1/8,'1/8'],[1/4,'1/4'],[1/3,'1/3'],[3/8,'3/8'],
+  [1/2,'1/2'],[5/8,'5/8'],[2/3,'2/3'],[3/4,'3/4'],[7/8,'7/8'],[1/10,'1/10'],
 ]
 
 function decimalAFrac(val) {
@@ -48,462 +99,486 @@ function decimalAFrac(val) {
   val = parseFloat(val)
   if (isNaN(val)) return null
   if (Number.isInteger(val)) return String(val)
-
   const entero = Math.floor(val)
   const frac   = val - entero
-
-  // Buscar fracción conocida más cercana (tolerancia ±0.005)
   for (const [dec, label] of FRACS_CONOCIDAS) {
-    if (Math.abs(frac - dec) < 0.005) {
-      return entero > 0 ? `${entero} ${label}` : label
-    }
+    if (Math.abs(frac - dec) < 0.005) return entero > 0 ? `${entero} ${label}` : label
   }
-
-  // Fallback: 2 decimales
   return val.toFixed(2).replace(/\.?0+$/, '')
 }
 
-function catIcon(cat) {
-  const c = (cat || '').toLowerCase()
-  if (c.includes('pint') || c.includes('vinilo') || c.includes('color'))               return '🎨'
-  if (c.includes('thinner') || c.includes('varsol') || c.includes('solvente'))        return '🧪'
-  if (c.includes('lija') || c.includes('esmeril') || c.includes('abras'))             return '🪚'
-  if (c.includes('tornill') || c.includes('clav') || c.includes('perno'))             return '🔩'
-  if (c.includes('adhesiv') || c.includes('pega') || c.includes('silicon'))           return '🧲'
-  if (c.includes('ferret') || c.includes('herram') || c.includes('brocha') || c.includes('rodillo')) return '🔧'
-  if (c.includes('granel'))                                                            return '⚖️'
-  return '📦'
-}
-
-// ── Campo precio (editable simple) ───────────────────────────────────────────
-function CampoPrecio({ valor, onGuardar }) {
+// ── Editor de precio inline ───────────────────────────────────────────────────
+function PrecioInline({ value, prodKey, onSaved }) {
   const t = useTheme()
   const [editando, setEditando] = useState(false)
-  const [val,      setVal]      = useState('')
-  const [estado,   setEstado]   = useState('idle')
-  const inputRef = useRef(null)
+  const [val,      setVal]      = useState(value || 0)
+  const [estado,   setEstado]   = useState('idle') // idle | saving | ok | err
+  const ref = useRef()
 
-  const abrir = () => {
-    setVal(valor ? String(valor) : '')
-    setEstado('idle')
-    setEditando(true)
-    setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 20)
-  }
+  const abrir = (e) => { e.stopPropagation(); setVal(value || 0); setEstado('idle'); setEditando(true); setTimeout(() => ref.current?.select(), 20) }
   const cerrar = () => { setEditando(false); setEstado('idle') }
 
-  const guardar = useCallback(async () => {
-    const num = parseFloat(val.replace(',', '.'))
-    if (isNaN(num)) { cerrar(); return }
+  const guardar = async () => {
+    if (Number(val) === Number(value)) { cerrar(); return }
     setEstado('saving')
     try {
-      await onGuardar(num)
-      setEstado('ok')
-      setTimeout(cerrar, 700)
-    } catch { setEstado('err'); setTimeout(cerrar, 900) }
-  }, [val, onGuardar])
-
-  const onKey = e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') cerrar() }
-
-  if (editando) {
-    return (
-      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-        <span style={{ fontSize:11, color:t.textMuted }}>$</span>
-        <input
-          ref={inputRef} value={val} onChange={e => setVal(e.target.value)}
-          onKeyDown={onKey} onBlur={guardar} inputMode="decimal"
-          style={{
-            width:80, background:t.card,
-            border:`1.5px solid ${estado==='err' ? t.accent : t.green}`,
-            borderRadius:6, padding:'3px 7px',
-            fontSize:12, color:t.text, fontFamily:'monospace', outline:'none',
-          }}
-        />
-        {estado==='saving' && <span style={{fontSize:10,color:t.textMuted}}>…</span>}
-        {estado==='ok'     && <span style={{fontSize:13,color:t.green}}>✓</span>}
-        {estado==='err'    && <span style={{fontSize:13,color:t.accent}}>✗</span>}
-      </div>
-    )
+      const r = await fetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/precio`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ precio: Number(val) }),
+      })
+      if (!r.ok) throw new Error()
+      setEstado('ok'); onSaved(Number(val))
+      setTimeout(cerrar, 1200)
+    } catch { setEstado('err'); setTimeout(cerrar, 1500) }
   }
 
-  const hay = valor !== null && valor !== undefined && valor
+  if (editando) return (
+    <div style={{ display:'flex', alignItems:'center', gap:5 }} onClick={e => e.stopPropagation()}>
+      <span style={{ color:t.textMuted, fontSize:11 }}>$</span>
+      <input
+        ref={ref} type="number" min="0" value={val}
+        onChange={e => setVal(parseInt(e.target.value)||0)}
+        onKeyDown={e => { if(e.key==='Enter') guardar(); if(e.key==='Escape') cerrar() }}
+        style={{
+          width:90, background:t.id==='caramelo'?'#f8fafc':'#111',
+          border:`1px solid ${t.accent}88`, borderRadius:6,
+          color:t.accent, fontSize:12, fontFamily:'monospace', fontWeight:700,
+          padding:'3px 7px', outline:'none', MozAppearance:'textfield', appearance:'textfield',
+        }}
+      />
+      <button onClick={guardar} style={{ background:t.accent, border:'none', borderRadius:5, color:'#fff', width:22, height:22, cursor:'pointer', fontSize:12, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        {estado==='saving'?'…':'✓'}
+      </button>
+      <button onClick={cerrar} style={{ background:'transparent', border:`1px solid ${t.border}`, borderRadius:5, color:t.textMuted, width:22, height:22, cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+    </div>
+  )
+
   return (
-    <button onClick={abrir} title="Clic para editar" style={{
-      background:'none', border:`1px dashed ${t.border}`,
-      borderRadius:6, padding:'3px 8px', cursor:'pointer',
-      fontSize:12, fontFamily:'monospace',
-      color: hay ? t.green : t.textMuted,
-      transition:'border-color .12s, background .12s',
-      display:'inline-flex', alignItems:'center', gap:4,
-    }}
-    onMouseEnter={e => { e.currentTarget.style.borderColor=t.accent; e.currentTarget.style.background=t.accentSub }}
-    onMouseLeave={e => { e.currentTarget.style.borderColor=t.border; e.currentTarget.style.background='none' }}
-    >
-      {hay ? <><span style={{opacity:.65}}>$</span>{String(valor)}</> : <span style={{opacity:.4,fontSize:11}}>sin precio</span>}
-      <span style={{fontSize:9,opacity:.3}}>✏</span>
-    </button>
+    <div style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }} onClick={abrir} title="Clic para editar precio">
+      {value
+        ? <span style={{ color: estado==='ok'?t.green : estado==='err'?'#f87171' : t.green, fontWeight:600, transition:'color .3s' }}>
+            {cop(value)}
+            {estado==='ok'  && <span style={{ fontSize:9, marginLeft:5, color:t.green }}>✓</span>}
+            {estado==='err' && <span style={{ fontSize:9, marginLeft:5, color:'#f87171' }}>✗</span>}
+          </span>
+        : <Badge color={t.yellow}>Sin precio</Badge>
+      }
+      <span style={{ fontSize:10, color:t.textMuted, opacity:.45 }}>✏</span>
+    </div>
   )
 }
 
-// ── Campo stock con soporte de fracciones (solo para fraccionables) ───────────
-function CampoStock({ valor, onGuardar, fraccionesDisp }) {
-  const t          = useTheme()
-  const esFracc    = !!(fraccionesDisp && Object.keys(fraccionesDisp).filter(k => k !== 'unidad_suelta').length > 0)
+// ── Editor de stock inline (con fracciones para fraccionables) ────────────────
+function StockInline({ value, prodKey, fracciones, onSaved }) {
+  const t       = useTheme()
+  const esFracc = !!(fracciones && Object.keys(fracciones).filter(k=>k!=='unidad_suelta').length > 0)
+  const fracBtns = useMemo(() => {
+    if (!esFracc) return []
+    return Object.keys(fracciones).filter(k=>k!=='unidad_suelta')
+      .sort((a,b) => (parseFraccion(b)||0) - (parseFraccion(a)||0))
+  }, [fracciones, esFracc])
+
   const [editando, setEditando] = useState(false)
   const [val,      setVal]      = useState('')
   const [estado,   setEstado]   = useState('idle')
-  const inputRef   = useRef(null)
+  const ref = useRef()
 
-  const fracBtns = useMemo(() => {
-    if (!esFracc) return []
-    return Object.keys(fraccionesDisp)
-      .filter(k => k !== 'unidad_suelta')
-      .sort((a, b) => (parseFraccion(b) || 0) - (parseFraccion(a) || 0))
-  }, [fraccionesDisp, esFracc])
+  const display = esFracc ? decimalAFrac(value) : (value!==null&&value!==undefined ? String(value) : null)
 
-  const valorDisplay = esFracc ? decimalAFrac(valor) : (valor !== null && valor !== undefined ? String(valor) : null)
-
-  const abrir = () => {
-    setVal(valorDisplay || '')
-    setEstado('idle')
-    setEditando(true)
-    setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 20)
-  }
+  const abrir = (e) => { e.stopPropagation(); setVal(display||''); setEstado('idle'); setEditando(true); setTimeout(()=>{ref.current?.focus();ref.current?.select()},20) }
   const cerrar = () => { setEditando(false); setEstado('idle') }
 
   const guardar = useCallback(async (strVal) => {
     const src = strVal !== undefined ? strVal : val
     const num = esFracc ? parseFraccion(String(src)) : parseFloat(String(src).replace(',','.'))
-    if (num === null || isNaN(num) || num < 0) { cerrar(); return }
+    if (num===null||isNaN(num)||num<0) { cerrar(); return }
     setEstado('saving')
     try {
-      await onGuardar(num)
-      setEstado('ok')
+      const r = await fetch(`${API_BASE}/inventario/${encodeURIComponent(prodKey)}/stock`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ stock: num }),
+      })
+      if (!r.ok) throw new Error()
+      setEstado('ok'); onSaved(num)
       setTimeout(cerrar, 700)
     } catch { setEstado('err'); setTimeout(cerrar, 900) }
-  }, [val, onGuardar, esFracc])
+  }, [val, prodKey, esFracc, onSaved])
 
-  const onKey = e => { if (e.key==='Enter') guardar(); if (e.key==='Escape') cerrar() }
+  const onKey = e => { if(e.key==='Enter') guardar(); if(e.key==='Escape') cerrar() }
+  const sumar  = frac => { const b=parseFraccion(val)||0; setVal(decimalAFrac(b+(parseFraccion(frac)||0))||'') }
+  const restar = frac => { const b=parseFraccion(val)||0; setVal(decimalAFrac(Math.max(0,b-(parseFraccion(frac)||0)))||'0') }
 
-  const sumar  = frac => { const b = parseFraccion(val)||0; setVal(decimalAFrac(b+(parseFraccion(frac)||0))||'') }
-  const restar = frac => { const b = parseFraccion(val)||0; setVal(decimalAFrac(Math.max(0,b-(parseFraccion(frac)||0)))||'0') }
-
-  if (editando) {
-    return (
-      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, padding:'4px 0' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-          <input
-            ref={inputRef} value={val} onChange={e => setVal(e.target.value)}
-            onKeyDown={onKey} onBlur={guardar}
-            placeholder={esFracc ? 'ej: 2 3/4' : '0'}
-            inputMode="decimal"
-            style={{
-              width: esFracc ? 90 : 70, background:t.card,
-              border:`1.5px solid ${estado==='err' ? t.accent : t.green}`,
-              borderRadius:6, padding:'4px 8px',
-              fontSize:13, color:t.text, fontFamily:'monospace',
-              outline:'none', textAlign:'center',
-            }}
-          />
-          <button onClick={() => guardar()} style={{
-            background:t.green+'22', border:`1px solid ${t.green}44`,
-            color:t.green, borderRadius:6, padding:'4px 8px', fontSize:12, cursor:'pointer',
-          }}>✓</button>
-          <button onClick={cerrar} style={{
-            background:'none', border:`1px solid ${t.border}`,
-            color:t.textMuted, borderRadius:6, padding:'4px 8px', fontSize:12, cursor:'pointer',
-          }}>✕</button>
-        </div>
-
-        {/* Botones ± fracción — solo para productos fraccionables */}
-        {esFracc && fracBtns.length > 0 && (
-          <div style={{ display:'flex', flexWrap:'wrap', gap:3, justifyContent:'center' }}>
-            {fracBtns.map(frac => (
-              <div key={frac} style={{ display:'flex', gap:1 }}>
-                <button onClick={() => restar(frac)} title={`− ${frac}`} style={{
-                  background:t.accentSub, border:`1px solid ${t.accent}33`,
-                  color:t.accent, borderRadius:'5px 0 0 5px',
-                  padding:'2px 6px', fontSize:10, cursor:'pointer', fontWeight:700,
-                }}>−</button>
-                <span style={{
-                  background:t.card, border:`1px solid ${t.border}`,
-                  borderLeft:'none', borderRight:'none',
-                  padding:'2px 7px', fontSize:10, color:t.text,
-                  display:'flex', alignItems:'center',
-                }}>{frac}</span>
-                <button onClick={() => sumar(frac)} title={`+ ${frac}`} style={{
-                  background:t.green+'22', border:`1px solid ${t.green}33`,
-                  color:t.green, borderRadius:'0 5px 5px 0',
-                  padding:'2px 6px', fontSize:10, cursor:'pointer', fontWeight:700,
-                }}>+</button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {esFracc && <span style={{ fontSize:9, color:t.textMuted, opacity:.7 }}>Acepta: 3 · 1/2 · 2 3/4 · 0.5</span>}
-        {estado==='saving' && <span style={{fontSize:10,color:t.textMuted}}>Guardando…</span>}
-        {estado==='ok'     && <span style={{fontSize:11,color:t.green}}>✓ Guardado</span>}
-        {estado==='err'    && <span style={{fontSize:11,color:t.accent}}>✗ Error</span>}
+  if (editando) return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:5 }} onClick={e=>e.stopPropagation()}>
+      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+        <input
+          ref={ref} value={val} onChange={e=>setVal(e.target.value)} onKeyDown={onKey} onBlur={guardar}
+          placeholder={esFracc?'ej: 2 3/4':'0'} inputMode="decimal"
+          style={{
+            width:esFracc?88:68, background:t.id==='caramelo'?'#f8fafc':'#111',
+            border:`1.5px solid ${estado==='err'?t.accent:t.green}`,
+            borderRadius:6, padding:'3px 8px', fontSize:12, color:t.text,
+            fontFamily:'monospace', outline:'none', textAlign:'center',
+          }}
+        />
+        <button onClick={()=>guardar()} style={{ background:t.green+'22', border:`1px solid ${t.green}44`, color:t.green, borderRadius:5, padding:'3px 7px', fontSize:11, cursor:'pointer' }}>✓</button>
+        <button onClick={cerrar} style={{ background:'none', border:`1px solid ${t.border}`, color:t.textMuted, borderRadius:5, padding:'3px 7px', fontSize:11, cursor:'pointer' }}>✕</button>
       </div>
-    )
+      {esFracc && fracBtns.length > 0 && (
+        <div style={{ display:'flex', flexWrap:'wrap', gap:3, justifyContent:'center' }}>
+          {fracBtns.map(frac => (
+            <div key={frac} style={{ display:'flex', gap:1 }}>
+              <button onClick={()=>restar(frac)} style={{ background:t.accentSub, border:`1px solid ${t.accent}33`, color:t.accent, borderRadius:'4px 0 0 4px', padding:'2px 5px', fontSize:10, cursor:'pointer', fontWeight:700 }}>−</button>
+              <span style={{ background:t.card, border:`1px solid ${t.border}`, borderLeft:'none', borderRight:'none', padding:'2px 6px', fontSize:10, color:t.text, display:'flex', alignItems:'center' }}>{frac}</span>
+              <button onClick={()=>sumar(frac)} style={{ background:t.green+'22', border:`1px solid ${t.green}33`, color:t.green, borderRadius:'0 4px 4px 0', padding:'2px 5px', fontSize:10, cursor:'pointer', fontWeight:700 }}>+</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {estado==='saving'&&<span style={{fontSize:9,color:t.textMuted}}>Guardando…</span>}
+      {estado==='ok'    &&<span style={{fontSize:10,color:t.green}}>✓</span>}
+      {estado==='err'   &&<span style={{fontSize:10,color:t.accent}}>✗</span>}
+    </div>
+  )
+
+  const hay     = value!==null&&value!==undefined
+  const esFracV = esFracc && hay && !Number.isInteger(parseFloat(value))
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:5, cursor:'pointer', justifyContent:'center' }} onClick={abrir} title="Clic para editar stock">
+      {hay
+        ? <span style={{ color:esFracV?t.yellow:t.blue, fontWeight:esFracV?600:400, fontFamily:'monospace', fontSize:12 }}>
+            {display}{esFracc&&<span style={{fontSize:9,opacity:.5,marginLeft:2}}>gal</span>}
+          </span>
+        : <span style={{ color:t.textMuted, fontSize:11, opacity:.6 }}>—</span>
+      }
+      <span style={{ fontSize:9, color:t.textMuted, opacity:.35 }}>✏</span>
+    </div>
+  )
+}
+
+// ── Editor de fracciones inline ───────────────────────────────────────────────
+const FRACS_ORDEN = ['3/4','1/2','1/4','1/8','1/10','1/16']
+
+function FraccionesEditor({ fracciones, prodKey, onSaved }) {
+  const t = useTheme()
+  const [editando, setEditando] = useState(false)
+  const [vals,     setVals]     = useState({})
+  const [estado,   setEstado]   = useState('idle')
+
+  const abrir = (e) => {
+    e.stopPropagation()
+    const init = {}
+    FRACS_ORDEN.forEach(f => { const v=fracciones?.[f]; init[f]=v?(typeof v==='object'?v.precio:v):'' })
+    setVals(init); setEditando(true)
   }
 
-  const hay    = valor !== null && valor !== undefined
-  const esFracVal = esFracc && hay && !Number.isInteger(parseFloat(valor))
+  const guardar = async (e) => {
+    e.stopPropagation()
+    setEstado('saving')
+    const fracs = {}
+    FRACS_ORDEN.forEach(f => { if (vals[f]>0) fracs[f]=parseInt(vals[f]) })
+    try {
+      const r = await fetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/fracciones`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ fracciones: fracs }),
+      })
+      if (!r.ok) throw new Error()
+      setEstado('ok'); onSaved(fracs)
+      setTimeout(()=>{ setEstado('idle'); setEditando(false) }, 1000)
+    } catch { setEstado('err'); setTimeout(()=>setEstado('idle'), 2000) }
+  }
+
+  const hasFracs = fracciones && Object.keys(fracciones).length > 0
+
+  if (!editando) return (
+    <div>
+      {hasFracs && (
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:7 }}>
+          {FRACS_ORDEN.filter(f=>fracciones[f]).map(f => {
+            const precio = typeof fracciones[f]==='object' ? fracciones[f].precio : fracciones[f]
+            return (
+              <div key={f} style={{ background:t.card, border:`1px solid ${t.border}`, borderRadius:7, padding:'4px 9px' }}>
+                <div style={{ fontSize:9, color:t.textMuted, marginBottom:1 }}>{f}</div>
+                <div style={{ color:t.accent, fontWeight:600, fontSize:11 }}>{cop(precio)}</div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <button onClick={abrir} style={{
+        fontSize:10, color:t.accent, background:t.accentSub,
+        border:`1px solid ${t.accent}44`, borderRadius:6, padding:'4px 10px',
+        cursor:'pointer', fontFamily:'inherit',
+      }}>
+        ✏ {hasFracs ? 'Editar fracciones' : 'Agregar fracciones'}
+      </button>
+    </div>
+  )
+
   return (
-    <button onClick={abrir} title="Clic para editar stock" style={{
-      background:'none', border:`1px dashed ${t.border}`,
-      borderRadius:6, padding:'3px 8px', cursor:'pointer',
-      fontSize:12, fontFamily:'monospace',
-      color: hay ? (esFracVal ? t.yellow : t.blue) : t.textMuted,
-      transition:'border-color .12s, background .12s',
-      display:'inline-flex', alignItems:'center', gap:4,
-    }}
-    onMouseEnter={e => { e.currentTarget.style.borderColor=t.accent; e.currentTarget.style.background=t.accentSub }}
-    onMouseLeave={e => { e.currentTarget.style.borderColor=t.border; e.currentTarget.style.background='none' }}
-    >
-      {hay
-        ? <span style={{ fontWeight: esFracVal ? 600 : 400 }}>{valorDisplay}</span>
-        : <span style={{opacity:.4, fontSize:11}}>sin stock</span>
-      }
-      {esFracc && hay && <span style={{fontSize:9,opacity:.5,marginLeft:2}}>gal</span>}
-      <span style={{fontSize:9,opacity:.3}}>✏</span>
-    </button>
+    <div onClick={e=>e.stopPropagation()}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:6, marginBottom:10 }}>
+        {FRACS_ORDEN.map(f => (
+          <div key={f}>
+            <div style={{ fontSize:9, color:t.textMuted, marginBottom:3 }}>{f}</div>
+            <div style={{ display:'flex', alignItems:'center', gap:3 }}>
+              <span style={{ fontSize:10, color:t.textMuted }}>$</span>
+              <input type="number" min="0" value={vals[f]||''} placeholder="—"
+                onChange={e=>setVals(v=>({...v,[f]:parseInt(e.target.value)||0}))}
+                style={{
+                  width:'100%', background:t.id==='caramelo'?'#f8fafc':'#111',
+                  border:`1px solid ${vals[f]>0?t.accent+'88':t.border}`, borderRadius:6,
+                  color:t.text, fontSize:11, fontFamily:'monospace', padding:'4px 6px',
+                  outline:'none', MozAppearance:'textfield', appearance:'textfield',
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+        <button onClick={guardar} style={{
+          background: estado==='ok'?t.green:t.accent, border:'none', borderRadius:6,
+          color:'#fff', padding:'5px 14px', cursor:'pointer', fontFamily:'inherit', fontSize:11, fontWeight:600,
+        }}>
+          {estado==='saving'?'Guardando…':estado==='ok'?'✓ Guardado':'Guardar fracciones'}
+        </button>
+        <button onClick={e=>{e.stopPropagation();setEditando(false)}} style={{
+          background:'transparent', border:`1px solid ${t.border}`, borderRadius:6,
+          color:t.textMuted, padding:'5px 12px', cursor:'pointer', fontFamily:'inherit', fontSize:11,
+        }}>Cancelar</button>
+        {estado==='err'&&<span style={{fontSize:10,color:'#f87171'}}>✗ Error</span>}
+      </div>
+    </div>
   )
 }
 
 // ── Fila de producto ──────────────────────────────────────────────────────────
-function FilaProducto({ p, alerta, onActualizado }) {
+function ProductoRow({ p: pInit, expanded, onToggle }) {
   const t = useTheme()
-  const esAlerta = !!alerta
-
-  const patchPrecio = useCallback(async (nuevo) => {
-    const r = await fetch(`${API_BASE}/catalogo/${p.key}/precio`, {
-      method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ precio: nuevo }),
-    })
-    if (!r.ok) throw new Error('Error precio')
-    onActualizado()
-  }, [p.key, onActualizado])
-
-  const patchStock = useCallback(async (nuevo) => {
-    const r = await fetch(`${API_BASE}/inventario/${p.key}/stock`, {
-      method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ stock: nuevo }),
-    })
-    if (!r.ok) throw new Error('Error stock')
-    onActualizado()
-  }, [p.key, onActualizado])
-
-  const bgBase  = esAlerta ? (t.id==='caramelo' ? '#fef2f2' : '#1c0808') : 'transparent'
+  const [p, setP] = useState(pInit)
+  const hasFracs   = p.fracciones && Object.keys(p.fracciones).length > 0
+  const expandible = hasFracs || p.mayorista
 
   return (
-    <tr
-      style={{ borderTop:`1px solid ${t.border}`, background:bgBase, transition:'background .12s' }}
-      onMouseEnter={e => e.currentTarget.style.background = t.cardHover}
-      onMouseLeave={e => e.currentTarget.style.background = bgBase}
-    >
-      <td style={{ padding:'9px 14px', color:t.text, fontSize:12 }}>
-        {esAlerta && (
-          <span style={{
-            width:6, height:6, background:t.accent, borderRadius:'50%',
-            display:'inline-block', marginRight:7, animation:'pulse 1.5s infinite',
-          }}/>
-        )}
-        {p.nombre}
-        {p.precios_fraccion && (
-          <span style={{
-            marginLeft:6, fontSize:9, color:t.textMuted,
-            background:t.border, borderRadius:3, padding:'1px 5px',
-          }}>fraccionable</span>
-        )}
-      </td>
-      <td style={{ padding:'9px 14px', color:t.textMuted, fontFamily:'monospace', fontSize:11 }}>
-        {p.codigo || '—'}
-      </td>
-      <td style={{ padding:'8px 10px', textAlign:'center' }}>
-        <CampoPrecio valor={p.precio || null} onGuardar={patchPrecio}/>
-      </td>
-      <td style={{ padding:'8px 10px', textAlign:'center' }}>
-        <CampoStock
-          valor={p.stock !== null && p.stock !== undefined ? p.stock : null}
-          onGuardar={patchStock}
-          fraccionesDisp={p.precios_fraccion || null}
-        />
-      </td>
-      <td style={{ padding:'9px 14px', textAlign:'center' }}>
-        {esAlerta ? (
-          <Badge color={t.accent}>
-            {alerta.motivo==='sin_precio' ? 'Sin precio' : 'Stock 0'}
-          </Badge>
-        ) : (
-          <Badge color={t.green}>OK</Badge>
-        )}
-      </td>
-    </tr>
+    <>
+      <tr
+        style={{ borderBottom:`1px solid ${t.border}`, cursor: expandible?'pointer':'default' }}
+        onClick={() => expandible && onToggle()}
+        onMouseEnter={e => e.currentTarget.style.background = t.cardHover}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+      >
+        <td style={{ padding:'9px 14px', color:t.textMuted, fontFamily:'monospace', fontSize:10 }}>{p.codigo||'—'}</td>
+        <td style={{ padding:'9px 14px', color:t.text }}>
+          {p.nombre}
+          <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginTop:3 }}>
+            {hasFracs && (
+              <span style={{ background:t.accentSub, color:t.accent, border:`1px solid ${t.accent}33`, padding:'1px 7px', borderRadius:99, fontSize:9 }}>fracciones</span>
+            )}
+            {p.mayorista && (
+              <span style={{ background:t.id==='caramelo'?'#eff6ff':'#172554', color:t.blue, border:`1px solid ${t.blue}33`, padding:'1px 7px', borderRadius:99, fontSize:9 }}>mayorista ×{p.mayorista.umbral}</span>
+            )}
+          </div>
+        </td>
+        <td style={{ padding:'9px 14px' }} onClick={e=>e.stopPropagation()}>
+          <PrecioInline value={p.precio} prodKey={p.key} onSaved={v=>setP(prev=>({...prev,precio:v}))}/>
+        </td>
+        <td style={{ padding:'9px 10px', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
+          <StockInline
+            value={p.stock!==null&&p.stock!==undefined ? p.stock : null}
+            prodKey={p.key}
+            fracciones={p.fracciones||null}
+            onSaved={v=>setP(prev=>({...prev,stock:v}))}
+          />
+        </td>
+        <td style={{ padding:'9px 14px', textAlign:'center', color:t.textMuted, fontSize:11 }}>
+          {expandible ? (expanded?'▲':'▼') : ''}
+        </td>
+      </tr>
+      {expanded && (
+        <tr style={{ background:t.tableAlt }}>
+          <td colSpan={5} style={{ padding:'10px 24px 14px' }}>
+            <FraccionesEditor
+              fracciones={p.fracciones} prodKey={p.key}
+              onSaved={v=>setP(prev=>({...prev,fracciones:v}))}
+            />
+            {p.mayorista && (
+              <div style={{ marginTop: hasFracs?12:0 }}>
+                <div style={{ fontSize:10, color:t.textMuted, textTransform:'uppercase', letterSpacing:'.08em', marginBottom:6 }}>Precio mayorista</div>
+                <div style={{ background:t.card, border:`1px solid ${t.blue}33`, borderRadius:7, padding:'6px 12px', display:'inline-block' }}>
+                  <span style={{ color:t.textMuted, fontSize:10 }}>Desde {p.mayorista.umbral} uds: </span>
+                  <span style={{ color:t.blue, fontWeight:600, fontSize:12 }}>{cop(p.mayorista.precio)} c/u</span>
+                </div>
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+// ── Tabla ─────────────────────────────────────────────────────────────────────
+function TablaCat({ prods }) {
+  const t = useTheme()
+  const [expanded, setExpanded] = useState({})
+  const toggle = useCallback(k => setExpanded(p=>({...p,[k]:!p[k]})), [])
+
+  return (
+    <div style={{ borderTop:`1px solid ${t.border}`, overflowX:'auto' }}>
+      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+        <thead>
+          <tr style={{ background:t.tableAlt }}>
+            {['Código','Nombre','Precio','Stock',''].map((h,i)=>(
+              <th key={i} style={{
+                padding:'8px 14px', textAlign: (i===2||i===3)?'center':'left',
+                fontSize:9, color:t.textMuted, textTransform:'uppercase',
+                letterSpacing:'.08em', fontWeight:500, borderBottom:`1px solid ${t.border}`,
+              }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {prods.map(p => (
+            <ProductoRow key={p.key} p={p} expanded={!!expanded[p.key]} onToggle={()=>toggle(p.key)}/>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
 // ── Tab principal ─────────────────────────────────────────────────────────────
 export default function TabInventario({ refreshKey }) {
   const t = useTheme()
-  const { data, loading, error, refetch        } = useFetch('/productos',       [refreshKey])
-  const { data: alDat,          refetch: alRef  } = useFetch('/inventario/bajo', [refreshKey])
+  const [busqueda,     setBusqueda]     = useState('')
+  const [abierta,      setAbierta]      = useState(null)
+  const [subcatActiva, setSubcatActiva] = useState({})
+  const [queryActivo,  setQueryActivo]  = useState('')
 
-  const [busqueda,  setBusqueda]  = useState('')
-  const [soloBajos, setSoloBajos] = useState(false)
-  const [abierta,   setAbierta]   = useState(null)
+  const url = queryActivo ? `/catalogo/nav?q=${encodeURIComponent(queryActivo)}` : '/catalogo/nav'
+  const { data, loading, error } = useFetch(url, [queryActivo, refreshKey])
 
-  const alertaMap = useMemo(() => {
-    const m = {}
-    ;(alDat?.alertas || []).forEach(a => { m[a.key] = a })
-    return m
-  }, [alDat])
+  const categorias  = data?.categorias || {}
+  const total       = data?.total || 0
+  const catEntries  = Object.entries(categorias)
 
-  const categorias = useMemo(() => {
-    const grupos = {}
-    ;(data?.productos || []).forEach(p => {
-      const cat = p.categoria || 'Sin categoría'
-      if (!grupos[cat]) grupos[cat] = []
-      grupos[cat].push(p)
-    })
-    return Object.entries(grupos).sort(([a], [b]) => (parseInt(a)||999) - (parseInt(b)||999))
-  }, [data])
-
-  const filtrar = prods => {
-    let res = prods
-    if (busqueda) {
-      const q = busqueda.toLowerCase()
-      res = res.filter(p => p.nombre.toLowerCase().includes(q) || (p.codigo||'').toLowerCase().includes(q))
-    }
-    if (soloBajos) res = res.filter(p => alertaMap[p.key])
-    return res
+  const handleBuscar = val => {
+    setBusqueda(val)
+    clearTimeout(window._invTimer)
+    window._invTimer = setTimeout(() => setQueryActivo(val), 300)
   }
-
-  const onActualizado = useCallback(() => { refetch(); alRef() }, [refetch, alRef])
-  const totalAlertas  = alDat?.total || 0
-
-  if (loading) return <Spinner />
-  if (error)   return <ErrorMsg msg={`Error: ${error}`} />
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
 
-      {/* Barra superior */}
+      {/* Header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10 }}>
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-          <div style={{
-            background:t.card, border:`1px solid ${t.border}`,
-            borderRadius:8, padding:'8px 14px', fontSize:11, color:t.textSub,
-          }}>
-            📦 <strong style={{color:t.text}}>{data?.total||0}</strong> productos
-          </div>
-
-          {totalAlertas > 0 && (
-            <button onClick={() => setSoloBajos(s => !s)} style={{
-              background: soloBajos ? t.accent : t.accentSub,
-              border:`1px solid ${t.accent}55`,
-              color: soloBajos ? '#fff' : t.accent,
-              borderRadius:8, padding:'8px 14px',
-              fontSize:11, fontWeight:600, cursor:'pointer',
-              fontFamily:'inherit', transition:'all .15s',
-            }}>
-              ⚠️ {totalAlertas} alertas{soloBajos ? ' — Ver todos' : ' — Ver solo alertas'}
-            </button>
-          )}
-
-          <div style={{
-            fontSize:10, color:t.textMuted,
-            background:t.card, border:`1px solid ${t.border}`,
-            borderRadius:7, padding:'5px 10px',
-            display:'flex', alignItems:'center', gap:5,
-          }}>
-            <span style={{opacity:.55}}>✏</span>
-            Clic en precio o stock · Pinturas aceptan fracciones (ej: <strong>2 3/4</strong>)
-          </div>
+        <div style={{ fontSize:11, color:t.textMuted }}>
+          📦 <strong style={{color:t.text}}>{total}</strong> productos ·{' '}
+          <strong style={{color:t.text}}>{catEntries.length}</strong> categorías
+          <span style={{ marginLeft:10, opacity:.6 }}>· Clic en precio o stock para editar ✏</span>
         </div>
-
         <StyledInput
-          value={busqueda}
-          onChange={e => setBusqueda(e.target.value)}
-          placeholder="Buscar producto o código..."
-          style={{ width:240 }}
+          value={busqueda} onChange={e=>handleBuscar(e.target.value)}
+          placeholder="🔍  Buscar producto o código..." style={{ width:280 }}
         />
       </div>
 
-      {/* Categorías */}
-      {categorias.map(([cat, prods]) => {
-        const label    = cat.replace(/^\d+\s*/, '')
-        const filtrados = filtrar(prods)
-        if ((busqueda || soloBajos) && filtrados.length === 0) return null
-        const alertasCat = prods.filter(p => alertaMap[p.key]).length
-        const expandida  = !!(busqueda || soloBajos) || abierta === cat
+      {loading && <Spinner />}
+      {error   && <ErrorMsg msg={`Error: ${error}`} />}
 
-        return (
-          <div key={cat} style={{
-            background:t.card,
-            border:`1px solid ${expandida ? t.accent+'44' : t.border}`,
-            borderRadius:10, overflow:'hidden',
-            transition:'border-color .2s',
-          }}>
-            <div
-              onClick={() => !(busqueda || soloBajos) && setAbierta(p => p===cat ? null : cat)}
-              style={{
-                padding:'12px 16px', display:'flex',
-                alignItems:'center', justifyContent:'space-between',
-                cursor:(busqueda || soloBajos) ? 'default' : 'pointer',
-                userSelect:'none',
-              }}
-              onMouseEnter={e => { if (!(busqueda||soloBajos)) e.currentTarget.style.background=t.cardHover }}
-              onMouseLeave={e => e.currentTarget.style.background='transparent'}
-            >
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <span style={{fontSize:17}}>{catIcon(label)}</span>
-                <span style={{fontWeight:600, fontSize:13, color:t.text}}>{label}</span>
-                <span style={{fontSize:10, color:t.textMuted}}>{prods.length} productos</span>
-                {alertasCat > 0 && (
-                  <span style={{fontSize:10, color:t.accent, fontWeight:600}}>⚠️ {alertasCat}</span>
-                )}
-              </div>
-              {!(busqueda || soloBajos) && (
-                <span style={{
-                  color:t.textMuted, fontSize:11,
-                  transition:'transform .2s',
-                  transform: expandida ? 'rotate(90deg)' : 'rotate(0deg)',
-                  display:'inline-block',
-                }}>▶</span>
-              )}
-            </div>
+      {!loading && !error && (
+        <>
+          {catEntries.length === 0
+            ? <EmptyState msg={busqueda?'Sin resultados.':'Sin productos.'} />
+            : catEntries.map(([cat, prods]) => {
+              const catKey     = cat.toLowerCase()
+              const label      = cat.replace(/^\d+\s*/,'')
+              const expandida  = busqueda ? true : abierta === cat
+              const subcats    = getSubcats(catKey)
+              const subcatSel  = subcatActiva[cat] || null
+              const conFracs   = prods.filter(p=>p.fracciones&&Object.keys(p.fracciones).length>0).length
+              const sinPrecio  = prods.filter(p=>!p.precio).length
+              const sinStock   = prods.filter(p=>p.stock===null||p.stock===undefined).length
+              const prodsVisibles = subcatSel ? filtrarPorSubcat(prods, subcats, subcatSel) : prods
 
-            {expandida && (
-              <div style={{ borderTop:`1px solid ${t.border}`, overflowX:'auto' }}>
-                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
-                  <thead>
-                    <tr style={{ background:t.tableAlt }}>
-                      <Th>Producto</Th>
-                      <Th>Código</Th>
-                      <Th center>Precio</Th>
-                      <Th center>Stock</Th>
-                      <Th center>Estado</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtrados.map(p => (
-                      <FilaProducto
-                        key={p.key} p={p}
-                        alerta={alertaMap[p.key]}
-                        onActualizado={onActualizado}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )
-      })}
+              return (
+                <div key={cat} style={{
+                  background:t.card,
+                  border:`1px solid ${expandida?t.accent+'44':t.border}`,
+                  borderRadius:10, overflow:'hidden', transition:'border-color .2s',
+                }}>
+                  {/* Header categoría */}
+                  <div
+                    onClick={() => !busqueda && setAbierta(p=>p===cat?null:cat)}
+                    style={{ padding:'13px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:busqueda?'default':'pointer', userSelect:'none' }}
+                    onMouseEnter={e=>{ if(!busqueda) e.currentTarget.style.background=t.cardHover }}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}
+                  >
+                    <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                      <span style={{fontSize:18}}>{catIcon(label)}</span>
+                      <span style={{fontWeight:700, fontSize:13, color:t.text}}>{label}</span>
+                      <span style={{fontSize:10, color:t.textMuted}}>{prods.length} productos</span>
+                      {conFracs>0  && <span style={{fontSize:10,color:t.accent,background:t.accentSub,padding:'1px 7px',borderRadius:99}}>{conFracs} fraccionables</span>}
+                      {sinPrecio>0 && <span style={{fontSize:10,color:t.yellow}}>⚠️ {sinPrecio} sin precio</span>}
+                      {sinStock>0  && <span style={{fontSize:10,color:t.textMuted}}>📦 {sinStock} sin stock</span>}
+                    </div>
+                    {!busqueda && (
+                      <span style={{ color:t.textMuted, fontSize:11, transition:'transform .2s', transform:expandida?'rotate(90deg)':'rotate(0deg)', display:'inline-block' }}>▶</span>
+                    )}
+                  </div>
 
-      {categorias.length === 0 && <EmptyState msg="No hay productos cargados." />}
+                  {/* Subcategorías */}
+                  {expandida && subcats.length>0 && (
+                    <div style={{ padding:'8px 16px', borderTop:`1px solid ${t.border}`, display:'flex', gap:6, flexWrap:'wrap', background:t.tableAlt }}>
+                      <button
+                        onClick={()=>setSubcatActiva(prev=>({...prev,[cat]:null}))}
+                        style={{
+                          background:!subcatSel?t.accent:'transparent',
+                          border:`1px solid ${!subcatSel?t.accent:t.border}`,
+                          color:!subcatSel?'#fff':t.textMuted,
+                          fontSize:11, padding:'4px 12px', borderRadius:20,
+                          cursor:'pointer', fontFamily:'inherit', fontWeight:!subcatSel?600:400, transition:'all .15s',
+                        }}
+                      >Todos ({prods.length})</button>
+
+                      {subcats.map(sc => {
+                        const cnt    = filtrarPorSubcat(prods,subcats,sc.key).length
+                        const active = subcatSel===sc.key
+                        if (cnt===0) return null
+                        return (
+                          <button key={sc.key}
+                            onClick={()=>setSubcatActiva(prev=>({...prev,[cat]:sc.key}))}
+                            style={{
+                              background:active?t.accent:'transparent',
+                              border:`1px solid ${active?t.accent:t.border}`,
+                              color:active?'#fff':t.textMuted,
+                              fontSize:11, padding:'4px 12px', borderRadius:20,
+                              cursor:'pointer', fontFamily:'inherit', fontWeight:active?600:400,
+                              display:'flex', alignItems:'center', gap:5, transition:'all .15s',
+                            }}
+                          >
+                            <span>{sc.icono}</span><span>{sc.label}</span>
+                            <span style={{fontSize:10,opacity:.7}}>({cnt})</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {/* Tabla */}
+                  {expandida && (
+                    prodsVisibles.length===0
+                      ? <div style={{padding:'20px',textAlign:'center',color:t.textMuted,fontSize:12}}>Sin productos en esta subcategoría.</div>
+                      : <TablaCat prods={prodsVisibles}/>
+                  )}
+                </div>
+              )
+            })
+          }
+        </>
+      )}
     </div>
   )
 }
