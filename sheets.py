@@ -153,7 +153,7 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
 
 
 def sheets_borrar_fila(numero_venta) -> bool:
-    """Borra del Sheets la fila cuyo primer campo sea numero_venta."""
+    """Borra del Sheets TODAS las filas cuyo consecutivo sea numero_venta."""
     if not config.SHEETS_ID:
         return False
     try:
@@ -161,18 +161,30 @@ def sheets_borrar_fila(numero_venta) -> bool:
         if not ws:
             return False
         celdas = ws.get_all_values()
+
+        # Recoger índices de todas las filas que coinciden (en orden inverso para no desplazar)
+        filas_a_borrar = []
         for idx, fila in enumerate(celdas):
             if idx == 0:
                 continue
             try:
                 if int(fila[0]) == int(numero_venta):
-                    ws.delete_rows(idx + 1)
-                    return True
+                    filas_a_borrar.append(idx + 1)  # +1 porque Sheets es 1-indexed
             except (ValueError, IndexError):
                 pass
-        return False
+
+        if not filas_a_borrar:
+            return False
+
+        # Borrar de abajo hacia arriba para no desplazar índices
+        for fila_idx in reversed(filas_a_borrar):
+            ws.delete_rows(fila_idx)
+
+        _invalidar_ws_cache()
+        return True
+
     except Exception as e:
-        print(f"⚠️ Error borrando fila del Sheets: {e}")
+        print(f"⚠️ Error borrando filas del Sheets: {e}")
         _invalidar_ws_cache()
         return False
 
