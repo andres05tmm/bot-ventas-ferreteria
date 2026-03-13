@@ -1020,9 +1020,16 @@ export default function TabVentasRapidas({ refreshKey }) {
 
   // Filtrar por subcat si hay una activa
   const aplicarSubcat = (prods) => {
-    if (!subcatFiltro || !catActivaKey) return prods
-    const sub = subcatsDisp.find(s => s.key === subcatFiltro)
-    return sub ? prods.filter(sub.fn) : prods
+    let res = prods
+    if (subcatFiltro && catActivaKey) {
+      const sub = subcatsDisp.find(s => s.key === subcatFiltro)
+      res = sub ? res.filter(sub.fn) : res
+    }
+    // Siempre ordenar tornillería con drywall primero
+    if (catActivaKey && catActivaKey.toLowerCase().includes('tornill')) {
+      res = ordenarTornilleria(res)
+    }
+    return res
   }
 
   // ── Favoritos toggle ───────────────────────────────────────────────────────
