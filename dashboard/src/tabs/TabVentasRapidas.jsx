@@ -282,7 +282,7 @@ function PrecioEditor({ precioCalc, precioFinal, onChange, desc }) {
   const mod = precioFinal !== precioCalc
   return (
     <div style={{
-      background: t.id === 'light' ? '#f8fafc' : '#0f0f0f',
+      background: t.id === 'caramelo' ? '#f8fafc' : '#0f0f0f',
       border: `1px solid ${mod ? t.yellow + '88' : t.border}`,
       borderRadius: 8, padding: '10px 13px',
     }}>
@@ -352,7 +352,7 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
       </div>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
-        background: t.id === 'light' ? '#f8fafc' : '#111',
+        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
         border: `1px solid ${t.border}`, borderRadius: 8,
         padding: '9px 13px', marginBottom: 14,
       }}>
@@ -373,7 +373,7 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
       }}>
         <div onClick={() => setFrac(null)} style={{
           padding: '8px 4px', borderRadius: 7, cursor: 'pointer', textAlign: 'center',
-          background: !fracKey ? t.accentSub : (t.id === 'light' ? '#f8fafc' : '#111'),
+          background: !fracKey ? t.accentSub : (t.id === 'caramelo' ? '#f8fafc' : '#111'),
           border: `1px solid ${!fracKey ? t.accent : t.border}`, transition: 'all .15s',
         }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: !fracKey ? t.accent : t.textMuted }}>Ninguna</div>
@@ -382,7 +382,7 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
         {Object.entries(fracs).map(([k, v]) => (
           <div key={k} onClick={() => setFrac(k)} style={{
             padding: '8px 4px', borderRadius: 7, cursor: 'pointer', textAlign: 'center',
-            background: fracKey === k ? t.accentSub : (t.id === 'light' ? '#f8fafc' : '#111'),
+            background: fracKey === k ? t.accentSub : (t.id === 'caramelo' ? '#f8fafc' : '#111'),
             border: `1px solid ${fracKey === k ? t.accent : t.border}`, transition: 'all .15s',
           }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: fracKey === k ? t.accent : t.text }}>{k}</div>
@@ -415,7 +415,7 @@ function ModalCm({ prod, onClose, onConfirm }) {
       </div>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
-        background: t.id === 'light' ? '#f8fafc' : '#111',
+        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
         border: `1px solid ${t.accent}66`, borderRadius: 8,
         padding: '10px 14px', marginBottom: 8,
       }}>
@@ -456,7 +456,7 @@ function ModalQty({ prod, onClose, onConfirm }) {
       </div>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
-        background: t.id === 'light' ? '#f8fafc' : '#111',
+        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
         border: `1px solid ${t.accent}66`, borderRadius: 8,
         padding: 14, marginBottom: 14,
       }}>
@@ -575,7 +575,7 @@ function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
           autoFocus value={desc} onChange={e => setDesc(e.target.value)}
           placeholder="ej: Vinilo T1 mostaza cliente"
           style={{
-            width: '100%', background: t.id === 'light' ? '#f8fafc' : '#111',
+            width: '100%', background: t.id === 'caramelo' ? '#f8fafc' : '#111',
             border: `1px solid ${t.accent}66`, borderRadius: 8,
             color: t.text, fontSize: 13, padding: '10px 12px',
             fontFamily: 'inherit', outline: 'none', marginBottom: 16,
@@ -586,7 +586,7 @@ function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
         <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Galones completos</div>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
-          background: t.id === 'light' ? '#f8fafc' : '#111',
+          background: t.id === 'caramelo' ? '#f8fafc' : '#111',
           border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16,
         }}>
           <button onClick={() => { setQty(q => Math.max(0, q-1)); setModoPrecio(false) }}
@@ -606,7 +606,7 @@ function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
             <button key={f.k||'gal'} onClick={() => { if (f.k === null) return; setFrac(frac === f.k ? null : f.k); setModoPrecio(false) }}
               style={{
                 padding: '5px 12px', borderRadius: 99, cursor: f.k ? 'pointer' : 'default',
-                background: frac === f.k ? t.accentSub : (t.id==='light'?'#f1f5f9':'#1a1a1a'),
+                background: frac === f.k ? t.accentSub : (t.id==='caramelo'?'#f1f5f9':'#1a1a1a'),
                 border: `1px solid ${frac === f.k ? t.accent : t.border}`,
                 color: frac === f.k ? t.accent : (f.k ? t.text : t.textMuted),
                 fontSize: 11, fontFamily: 'inherit', fontWeight: frac===f.k ? 600 : 400,
@@ -617,7 +617,7 @@ function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
 
         {/* Precio total */}
         <div style={{
-          background: t.id==='light'?'#f8fafc':'#0f0f0f',
+          background: t.id==='caramelo'?'#f8fafc':'#0f0f0f',
           border: `1px solid ${modoPrecio ? t.yellow+'88' : t.border}`,
           borderRadius: 8, padding: '10px 13px', marginBottom: 20,
         }}>
@@ -759,7 +759,7 @@ function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
               onClick={() => onAgregar(prod)}
               style={{
                 padding: '5px 11px', borderRadius: 99, cursor: 'pointer',
-                background: enCarrito ? t.accentSub : (t.id === 'light' ? '#f1f5f9' : '#1a1a1a'),
+                background: enCarrito ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#1a1a1a'),
                 border: `1px solid ${enCarrito ? t.accent : t.border}`,
                 color: enCarrito ? t.accent : t.text,
                 fontSize: 11, fontFamily: 'inherit', fontWeight: enCarrito ? 600 : 400,
@@ -904,7 +904,7 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
         <input
           value={vendedor} onChange={e => setVendedor(e.target.value)}
           style={{
-            flex: 1, background: t.id === 'light' ? '#f8fafc' : '#111',
+            flex: 1, background: t.id === 'caramelo' ? '#f8fafc' : '#111',
             border: `1px solid ${t.border}`, borderRadius: 5, color: t.text,
             fontSize: mobile ? 14 : 11, padding: mobile ? '7px 10px' : '4px 7px',
             fontFamily: 'inherit', outline: 'none',
@@ -921,7 +921,7 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
         ].map(m => (
           <button key={m.key} onClick={() => setMetodo(m.key)} style={{
             padding: mobile ? '10px 3px' : '7px 3px',
-            background: metodo === m.key ? t.accentSub : (t.id === 'light' ? '#f8fafc' : '#0f0f0f'),
+            background: metodo === m.key ? t.accentSub : (t.id === 'caramelo' ? '#f8fafc' : '#0f0f0f'),
             border: `1px solid ${metodo === m.key ? t.accent : t.border}`,
             borderRadius: 7, color: metodo === m.key ? t.accent : t.textMuted,
             fontSize: mobile ? 12 : 10, cursor: 'pointer', fontFamily: 'inherit',
