@@ -468,7 +468,7 @@ function AppShell({ themeId, setThemeId }) {
         input::placeholder { color:${t.textMuted}; opacity:1 }
         @keyframes spin  { to { transform:rotate(360deg) } }
         @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(.88)} }
-        @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
         ::-webkit-scrollbar       { width:3px; height:3px }
         ::-webkit-scrollbar-track { background:transparent }
         ::-webkit-scrollbar-thumb { background:${t.accent}55; border-radius:99px }
