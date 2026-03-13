@@ -53,13 +53,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
       boxShadow:t.shadow, gap:12,
     }}>
       <div style={{ display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
-        <div style={{ width:30, height:30, background:t.accent, borderRadius:8,
-          display:'flex', alignItems:'center', justifyContent:'center', fontSize:15,
-          boxShadow:`0 0 10px ${t.accent}55` }}>🔩</div>
-        <div>
-          <span style={{ fontWeight:700, fontSize:14, color:t.id==='light'?t.text:'#fff' }}>FERRETERÍA</span>
-          <span style={{ fontWeight:700, fontSize:14, color:t.accent }}> PUNTO ROJO</span>
-        </div>
+        <img src="/logo.png" alt="Ferretería Punto Rojo" style={{ height:36, width:'auto', display:'block' }} />
         <div style={{ width:1, height:18, background:t.border }} />
         <span style={{ fontSize:10, color:t.textMuted, letterSpacing:'.1em', textTransform:'uppercase' }}>Dashboard</span>
       </div>
@@ -121,11 +115,7 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
       boxShadow:t.shadow,
     }}>
       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-        <div style={{ width:28, height:28, background:t.accent, borderRadius:7,
-          display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>🔩</div>
-        <span style={{ fontWeight:700, fontSize:13, color:t.id==='light'?t.text:'#fff' }}>
-          PUNTO <span style={{ color:t.accent }}>ROJO</span>
-        </span>
+        <img src="/logo.png" alt="Ferretería Punto Rojo" style={{ height:30, width:'auto', display:'block' }} />
       </div>
       <span style={{ fontSize:12, color:t.textMuted, fontWeight:500 }}>
         {TAB_ICONS[activeTab]} {activeTab}
@@ -142,7 +132,7 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
           background:'transparent', border:`1px solid ${t.border}`,
           color:t.textMuted, borderRadius:7, padding:'6px 10px', fontSize:14, cursor:'pointer',
         }}>
-          {themeId==='dark' ? '🌑' : themeId==='mid' ? '🌒' : '☀️'}
+          {THEMES[themeId]?.label.split(' ')[0] ?? '🎨'}
         </button>
       </div>
     </div>
@@ -368,7 +358,7 @@ function AppShell({ themeId, setThemeId }) {
 }
 
 export default function App() {
-  const [themeId, setThemeId] = useState('dark')
+  const [themeId, setThemeId] = useState('concreto')
   return (
     <ThemeContext.Provider value={THEMES[themeId]}>
       <AppShell themeId={themeId} setThemeId={setThemeId} />
