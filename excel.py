@@ -538,6 +538,8 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
 
 
 def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
+    import logging
+    log = logging.getLogger("ferrebot.excel")
     from drive import subir_a_drive
     from sheets import sheets_borrar_fila
     from memoria import cargar_caja, guardar_caja
@@ -545,29 +547,30 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
     inicializar_excel()
     wb = openpyxl.load_workbook(config.EXCEL_FILE)
 
-    total_borradas = 0
-    hojas_buscar   = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
-
-    # Recoger totales y métodos de la hoja mensual ANTES de borrar
-    # para poder descontar de la caja correctamente
-    totales_por_metodo = {}  # {"efectivo": 50000, "transferencia": 0, ...}
+    total_borradas  = 0
+    hojas_buscar    = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+    totales_por_metodo = {}
     hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
 
     nombre_hoja_mes = obtener_nombre_hoja()
+    log.info("[borrar] buscando consecutivo=%s hoja_mes=%s sheets=%s",
+             numero_venta, nombre_hoja_mes, wb.sheetnames)
+
     if nombre_hoja_mes in wb.sheetnames:
         ws_mes = wb[nombre_hoja_mes]
         cols   = detectar_columnas(ws_mes)
-        col_id     = cols.get("consecutivo de venta")
+        log.info("[borrar] cols detectadas: %s", list(cols.keys())[:10])
+        col_id     = cols.get("consecutivo de venta") or cols.get("consecutivo") or cols.get("alias")
         col_total  = next((v for k, v in cols.items() if k == "total"), None)
         col_metodo = next((v for k, v in cols.items() if "metodo" in k), None)
         col_fecha  = next((v for k, v in cols.items() if "fecha" in k), None)
+        log.info("[borrar] col_id=%s col_total=%s col_fecha=%s", col_id, col_total, col_fecha)
 
         if col_id and col_total:
             for fila in range(config.EXCEL_FILA_DATOS, ws_mes.max_row + 1):
                 val = ws_mes.cell(row=fila, column=col_id).value
                 try:
-                    if val is not None and int(float(str(val))) == int(numero_venta):
-                        # Solo descontar si la venta es de hoy (caja es del día)
+                    if val is not None and int(float(str(val).strip())) == int(numero_venta):
                         fecha_fila = str(ws_mes.cell(row=fila, column=col_fecha).value or "")[:10] if col_fecha else ""
                         if fecha_fila == hoy:
                             t = float(ws_mes.cell(row=fila, column=col_total).value or 0)
@@ -577,30 +580,48 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
                     pass
 
     for nombre_sh in hojas_buscar:
-        if nombre_sh in wb.sheetnames:
-            ws     = wb[nombre_sh]
-            cols   = detectar_columnas(ws)
-            col_id = cols.get("consecutivo de venta") or cols.get("alias")
-            if not col_id:
+        if nombre_sh not in wb.sheetnames:
+            log.info("[borrar] hoja '%s' no existe", nombre_sh)
+            continue
+        ws   = wb[nombre_sh]
+        cols = detectar_columnas(ws)
+        col_id = (
+            cols.get("consecutivo de venta") or
+            cols.get("consecutivo") or
+            cols.get("alias") or
+            cols.get("#") or
+            cols.get("num")
+        )
+        log.info("[borrar] hoja='%s' col_id=%s max_row=%s", nombre_sh, col_id, ws.max_row)
+        if not col_id:
+            log.warning("[borrar] sin col_id en '%s', cols=%s", nombre_sh, list(cols.keys()))
+            continue
+
+        filas_a_borrar = []
+        for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
+            val = ws.cell(row=fila, column=col_id).value
+            if val is None:
                 continue
-            filas_a_borrar = []
-            for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
-                val = ws.cell(row=fila, column=col_id).value
-                try:
-                    if val is not None and int(float(str(val))) == int(numero_venta):
-                        filas_a_borrar.append(fila)
-                except (ValueError, TypeError):
-                    pass
-            for fila in reversed(filas_a_borrar):
-                ws.delete_rows(fila)
-            total_borradas += len(filas_a_borrar)
+            try:
+                val_str = str(val).strip()
+                if val_str and int(float(val_str)) == int(numero_venta):
+                    filas_a_borrar.append(fila)
+                    log.info("[borrar] fila %s coincide (val=%r)", fila, val)
+            except (ValueError, TypeError):
+                pass
+
+        log.info("[borrar] filas_a_borrar=%s en '%s'", filas_a_borrar, nombre_sh)
+        for fila in reversed(filas_a_borrar):
+            ws.delete_rows(fila)
+        total_borradas += len(filas_a_borrar)
+
+    log.info("[borrar] total_borradas=%s", total_borradas)
 
     if total_borradas:
         wb.save(config.EXCEL_FILE)
         subir_a_drive(config.EXCEL_FILE)
         sheets_borrar_fila(numero_venta)
 
-        # Descontar de la caja si la venta era de hoy
         if totales_por_metodo:
             caja = cargar_caja()
             if caja.get("abierta"):
@@ -613,7 +634,7 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
 
         return True, f"✅ Consecutivo #{numero_venta} borrado — {total_borradas} fila(s) eliminadas del Excel y del Sheets."
 
-    return False, f"No encontré el consecutivo #{numero_venta}."
+    return False, f"No encontré el consecutivo #{numero_venta}. Hojas revisadas: {hojas_buscar}"
 
 
 def recalcular_caja_desde_excel():
