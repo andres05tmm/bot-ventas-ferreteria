@@ -34,6 +34,25 @@ log = logging.getLogger("start")
 # solo gracias al time.sleep(30) inicial. Ahora el import está en el lugar correcto.
 import config  # noqa: E402
 
+# ── Restaurar memoria.json desde Drive al arrancar ────────────────────────────
+# El archivo NO vive en el repo (está en .gitignore). En cada deploy Railway
+# arranca sin él, así que lo descargamos de Drive antes de levantar cualquier
+# hilo. Si falla (primer deploy, Drive vacío) el bot arranca con estado vacío
+# y el usuario puede ejecutar /catalogo para importar el catálogo desde Excel.
+def _restaurar_memoria() -> None:
+    from drive import descargar_de_drive
+    ruta = config.MEMORIA_FILE
+    try:
+        ok = descargar_de_drive("memoria.json", ruta)
+        if ok:
+            log.info("✅ memoria.json restaurado desde Drive")
+        else:
+            log.warning("⚠️  memoria.json no encontrado en Drive — arrancando vacío")
+    except Exception as e:
+        log.warning(f"⚠️  No se pudo restaurar memoria.json: {e} — arrancando vacío")
+
+_restaurar_memoria()
+
 # ── API en hilo SECUNDARIO (daemon) ────────────────────────────────────────────
 def _run_api() -> None:
     import uvicorn
