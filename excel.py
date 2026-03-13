@@ -124,12 +124,20 @@ def detectar_columnas(ws) -> dict:
     """
     Lee los encabezados desde EXCEL_FILA_HEADERS.
     Retorna {nombre_lower: numero_columna}.
+    Usa iter_rows para ser compatible con modo read_only (max_column puede ser None).
     """
     encabezados = {}
-    for col in range(1, ws.max_column + 1):
-        valor = ws.cell(row=config.EXCEL_FILA_HEADERS, column=col).value
-        if valor:
-            encabezados[str(valor).lower().strip()] = col
+    try:
+        for fila_hdr in ws.iter_rows(
+            min_row=config.EXCEL_FILA_HEADERS,
+            max_row=config.EXCEL_FILA_HEADERS,
+        ):
+            for cell in fila_hdr:
+                if cell.value:
+                    encabezados[str(cell.value).lower().strip()] = cell.column
+            break
+    except Exception:
+        pass
     return encabezados
 
 
@@ -187,10 +195,11 @@ def obtener_siguiente_consecutivo() -> int:
         if nombre_hoja in wb.sheetnames:
             ws   = wb[nombre_hoja]
             cols = {}
-            for col in range(1, ws.max_column + 1):
-                valor = ws.cell(row=config.EXCEL_FILA_HEADERS, column=col).value
-                if valor:
-                    cols[str(valor).lower().strip()] = col
+            for fila_hdr in ws.iter_rows(min_row=config.EXCEL_FILA_HEADERS, max_row=config.EXCEL_FILA_HEADERS):
+                for cell in fila_hdr:
+                    if cell.value:
+                        cols[str(cell.value).lower().strip()] = cell.column
+                break
 
             col_fecha  = next((v for k, v in cols.items() if "fecha"       in k), None)
             col_consec = next((v for k, v in cols.items() if "consecutivo" in k), None)
