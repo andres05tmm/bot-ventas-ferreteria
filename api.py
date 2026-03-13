@@ -243,9 +243,31 @@ def _cantidad_a_float(val) -> float:
 @app.get("/ventas/hoy")
 def ventas_hoy():
     try:
-        ventas = sheets_leer_ventas_del_dia()
-        hoy = _hoy()
+        ventas   = sheets_leer_ventas_del_dia()
+        hoy      = _hoy()
         filtradas = [v for v in ventas if str(v.get("fecha", ""))[:10] == hoy]
+
+        # Enriquecer con unidad_medida desde el catálogo
+        try:
+            if os.path.exists(config.MEMORIA_FILE):
+                with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                    _mem = json.load(_f)
+                catalogo = _mem.get("catalogo", {})
+
+                def _unidad_para(nombre_prod: str) -> str:
+                    if not nombre_prod:
+                        return "Unidad"
+                    n = nombre_prod.lower().strip()
+                    for key, prod in catalogo.items():
+                        if prod.get("nombre", "").lower().strip() == n or key == n.replace(" ", "_"):
+                            return prod.get("unidad_medida", "Unidad") or "Unidad"
+                    return "Unidad"
+
+                for v in filtradas:
+                    v["unidad_medida"] = _unidad_para(v.get("producto", ""))
+        except Exception:
+            pass
+
         return {"fecha": hoy, "ventas": filtradas, "total": len(filtradas)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
