@@ -869,17 +869,17 @@ function SelectorCliente({ t, clienteSeleccionado, onSeleccionar }) {
   const buscar = (q) => {
     setBusq(q)
     clearTimeout(timer.current)
-    if (!q.trim()) { setResultados([]); setAbierto(false); return }
+    if (!q.trim() || q.trim().length < 2) { setResultados([]); setAbierto(false); return }
     setBuscando(true)
+    setAbierto(true)
     timer.current = setTimeout(async () => {
       try {
         const r = await fetch(`${API_BASE}/clientes/buscar?q=${encodeURIComponent(q)}`)
         const d = await r.json()
         setResultados(d.clientes || [])
-        setAbierto(true)
       } catch { setResultados([]) }
       finally { setBuscando(false) }
-    }, 300)
+    }, 350)
   }
 
   const seleccionar = (c) => {
