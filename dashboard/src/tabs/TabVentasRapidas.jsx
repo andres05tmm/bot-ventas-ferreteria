@@ -856,9 +856,252 @@ function VistaGrupos({ prods, subcatKey, carrito, onClickProd, favKeys, onFav, c
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// SELECTOR DE CLIENTE
+// ══════════════════════════════════════════════════════════════════════════════
+function SelectorCliente({ t, clienteSeleccionado, onSeleccionar }) {
+  const [busq,       setBusq]       = useState('')
+  const [resultados, setResultados] = useState([])
+  const [buscando,   setBuscando]   = useState(false)
+  const [abierto,    setAbierto]    = useState(false)
+  const [modalNuevo, setModalNuevo] = useState(false)
+  const timer = useRef(null)
+
+  const buscar = (q) => {
+    setBusq(q)
+    clearTimeout(timer.current)
+    if (!q.trim()) { setResultados([]); setAbierto(false); return }
+    setBuscando(true)
+    timer.current = setTimeout(async () => {
+      try {
+        const r = await fetch(`${API_BASE}/clientes/buscar?q=${encodeURIComponent(q)}`)
+        const d = await r.json()
+        setResultados(d.clientes || [])
+        setAbierto(true)
+      } catch { setResultados([]) }
+      finally { setBuscando(false) }
+    }, 300)
+  }
+
+  const seleccionar = (c) => {
+    const nombre = c['Nombre tercero'] || ''
+    const id     = c['Identificacion'] ? String(c['Identificacion']) : ''
+    onSeleccionar({ nombre, id, datos: c })
+    setBusq(''); setResultados([]); setAbierto(false)
+  }
+
+  const limpiar = () => { onSeleccionar(null); setBusq('') }
+
+  const inp = {
+    flex:1, background: t.id==='caramelo'?'#f8fafc':'#111',
+    border:`1px solid ${t.border}`, borderRadius:5,
+    color:t.text, fontSize:11, padding:'5px 8px',
+    fontFamily:'inherit', outline:'none', minWidth:0,
+  }
+
+  if (clienteSeleccionado) return (
+    <div style={{padding:'8px 14px',borderTop:`1px solid ${t.border}`}}>
+      <div style={{fontSize:9,color:t.textMuted,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:4}}>Cliente</div>
+      <div style={{display:'flex',alignItems:'center',gap:8,background:t.accentSub,border:`1px solid ${t.accent}33`,borderRadius:7,padding:'6px 10px'}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:12,fontWeight:600,color:t.accent,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            👤 {clienteSeleccionado.nombre}
+          </div>
+          {clienteSeleccionado.id && <div style={{fontSize:10,color:t.textMuted}}>ID: {clienteSeleccionado.id}</div>}
+        </div>
+        <button onClick={limpiar} title="Quitar cliente" style={{
+          background:'transparent',border:'none',color:t.textMuted,
+          cursor:'pointer',fontSize:14,padding:'0 2px',flexShrink:0,
+        }}>✕</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={{padding:'8px 14px',borderTop:`1px solid ${t.border}`,position:'relative'}}>
+      <div style={{fontSize:9,color:t.textMuted,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:4}}>Cliente (opcional)</div>
+      <div style={{display:'flex',gap:5}}>
+        <input
+          style={inp} value={busq}
+          onChange={e=>buscar(e.target.value)}
+          onFocus={()=>busq&&setAbierto(true)}
+          placeholder="Buscar por nombre o cédula/NIT..."
+        />
+        <button onClick={()=>setModalNuevo(true)} title="Registrar cliente nuevo" style={{
+          background:t.accentSub,border:`1px solid ${t.accent}44`,color:t.accent,
+          borderRadius:5,padding:'5px 8px',cursor:'pointer',fontSize:12,flexShrink:0,
+        }}>+</button>
+      </div>
+      {/* Dropdown resultados */}
+      {abierto && (resultados.length > 0 || buscando) && (
+        <div style={{
+          position:'absolute',left:14,right:14,top:'100%',zIndex:200,
+          background:t.card,border:`1px solid ${t.border}`,borderRadius:8,
+          boxShadow:'0 8px 24px rgba(0,0,0,.25)',overflow:'hidden',
+        }}>
+          {buscando && <div style={{padding:'10px 12px',fontSize:11,color:t.textMuted}}>Buscando…</div>}
+          {!buscando && resultados.length===0 && (
+            <div style={{padding:'10px 12px',fontSize:11,color:t.textMuted}}>
+              Sin resultados —{' '}
+              <span style={{color:t.accent,cursor:'pointer'}} onClick={()=>{setModalNuevo(true);setAbierto(false)}}>
+                registrar cliente nuevo
+              </span>
+            </div>
+          )}
+          {resultados.map((c,i)=>(
+            <div key={i} onClick={()=>seleccionar(c)} style={{
+              padding:'9px 12px',cursor:'pointer',borderBottom:`1px solid ${t.border}`,
+              transition:'background .1s',
+            }}
+              onMouseEnter={e=>e.currentTarget.style.background=t.cardHover}
+              onMouseLeave={e=>e.currentTarget.style.background='transparent'}
+            >
+              <div style={{fontSize:12,fontWeight:500,color:t.text}}>{c['Nombre tercero']}</div>
+              <div style={{fontSize:10,color:t.textMuted}}>
+                {c['Tipo de identificacion']} {c['Identificacion']}
+                {c['Telefono']&&c['Telefono']!=='000-0000000-' ? ` · ${c['Telefono']}` : ''}
+              </div>
+            </div>
+          ))}
+          <div onClick={()=>{setModalNuevo(true);setAbierto(false)}} style={{
+            padding:'8px 12px',fontSize:11,color:t.accent,cursor:'pointer',
+            background:t.accentSub,textAlign:'center',fontWeight:500,
+          }}>
+            + Registrar cliente nuevo
+          </div>
+        </div>
+      )}
+      {/* Modal nuevo cliente */}
+      {modalNuevo && (
+        <ModalNuevoCliente
+          t={t} nombreInicial={busq}
+          onClose={()=>setModalNuevo(false)}
+          onCreado={(c)=>{ seleccionar(c); setModalNuevo(false) }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Modal Nuevo Cliente ───────────────────────────────────────────────────────
+function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
+  const TIPOS_ID = ['CC','NIT','CE','PAS']
+  const [form, setForm] = useState({
+    nombre:         nombreInicial||'',
+    tipo_id:        'CC',
+    identificacion: '',
+    tipo_persona:   'Natural',
+    correo:         '',
+    telefono:       '',
+    direccion:      '',
+  })
+  const [estado, setEstado] = useState('idle')
+  const [err,    setErr]    = useState('')
+  const set = (k,v)=>setForm(f=>({...f,[k]:v}))
+
+  const guardar = async () => {
+    if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); return }
+    setEstado('saving'); setErr('')
+    try {
+      const r = await fetch(`${API_BASE}/clientes`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(form),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail||'Error')
+      setEstado('ok')
+      // Devolver formato compatible con la hoja Clientes
+      const clienteParaSelector = {
+        'Nombre tercero':          form.nombre.toUpperCase(),
+        'Identificacion':          form.identificacion,
+        'Tipo de identificacion':  form.tipo_id,
+        'Telefono':                form.telefono,
+      }
+      setTimeout(()=>{ onCreado(clienteParaSelector); onClose() }, 600)
+    } catch(e) { setErr(e.message); setEstado('err') }
+  }
+
+  const inp = {
+    width:'100%', boxSizing:'border-box',
+    background:t.id==='caramelo'?'#f8fafc':'#111',
+    border:`1px solid ${t.border}`, borderRadius:7,
+    color:t.text, fontSize:12, padding:'7px 10px',
+    outline:'none', fontFamily:'inherit',
+  }
+  const lbl = { fontSize:10, color:t.textMuted, textTransform:'uppercase', letterSpacing:'.07em', marginBottom:3, display:'block' }
+
+  return createPortal(
+    <div onMouseDown={e=>e.target===e.currentTarget&&onClose()} style={{
+      position:'fixed',inset:0,zIndex:10000,background:'rgba(0,0,0,.65)',
+      display:'flex',alignItems:'center',justifyContent:'center',padding:16,
+    }}>
+      <div style={{
+        background:t.bg, border:`1px solid ${t.border}`, borderRadius:14,
+        width:'100%', maxWidth:420, maxHeight:'90vh', overflowY:'auto',
+        boxShadow:'0 24px 64px rgba(0,0,0,.45)',
+      }}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 20px 0'}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:14,color:t.text}}>👤 Registrar cliente</div>
+            <div style={{fontSize:11,color:t.textMuted,marginTop:2}}>Se guardará en la hoja Clientes del Excel</div>
+          </div>
+          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:7,color:t.textMuted,width:28,height:28,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+        </div>
+        <div style={{padding:'16px 20px 20px',display:'flex',flexDirection:'column',gap:11}}>
+
+          <div><label style={lbl}>Nombre completo *</label>
+            <input style={inp} value={form.nombre} onChange={e=>set('nombre',e.target.value)} autoFocus/></div>
+
+          <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:10}}>
+            <div><label style={lbl}>Tipo ID</label>
+              <select style={inp} value={form.tipo_id} onChange={e=>set('tipo_id',e.target.value)}>
+                {TIPOS_ID.map(t=><option key={t} value={t}>{t}</option>)}
+              </select></div>
+            <div><label style={lbl}>Número</label>
+              <input style={inp} value={form.identificacion} onChange={e=>set('identificacion',e.target.value)} placeholder="Cédula o NIT"/></div>
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <div><label style={lbl}>Tipo persona</label>
+              <select style={inp} value={form.tipo_persona} onChange={e=>set('tipo_persona',e.target.value)}>
+                <option value="Natural">Natural</option>
+                <option value="Juridica">Jurídica</option>
+              </select></div>
+            <div><label style={lbl}>Teléfono (opcional)</label>
+              <input style={inp} value={form.telefono} onChange={e=>set('telefono',e.target.value)} placeholder="300..."/></div>
+          </div>
+
+          <div><label style={lbl}>Correo electrónico (opcional)</label>
+            <input style={inp} type="email" value={form.correo} onChange={e=>set('correo',e.target.value)} placeholder="correo@..."/></div>
+
+          <div style={{padding:'7px 10px',background:t.accentSub,border:`1px solid ${t.accent}22`,borderRadius:7,fontSize:10,color:t.accent}}>
+            💡 Con estos datos queda listo para factura electrónica DIAN. El teléfono y correo son opcionales.
+          </div>
+
+          {err && <div style={{padding:'7px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626'}}>⚠ {err}</div>}
+
+          <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:2}}>
+            <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>Cancelar</button>
+            <button onClick={guardar} disabled={estado==='saving'} style={{
+              background:estado==='ok'?t.green:estado==='err'?'#dc2626':t.accent,
+              border:'none',borderRadius:8,color:'#fff',padding:'8px 20px',
+              cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
+              opacity:estado==='saving'?.7:1,transition:'background .2s',
+            }}>
+              {estado==='saving'?'Guardando…':estado==='ok'?'✓ Guardado':estado==='err'?'✗ Error':'Registrar cliente'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // PANEL CARRITO (compartido desktop + drawer móvil)
 // ══════════════════════════════════════════════════════════════════════════════
 function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo, setMetodo,
+                        clienteSeleccionado, setClienteSeleccionado,
                         removeItem, qtyChange, registrar, enviando, sticky, mobile }) {
   return (
     <div style={{
@@ -906,6 +1149,13 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
           </div>
         </div>
       )}
+
+      {/* Cliente */}
+      <SelectorCliente
+        t={t}
+        clienteSeleccionado={clienteSeleccionado}
+        onSeleccionar={setClienteSeleccionado}
+      />
 
       {/* Vendedor */}
       <div style={{ padding: '8px 14px', borderTop: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -979,6 +1229,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [carrito,   setCarrito]   = useState([])
   const [metodo,    setMetodo]    = useState('efectivo')
   const [vendedor,  setVendedor]  = useState('Dashboard')
+  const [clienteSeleccionado, setClienteSeleccionado] = useState(null) // {nombre, id} | null
   const [modalFrac, setModalFrac] = useState(null)
   const [modalCm,   setModalCm]   = useState(null)
   const [modalQty,  setModalQty]  = useState(null)
@@ -1125,11 +1376,14 @@ export default function TabVentasRapidas({ refreshKey }) {
         body: JSON.stringify({
           productos: carrito.map(c => ({ nombre: c.nombre, cantidad: c.qty, total: c.total })),
           metodo, vendedor,
+          cliente_nombre: clienteSeleccionado?.nombre || '',
+          cliente_id:     clienteSeleccionado?.id     || '',
         }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setCarrito([])
+      setClienteSeleccionado(null)
       setToast(`✅ Venta #${data.consecutivo} registrada · ${data.productos} producto${data.productos > 1 ? 's' : ''}`)
     } catch (e) {
       setToast(`⚠️ Error: ${e.message}`)
@@ -1372,6 +1626,8 @@ export default function TabVentasRapidas({ refreshKey }) {
           t={t} carrito={carrito} totalCarrito={totalCarrito}
           vendedor={vendedor} setVendedor={setVendedor}
           metodo={metodo} setMetodo={setMetodo}
+          clienteSeleccionado={clienteSeleccionado}
+          setClienteSeleccionado={setClienteSeleccionado}
           removeItem={removeItem} qtyChange={qtyChange}
           registrar={registrar} enviando={enviando}
           sticky
@@ -1445,6 +1701,8 @@ export default function TabVentasRapidas({ refreshKey }) {
                 t={t} carrito={carrito} totalCarrito={totalCarrito}
                 vendedor={vendedor} setVendedor={setVendedor}
                 metodo={metodo} setMetodo={setMetodo}
+                clienteSeleccionado={clienteSeleccionado}
+                setClienteSeleccionado={setClienteSeleccionado}
                 removeItem={removeItem} qtyChange={qtyChange}
                 registrar={() => { registrar(); setCarritoAbierto(false) }}
                 enviando={enviando}
