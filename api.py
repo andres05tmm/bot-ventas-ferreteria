@@ -80,11 +80,20 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
             continue
         ws = wb[nombre_hoja]
 
+        # En modo read_only ws.max_column puede ser None y ws.cell() no es confiable.
+        # Leer headers iterando la fila exacta.
         cols: dict[str, int] = {}
-        for col in range(1, ws.max_column + 1):
-            val = ws.cell(row=config.EXCEL_FILA_HEADERS, column=col).value
-            if val:
-                cols[str(val).lower().strip()] = col
+        try:
+            for fila_hdr in ws.iter_rows(
+                min_row=config.EXCEL_FILA_HEADERS,
+                max_row=config.EXCEL_FILA_HEADERS,
+            ):
+                for cell in fila_hdr:
+                    if cell.value:
+                        cols[str(cell.value).lower().strip()] = cell.column
+                break
+        except Exception:
+            continue
 
         def _col(*claves) -> int | None:
             for k in claves:
@@ -107,7 +116,7 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
             if not any(fila):
                 continue
 
-            fecha_raw = fila[c_fecha - 1] if c_fecha else None
+            fecha_raw = fila[c_fecha - 1] if (c_fecha and c_fecha <= len(fila)) else None
             if fecha_raw is None:
                 continue
 
@@ -122,7 +131,7 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
                 continue
 
             def _v(col_idx):
-                if col_idx is None:
+                if col_idx is None or col_idx > len(fila):
                     return ""
                 v = fila[col_idx - 1]
                 return v if v is not None else ""
@@ -153,7 +162,10 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
                 "metodo":          str(_v(c_metodo)),
             })
 
-    wb.close()
+    try:
+        wb.close()
+    except Exception:
+        pass
     return resultado
 
 
@@ -284,15 +296,22 @@ def ventas_resumen():
     try:
         hoy = _hoy()
 
-        ventas_hoy_list = sheets_leer_ventas_del_dia()
-        ventas_hoy_list = [v for v in ventas_hoy_list if str(v.get("fecha", ""))[:10] == hoy]
+        # Sheets — tolerante a fallo
+        try:
+            ventas_hoy_list = sheets_leer_ventas_del_dia()
+            ventas_hoy_list = [v for v in ventas_hoy_list if str(v.get("fecha", ""))[:10] == hoy]
+        except Exception:
+            ventas_hoy_list = []
 
         total_hoy   = sum(_to_float(v.get("total", 0)) for v in ventas_hoy_list)
         pedidos_hoy = len({str(v.get("num", i)) for i, v in enumerate(ventas_hoy_list)})
 
-        ventas_sem = _leer_excel_rango(dias=7)
-        total_sem  = sum(_to_float(v.get("total", 0)) for v in ventas_sem)
-
+        # Excel semana — tolerante a fallo
+        try:
+            ventas_sem = _leer_excel_rango(dias=7)
+        except Exception:
+            ventas_sem = []
+        total_sem   = sum(_to_float(v.get("total", 0)) for v in ventas_sem)
         pedidos_sem = len({str(v.get("num", i)) for i, v in enumerate(ventas_sem)}) or 1
         ticket_prom = round(total_sem / pedidos_sem, 0) if pedidos_sem else 0
 
@@ -306,8 +325,12 @@ def ventas_resumen():
             dia = (_hace_n_dias(i)).strftime("%Y-%m-%d")
             historico.append({"fecha": dia, "total": ventas_por_dia.get(dia, 0)})
 
-        ventas_mes = _leer_excel_rango(mes_actual=True)
-        total_mes  = sum(_to_float(v.get("total", 0)) for v in ventas_mes)
+        # Excel mes — tolerante a fallo
+        try:
+            ventas_mes = _leer_excel_rango(mes_actual=True)
+        except Exception:
+            ventas_mes = []
+        total_mes = sum(_to_float(v.get("total", 0)) for v in ventas_mes)
 
         ventas_mes_por_dia: dict[str, float] = defaultdict(float)
         for v in ventas_mes:
