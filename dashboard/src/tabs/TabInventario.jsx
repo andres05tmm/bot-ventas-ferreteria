@@ -144,27 +144,23 @@ function CampoPrecio({ valor, onGuardar }) {
   )
 }
 
-// ── Campo stock con soporte de fracciones ─────────────────────────────────────
+// ── Campo stock con soporte de fracciones (solo para fraccionables) ───────────
 function CampoStock({ valor, onGuardar, fraccionesDisp }) {
-  const t = useTheme()
+  const t          = useTheme()
+  const esFracc    = !!(fraccionesDisp && Object.keys(fraccionesDisp).filter(k => k !== 'unidad_suelta').length > 0)
   const [editando, setEditando] = useState(false)
   const [val,      setVal]      = useState('')
   const [estado,   setEstado]   = useState('idle')
-  const inputRef = useRef(null)
+  const inputRef   = useRef(null)
 
-  // Fracciones disponibles para botones rápidos (de precios_fraccion del producto)
   const fracBtns = useMemo(() => {
-    if (!fraccionesDisp) return []
+    if (!esFracc) return []
     return Object.keys(fraccionesDisp)
       .filter(k => k !== 'unidad_suelta')
-      .sort((a, b) => {
-        const pa = parseFraccion(a) || 0
-        const pb = parseFraccion(b) || 0
-        return pb - pa  // de mayor a menor: 3/4, 1/2, 1/4 ...
-      })
-  }, [fraccionesDisp])
+      .sort((a, b) => (parseFraccion(b) || 0) - (parseFraccion(a) || 0))
+  }, [fraccionesDisp, esFracc])
 
-  const valorDisplay = decimalAFrac(valor)
+  const valorDisplay = esFracc ? decimalAFrac(valor) : (valor !== null && valor !== undefined ? String(valor) : null)
 
   const abrir = () => {
     setVal(valorDisplay || '')
@@ -176,46 +172,32 @@ function CampoStock({ valor, onGuardar, fraccionesDisp }) {
 
   const guardar = useCallback(async (strVal) => {
     const src = strVal !== undefined ? strVal : val
-    const num = parseFraccion(String(src))
-    if (num === null || num < 0) { cerrar(); return }
+    const num = esFracc ? parseFraccion(String(src)) : parseFloat(String(src).replace(',','.'))
+    if (num === null || isNaN(num) || num < 0) { cerrar(); return }
     setEstado('saving')
     try {
       await onGuardar(num)
       setEstado('ok')
       setTimeout(cerrar, 700)
     } catch { setEstado('err'); setTimeout(cerrar, 900) }
-  }, [val, onGuardar])
+  }, [val, onGuardar, esFracc])
 
-  const onKey = e => {
-    if (e.key === 'Enter')  guardar()
-    if (e.key === 'Escape') cerrar()
-  }
+  const onKey = e => { if (e.key==='Enter') guardar(); if (e.key==='Escape') cerrar() }
 
-  // Suma o resta fracción rápida
-  const sumar   = frac => {
-    const base = parseFraccion(val) || 0
-    const add  = parseFraccion(frac) || 0
-    setVal(decimalAFrac(base + add) || '')
-  }
-  const restar  = frac => {
-    const base = parseFraccion(val) || 0
-    const sub  = parseFraccion(frac) || 0
-    const res  = Math.max(0, base - sub)
-    setVal(decimalAFrac(res) || '0')
-  }
+  const sumar  = frac => { const b = parseFraccion(val)||0; setVal(decimalAFrac(b+(parseFraccion(frac)||0))||'') }
+  const restar = frac => { const b = parseFraccion(val)||0; setVal(decimalAFrac(Math.max(0,b-(parseFraccion(frac)||0)))||'0') }
 
   if (editando) {
     return (
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, padding:'4px 0' }}>
-        {/* Input principal */}
         <div style={{ display:'flex', alignItems:'center', gap:4 }}>
           <input
             ref={inputRef} value={val} onChange={e => setVal(e.target.value)}
-            onKeyDown={onKey}
-            placeholder="ej: 2 3/4"
+            onKeyDown={onKey} onBlur={guardar}
+            placeholder={esFracc ? 'ej: 2 3/4' : '0'}
             inputMode="decimal"
             style={{
-              width:90, background:t.card,
+              width: esFracc ? 90 : 70, background:t.card,
               border:`1.5px solid ${estado==='err' ? t.accent : t.green}`,
               borderRadius:6, padding:'4px 8px',
               fontSize:13, color:t.text, fontFamily:'monospace',
@@ -224,53 +206,41 @@ function CampoStock({ valor, onGuardar, fraccionesDisp }) {
           />
           <button onClick={() => guardar()} style={{
             background:t.green+'22', border:`1px solid ${t.green}44`,
-            color:t.green, borderRadius:6, padding:'4px 8px',
-            fontSize:12, cursor:'pointer',
+            color:t.green, borderRadius:6, padding:'4px 8px', fontSize:12, cursor:'pointer',
           }}>✓</button>
           <button onClick={cerrar} style={{
             background:'none', border:`1px solid ${t.border}`,
-            color:t.textMuted, borderRadius:6, padding:'4px 8px',
-            fontSize:12, cursor:'pointer',
+            color:t.textMuted, borderRadius:6, padding:'4px 8px', fontSize:12, cursor:'pointer',
           }}>✕</button>
         </div>
 
-        {/* Botones de fracción rápida (+ y -) */}
-        {fracBtns.length > 0 && (
+        {/* Botones ± fracción — solo para productos fraccionables */}
+        {esFracc && fracBtns.length > 0 && (
           <div style={{ display:'flex', flexWrap:'wrap', gap:3, justifyContent:'center' }}>
             {fracBtns.map(frac => (
               <div key={frac} style={{ display:'flex', gap:1 }}>
-                <button
-                  onClick={() => restar(frac)}
-                  title={`− ${frac}`}
-                  style={{
-                    background:t.accentSub, border:`1px solid ${t.accent}33`,
-                    color:t.accent, borderRadius:'5px 0 0 5px',
-                    padding:'2px 6px', fontSize:10, cursor:'pointer', fontWeight:700,
-                  }}>−</button>
+                <button onClick={() => restar(frac)} title={`− ${frac}`} style={{
+                  background:t.accentSub, border:`1px solid ${t.accent}33`,
+                  color:t.accent, borderRadius:'5px 0 0 5px',
+                  padding:'2px 6px', fontSize:10, cursor:'pointer', fontWeight:700,
+                }}>−</button>
                 <span style={{
                   background:t.card, border:`1px solid ${t.border}`,
                   borderLeft:'none', borderRight:'none',
                   padding:'2px 7px', fontSize:10, color:t.text,
                   display:'flex', alignItems:'center',
                 }}>{frac}</span>
-                <button
-                  onClick={() => sumar(frac)}
-                  title={`+ ${frac}`}
-                  style={{
-                    background:t.green+'22', border:`1px solid ${t.green}33`,
-                    color:t.green, borderRadius:'0 5px 5px 0',
-                    padding:'2px 6px', fontSize:10, cursor:'pointer', fontWeight:700,
-                  }}>+</button>
+                <button onClick={() => sumar(frac)} title={`+ ${frac}`} style={{
+                  background:t.green+'22', border:`1px solid ${t.green}33`,
+                  color:t.green, borderRadius:'0 5px 5px 0',
+                  padding:'2px 6px', fontSize:10, cursor:'pointer', fontWeight:700,
+                }}>+</button>
               </div>
             ))}
           </div>
         )}
 
-        {/* Ayuda */}
-        <span style={{ fontSize:9, color:t.textMuted, opacity:.7 }}>
-          Acepta: 3 · 1/2 · 2 3/4 · 0.5
-        </span>
-
+        {esFracc && <span style={{ fontSize:9, color:t.textMuted, opacity:.7 }}>Acepta: 3 · 1/2 · 2 3/4 · 0.5</span>}
         {estado==='saving' && <span style={{fontSize:10,color:t.textMuted}}>Guardando…</span>}
         {estado==='ok'     && <span style={{fontSize:11,color:t.green}}>✓ Guardado</span>}
         {estado==='err'    && <span style={{fontSize:11,color:t.accent}}>✗ Error</span>}
@@ -278,14 +248,14 @@ function CampoStock({ valor, onGuardar, fraccionesDisp }) {
     )
   }
 
-  const hay = valor !== null && valor !== undefined
-  const esFrac = hay && !Number.isInteger(parseFloat(valor))
+  const hay    = valor !== null && valor !== undefined
+  const esFracVal = esFracc && hay && !Number.isInteger(parseFloat(valor))
   return (
     <button onClick={abrir} title="Clic para editar stock" style={{
       background:'none', border:`1px dashed ${t.border}`,
       borderRadius:6, padding:'3px 8px', cursor:'pointer',
       fontSize:12, fontFamily:'monospace',
-      color: hay ? (esFrac ? t.yellow : t.blue) : t.textMuted,
+      color: hay ? (esFracVal ? t.yellow : t.blue) : t.textMuted,
       transition:'border-color .12s, background .12s',
       display:'inline-flex', alignItems:'center', gap:4,
     }}
@@ -293,10 +263,10 @@ function CampoStock({ valor, onGuardar, fraccionesDisp }) {
     onMouseLeave={e => { e.currentTarget.style.borderColor=t.border; e.currentTarget.style.background='none' }}
     >
       {hay
-        ? <span style={{ fontWeight: esFrac ? 600 : 400 }}>{valorDisplay}</span>
+        ? <span style={{ fontWeight: esFracVal ? 600 : 400 }}>{valorDisplay}</span>
         : <span style={{opacity:.4, fontSize:11}}>sin stock</span>
       }
-      {fraccionesDisp && hay && <span style={{fontSize:9,opacity:.5,marginLeft:1}}>gal</span>}
+      {esFracc && hay && <span style={{fontSize:9,opacity:.5,marginLeft:2}}>gal</span>}
       <span style={{fontSize:9,opacity:.3}}>✏</span>
     </button>
   )
