@@ -360,6 +360,21 @@ function ProductoRow({ p: pInit, expanded, onToggle }) {
   const hasFracs   = p.fracciones && Object.keys(p.fracciones).length > 0
   const expandible = hasFracs || p.mayorista
 
+  // Badge de unidad de medida — solo si no es "Unidad" genérica
+  const unidad = p.unidad_medida || 'Unidad'
+  const esUnidadEspecial = unidad && unidad.toLowerCase() !== 'unidad'
+  const UNIDAD_COLORES = {
+    'galón': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
+    'galon': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
+    'kg':    { bg: '#dcfce7', color: '#166534', border: '#86efac' },
+    'mts':   { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
+    'cms':   { bg: '#ede9fe', color: '#6d28d9', border: '#c4b5fd' },
+    'lts':   { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
+    'lt':    { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
+  }
+  const unidadKey = unidad.toLowerCase().replace('ó','o')
+  const unidadColor = UNIDAD_COLORES[unidadKey] || { bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db' }
+
   return (
     <>
       <tr
@@ -391,13 +406,24 @@ function ProductoRow({ p: pInit, expanded, onToggle }) {
             onSaved={v=>setP(prev=>({...prev,stock:v}))}
           />
         </td>
+        <td style={{ padding:'9px 10px', textAlign:'center' }}>
+          {esUnidadEspecial
+            ? <span style={{
+                background: t.id==='caramelo' ? unidadColor.bg : unidadColor.bg+'33',
+                color: t.id==='caramelo' ? unidadColor.color : unidadColor.border,
+                border: `1px solid ${unidadColor.border}55`,
+                padding:'2px 8px', borderRadius:99, fontSize:9, fontWeight:600,
+              }}>{unidad}</span>
+            : <span style={{ color:t.textMuted, fontSize:10, opacity:.4 }}>und</span>
+          }
+        </td>
         <td style={{ padding:'9px 14px', textAlign:'center', color:t.textMuted, fontSize:11 }}>
           {expandible ? (expanded?'▲':'▼') : ''}
         </td>
       </tr>
       {expanded && (
         <tr style={{ background:t.tableAlt }}>
-          <td colSpan={5} style={{ padding:'10px 24px 14px' }}>
+          <td colSpan={6} style={{ padding:'10px 24px 14px' }}>
             <FraccionesEditor
               fracciones={p.fracciones} prodKey={p.key}
               onSaved={v=>setP(prev=>({...prev,fracciones:v}))}
@@ -429,9 +455,9 @@ function TablaCat({ prods }) {
       <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
         <thead>
           <tr style={{ background:t.tableAlt }}>
-            {['Código','Nombre','Precio','Stock',''].map((h,i)=>(
+            {['Código','Nombre','Precio','Stock','Unidad',''].map((h,i)=>(
               <th key={i} style={{
-                padding:'8px 14px', textAlign: (i===2||i===3)?'center':'left',
+                padding:'8px 14px', textAlign: (i===2||i===3||i===4)?'center':'left',
                 fontSize:9, color:t.textMuted, textTransform:'uppercase',
                 letterSpacing:'.08em', fontWeight:500, borderBottom:`1px solid ${t.border}`,
               }}>{h}</th>
@@ -448,6 +474,179 @@ function TablaCat({ prods }) {
   )
 }
 
+// ── Modal Crear Producto ──────────────────────────────────────────────────────
+const CATEGORIAS_DISPONIBLES = [
+  '1 Artículos de Ferreteria',
+  '2 Pinturas y Disolventes',
+  '3 Tornilleria',
+  '4 Impermeabilizantes y Materiales de Construcción',
+  '5 Materiales Electricos',
+]
+
+const UNIDADES_DISPONIBLES = [
+  'Unidad','Galón','Kg','Mts','Cms','Lt','Lts','25 kg',
+]
+
+function ModalCrearProducto({ onClose, onCreado }) {
+  const t = useTheme()
+  const [form, setForm] = useState({
+    nombre:        '',
+    categoria:     CATEGORIAS_DISPONIBLES[0],
+    precio_unidad: '',
+    unidad_medida: 'Unidad',
+    codigo:        '',
+    stock_inicial: '',
+  })
+  const [estado,  setEstado]  = useState('idle') // idle | saving | ok | err
+  const [errMsg,  setErrMsg]  = useState('')
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const guardar = async () => {
+    if (!form.nombre.trim()) { setErrMsg('El nombre es obligatorio'); return }
+    if (!form.precio_unidad || isNaN(Number(form.precio_unidad))) { setErrMsg('El precio debe ser un número'); return }
+    setErrMsg('')
+    setEstado('saving')
+    try {
+      const body = {
+        nombre:        form.nombre.trim(),
+        categoria:     form.categoria,
+        precio_unidad: Number(form.precio_unidad),
+        unidad_medida: form.unidad_medida,
+        codigo:        form.codigo.trim(),
+      }
+      if (form.stock_inicial !== '' && !isNaN(Number(form.stock_inicial))) {
+        body.stock_inicial = Number(form.stock_inicial)
+      }
+      const r = await fetch(`${API_BASE}/catalogo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.detail || 'Error desconocido')
+      setEstado('ok')
+      setTimeout(() => { onCreado(data); onClose() }, 900)
+    } catch (e) {
+      setErrMsg(e.message || 'Error al crear el producto')
+      setEstado('err')
+    }
+  }
+
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box',
+    background: t.id==='caramelo' ? '#f8fafc' : '#111',
+    border: `1px solid ${t.border}`, borderRadius: 7,
+    color: t.text, fontSize: 12, padding: '8px 11px',
+    outline: 'none', fontFamily: 'inherit',
+  }
+  const labelStyle = { fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 4, display: 'block' }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1000,
+      background: 'rgba(0,0,0,.55)', display: 'flex',
+      alignItems: 'center', justifyContent: 'center', padding: 16,
+    }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{
+        background: t.bg, border: `1px solid ${t.border}`,
+        borderRadius: 14, padding: 24, width: '100%', maxWidth: 480,
+        boxShadow: '0 20px 60px rgba(0,0,0,.4)',
+      }}>
+        {/* Título */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: t.text }}>➕ Crear producto</div>
+            <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>Se guardará en catálogo y en el Excel de productos</div>
+          </div>
+          <button onClick={onClose} style={{ background:'transparent', border:`1px solid ${t.border}`, borderRadius:7, color:t.textMuted, width:28, height:28, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+        </div>
+
+        {/* Formulario */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+
+          {/* Nombre — full width */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={labelStyle}>Nombre del producto *</label>
+            <input style={inputStyle} value={form.nombre} onChange={e=>set('nombre',e.target.value)} placeholder="Ej: Brocha de 2&quot;" autoFocus />
+          </div>
+
+          {/* Categoría */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={labelStyle}>Categoría *</label>
+            <select style={inputStyle} value={form.categoria} onChange={e=>set('categoria',e.target.value)}>
+              {CATEGORIAS_DISPONIBLES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* Precio */}
+          <div>
+            <label style={labelStyle}>Precio unitario (COP) *</label>
+            <div style={{ position:'relative' }}>
+              <span style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:t.textMuted, fontSize:11 }}>$</span>
+              <input style={{ ...inputStyle, paddingLeft: 22 }} type="number" min="0" value={form.precio_unidad} onChange={e=>set('precio_unidad',e.target.value)} placeholder="0" />
+            </div>
+          </div>
+
+          {/* Unidad de medida */}
+          <div>
+            <label style={labelStyle}>Unidad de medida (DIAN)</label>
+            <select style={inputStyle} value={form.unidad_medida} onChange={e=>set('unidad_medida',e.target.value)}>
+              {UNIDADES_DISPONIBLES.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+
+          {/* Código */}
+          <div>
+            <label style={labelStyle}>Código (opcional)</label>
+            <input style={inputStyle} value={form.codigo} onChange={e=>set('codigo',e.target.value)} placeholder="Ej: 1brocha2" />
+          </div>
+
+          {/* Stock inicial */}
+          <div>
+            <label style={labelStyle}>Stock inicial (opcional)</label>
+            <input style={inputStyle} type="number" min="0" step="0.01" value={form.stock_inicial} onChange={e=>set('stock_inicial',e.target.value)} placeholder="0" />
+          </div>
+        </div>
+
+        {/* Nota unidad medida */}
+        <div style={{ marginTop: 12, padding: '8px 11px', background: t.accentSub, border: `1px solid ${t.accent}22`, borderRadius: 7 }}>
+          <span style={{ fontSize: 10, color: t.accent }}>
+            💡 La unidad de medida se usará en la factura electrónica (DIAN). Galón para pinturas, Kg para productos por peso, Mts/Cms para cables/telas, Unidad para el resto.
+          </span>
+        </div>
+
+        {errMsg && (
+          <div style={{ marginTop: 10, padding: '7px 11px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 7, fontSize: 11, color: '#dc2626' }}>
+            ⚠ {errMsg}
+          </div>
+        )}
+
+        {/* Botones */}
+        <div style={{ display: 'flex', gap: 10, marginTop: 18, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{
+            background: 'transparent', border: `1px solid ${t.border}`,
+            borderRadius: 8, color: t.textMuted, padding: '8px 18px',
+            cursor: 'pointer', fontFamily: 'inherit', fontSize: 12,
+          }}>Cancelar</button>
+          <button onClick={guardar} disabled={estado==='saving'} style={{
+            background: estado==='ok' ? t.green : estado==='err' ? '#dc2626' : t.accent,
+            border: 'none', borderRadius: 8, color: '#fff',
+            padding: '8px 22px', cursor: estado==='saving'?'wait':'pointer',
+            fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+            display: 'flex', alignItems: 'center', gap: 7,
+            opacity: estado==='saving' ? .75 : 1, transition: 'background .2s',
+          }}>
+            {estado==='saving' && <span style={{ width:12, height:12, border:'2px solid #ffffff55', borderTop:'2px solid #fff', borderRadius:'50%', display:'inline-block', animation:'spin .7s linear infinite' }} />}
+            {estado==='ok'  ? '✓ Creado' : estado==='err' ? '✗ Error' : 'Crear producto'}
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+    </div>
+  )
+}
+
 // ── Tab principal ─────────────────────────────────────────────────────────────
 export default function TabInventario({ refreshKey }) {
   const t = useTheme()
@@ -455,9 +654,11 @@ export default function TabInventario({ refreshKey }) {
   const [abierta,      setAbierta]      = useState(null)
   const [subcatActiva, setSubcatActiva] = useState({})
   const [queryActivo,  setQueryActivo]  = useState('')
+  const [modalCrear,   setModalCrear]   = useState(false)
+  const [localRefresh, setLocalRefresh] = useState(0)
 
   const url = queryActivo ? `/catalogo/nav?q=${encodeURIComponent(queryActivo)}` : '/catalogo/nav'
-  const { data, loading, error } = useFetch(url, [queryActivo, refreshKey])
+  const { data, loading, error } = useFetch(url, [queryActivo, refreshKey, localRefresh])
 
   const categorias  = data?.categorias || {}
   const total       = data?.total || 0
@@ -469,15 +670,40 @@ export default function TabInventario({ refreshKey }) {
     window._invTimer = setTimeout(() => setQueryActivo(val), 300)
   }
 
+  const handleCreado = () => {
+    setLocalRefresh(r => r + 1)
+  }
+
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
 
+      {modalCrear && (
+        <ModalCrearProducto
+          onClose={() => setModalCrear(false)}
+          onCreado={handleCreado}
+        />
+      )}
+
       {/* Header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10 }}>
-        <div style={{ fontSize:11, color:t.textMuted }}>
-          📦 <strong style={{color:t.text}}>{total}</strong> productos ·{' '}
-          <strong style={{color:t.text}}>{catEntries.length}</strong> categorías
-          <span style={{ marginLeft:10, opacity:.6 }}>· Clic en precio o stock para editar ✏</span>
+        <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+          <div style={{ fontSize:11, color:t.textMuted }}>
+            📦 <strong style={{color:t.text}}>{total}</strong> productos ·{' '}
+            <strong style={{color:t.text}}>{catEntries.length}</strong> categorías
+            <span style={{ marginLeft:10, opacity:.6 }}>· Clic en precio o stock para editar ✏</span>
+          </div>
+          <button
+            onClick={() => setModalCrear(true)}
+            style={{
+              background: t.accent, border: 'none', borderRadius: 8,
+              color: '#fff', padding: '6px 14px', cursor: 'pointer',
+              fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
+              display: 'flex', alignItems: 'center', gap: 5,
+              boxShadow: `0 2px 8px ${t.accent}44`,
+            }}
+          >
+            ➕ Nuevo producto
+          </button>
         </div>
         <StyledInput
           value={busqueda} onChange={e=>handleBuscar(e.target.value)}
