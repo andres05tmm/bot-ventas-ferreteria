@@ -15,6 +15,49 @@ function metodoBadge(metodo, t) {
   return { bg: t.card, color: t.textMuted, border: t.border }
 }
 
+// Convierte cantidad decimal a fracción legible (0.75 → "3/4", 0.5 → "1/2", 2.5 → "2 1/2")
+const FRACS = [
+  [3/4,'3/4'],[1/2,'1/2'],[1/4,'1/4'],[1/3,'1/3'],[2/3,'2/3'],
+  [1/8,'1/8'],[1/10,'1/10'],[1/16,'1/16'],[3/8,'3/8'],[7/8,'7/8'],
+]
+function cantidadLegible(val) {
+  if (val === null || val === undefined || val === '') return '—'
+  const s = String(val).trim()
+  // Si ya viene como fracción legible del bot ("3/4", "1 y 3/4"), devolverla tal cual
+  if (/[\/y]/.test(s) && !/^\d+$/.test(s)) return s
+  const n = parseFloat(s.replace(',','.'))
+  if (isNaN(n)) return s
+  if (Number.isInteger(n)) return String(n)
+  const entero = Math.floor(n)
+  const frac   = n - entero
+  for (const [dec, label] of FRACS) {
+    if (Math.abs(frac - dec) < 0.005) return entero > 0 ? `${entero} ${label}` : label
+  }
+  return n.toFixed(2).replace(/\.?0+$/, '')
+}
+
+// Badge de unidad con color según tipo
+const UNIDAD_ESTILOS = {
+  'galón': { color:'#a16207', bg:'#fef9c320' },
+  'galon': { color:'#a16207', bg:'#fef9c320' },
+  'kg':    { color:'#166534', bg:'#dcfce720' },
+  'mts':   { color:'#1d4ed8', bg:'#dbeafe20' },
+  'cms':   { color:'#6d28d9', bg:'#ede9fe20' },
+  'lt':    { color:'#0369a1', bg:'#e0f2fe20' },
+  'lts':   { color:'#0369a1', bg:'#e0f2fe20' },
+}
+function UnidadBadge({ unidad, t }) {
+  if (!unidad || unidad.toLowerCase() === 'unidad') return null
+  const key = unidad.toLowerCase().replace('ó','o')
+  const est = UNIDAD_ESTILOS[key] || { color: t.textMuted, bg: 'transparent' }
+  return (
+    <span style={{
+      fontSize:9, fontWeight:600, padding:'1px 5px', borderRadius:4,
+      color: est.color, background: est.bg, marginLeft:4, whiteSpace:'nowrap',
+    }}>{unidad}</span>
+  )
+}
+
 function exportCSV(ventas) {
   const headers = ['#','Fecha','Hora','Producto','Cliente','Cantidad','Precio Unit.','Total','Vendedor','Método']
   const rows = ventas.map(v => [
@@ -303,7 +346,10 @@ export default function TabHistorial({ refreshKey }) {
                         <td style={{padding:'8px 14px',color:t.textMuted,fontStyle:'italic',whiteSpace:'nowrap'}}>{v.hora}</td>
                         <td style={{padding:'8px 14px',color:t.text,maxWidth:180}}>{v.producto}</td>
                         <td style={{padding:'8px 14px',color:t.textMuted,fontSize:11}}>{v.cliente||'Consumidor Final'}</td>
-                        <td style={{padding:'8px 14px',textAlign:'center',color:t.textMuted}}>{v.cantidad}</td>
+                        <td style={{padding:'8px 14px',textAlign:'center',color:t.textMuted}}>
+                          <span style={{fontFamily:'monospace'}}>{cantidadLegible(v.cantidad)}</span>
+                          <UnidadBadge unidad={v.unidad_medida} t={t}/>
+                        </td>
                         <td style={{padding:'8px 14px',textAlign:'right',color:t.textMuted}}>{v.precio_unitario?cop(v.precio_unitario):'—'}</td>
                         <td style={{padding:'8px 14px',textAlign:'right',color:t.green,fontWeight:600}}>{cop(v.total)}</td>
                         <td style={{padding:'8px 14px',color:t.textMuted,fontSize:11}}>{v.vendedor||'—'}</td>
