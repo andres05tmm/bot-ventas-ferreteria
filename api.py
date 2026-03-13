@@ -1465,14 +1465,20 @@ def buscar_clientes_endpoint(q: str = Query(default="")):
         clientes = cargar_clientes()
         if not q.strip():
             return {"clientes": clientes[:10], "total": len(clientes)}
-        q_norm   = _normalizar(q.strip())
-        palabras = [p for p in q_norm.split() if len(p) > 1]
+
+        q_norm = _normalizar(q.strip())
         resultado = []
         for c in clientes:
             nombre_norm = _normalizar(c.get("Nombre tercero", "") or "")
             id_norm     = _normalizar(str(c.get("Identificacion", "") or ""))
-            if any(p in nombre_norm or p in id_norm for p in palabras):
+            # Buscar la query completa como substring (para "rene acosta" → encuentra "rene acosta medina")
+            # O buscar cada palabra individualmente
+            if q_norm in nombre_norm or q_norm in id_norm:
                 resultado.append(c)
+            else:
+                palabras = [p for p in q_norm.split() if p]
+                if palabras and all(p in nombre_norm or p in id_norm for p in palabras):
+                    resultado.append(c)
         resultado.sort(key=lambda x: len(str(x.get("Nombre tercero", ""))))
         return {"clientes": resultado[:10], "total": len(resultado)}
     except Exception as e:
