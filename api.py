@@ -1345,53 +1345,6 @@ def proyeccion():
 
 
 class StockUpdate(BaseModel):
-    stock: Union[float, int, None]   # None = sin stock registrado
-
-@app.patch("/inventario/{key}/stock")
-def actualizar_stock(key: str, body: StockUpdate):
-    """
-    Actualiza la cantidad en inventario de un producto.
-    Guarda en memoria.json bajo la clave 'inventario'.
-    """
-    try:
-        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
-            mem = json.load(f)
-        catalogo   = mem.get("catalogo", {})
-        inventario = mem.get("inventario", {})
-
-        if key not in catalogo:
-            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
-
-        stock_anterior = inventario.get(key)
-        if body.stock is None:
-            inventario.pop(key, None)
-        else:
-            inventario[key] = float(body.stock)
-
-        mem["inventario"] = inventario
-        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-            json.dump(mem, f, ensure_ascii=False, indent=2)
-
-        try:
-            from memoria import invalidar_cache_memoria
-            invalidar_cache_memoria()
-        except Exception:
-            pass
-
-        return {
-            "ok":              True,
-            "key":             key,
-            "nombre":          catalogo[key].get("nombre", key),
-            "stock_anterior":  stock_anterior,
-            "stock_nuevo":     body.stock,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-class StockUpdate(BaseModel):
     stock: Union[float, int, None]
 
 @app.patch("/inventario/{key}/stock")
