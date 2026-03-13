@@ -236,13 +236,20 @@ def cargar_clientes() -> list:
     if not os.path.exists(config.EXCEL_FILE):
         return []
     try:
-        # CORRECCIÓN: read_only=True — solo lectura
         wb = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
         if "Clientes" not in wb.sheetnames:
             wb.close()
             return []
-        ws      = wb["Clientes"]
-        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        ws = wb["Clientes"]
+        # En read_only ws.max_column puede ser None — usar iter_rows para headers
+        headers = []
+        try:
+            for fila_hdr in ws.iter_rows(min_row=1, max_row=1):
+                headers = [str(cell.value).strip() if cell.value else "" for cell in fila_hdr]
+                break
+        except Exception:
+            wb.close()
+            return []
         clientes = []
         for row in ws.iter_rows(min_row=2, values_only=True):
             if not any(row):
@@ -250,8 +257,9 @@ def cargar_clientes() -> list:
             cliente = {}
             for i, h in enumerate(headers):
                 if h:
-                    cliente[str(h).strip()] = row[i] if i < len(row) else None
-            clientes.append(cliente)
+                    cliente[h] = row[i] if i < len(row) else None
+            if cliente:
+                clientes.append(cliente)
         wb.close()
         return clientes
     except Exception as e:
