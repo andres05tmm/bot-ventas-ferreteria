@@ -12,8 +12,6 @@ import TabKardex        from './tabs/TabKardex.jsx'
 import TabResultados    from './tabs/TabResultados.jsx'
 import TabVentasRapidas from './tabs/TabVentasRapidas.jsx'
 
-export const API_BASE = import.meta.env.VITE_API_URL || ''
-
 const REFRESH_OPTIONS = [
   { label: 'Off', value: 0   },
   { label: '30s', value: 30  },
@@ -341,17 +339,17 @@ function AppShell({ themeId, setThemeId }) {
         margin:'0 auto',
         paddingBottom: isMobile ? 76 : 20,
       }}>
-        {tab==='Resumen'       && <TabResumen       refreshKey={refreshKey} />}
-        {tab==='Ventas Rápidas'&& <TabVentasRapidas refreshKey={refreshKey} />}
-        {tab==='Top 10'        && <TabTopProductos  refreshKey={refreshKey} />}
-        {tab==='Inventario'    && <TabInventario    refreshKey={refreshKey} />}
-        {tab==='Historial'     && <TabHistorial     refreshKey={refreshKey} />}
-        {tab==='Caja'          && <TabCaja          refreshKey={refreshKey} />}
-        {tab==='Gastos'        && <TabGastos        refreshKey={refreshKey} />}
-        {tab==='Compras'       && <TabCompras       refreshKey={refreshKey} />}
-        {tab==='Catálogo'      && <TabCatalogo      refreshKey={refreshKey} />}
-        {tab==='Kárdex'        && <TabKardex        refreshKey={refreshKey} />}
-        {tab==='Resultados'    && <TabResultados    refreshKey={refreshKey} />}
+        {tab==='Resumen'        && <TabResumen       refreshKey={refreshKey} />}
+        {tab==='Ventas Rápidas' && <TabVentasRapidas refreshKey={refreshKey} />}
+        {tab==='Top 10'         && <TabTopProductos  refreshKey={refreshKey} />}
+        {tab==='Inventario'     && <TabInventario    refreshKey={refreshKey} />}
+        {tab==='Historial'      && <TabHistorial     refreshKey={refreshKey} />}
+        {tab==='Caja'           && <TabCaja          refreshKey={refreshKey} />}
+        {tab==='Gastos'         && <TabGastos        refreshKey={refreshKey} />}
+        {tab==='Compras'        && <TabCompras       refreshKey={refreshKey} />}
+        {tab==='Catálogo'       && <TabCatalogo      refreshKey={refreshKey} />}
+        {tab==='Kárdex'         && <TabKardex        refreshKey={refreshKey} />}
+        {tab==='Resultados'     && <TabResultados    refreshKey={refreshKey} />}
       </div>
 
       {!isMobile && (
