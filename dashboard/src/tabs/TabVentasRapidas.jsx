@@ -35,6 +35,62 @@ function catLabel(cat = '') {
   return cat.replace(/^\d+\s*/, '')
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SUBCATEGORÍAS — misma lógica que /productos en el bot
+// ══════════════════════════════════════════════════════════════════════════════
+const nl = s => (s || '').toLowerCase()
+
+const SUBCATS = {
+  '1 artículos de ferreteria': [
+    { key: 'ferr_brochas',     icono: '🖌️', label: 'Brochas / Rodillos', fn: p => nl(p.nombre).includes('brocha') || nl(p.nombre).includes('rodillo') },
+    { key: 'ferr_lijas',       icono: '📏', label: 'Lijas',               fn: p => nl(p.nombre).includes('lija')    || nl(p.nombre).includes('esmeril') },
+    { key: 'ferr_cintas',      icono: '🔗', label: 'Cintas',              fn: p => nl(p.nombre).includes('cinta')   || nl(p.nombre).includes('pele')  || nl(p.nombre).includes('enmascarar') },
+    { key: 'ferr_cerraduras',  icono: '🔒', label: 'Cerraduras',          fn: p => ['cerradura','candado','cerrojo','falleba'].some(k => nl(p.nombre).includes(k)) },
+    { key: 'ferr_brocas',      icono: '🪚', label: 'Brocas / Discos',     fn: p => nl(p.nombre).includes('broca')   || nl(p.nombre).includes('disco') },
+    { key: 'ferr_herr',        icono: '🔧', label: 'Herramientas',        fn: p => ['martillo','metro','destornillador','exacto','espatula','espátula','tijera','formon','grapadora','machete','taladro','llave','pulidora'].some(k => nl(p.nombre).includes(k)) },
+    { key: 'ferr_varios',      icono: '📦', label: 'Varios',              fn: p => !['brocha','rodillo','lija','esmeril','cinta','pele','enmascarar','cerradura','candado','cerrojo','falleba','broca','disco','martillo','metro','destornillador','exacto','espatula','tijera','formon','grapadora','machete','taladro','llave','pulidora'].some(k => nl(p.nombre).includes(k)) },
+  ],
+  '2 pinturas y disolventes': [
+    { key: 'pint_vinilo',    icono: '🖌️', label: 'Vinilo / Cuñetes',     fn: p => nl(p.nombre).includes('vinilo') },
+    { key: 'pint_esmalte',   icono: '🎨', label: 'Esmalte / Anticorr.',  fn: p => nl(p.nombre).includes('esmalte') || nl(p.nombre).includes('anticorrosivo') },
+    { key: 'pint_laca',      icono: '🪄', label: 'Laca',                 fn: p => nl(p.nombre).includes('laca') },
+    { key: 'pint_thinner',   icono: '🧪', label: 'Thinner / Varsol',     fn: p => nl(p.nombre).includes('thinner') || nl(p.nombre).includes('varsol') || nl(p.nombre).includes('tiner') },
+    { key: 'pint_poli',      icono: '💧', label: 'Poliuretano',          fn: p => nl(p.nombre).includes('poliuretano') || nl(p.nombre).includes('poliamida') },
+    { key: 'pint_aerosol',   icono: '🎭', label: 'Aerosol',              fn: p => nl(p.nombre).includes('aerosol') || nl(p.nombre).includes('aersosol') },
+    { key: 'pint_sellador',  icono: '🧴', label: 'Sellador / Masilla',   fn: p => nl(p.nombre).includes('sellador') || nl(p.nombre).includes('masilla') },
+    { key: 'pint_otros',     icono: '🎨', label: 'Otros',                fn: p => !['vinilo','esmalte','anticorrosivo','laca','thinner','varsol','tiner','poliuretano','poliamida','aerosol','aersosol','sellador','masilla'].some(k => nl(p.nombre).includes(k)) },
+  ],
+  '3 tornilleria': [
+    { key: 'torn_dry6',      icono: '⚙️', label: 'Drywall ×6',           fn: p => nl(p.nombre).includes('drywall') && /6x/.test(nl(p.nombre).replace(/ /g,'')) },
+    { key: 'torn_dry8',      icono: '⚙️', label: 'Drywall ×8',           fn: p => nl(p.nombre).includes('drywall') && /8x/.test(nl(p.nombre).replace(/ /g,'')) },
+    { key: 'torn_dry10',     icono: '⚙️', label: 'Drywall ×10',          fn: p => nl(p.nombre).includes('drywall') && /10x/.test(nl(p.nombre).replace(/ /g,'')) },
+    { key: 'torn_hex',       icono: '🔩', label: 'Hex Galvanizado',       fn: p => nl(p.nombre).includes('hex') && (nl(p.nombre).includes('tornillo') || nl(p.nombre).includes('tuerca') || (nl(p.nombre).includes('arandela') && nl(p.nombre).includes('galv'))) },
+    { key: 'torn_estufa',    icono: '🔩', label: 'Estufa',                fn: p => nl(p.nombre).includes('estufa') },
+    { key: 'torn_puntillas', icono: '📌', label: 'Puntillas',             fn: p => nl(p.nombre).includes('puntilla') },
+    { key: 'torn_tirafondo', icono: '🔩', label: 'Tira Fondo',            fn: p => nl(p.nombre).includes('tira fondo') },
+    { key: 'torn_arandelas', icono: '⚙️', label: 'Arandelas / Chazos',   fn: p => (nl(p.nombre).includes('arandela') || nl(p.nombre).includes('chazo')) && !nl(p.nombre).includes('galv') },
+  ],
+  '4 impermeabilizantes y materiales de construcción': [],
+  '5 materiales electricos': [],
+}
+
+// Ordenar tornillería: Drywall primero (6×→8×→10×), luego el resto por precio
+function ordenarTornilleria(prods) {
+  const isDry = p => nl(p.nombre).includes('drywall') && nl(p.nombre).includes('tornillo')
+  const drySize = p => {
+    const m = nl(p.nombre).replace(/ /g,'').match(/(\d+)x/)
+    return m ? parseInt(m[1]) : 99
+  }
+  const dryLen = p => {
+    const m = nl(p.nombre).replace(/ /g,'').match(/x(\d+(?:\.\d+)?)/)
+    return m ? parseFloat(m[1]) : 999
+  }
+  const dry   = prods.filter(isDry).sort((a,b) => drySize(a)-drySize(b) || dryLen(a)-dryLen(b))
+  const resto = prods.filter(p => !isDry(p)).sort((a,b) => a.precio - b.precio)
+  return [...dry, ...resto]
+}
+
 // ── Tipo de producto ──────────────────────────────────────────────────────────
 function tipoProd(prod) {
   if (prod.nombre?.toLowerCase().includes('esmeril')) return 'cm'
@@ -586,6 +642,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [modalQty,  setModalQty]  = useState(null)
   const [toast,     setToast]     = useState(null)
   const [enviando,  setEnviando]  = useState(false)
+  const [subcatFiltro, setSubcatFiltro]   = useState(null)   // key de subcat activa
   const [carritoAbierto, setCarritoAbierto] = useState(false)
   const isMobile = useIsMobile()
 
@@ -616,7 +673,22 @@ export default function TabVentasRapidas({ refreshKey }) {
     if (!catMap[cat]) catMap[cat] = []
     catMap[cat].push(p)
   })
+  // Ordenar tornillería: Drywall primero
+  const catKey3 = Object.keys(catMap).find(k => k.toLowerCase().includes('tornill'))
+  if (catKey3) catMap[catKey3] = ordenarTornilleria(catMap[catKey3])
+
   const catsOrdenadas = Object.keys(catMap).sort()
+
+  // Subcats disponibles para la categoría seleccionada
+  const catActivaKey = filtro !== 'todos' && filtro !== 'favs' && filtro !== 'top' ? filtro : null
+  const subcatsDisp = catActivaKey ? (SUBCATS[catActivaKey.toLowerCase()] || []) : []
+
+  // Filtrar por subcat si hay una activa
+  const aplicarSubcat = (prods) => {
+    if (!subcatFiltro || !catActivaKey) return prods
+    const sub = subcatsDisp.find(s => s.key === subcatFiltro)
+    return sub ? prods.filter(sub.fn) : prods
+  }
 
   // ── Favoritos toggle ───────────────────────────────────────────────────────
   const toggleFav = useCallback((key) => {
@@ -750,7 +822,7 @@ export default function TabVentasRapidas({ refreshKey }) {
             return (
               <button
                 key={f.key}
-                onClick={() => { setFiltro(f.key); setBusq('') }}
+                onClick={() => { setFiltro(f.key); setBusq(''); setSubcatFiltro(null) }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 5,
                   padding: '5px 12px', borderRadius: 99,
@@ -809,6 +881,41 @@ export default function TabVentasRapidas({ refreshKey }) {
           />
         </div>
 
+        {/* ── Subcategorías ── */}
+        {subcatsDisp.length > 0 && !busq.trim() && (
+          <div style={{
+            display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 12,
+            scrollbarWidth: 'none',
+          }}>
+            <style>{`.sc-bar::-webkit-scrollbar{display:none}`}</style>
+            <button
+              onClick={() => setSubcatFiltro(null)}
+              style={{
+                padding: '5px 13px', borderRadius: 99, whiteSpace: 'nowrap', cursor: 'pointer',
+                background: !subcatFiltro ? t.accentSub : 'transparent',
+                border: `1px solid ${!subcatFiltro ? t.accent : t.border}`,
+                color: !subcatFiltro ? t.accent : t.textMuted,
+                fontSize: 11, fontFamily: 'inherit', flexShrink: 0,
+              }}
+            >Todos</button>
+            {subcatsDisp.map(sub => {
+              const active = subcatFiltro === sub.key
+              return (
+                <button key={sub.key} onClick={() => setSubcatFiltro(active ? null : sub.key)} style={{
+                  padding: '5px 13px', borderRadius: 99, whiteSpace: 'nowrap', cursor: 'pointer',
+                  background: active ? t.accentSub : 'transparent',
+                  border: `1px solid ${active ? t.accent : t.border}`,
+                  color: active ? t.accent : t.textMuted,
+                  fontSize: 11, fontFamily: 'inherit', flexShrink: 0,
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}>
+                  <span>{sub.icono}</span>{sub.label}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {busq.trim() ? (
           <Seccion icono="🔍" titulo={`"${busq}"`} cantidad={prodsFiltrados.length} productos={prodsFiltrados} {...seccionProps} />
         ) : (
@@ -847,18 +954,25 @@ export default function TabVentasRapidas({ refreshKey }) {
             )}
 
             {/* ── Categorías ── */}
-            {catsOrdenadas.map(cat => (
-              mostrarSeccion(cat) && (
+            {catsOrdenadas.map(cat => {
+              if (!mostrarSeccion(cat)) return null
+              const prodsCat = aplicarSubcat(catMap[cat])
+              if (prodsCat.length === 0) return null
+              const subActiva = subcatsDisp.find(s => s.key === subcatFiltro)
+              const titulo = subActiva && cat === catActivaKey
+                ? `${catLabel(cat)} › ${subActiva.icono} ${subActiva.label}`
+                : catLabel(cat)
+              return (
                 <Seccion
                   key={cat}
                   icono={iconCat(cat)}
-                  titulo={catLabel(cat)}
-                  cantidad={catMap[cat].length}
-                  productos={catMap[cat]}
+                  titulo={titulo}
+                  cantidad={prodsCat.length}
+                  productos={prodsCat}
                   {...seccionProps}
                 />
               )
-            ))}
+            })}
           </>
         )}
       </div>
