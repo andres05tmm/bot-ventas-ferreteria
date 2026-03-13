@@ -497,9 +497,11 @@ class VentaRapidaItem(BaseModel):
     unidad_medida: str = ""   # si viene vacío se busca en catálogo
 
 class VentaRapidaPayload(BaseModel):
-    productos: list[VentaRapidaItem]
-    metodo:    str = "efectivo"
-    vendedor:  str = "Dashboard"
+    productos:       list[VentaRapidaItem]
+    metodo:          str = "efectivo"
+    vendedor:        str = "Dashboard"
+    cliente_nombre:  str = ""
+    cliente_id:      str = ""
 
 @app.post("/venta-rapida")
 def venta_rapida(payload: VentaRapidaPayload):
@@ -550,8 +552,17 @@ def venta_rapida(payload: VentaRapidaPayload):
                 metodo_pago     = payload.metodo,
                 consecutivo     = consecutivo,
                 unidad_medida   = unidad,
+                cliente_nombre  = payload.cliente_nombre or None,
+                cliente_id      = payload.cliente_id     or None,
             )
             filas.append(fila)
+
+            # Descontar inventario (igual que hace el bot por Telegram)
+            try:
+                from memoria import descontar_inventario
+                descontar_inventario(item.nombre, cant_num)
+            except Exception:
+                pass
 
         recalcular_caja_desde_excel()
 
@@ -1439,6 +1450,279 @@ def actualizar_stock(key: str, body: StockUpdate):
 @app.get("/api/health")
 def health():
     return {"estado": "activo", "version": "1.0.0"}
+
+
+# ── Clientes ──────────────────────────────────────────────────────────────────
+@app.get("/clientes/buscar")
+def buscar_clientes_endpoint(q: str = Query(default="")):
+    """
+    Busca clientes en la hoja 'Clientes' del Excel por nombre o identificación.
+    Devuelve lista de coincidencias para el autocompletado del dashboard.
+    """
+    try:
+        from excel import cargar_clientes
+        from utils import _normalizar
+        clientes = cargar_clientes()
+        if not q.strip():
+            return {"clientes": clientes[:10], "total": len(clientes)}
+        q_norm   = _normalizar(q.strip())
+        palabras = [p for p in q_norm.split() if len(p) > 1]
+        resultado = []
+        for c in clientes:
+            nombre_norm = _normalizar(c.get("Nombre tercero", "") or "")
+            id_norm     = _normalizar(str(c.get("Identificacion", "") or ""))
+            if any(p in nombre_norm or p in id_norm for p in palabras):
+                resultado.append(c)
+        resultado.sort(key=lambda x: len(str(x.get("Nombre tercero", ""))))
+        return {"clientes": resultado[:10], "total": len(resultado)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class NuevoCliente(BaseModel):
+    nombre:         str
+    tipo_id:        str  = "CC"   # CC | NIT | CE | PAS
+    identificacion: str  = ""
+    tipo_persona:   str  = "Natural"
+    correo:         str  = ""
+    telefono:       str  = ""
+    direccion:      str  = ""
+
+@app.post("/clientes")
+def crear_cliente_endpoint(body: NuevoCliente):
+    """Crea un cliente nuevo en la hoja Clientes del Excel."""
+    try:
+        from excel import guardar_cliente_nuevo, buscar_cliente
+        if not body.nombre.strip():
+            raise HTTPException(status_code=400, detail="El nombre es obligatorio")
+        # Verificar si ya existe
+        existente = buscar_cliente(body.identificacion) if body.identificacion else None
+        if existente:
+            return {
+                "ok":       True,
+                "existia":  True,
+                "cliente":  existente,
+                "mensaje":  "El cliente ya estaba registrado",
+            }
+        ok = guardar_cliente_nuevo(
+            nombre         = body.nombre.strip(),
+            tipo_id        = body.tipo_id,
+            identificacion = body.identificacion.strip(),
+            tipo_persona   = body.tipo_persona,
+            correo         = body.correo.strip(),
+            telefono       = body.telefono.strip(),
+            direccion      = body.direccion.strip(),
+        )
+        if not ok:
+            raise HTTPException(status_code=500, detail="Error guardando cliente en Excel")
+        return {"ok": True, "existia": False, "mensaje": f"Cliente '{body.nombre.strip().upper()}' creado"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Editar / Eliminar Ventas ──────────────────────────────────────────────────
+@app.delete("/ventas/{numero}")
+def eliminar_venta(numero: int):
+    """
+    Elimina todas las filas de un consecutivo de venta del Excel y Sheets.
+    También descuenta el total de la caja si era de hoy.
+    """
+    try:
+        from excel import borrar_venta_excel, recalcular_caja_desde_excel
+        ok, msg = borrar_venta_excel(numero)
+        if ok:
+            recalcular_caja_desde_excel()
+        return {"ok": ok, "mensaje": msg}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class EditarVentaBody(BaseModel):
+    producto:       Union[str, None]   = None
+    cantidad:       Union[float, None] = None
+    precio_unitario:Union[float, None] = None
+    total:          Union[float, None] = None
+    metodo_pago:    Union[str, None]   = None
+    cliente:        Union[str, None]   = None
+    id_cliente:     Union[str, None]   = None
+    vendedor:       Union[str, None]   = None
+
+@app.patch("/ventas/{numero}")
+def editar_venta(numero: int, body: EditarVentaBody):
+    """
+    Edita los campos de un consecutivo en el Excel (hoja mensual + Acumulado).
+    Solo actualiza los campos que vienen en el body.
+    """
+    try:
+        import openpyxl
+        from excel import inicializar_excel, obtener_nombre_hoja, detectar_columnas, recalcular_caja_desde_excel
+        from drive import subir_a_drive
+        from sheets import sheets_leer_ventas_del_dia
+
+        inicializar_excel()
+        wb          = openpyxl.load_workbook(config.EXCEL_FILE)
+        hojas       = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+        actualizadas = 0
+
+        cambios = {k: v for k, v in body.dict().items() if v is not None}
+        if not cambios:
+            raise HTTPException(status_code=400, detail="No hay campos para actualizar")
+
+        CAMPO_COL = {
+            "producto":        ["producto"],
+            "cantidad":        ["cantidad"],
+            "precio_unitario": ["valor unitario", "precio unitario"],
+            "total":           ["total"],
+            "metodo_pago":     ["metodo de pago", "metodo pago"],
+            "cliente":         ["cliente"],
+            "id_cliente":      ["id cliente"],
+            "vendedor":        ["vendedor"],
+        }
+
+        for nombre_sh in hojas:
+            if nombre_sh not in wb.sheetnames:
+                continue
+            ws     = wb[nombre_sh]
+            cols   = detectar_columnas(ws)
+            col_id = cols.get("consecutivo de venta") or cols.get("alias")
+            if not col_id:
+                continue
+
+            for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
+                val = ws.cell(row=fila, column=col_id).value
+                try:
+                    if val is None or int(float(str(val))) != numero:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+
+                for campo, valor in cambios.items():
+                    claves = CAMPO_COL.get(campo, [campo.replace("_", " ")])
+                    col_destino = None
+                    for clave in claves:
+                        col_destino = cols.get(clave)
+                        if col_destino:
+                            break
+                    if col_destino:
+                        ws.cell(row=fila, column=col_destino).value = valor
+                        actualizadas += 1
+
+        if actualizadas:
+            wb.save(config.EXCEL_FILE)
+            try:
+                subir_a_drive(config.EXCEL_FILE)
+            except Exception:
+                pass
+            recalcular_caja_desde_excel()
+            return {"ok": True, "actualizadas": actualizadas, "mensaje": f"Venta #{numero} actualizada"}
+
+        return {"ok": False, "mensaje": f"No se encontró el consecutivo #{numero}"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Editar / Eliminar Productos ───────────────────────────────────────────────
+class EditarProductoBody(BaseModel):
+    nombre:        Union[str, None]   = None
+    categoria:     Union[str, None]   = None
+    precio_unidad: Union[float, None] = None
+    unidad_medida: Union[str, None]   = None
+    codigo:        Union[str, None]   = None
+
+@app.patch("/catalogo/{key}")
+def editar_producto(key: str, body: EditarProductoBody):
+    """Edita nombre, categoría, precio, unidad_medida o código de un producto."""
+    try:
+        from utils import _normalizar
+        from precio_sync import actualizar_precio as _sync_precio, _normalizar_unidad
+        from memoria import invalidar_cache_memoria
+
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        prod    = catalogo[key]
+        cambios = {k: v for k, v in body.dict().items() if v is not None}
+        if not cambios:
+            raise HTTPException(status_code=400, detail="Sin campos para actualizar")
+
+        nueva_clave = key
+        if "nombre" in cambios:
+            prod["nombre"]       = cambios["nombre"].strip()
+            prod["nombre_lower"] = _normalizar(cambios["nombre"].strip())
+            nueva_clave          = prod["nombre_lower"].replace(" ", "_")
+
+        if "categoria"     in cambios: prod["categoria"]     = cambios["categoria"].strip()
+        if "precio_unidad" in cambios: prod["precio_unidad"] = int(cambios["precio_unidad"])
+        if "codigo"        in cambios: prod["codigo"]        = cambios["codigo"].strip()
+        if "unidad_medida" in cambios: prod["unidad_medida"] = _normalizar_unidad(cambios["unidad_medida"])
+
+        # Si cambió el nombre → mover a nueva clave
+        if nueva_clave != key:
+            inv = mem.get("inventario", {})
+            catalogo[nueva_clave] = prod
+            del catalogo[key]
+            if key in inv:
+                inv[nueva_clave] = inv.pop(key)
+            mem["inventario"] = inv
+        else:
+            catalogo[key] = prod
+
+        mem["catalogo"] = catalogo
+        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        invalidar_cache_memoria()
+
+        # Sync precio al Excel si cambió
+        if "precio_unidad" in cambios:
+            try:
+                _sync_precio(prod["nombre"], int(cambios["precio_unidad"]), None)
+            except Exception:
+                pass
+
+        return {"ok": True, "key_nueva": nueva_clave, "producto": prod}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/catalogo/{key}")
+def eliminar_producto(key: str):
+    """Elimina un producto del catálogo e inventario en memoria.json."""
+    try:
+        from memoria import invalidar_cache_memoria
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        nombre = catalogo[key].get("nombre", key)
+        del catalogo[key]
+        inventario.pop(key, None)
+        mem["catalogo"]   = catalogo
+        mem["inventario"] = inventario
+
+        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+        invalidar_cache_memoria()
+
+        return {"ok": True, "nombre": nombre, "mensaje": f"'{nombre}' eliminado del catálogo"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Servir dashboard React (build estático) ───────────────────────────────────
