@@ -1562,7 +1562,12 @@ def eliminar_venta(numero: int):
         ok, msg = borrar_venta_excel(numero)
         if ok:
             recalcular_caja_desde_excel()
+        # Si no se encontró, devolver 404 para que el frontend lo muestre
+        if not ok:
+            raise HTTPException(status_code=404, detail=msg)
         return {"ok": ok, "mensaje": msg}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
