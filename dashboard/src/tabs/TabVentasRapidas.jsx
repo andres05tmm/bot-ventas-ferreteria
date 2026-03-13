@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
 
 
@@ -514,6 +514,87 @@ function CartItem({ item, idx, onRemove, onQtyChange }) {
 
 
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MODAL COLOR PREPARADO
+// ══════════════════════════════════════════════════════════════════════════════
+function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
+  const t = useTheme()
+  const [desc,   setDesc]   = useState('')
+  const [precio, setPrecio] = useState(precioBase || 0)
+
+  useEffect(() => { setPrecio(precioBase || 0); setDesc('') }, [precioBase, show])
+
+  if (!show) return null
+  const valid = desc.trim().length > 0 && precio > 0
+
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()} style={{
+      position: 'fixed', inset: 0, background: '#00000088',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 400, padding: 16,
+    }}>
+      <div style={{
+        background: t.card, border: `1px solid ${t.border}`, borderRadius: 14,
+        padding: '22px 20px', width: '100%', maxWidth: 380,
+        animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)',
+      }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 4 }}>🎨 Color Preparado</div>
+        <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 18 }}>
+          El cliente trae la muestra y se prepara en tienda
+        </div>
+
+        {/* Descripción */}
+        <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 6 }}>Descripción del color</div>
+        <input
+          autoFocus
+          value={desc}
+          onChange={e => setDesc(e.target.value)}
+          placeholder="ej: Vinilo T1 color mostaza cliente"
+          style={{
+            width: '100%', background: t.id === 'light' ? '#f8fafc' : '#111',
+            border: `1px solid ${t.accent}66`, borderRadius: 8,
+            color: t.text, fontSize: 13, padding: '10px 12px',
+            fontFamily: 'inherit', outline: 'none', marginBottom: 14,
+          }}
+          onKeyDown={e => e.key === 'Enter' && valid && onConfirm({ desc: desc.trim(), precio })}
+        />
+
+        {/* Precio */}
+        <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 6 }}>Precio</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+          <span style={{ color: t.textMuted, fontSize: 14 }}>$</span>
+          <input
+            type="number" min="0"
+            value={precio === 0 ? '' : precio}
+            onChange={e => setPrecio(parseInt(e.target.value) || 0)}
+            style={{
+              flex: 1, background: t.id === 'light' ? '#f8fafc' : '#111',
+              border: `1px solid ${t.accent}66`, borderRadius: 8,
+              color: t.accent, fontSize: 18, fontFamily: 'monospace', fontWeight: 700,
+              padding: '8px 12px', outline: 'none',
+              MozAppearance: 'textfield', appearance: 'textfield',
+            }}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <button onClick={onClose} style={{
+            padding: 11, background: 'transparent', border: `1px solid ${t.border}`,
+            borderRadius: 8, color: t.textMuted, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
+          }}>Cancelar</button>
+          <button onClick={() => valid && onConfirm({ desc: desc.trim(), precio })} disabled={!valid} style={{
+            padding: 11, background: valid ? t.accent : t.border,
+            border: 'none', borderRadius: 8,
+            color: valid ? '#fff' : t.textMuted,
+            cursor: valid ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
+          }}>Agregar al carrito</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // CONFIG DE GRUPOS DE COLOR
 // ══════════════════════════════════════════════════════════════════════════════
@@ -561,7 +642,7 @@ function buildGrupos(prods, subcatKey) {
 // ══════════════════════════════════════════════════════════════════════════════
 const MOSTRAR_INICIAL = 8
 
-function GrupoColores({ grupo, carrito, onAgregar }) {
+function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
   const t = useTheme()
   const [expandido, setExpandido] = useState(false)
   if (!grupo.items.length) return null
@@ -632,6 +713,22 @@ function GrupoColores({ grupo, carrito, onAgregar }) {
             {expandido ? '▲ ver menos' : `+${grupo.items.length - MOSTRAR_INICIAL} más`}
           </button>
         )}
+
+        {/* Botón color preparado */}
+        {onColorPrep && (
+          <button
+            onClick={() => onColorPrep(precioBase)}
+            style={{
+              padding: '5px 12px', borderRadius: 99, cursor: 'pointer',
+              background: 'transparent',
+              border: `1px solid ${t.accent}55`,
+              color: t.accent, fontSize: 11, fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            🎨 Color preparado
+          </button>
+        )}
       </div>
     </div>
   )
@@ -640,7 +737,7 @@ function GrupoColores({ grupo, carrito, onAgregar }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // VISTA GRUPOS — contenedor que usa GrupoColores + cards sueltas
 // ══════════════════════════════════════════════════════════════════════════════
-function VistaGrupos({ prods, subcatKey, carrito, onClickProd, favKeys, onFav, columnas }) {
+function VistaGrupos({ prods, subcatKey, carrito, onClickProd, favKeys, onFav, columnas, onColorPrep }) {
   const t = useTheme()
   const { grupos, sueltos } = buildGrupos(prods, subcatKey)
 
@@ -650,7 +747,7 @@ function VistaGrupos({ prods, subcatKey, carrito, onClickProd, favKeys, onFav, c
   return (
     <div>
       {grupos.map(g => (
-        <GrupoColores key={g.key} grupo={g} carrito={carrito} onAgregar={agregarDirecto} />
+        <GrupoColores key={g.key} grupo={g} carrito={carrito} onAgregar={agregarDirecto} onColorPrep={onColorPrep} />
       ))}
       {sueltos.length > 0 && (
         <div>
@@ -805,7 +902,9 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [modalQty,  setModalQty]  = useState(null)
   const [toast,     setToast]     = useState(null)
   const [enviando,  setEnviando]  = useState(false)
-  const [subcatFiltro, setSubcatFiltro]   = useState(null)   // key de subcat activa
+  const [subcatFiltro,      setSubcatFiltro]      = useState(null)
+  const [modalColorPrep,    setModalColorPrep]    = useState(false)
+  const [precioBaseColor,   setPrecioBaseColor]   = useState(0)
   const [carritoAbierto, setCarritoAbierto] = useState(false)
   const isMobile = useIsMobile()
 
@@ -899,6 +998,20 @@ export default function TabVentasRapidas({ refreshKey }) {
     })
     setModalQty(null)
   }
+
+  // ── Color preparado ───────────────────────────────────────────────────────
+  const abrirColorPrep = useCallback((precioBase) => {
+    setPrecioBaseColor(precioBase)
+    setModalColorPrep(true)
+  }, [])
+  const confirmarColorPrep = useCallback(({ desc, precio }) => {
+    setCarrito(prev => [...prev, {
+      id: Date.now(), key: `color_prep_${Date.now()}`,
+      nombre: `🎨 Color Preparado: ${desc}`,
+      precio, qty: 1, total: precio, desc: '1 unidad', tipo: 'simple',
+    }])
+    setModalColorPrep(false)
+  }, [])
 
   // ── Carrito ops ────────────────────────────────────────────────────────────
   const qtyChange = (idx, d) => setCarrito(prev => {
@@ -1142,6 +1255,7 @@ export default function TabVentasRapidas({ refreshKey }) {
                       favKeys={favKeys}
                       onFav={toggleFav}
                       columnas={columnas}
+                      onColorPrep={abrirColorPrep}
                     />
                   </div>
                 )
@@ -1250,6 +1364,14 @@ export default function TabVentasRapidas({ refreshKey }) {
           </div>
         </div>
       )}
+
+      {/* Modal color preparado */}
+      <ModalColorPreparado
+        show={modalColorPrep}
+        precioBase={precioBaseColor}
+        onClose={() => setModalColorPrep(false)}
+        onConfirm={confirmarColorPrep}
+      />
 
       {/* Modales */}
       <ModalFraccion prod={modalFrac} onClose={() => setModalFrac(null)} onConfirm={confirmarFrac} />
