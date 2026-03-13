@@ -31,7 +31,7 @@ function EstadoResultados({ d, periodo, t }) {
         <SectionTitle>Estado de Resultados · {periodo === 'semana' ? 'Esta Semana' : 'Este Mes'}</SectionTitle>
         {!d.tiene_cmv && (
           <span style={{
-            fontSize: 10, color: t.yellow, background: t.id === 'light' ? '#fef9c3' : '#422006',
+            fontSize: 10, color: t.yellow, background: t.id === 'caramelo' ? '#fef9c3' : '#422006',
             border: `1px solid ${t.yellow}44`, padding: '3px 10px', borderRadius: 99,
           }}>
             ⚠️ CMV en $0 — registra compras con /compra
@@ -45,7 +45,7 @@ function EstadoResultados({ d, periodo, t }) {
           <div key={i} style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             padding: f.grande ? '14px 18px' : '11px 18px',
-            background: f.grande ? (t.id === 'light' ? '#f0fdf4' : '#052e1640') : (f.separador ? t.tableAlt : 'transparent'),
+            background: f.grande ? (t.id === 'caramelo' ? '#f0fdf4' : '#052e1640') : (f.separador ? t.tableAlt : 'transparent'),
             borderTop: f.separador ? `2px solid ${t.border}` : (i > 0 ? `1px solid ${t.border}` : 'none'),
           }}>
             <span style={{ color: f.bold ? t.text : t.textSub, fontWeight: f.bold ? 600 : 400, fontSize: f.grande ? 14 : 13 }}>
@@ -139,7 +139,7 @@ function EstadoResultados({ d, periodo, t }) {
       {d.sin_costo?.length > 0 && (
         <div style={{
           marginTop: 12, padding: '10px 14px',
-          background: t.id === 'light' ? '#fef9c3' : '#422006',
+          background: t.id === 'caramelo' ? '#fef9c3' : '#422006',
           border: `1px solid ${t.yellow}44`, borderRadius: 8,
           fontSize: 11, color: t.yellow,
         }}>
