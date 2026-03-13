@@ -16,7 +16,7 @@ import sys
 import threading
 import logging
 
-# ── Forzar polling (antes de importar config) ──────────────────────────────────
+# ── Forzar polling ANTES de importar config (config lee WEBHOOK_URL al importar)
 os.environ["WEBHOOK_URL"] = ""
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -27,6 +27,12 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 log = logging.getLogger("start")
+
+# ── Importar config AQUÍ — después de fijar WEBHOOK_URL y antes de arrancar hilos
+# FIX: antes estaba en la línea 112, después de iniciar el excel_watcher_thread.
+# _get_excel_modified_time() usa config.get_drive_service(); el hilo sobrevivía
+# solo gracias al time.sleep(30) inicial. Ahora el import está en el lugar correcto.
+import config  # noqa: E402
 
 # ── API en hilo SECUNDARIO (daemon) ────────────────────────────────────────────
 def _run_api() -> None:
@@ -40,7 +46,7 @@ api_thread.start()
 log.info("🧵 Hilo de la API iniciado")
 
 # ── Watcher de Excel: sincroniza memoria.json si el Excel cambia en Drive ──────
-EXCEL_WATCH_INTERVAL = 5 * 60   # cada 5 minutos
+EXCEL_WATCH_INTERVAL = 2 * 60 * 60  # cada 2 horas
 EXCEL_NOMBRE         = "BASE_DE_DATOS_PRODUCTOS.xlsx"
 
 def _get_excel_modified_time() -> str | None:
@@ -95,7 +101,30 @@ def _run_excel_watcher() -> None:
                 resultado = importar_catalogo_desde_excel(ruta_tmp)
                 last_modified = current
                 log.info(
-                    f"[excel-watcher] Reimportados {resultado['importados']} productos. "                    f"Errores: {len(resultado.get('errores', []))}"                )
+                    f"[excel-watcher] Reimportados {resultado['importados']} productos. "
+                    f"Errores: {len(resultado.get('errores', []))}"
+                )
+                # Notificar en Telegram si hay ADMIN_CHAT_ID configurado
+                admin_chat = getattr(config, "ADMIN_CHAT_ID", None) or os.getenv("ADMIN_CHAT_ID")
+                if admin_chat:
+                    try:
+                        import requests as _req
+                        _req.post(
+                            f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage",
+                            json={
+                                "chat_id": admin_chat,
+                                "text": (
+                                    f"📊 *Catálogo actualizado desde Excel*\n"
+                                    f"✅ {resultado['importados']} productos importados\n"
+                                    f"⚠️ {len(resultado.get('errores', []))} errores\n"
+                                    f"_Usa /precios para verificar_"
+                                ),
+                                "parse_mode": "Markdown",
+                            },
+                            timeout=5,
+                        )
+                    except Exception as e_tg:
+                        log.warning(f"[excel-watcher] No pudo notificar Telegram: {e_tg}")
             finally:
                 try:
                     _os.unlink(ruta_tmp)
@@ -106,10 +135,10 @@ def _run_excel_watcher() -> None:
 
 excel_watcher_thread = threading.Thread(target=_run_excel_watcher, name="excel-watcher", daemon=True)
 excel_watcher_thread.start()
-log.info("👀 Excel watcher iniciado (intervalo: 5 min)")
+log.info("👀 Excel watcher iniciado (intervalo: 2 horas)")
 
 # ── Borrar webhook viejo ───────────────────────────────────────────────────────
-import config  # noqa: E402
+# config ya fue importado al inicio del archivo — no se repite aquí
 from telegram import Bot  # noqa: E402
 
 async def _delete_webhook():
