@@ -332,6 +332,11 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
   if (!prod) return null
 
   const fracs    = prod.precios_fraccion || {}
+
+  // Orden canónico: mayor fracción primero
+  const DECIMAL_MAP = { '3/4':0.75,'1/2':0.5,'1/4':0.25,'1/10':0.1,'1/8':0.125,'1/16':0.0625,'1/3':0.333,'2/3':0.667 }
+  const fracsOrdenadas = Object.entries(fracs)
+    .sort(([a],[b]) => (DECIMAL_MAP[b] || 0) - (DECIMAL_MAP[a] || 0))
   const fracPrecio = fracKey && fracs[fracKey] ? fracs[fracKey].precio : 0
   const totalCalc  = unidades * prod.precio + fracPrecio
   const precioFinal = precioCustom !== null ? precioCustom : totalCalc
@@ -371,7 +376,7 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
       </div>
       <div style={{
         display: 'grid',
-        gridTemplateColumns: `repeat(${Math.min(Object.keys(fracs).length + 1, 3)}, 1fr)`,
+        gridTemplateColumns: `repeat(${Math.min(fracsOrdenadas.length + 1, 3)}, 1fr)`,
         gap: 6, marginBottom: 14,
       }}>
         <div onClick={() => setFrac(null)} style={{
@@ -382,7 +387,7 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
           <div style={{ fontSize: 12, fontWeight: 600, color: !fracKey ? t.accent : t.textMuted }}>Ninguna</div>
           <div style={{ fontSize: 9, color: t.textMuted, marginTop: 1 }}>sólo unidades</div>
         </div>
-        {Object.entries(fracs).map(([k, v]) => (
+        {fracsOrdenadas.map(([k, v]) => (
           <div key={k} onClick={() => setFrac(k)} style={{
             padding: '8px 4px', borderRadius: 7, cursor: 'pointer', textAlign: 'center',
             background: fracKey === k ? t.accentSub : (t.id === 'caramelo' ? '#f8fafc' : '#111'),
