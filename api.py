@@ -354,6 +354,7 @@ def productos():
                 "codigo":           v.get("codigo", ""),
                 "stock":            (lambda v: v.get("cantidad") if isinstance(v, dict) else v)(inventario.get(k)),
                 "precios_fraccion": v.get("precios_fraccion", None),
+                "unidad_medida":    v.get("unidad_medida", "Unidad"),
             }
             for k, v in catalogo.items()
         ]
@@ -467,9 +468,10 @@ def caja():
 
 # ── Ventas Rápidas (desde el Dashboard) ──────────────────────────────────────
 class VentaRapidaItem(BaseModel):
-    nombre:   str
-    cantidad: Union[float, str] = 1
-    total:    float
+    nombre:        str
+    cantidad:      Union[float, str] = 1
+    total:         float
+    unidad_medida: str = ""   # si viene vacío se busca en catálogo
 
 class VentaRapidaPayload(BaseModel):
     productos: list[VentaRapidaItem]
@@ -481,7 +483,28 @@ def venta_rapida(payload: VentaRapidaPayload):
     try:
         from excel import guardar_venta_excel, recalcular_caja_desde_excel, obtener_siguiente_consecutivo
 
-        # Un solo consecutivo para toda la venta (todos los productos del carrito)
+        # Cargar catálogo una sola vez para resolver unidad_medida
+        _catalogo_cache = {}
+        try:
+            if os.path.exists(config.MEMORIA_FILE):
+                with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                    _mem = json.load(_f)
+                _catalogo_cache = _mem.get("catalogo", {})
+        except Exception:
+            pass
+
+        def _resolver_unidad(item: VentaRapidaItem) -> str:
+            """Devuelve la unidad_medida del item: primero la del payload, si no la del catálogo."""
+            if item.unidad_medida and item.unidad_medida not in ("", "Unidad"):
+                return item.unidad_medida
+            # Buscar en catálogo por nombre normalizado
+            nombre_norm = item.nombre.lower().strip()
+            for prod_key, prod_val in _catalogo_cache.items():
+                if prod_val.get("nombre", "").lower().strip() == nombre_norm or prod_key == nombre_norm.replace(" ", "_"):
+                    return prod_val.get("unidad_medida", "Unidad")
+            return item.unidad_medida or "Unidad"
+
+        # Un solo consecutivo para toda la venta
         consecutivo = obtener_siguiente_consecutivo()
 
         filas = []
@@ -492,6 +515,8 @@ def venta_rapida(payload: VentaRapidaPayload):
                 cant_num = 1.0
             precio_unitario = round(item.total / cant_num, 2) if cant_num else item.total
 
+            unidad = _resolver_unidad(item)
+
             fila = guardar_venta_excel(
                 producto        = item.nombre,
                 cantidad        = cant_num,
@@ -500,18 +525,19 @@ def venta_rapida(payload: VentaRapidaPayload):
                 vendedor        = payload.vendedor,
                 observaciones   = "venta-rapida",
                 metodo_pago     = payload.metodo,
-                consecutivo     = consecutivo,   # mismo para todos
+                consecutivo     = consecutivo,
+                unidad_medida   = unidad,
             )
             filas.append(fila)
 
         recalcular_caja_desde_excel()
 
         return {
-            "ok":           True,
-            "consecutivo":  consecutivo,
-            "productos":    len(filas),
-            "total":        sum(i.total for i in payload.productos),
-            "metodo":       payload.metodo,
+            "ok":          True,
+            "consecutivo": consecutivo,
+            "productos":   len(filas),
+            "total":       sum(i.total for i in payload.productos),
+            "metodo":      payload.metodo,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -712,14 +738,15 @@ def catalogo_nav(q: str = Query(default="")):
                 }
 
             categorias[categoria].append({
-                "key":       key,
-                "nombre":    nombre,
-                "codigo":    prod.get("codigo", ""),
-                "precio":    prod.get("precio_unidad", 0),
-                "stock":     stock,
-                "costo":     costo,
-                "fracciones": fracs,
-                "mayorista":  mayorista,
+                "key":           key,
+                "nombre":        nombre,
+                "codigo":        prod.get("codigo", ""),
+                "precio":        prod.get("precio_unidad", 0),
+                "stock":         stock,
+                "costo":         costo,
+                "fracciones":    fracs,
+                "mayorista":     mayorista,
+                "unidad_medida": prod.get("unidad_medida", "Unidad"),
             })
 
         # Ordenar por prefijo numérico de categoría y productos por nombre
@@ -740,6 +767,108 @@ class PrecioUpdate(BaseModel):
 
 class FraccionesUpdate(BaseModel):
     fracciones: dict   # { "1/4": 8000, "1/2": 13000, ... }
+
+class NuevoProducto(BaseModel):
+    nombre:          str
+    categoria:       str
+    precio_unidad:   Union[float, int]
+    unidad_medida:   str  = "Unidad"
+    codigo:          str  = ""
+    stock_inicial:   Union[float, int, None] = None
+    codigo_dian:     str  = "94"
+    inventariable:   bool = True
+    visible_facturas:bool = True
+    stock_minimo:    int  = 0
+
+@app.post("/catalogo")
+def crear_producto(body: NuevoProducto):
+    """
+    Crea un producto nuevo en memoria.json y en BASE_DE_DATOS_PRODUCTOS.xlsx.
+    """
+    try:
+        from utils import _normalizar
+        from precio_sync import agregar_producto_a_excel, _normalizar_unidad
+
+        if not body.nombre.strip():
+            raise HTTPException(status_code=400, detail="El nombre es obligatorio")
+
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+
+        # Generar clave única
+        key_base = _normalizar(body.nombre.strip()).replace(" ", "_")
+        key = key_base
+        sufijo = 2
+        while key in catalogo:
+            key = f"{key_base}_{sufijo}"
+            sufijo += 1
+
+        unidad_norm = _normalizar_unidad(body.unidad_medida)
+
+        nuevo = {
+            "nombre":        body.nombre.strip(),
+            "nombre_lower":  _normalizar(body.nombre.strip()),
+            "categoria":     body.categoria.strip(),
+            "precio_unidad": int(body.precio_unidad),
+            "unidad_medida": unidad_norm,
+        }
+        if body.codigo.strip():
+            nuevo["codigo"] = body.codigo.strip()
+
+        catalogo[key] = nuevo
+
+        # Stock inicial
+        if body.stock_inicial is not None:
+            inventario[key] = float(body.stock_inicial)
+
+        mem["catalogo"]   = catalogo
+        mem["inventario"] = inventario
+
+        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        try:
+            from memoria import invalidar_cache_memoria
+            invalidar_cache_memoria()
+        except Exception:
+            pass
+
+        # Intentar escribir en el Excel de productos (no bloquea si falla)
+        excel_resultado = {"ok": False, "error": "no intentado"}
+        try:
+            excel_resultado = agregar_producto_a_excel({
+                "codigo":          body.codigo.strip() or key,
+                "nombre":          body.nombre.strip(),
+                "categoria":       body.categoria.strip(),
+                "precio_unidad":   int(body.precio_unidad),
+                "unidad_medida":   unidad_norm,
+                "inventariable":   body.inventariable,
+                "visible_facturas":body.visible_facturas,
+                "stock_minimo":    body.stock_minimo,
+                "codigo_dian":     body.codigo_dian,
+            })
+        except Exception as e_excel:
+            excel_resultado = {"ok": False, "error": str(e_excel)}
+
+        return {
+            "ok":             True,
+            "key":            key,
+            "nombre":         nuevo["nombre"],
+            "categoria":      nuevo["categoria"],
+            "precio_unidad":  nuevo["precio_unidad"],
+            "unidad_medida":  unidad_norm,
+            "stock_inicial":  body.stock_inicial,
+            "excel_guardado": excel_resultado.get("ok", False),
+            "excel_detalle":  excel_resultado,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.patch("/catalogo/{key}/precio")
 def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
