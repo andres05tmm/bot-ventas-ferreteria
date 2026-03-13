@@ -355,7 +355,7 @@ function FraccionesEditor({ fracciones, prodKey, onSaved }) {
 }
 
 // ── Fila de producto ──────────────────────────────────────────────────────────
-function ProductoRow({ p: pInit, expanded, onToggle }) {
+function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
   const t = useTheme()
   const [p, setP] = useState(pInit)
   const hasFracs   = p.fracciones && Object.keys(p.fracciones).length > 0
@@ -384,8 +384,8 @@ function ProductoRow({ p: pInit, expanded, onToggle }) {
         onMouseEnter={e => e.currentTarget.style.background = t.cardHover}
         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
       >
-        <td style={{ padding:'9px 14px', color:t.textMuted, fontFamily:'monospace', fontSize:10 }}>{p.codigo||'—'}</td>
-        <td style={{ padding:'9px 14px', color:t.text }}>
+        <td style={{ padding:'8px 14px', color:t.textMuted, fontFamily:'monospace', fontSize:10 }}>{p.codigo||'—'}</td>
+        <td style={{ padding:'8px 14px', color:t.text }}>
           {p.nombre}
           <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginTop:3 }}>
             {hasFracs && (
@@ -396,10 +396,10 @@ function ProductoRow({ p: pInit, expanded, onToggle }) {
             )}
           </div>
         </td>
-        <td style={{ padding:'9px 14px' }} onClick={e=>e.stopPropagation()}>
+        <td style={{ padding:'8px 14px' }} onClick={e=>e.stopPropagation()}>
           <PrecioInline value={p.precio} prodKey={p.key} onSaved={v=>setP(prev=>({...prev,precio:v}))}/>
         </td>
-        <td style={{ padding:'9px 10px', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
+        <td style={{ padding:'8px 10px', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
           <StockInline
             value={p.stock!==null&&p.stock!==undefined ? p.stock : null}
             prodKey={p.key}
@@ -407,7 +407,7 @@ function ProductoRow({ p: pInit, expanded, onToggle }) {
             onSaved={v=>setP(prev=>({...prev,stock:v}))}
           />
         </td>
-        <td style={{ padding:'9px 10px', textAlign:'center' }}>
+        <td style={{ padding:'8px 10px', textAlign:'center' }}>
           {esUnidadEspecial
             ? <span style={{
                 background: t.id==='caramelo' ? unidadColor.bg : unidadColor.bg+'33',
@@ -418,13 +418,27 @@ function ProductoRow({ p: pInit, expanded, onToggle }) {
             : <span style={{ color:t.textMuted, fontSize:10, opacity:.4 }}>und</span>
           }
         </td>
-        <td style={{ padding:'9px 14px', textAlign:'center', color:t.textMuted, fontSize:11 }}>
+        <td style={{ padding:'8px 10px', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
+          <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
+            <button onClick={onEdit} title="Editar producto" style={{
+              background:t.accentSub, border:`1px solid ${t.accent}44`, color:t.accent,
+              borderRadius:6, width:26, height:26, cursor:'pointer', fontSize:12,
+              display:'flex', alignItems:'center', justifyContent:'center',
+            }}>✏</button>
+            <button onClick={onDelete} title="Eliminar producto" style={{
+              background:'#fef2f2', border:'1px solid #fca5a544', color:'#dc2626',
+              borderRadius:6, width:26, height:26, cursor:'pointer', fontSize:12,
+              display:'flex', alignItems:'center', justifyContent:'center',
+            }}>🗑</button>
+          </div>
+        </td>
+        <td style={{ padding:'8px 14px', textAlign:'center', color:t.textMuted, fontSize:11 }}>
           {expandible ? (expanded?'▲':'▼') : ''}
         </td>
       </tr>
       {expanded && (
         <tr style={{ background:t.tableAlt }}>
-          <td colSpan={6} style={{ padding:'10px 24px 14px' }}>
+          <td colSpan={7} style={{ padding:'10px 24px 14px' }}>
             <FraccionesEditor
               fracciones={p.fracciones} prodKey={p.key}
               onSaved={v=>setP(prev=>({...prev,fracciones:v}))}
@@ -446,7 +460,7 @@ function ProductoRow({ p: pInit, expanded, onToggle }) {
 }
 
 // ── Tabla ─────────────────────────────────────────────────────────────────────
-function TablaCat({ prods }) {
+function TablaCat({ prods, onEdit, onDelete }) {
   const t = useTheme()
   const [expanded, setExpanded] = useState({})
   const toggle = useCallback(k => setExpanded(p=>({...p,[k]:!p[k]})), [])
@@ -456,9 +470,9 @@ function TablaCat({ prods }) {
       <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
         <thead>
           <tr style={{ background:t.tableAlt }}>
-            {['Código','Nombre','Precio','Stock','Unidad',''].map((h,i)=>(
+            {['Código','Nombre','Precio','Stock','Unidad','Acciones'].map((h,i)=>(
               <th key={i} style={{
-                padding:'8px 14px', textAlign: (i===2||i===3||i===4)?'center':'left',
+                padding:'8px 14px', textAlign: (i===2||i===3||i===4||i===5)?'center':'left',
                 fontSize:9, color:t.textMuted, textTransform:'uppercase',
                 letterSpacing:'.08em', fontWeight:500, borderBottom:`1px solid ${t.border}`,
               }}>{h}</th>
@@ -467,11 +481,168 @@ function TablaCat({ prods }) {
         </thead>
         <tbody>
           {prods.map(p => (
-            <ProductoRow key={p.key} p={p} expanded={!!expanded[p.key]} onToggle={()=>toggle(p.key)}/>
+            <ProductoRow key={p.key} p={p} expanded={!!expanded[p.key]} onToggle={()=>toggle(p.key)}
+              onEdit={()=>onEdit(p)} onDelete={()=>onDelete(p)}/>
           ))}
         </tbody>
       </table>
     </div>
+  )
+}
+
+// ── Modal Editar Producto ─────────────────────────────────────────────────────
+const CATEGORIAS_EDITAR = [
+  '1 Artículos de Ferreteria',
+  '2 Pinturas y Disolventes',
+  '3 Tornilleria',
+  '4 Impermeabilizantes y Materiales de Construcción',
+  '5 Materiales Electricos',
+]
+const UNIDADES_EDITAR = ['Unidad','Galón','Kg','Mts','Cms','Lt','Lts','25 kg']
+
+function ModalEditarProducto({ prod, onClose, onGuardado }) {
+  const t = useTheme()
+  const [form, setForm] = useState({
+    nombre:        prod.nombre        || '',
+    categoria:     prod.categoria     || CATEGORIAS_EDITAR[0],
+    precio_unidad: prod.precio        || '',
+    unidad_medida: prod.unidad_medida || 'Unidad',
+    codigo:        prod.codigo        || '',
+  })
+  const [estado, setEstado] = useState('idle')
+  const [err,    setErr]    = useState('')
+  const set = (k,v) => setForm(f=>({...f,[k]:v}))
+
+  const guardar = async () => {
+    if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); return }
+    setEstado('saving'); setErr('')
+    try {
+      const body = {}
+      if (form.nombre        !== prod.nombre)        body.nombre        = form.nombre.trim()
+      if (form.categoria     !== prod.categoria)     body.categoria     = form.categoria
+      if (String(form.precio_unidad) !== String(prod.precio)) body.precio_unidad = Number(form.precio_unidad)
+      if (form.unidad_medida !== prod.unidad_medida) body.unidad_medida = form.unidad_medida
+      if (form.codigo        !== prod.codigo)        body.codigo        = form.codigo.trim()
+      if (!Object.keys(body).length) { onClose(); return }
+      const r = await fetch(`${API_BASE}/catalogo/${encodeURIComponent(prod.key)}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail||'Error')
+      setEstado('ok')
+      setTimeout(() => { onGuardado(); onClose() }, 700)
+    } catch(e) { setErr(e.message); setEstado('err') }
+  }
+
+  const inp = {
+    width:'100%', boxSizing:'border-box',
+    background:t.id==='caramelo'?'#f8fafc':'#111',
+    border:`1px solid ${t.border}`, borderRadius:7,
+    color:t.text, fontSize:12, padding:'7px 10px',
+    outline:'none', fontFamily:'inherit',
+  }
+  const lbl = { fontSize:10, color:t.textMuted, textTransform:'uppercase', letterSpacing:'.07em', marginBottom:3, display:'block' }
+
+  return createPortal(
+    <div onMouseDown={e=>e.target===e.currentTarget&&onClose()} style={{
+      position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,.6)',
+      display:'flex',alignItems:'center',justifyContent:'center',padding:16,
+    }}>
+      <div style={{
+        background:t.bg, border:`1px solid ${t.border}`, borderRadius:14,
+        width:'100%', maxWidth:440, maxHeight:'90vh', overflowY:'auto',
+        boxShadow:'0 24px 64px rgba(0,0,0,.4)',
+      }}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 20px 0'}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:14,color:t.text}}>✏️ Editar producto</div>
+            <div style={{fontSize:11,color:t.textMuted,marginTop:2}}>{prod.nombre}</div>
+          </div>
+          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:7,color:t.textMuted,width:28,height:28,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+        </div>
+        <div style={{padding:'16px 20px 20px',display:'flex',flexDirection:'column',gap:11}}>
+          <div><label style={lbl}>Nombre *</label>
+            <input style={inp} value={form.nombre} onChange={e=>set('nombre',e.target.value)}/></div>
+          <div><label style={lbl}>Categoría</label>
+            <select style={inp} value={form.categoria} onChange={e=>set('categoria',e.target.value)}>
+              {CATEGORIAS_EDITAR.map(c=><option key={c} value={c}>{c}</option>)}
+            </select></div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <div><label style={lbl}>Precio unitario (COP)</label>
+              <div style={{position:'relative'}}>
+                <span style={{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',color:t.textMuted,fontSize:11}}>$</span>
+                <input style={{...inp,paddingLeft:22}} type="number" min="0" value={form.precio_unidad} onChange={e=>set('precio_unidad',e.target.value)}/>
+              </div></div>
+            <div><label style={lbl}>Unidad DIAN</label>
+              <select style={inp} value={form.unidad_medida} onChange={e=>set('unidad_medida',e.target.value)}>
+                {UNIDADES_EDITAR.map(u=><option key={u} value={u}>{u}</option>)}
+              </select></div>
+          </div>
+          <div><label style={lbl}>Código (opcional)</label>
+            <input style={inp} value={form.codigo} onChange={e=>set('codigo',e.target.value)}/></div>
+          {err && <div style={{padding:'7px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626'}}>⚠ {err}</div>}
+          <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:4}}>
+            <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>Cancelar</button>
+            <button onClick={guardar} disabled={estado==='saving'} style={{
+              background:estado==='ok'?t.green:estado==='err'?'#dc2626':t.accent,
+              border:'none',borderRadius:8,color:'#fff',padding:'8px 20px',
+              cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
+              opacity:estado==='saving'?.7:1,transition:'background .2s',
+            }}>
+              {estado==='saving'?'Guardando…':estado==='ok'?'✓ Guardado':estado==='err'?'✗ Error':'Guardar cambios'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+function ModalEliminarProducto({ prod, onClose, onEliminado }) {
+  const t = useTheme()
+  const [estado, setEstado] = useState('idle')
+  const [err,    setErr]    = useState('')
+
+  const eliminar = async () => {
+    setEstado('saving')
+    try {
+      const r = await fetch(`${API_BASE}/catalogo/${encodeURIComponent(prod.key)}`, { method:'DELETE' })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail||'Error')
+      setEstado('ok')
+      setTimeout(() => { onEliminado(); onClose() }, 600)
+    } catch(e) { setErr(e.message); setEstado('err') }
+  }
+
+  return createPortal(
+    <div onMouseDown={e=>e.target===e.currentTarget&&onClose()} style={{
+      position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,.6)',
+      display:'flex',alignItems:'center',justifyContent:'center',padding:16,
+    }}>
+      <div style={{background:t.bg,border:`1px solid ${t.border}`,borderRadius:14,width:'100%',maxWidth:360,padding:24,boxShadow:'0 24px 64px rgba(0,0,0,.4)'}}>
+        <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:6}}>🗑 Eliminar producto</div>
+        <div style={{fontSize:13,color:t.text,fontWeight:500,marginBottom:4}}>{prod.nombre}</div>
+        <div style={{fontSize:11,color:t.textMuted,marginBottom:14}}>{prod.categoria}</div>
+        <div style={{padding:'10px 12px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,fontSize:11,color:'#dc2626',marginBottom:16}}>
+          ⚠ Se elimina del catálogo y del inventario. No se puede deshacer.
+        </div>
+        {err && <div style={{padding:'6px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626',marginBottom:10}}>✗ {err}</div>}
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>Cancelar</button>
+          <button onClick={eliminar} disabled={estado==='saving'} style={{
+            background:estado==='ok'?t.green:'#dc2626',
+            border:'none',borderRadius:8,color:'#fff',padding:'8px 18px',
+            cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
+            opacity:estado==='saving'?.7:1,
+          }}>
+            {estado==='saving'?'Eliminando…':estado==='ok'?'✓ Eliminado':'Sí, eliminar'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   )
 }
 
@@ -700,6 +871,8 @@ export default function TabInventario({ refreshKey }) {
   const [queryActivo,  setQueryActivo]  = useState('')
   const [modalCrear,   setModalCrear]   = useState(false)
   const [localRefresh, setLocalRefresh] = useState(0)
+  const [editandoProd,   setEditandoProd]   = useState(null)
+  const [eliminandoProd, setEliminandoProd] = useState(null)
 
   const url = queryActivo ? `/catalogo/nav?q=${encodeURIComponent(queryActivo)}` : '/catalogo/nav'
   const { data, loading, error } = useFetch(url, [queryActivo, refreshKey, localRefresh])
@@ -714,9 +887,9 @@ export default function TabInventario({ refreshKey }) {
     window._invTimer = setTimeout(() => setQueryActivo(val), 300)
   }
 
-  const handleCreado = () => {
-    setLocalRefresh(r => r + 1)
-  }
+  const handleCreado  = () => setLocalRefresh(r => r + 1)
+  const handleGuardado= () => setLocalRefresh(r => r + 1)
+  const handleEliminado=() => setLocalRefresh(r => r + 1)
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -725,6 +898,20 @@ export default function TabInventario({ refreshKey }) {
         <ModalCrearProducto
           onClose={() => setModalCrear(false)}
           onCreado={handleCreado}
+        />
+      )}
+      {editandoProd && (
+        <ModalEditarProducto
+          prod={editandoProd}
+          onClose={() => setEditandoProd(null)}
+          onGuardado={handleGuardado}
+        />
+      )}
+      {eliminandoProd && (
+        <ModalEliminarProducto
+          prod={eliminandoProd}
+          onClose={() => setEliminandoProd(null)}
+          onEliminado={handleEliminado}
         />
       )}
 
@@ -841,7 +1028,7 @@ export default function TabInventario({ refreshKey }) {
                   {expandida && (
                     prodsVisibles.length===0
                       ? <div style={{padding:'20px',textAlign:'center',color:t.textMuted,fontSize:12}}>Sin productos en esta subcategoría.</div>
-                      : <TablaCat prods={prodsVisibles}/>
+                      : <TablaCat prods={prodsVisibles} onEdit={setEditandoProd} onDelete={setEliminandoProd}/>
                   )}
                 </div>
               )
