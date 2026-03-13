@@ -733,6 +733,60 @@ def catalogo_nav(q: str = Query(default="")):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Edición de precios desde el dashboard ────────────────────────────────────
+class PrecioUpdate(BaseModel):
+    precio: Union[float, int]
+
+class FraccionesUpdate(BaseModel):
+    fracciones: dict   # { "1/4": 8000, "1/2": 13000, ... }
+
+@app.patch("/catalogo/{key}/precio")
+def actualizar_precio(key: str, body: PrecioUpdate):
+    """Actualiza precio_unidad de un producto y guarda memoria.json."""
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+        precio_anterior = catalogo[key].get("precio_unidad", 0)
+        catalogo[key]["precio_unidad"] = int(body.precio)
+        mem["catalogo"] = catalogo
+        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+        return {"ok": True, "key": key, "precio_anterior": precio_anterior, "precio_nuevo": int(body.precio)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/catalogo/{key}/fracciones")
+def actualizar_fracciones(key: str, body: FraccionesUpdate):
+    """Actualiza precios_fraccion de un producto."""
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+        # Convertir a { frac: { "precio": X } } si llegan como { frac: precio }
+        fracs_formateadas = {}
+        for k, v in body.fracciones.items():
+            if isinstance(v, dict):
+                fracs_formateadas[k] = v
+            else:
+                fracs_formateadas[k] = {"precio": int(v)}
+        catalogo[key]["precios_fraccion"] = fracs_formateadas
+        mem["catalogo"] = catalogo
+        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+        return {"ok": True, "key": key, "fracciones": fracs_formateadas}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Kárdex por producto ───────────────────────────────────────────────────────
 @app.get("/kardex")
 def kardex(q: str = Query(default="")):
