@@ -15,9 +15,8 @@ import {
 } from 'recharts'
 import {
   useTheme, useFetch, Card, KpiCard, SectionTitle, Spinner, ErrorMsg,
-  PeriodBtn, EmptyState, cop, num,
+  PeriodBtn, EmptyState, cop, num, API_BASE,
 } from '../components/shared.jsx'
-import { API_BASE } from '../App.jsx'
 
 function fmtFecha(s) {
   if (!s) return ''
