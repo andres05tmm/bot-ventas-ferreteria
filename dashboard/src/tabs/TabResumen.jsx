@@ -1,4 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+
+function useIsMobile() {
+  const [v, setV] = useState(() => window.innerWidth < 768)
+  useEffect(() => {
+    const fn = () => setV(window.innerWidth < 768)
+    window.addEventListener('resize', fn)
+    return () => window.removeEventListener('resize', fn)
+  }, [])
+  return v
+}
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -48,6 +58,7 @@ const METODO_COLORS = ['#dc2626', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#
 
 export default function TabResumen({ refreshKey }) {
   const t = useTheme()
+  const isMobile = useIsMobile()
   const [periodo, setPeriodo] = useState('semana')
 
   const { data: resumen, loading: lRes, error: eRes } = useFetch('/ventas/resumen', [refreshKey])
@@ -126,7 +137,7 @@ export default function TabResumen({ refreshKey }) {
       </Card>
 
       {/* Fila: Top 5 + Métodos de pago */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
 
         {/* Mini Top 5 */}
         <Card>
