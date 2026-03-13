@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
 
 
@@ -237,18 +238,19 @@ function Seccion({ icono, titulo, cantidad, productos, carrito, favKeys, onClick
 function Modal({ show, onClose, title, subtitle, children, onConfirm, okLabel = 'Agregar al carrito', okDisabled }) {
   const t = useTheme()
   if (!show) return null
-  return (
+  return createPortal(
     <div
-      onClick={e => e.target === e.currentTarget && onClose()}
+      onMouseDown={e => e.target === e.currentTarget && onClose()}
       style={{
         position: 'fixed', inset: 0, background: '#000000cc',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 400, padding: 16,
+        zIndex: 9998, padding: 16,
       }}
     >
       <div style={{
         background: t.card, border: `1px solid ${t.accent}44`,
         borderRadius: 14, width: '100%', maxWidth: 390,
+        maxHeight: '90vh', overflowY: 'auto',
         animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)',
       }}>
         <style>{`@keyframes mIn{from{opacity:0;transform:scale(.92) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}} input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}`}</style>
@@ -273,7 +275,8 @@ function Modal({ show, onClose, title, subtitle, children, onConfirm, okLabel = 
           }}>{okLabel}</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -552,11 +555,11 @@ function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
   ].filter(Boolean).join(' + ')
   const valid = desc.trim().length > 0 && precioFinal > 0
 
-  return (
-    <div onClick={e => e.target === e.currentTarget && onClose()} style={{
+  return createPortal(
+    <div onMouseDown={e => e.target === e.currentTarget && onClose()} style={{
       position: 'fixed', inset: 0, background: '#00000088',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 400, padding: 16,
+      zIndex: 9998, padding: 16,
     }}>
       <div style={{
         background: t.card, border: `1px solid ${t.border}`, borderRadius: 14,
@@ -662,7 +665,8 @@ function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
           }}>Agregar al carrito</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
