@@ -158,23 +158,54 @@ export function Card({ children, style = {} }) {
 export function KpiCard({ label, value, sub, color, icon }) {
   const t = useTheme()
   const c = color || t.accent
+  const [hov, setHov] = useState(false)
   return (
-    <Card style={{ flex: 1, minWidth: 160, padding: '16px 18px' }}>
+    <div
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        flex: 1, minWidth: 160,
+        background: t.card,
+        border: `1px solid ${hov ? c : t.border}`,
+        borderRadius: 12,
+        padding: '16px 18px',
+        cursor: 'default',
+        transition: 'border-color .2s ease, box-shadow .25s ease',
+        boxShadow: hov
+          ? `0 0 0 3px ${c}44, 0 0 12px ${c}22`
+          : 'none',
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
+        <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12, fontWeight: 500, color: t.textSub, letterSpacing: '.02em', marginBottom: 10 }}>
             {label}
           </div>
-          <div style={{ fontSize: 20, fontWeight: 400, color: t.text, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{
+            fontSize: hov ? 24 : 20,
+            fontWeight: 400,
+            color: hov ? c : t.text,
+            letterSpacing: '-0.02em',
+            fontVariantNumeric: 'tabular-nums',
+            transition: 'font-size .2s ease, color .2s ease',
+          }}>
             {value}
           </div>
           {sub && (
             <div style={{ fontSize: 11, color: c, marginTop: 6 }}>{sub}</div>
           )}
         </div>
-        {icon && <span style={{ fontSize: 20, opacity: .55 }}>{icon}</span>}
+        {icon && (
+          <span style={{
+            fontSize: 20,
+            opacity: hov ? 1 : .5,
+            transition: 'opacity .2s ease, transform .2s ease',
+            transform: hov ? 'scale(1.15)' : 'scale(1)',
+            display: 'inline-block',
+          }}>{icon}</span>
+        )}
       </div>
-    </Card>
+    </div>
   )
 }
 
