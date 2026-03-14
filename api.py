@@ -845,6 +845,10 @@ class PrecioUpdate(BaseModel):
 class FraccionesUpdate(BaseModel):
     fracciones: dict   # { "1/4": 8000, "1/2": 13000, ... }
 
+class MayoristaUpdate(BaseModel):
+    precio: Union[float, int]
+    umbral: Optional[int] = None   # Si None, conserva el umbral existente
+
 class NuevoProducto(BaseModel):
     nombre:          str
     categoria:       str
@@ -1444,6 +1448,52 @@ def proyeccion():
 
 class StockUpdate(BaseModel):
     stock: Union[float, int, None]
+
+@app.patch("/catalogo/{key}/mayorista")
+def actualizar_mayorista(key: str, body: MayoristaUpdate):
+    """
+    Actualiza el precio mayorista (precio_por_cantidad) de un producto.
+    Guarda precio_sobre_umbral en memoria.json y sincroniza al Excel.
+    """
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        prod = catalogo[key]
+        nombre_prod = prod.get("nombre", key)
+        ppc_actual  = prod.get("precio_por_cantidad")
+
+        # Preservar umbral existente si no se manda uno nuevo
+        umbral = body.umbral if body.umbral else (ppc_actual.get("umbral", 50) if ppc_actual else 50)
+
+        prod["precio_por_cantidad"] = {
+            "umbral":              umbral,
+            "precio_bajo_umbral":  ppc_actual.get("precio_bajo_umbral", prod.get("precio_unidad", 0)) if ppc_actual else prod.get("precio_unidad", 0),
+            "precio_sobre_umbral": int(body.precio),
+        }
+        catalogo[key] = prod
+        mem["catalogo"] = catalogo
+
+        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        try:
+            from memoria import invalidar_cache_memoria
+            invalidar_cache_memoria()
+        except Exception:
+            pass
+
+        return {
+            "ok": True, "key": key, "nombre": nombre_prod,
+            "precio_mayorista": int(body.precio), "umbral": umbral,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.patch("/inventario/{key}/stock")
 def actualizar_stock(key: str, body: StockUpdate):
