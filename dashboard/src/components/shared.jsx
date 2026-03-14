@@ -165,7 +165,7 @@ export function KpiCard({ label, value, sub, color, icon }) {
           <div style={{ fontSize: 12, fontWeight: 500, color: t.textSub, letterSpacing: '.02em', marginBottom: 10 }}>
             {label}
           </div>
-          <div style={{ fontSize: 24, fontWeight: 400, color: t.text, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ fontSize: 20, fontWeight: 400, color: t.text, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>
             {value}
           </div>
           {sub && (
