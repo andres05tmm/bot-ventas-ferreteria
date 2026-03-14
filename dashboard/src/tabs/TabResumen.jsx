@@ -66,12 +66,12 @@ function KpiBig({ label, value, sub, color, icon }) {
         borderRadius: '12px 12px 0 0',
       }} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: t.textSub, letterSpacing: '.03em' }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: t.textSub, letterSpacing: '.02em' }}>
           {label}
         </span>
-        <span style={{ fontSize: 18, opacity: .7 }}>{icon}</span>
+        <span style={{ fontSize: 18, opacity: .55 }}>{icon}</span>
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, color: t.text, letterSpacing: '-0.03em', lineHeight: 1.1 }}>
+      <div style={{ fontSize: 28, fontWeight: 400, color: t.text, letterSpacing: '-0.02em', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </div>
       {sub && (
