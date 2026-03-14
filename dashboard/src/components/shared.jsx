@@ -162,17 +162,17 @@ export function KpiCard({ label, value, sub, color, icon }) {
     <Card style={{ flex: 1, minWidth: 160, padding: '16px 18px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: t.textSub, letterSpacing: '.03em', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: t.textSub, letterSpacing: '.02em', marginBottom: 10 }}>
             {label}
           </div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: t.text, letterSpacing: '-0.02em' }}>
+          <div style={{ fontSize: 24, fontWeight: 400, color: t.text, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>
             {value}
           </div>
           {sub && (
-            <div style={{ fontSize: 11, color: c, marginTop: 5 }}>{sub}</div>
+            <div style={{ fontSize: 11, color: c, marginTop: 6 }}>{sub}</div>
           )}
         </div>
-        {icon && <span style={{ fontSize: 20, opacity: .65 }}>{icon}</span>}
+        {icon && <span style={{ fontSize: 20, opacity: .55 }}>{icon}</span>}
       </div>
     </Card>
   )
@@ -182,8 +182,8 @@ export function SectionTitle({ children }) {
   const t = useTheme()
   return (
     <h2 style={{
-      fontSize:      13,
-      fontWeight:    600,
+      fontSize:      14,
+      fontWeight:    500,
       color:         t.textSub,
       marginBottom:  14,
       paddingBottom: 10,
