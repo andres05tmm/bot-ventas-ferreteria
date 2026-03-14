@@ -114,8 +114,8 @@ function EstadoResultados({ d, periodo, t }) {
                 <tbody>
                   {d.cmv_detalle.map((row, i) => (
                     <tr key={i} style={{ borderBottom: `1px solid ${t.border}` }}
-                      onMouseEnter={e => e.currentTarget.style.background = t.cardHover}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      onMouseEnter={e => { e.currentTarget.style.background = t.cardHover; e.currentTarget.style.transform = 'translateX(2px)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.transform = 'translateX(0)' }}>
                       <td style={{ padding: '7px 12px', color: t.text }}>{row.producto}</td>
                       <td style={{ padding: '7px 12px', textAlign: 'right', color: t.textMuted }}>{num(row.cantidad)}</td>
                       <td style={{ padding: '7px 12px', textAlign: 'right', color: t.green }}>{cop(row.ingresos)}</td>
