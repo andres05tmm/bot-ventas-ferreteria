@@ -453,12 +453,15 @@ function ModalMlt({ prod, onClose, onConfirm }) {
   const [valor,   setValor]   = useState('')
   if (!prod) return null
 
-  const precioMl  = prod.precio  // precio_unidad = precio por 1 ml
-  const valorNum  = parseFloat(valor) || 0
+  const precioTarro = prod.precio          // precio_unidad = precio del tarro completo (1000 ml)
+  const precioMl    = precioTarro / 1000   // precio real por ml: ej 26000/1000 = 26
+  const valorNum    = parseFloat(valor) || 0
 
   // Calcular según modo
-  const mlCalc    = modo === 'pesos'  ? (valorNum > 0 ? Math.round((valorNum / precioMl) * 10) / 10 : 0) : valorNum
-  const totalCalc = modo === 'pesos'  ? valorNum : Math.round(valorNum * precioMl)
+  // Modo pesos: cliente dice cuánto plata → ml = pesos / precio_por_ml
+  // Modo ml:    cliente dice cuántos ml   → total = ml * precio_por_ml
+  const mlCalc    = modo === 'pesos' ? (valorNum > 0 ? Math.round((valorNum / precioMl) * 10) / 10 : 0) : valorNum
+  const totalCalc = modo === 'pesos' ? valorNum : Math.round(valorNum * precioMl)
 
   const valido = valorNum > 0 && mlCalc > 0 && totalCalc > 0
 
@@ -485,7 +488,7 @@ function ModalMlt({ prod, onClose, onConfirm }) {
   }
 
   return (
-    <Modal show title={prod.nombre} subtitle={`Precio: ${cop(precioMl)} por ml · ${cop(precioMl * 1000)} por tarro`}
+    <Modal show title={prod.nombre} subtitle={`$${precioMl.toFixed(0)}/ml · ${cop(precioTarro)} por tarro`}
       onClose={onClose} onConfirm={confirmar} okDisabled={!valido}
       okLabel="Agregar al carrito">
 
@@ -501,7 +504,7 @@ function ModalMlt({ prod, onClose, onConfirm }) {
           }}>
             <div style={{ fontSize: 16, marginBottom: 3 }}>{a.icon}</div>
             <div style={{ fontWeight: 600 }}>{a.label}</div>
-            <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>{cop(a.ml * precioMl)}</div>
+            <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>{cop(Math.round(a.ml * precioMl))}</div>
           </button>
         ))}
       </div>
