@@ -151,8 +151,8 @@ export default function TabGastos({ refreshKey }) {
                 <tbody>
                   {gastos.map((g, i) => (
                     <tr key={i} style={{ borderBottom: `1px solid ${t.border}` }}
-                      onMouseEnter={e => e.currentTarget.style.background = t.cardHover}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      onMouseEnter={e => { e.currentTarget.style.background = t.cardHover; e.currentTarget.style.transform = 'translateX(2px)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.transform = 'translateX(0)' }}>
                       <td style={{ padding: '9px 14px', color: t.textMuted, whiteSpace: 'nowrap' }}>{g.fecha}</td>
                       <td style={{ padding: '9px 14px', color: t.textMuted, fontSize: 11 }}>{g.hora || '—'}</td>
                       <td style={{ padding: '9px 14px', color: t.text }}>{g.concepto || '—'}</td>
