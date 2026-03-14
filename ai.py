@@ -1345,18 +1345,24 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     # ── Helper: conversión para productos vendidos por mililitro (MLT) ──────
     def _convertir_venta_mlt(venta: dict) -> dict:
         """
-        Para productos con unidad_medida='MLT', maneja tres casos:
+        Para productos con unidad_medida='MLT' (tintes):
+          precio_unidad en catálogo = precio del TARRO COMPLETO (1000 ml)
+          precio_por_ml = precio_unidad / 1000
+          Ej: Tinte Caoba precio_unidad=26000 → precio_por_ml=26
 
-        CASO 1 — cantidad viene en tarros (entero pequeño ≤ 20):
-          Si total ≈ cantidad × precio_1000ml → son tarros → × 1000
-          Ej: {"cantidad":1,"total":26000} precio_ml=26 → cantidad=1000
+        CASO 1 — cliente pide tarro(s) completo(s):
+          Claude envía cantidad=1 (o N) y total=26000 (o N×26000)
+          Detectado: total ≈ cantidad × precio_unidad → convertir a ml
+          Ej: {cantidad:1, total:26000} → cantidad=1000 ml
 
-        CASO 2 — cantidad viene en pesos (bot repitió mismo número):
-          Si cantidad == total → ml = total / precio_por_ml
-          Ej: {"cantidad":2000,"total":2000} → cantidad=76.9
+        CASO 2 — cliente pide por pesos (menudeo):
+          Claude envía cantidad=pesos y total=pesos (mismo número)
+          Ej: {cantidad:2000, total:2000} → ml = 2000/26 = 76.9
+          → cantidad=76.9, total=2000 (total NO se toca)
 
-        CASO 3 — cantidad ya en ml → no tocar.
-          Ej: {"cantidad":500,"total":13000} precio_ml=26 → 500×26=13000 ✅
+        CASO 3 — cliente pide ml explícitamente:
+          Claude ya envía cantidad en ml correctamente → no tocar
+          Ej: {cantidad:500, total:13000} → 500×26=13000 ✅
         """
         try:
             prod = buscar_producto_en_catalogo(venta.get("producto", ""))
@@ -1365,9 +1371,12 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             if prod.get("unidad_medida") != "MLT":
                 return venta
 
-            precio_por_ml = prod.get("precio_unidad", 0)
-            if not precio_por_ml:
+            precio_tarro = prod.get("precio_unidad", 0)  # precio de 1000 ml
+            if not precio_tarro:
                 return venta
+
+            # precio_por_ml REAL: tarro / 1000
+            precio_por_ml = precio_tarro / 1000.0
 
             cantidad = float(venta.get("cantidad", 1))
             total    = float(venta.get("total", 0))
@@ -1375,8 +1384,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             if total <= 0:
                 return venta
 
-            # ── CASO 1: cantidad parece tarros (entero ≤ 20, total ≈ tarros × 1000ml × precio) ──
-            precio_tarro = precio_por_ml * 1000
+            # ── CASO 1: cantidad en tarros (entero pequeño, total ≈ N × precio_tarro) ──
             if (cantidad <= 20
                     and cantidad == int(cantidad)
                     and abs(total - cantidad * precio_tarro) / max(total, 1) < 0.05):
@@ -1389,22 +1397,31 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 )
                 return venta
 
-            # ── CASO 2: cantidad == total o parece monto en pesos ──
+            # ── CASO 2: cantidad == total → cliente pidió por pesos ──
+            # También aplica si cantidad es un múltiplo redondo de 500/1000 mucho mayor que precio_por_ml
             cantidad_parece_pesos = (
-                cantidad == total
-                or (cantidad > precio_por_ml * 10 and cantidad % 500 == 0)
+                abs(cantidad - total) < 1          # cantidad y total son iguales
+                or (cantidad >= 500
+                    and cantidad % 500 == 0
+                    and abs(total - cantidad) < 1)  # doble chequeo
             )
             if cantidad_parece_pesos:
                 ml = round(total / precio_por_ml, 1)
                 venta = dict(venta)
                 venta["cantidad"] = ml
+                # total NO se modifica — es lo que el cliente pagó
                 logging.getLogger("ferrebot.ai").info(
-                    "[MLT] Pesos→ml: %s | $%.0f / $%.2f por ml = %.1f ml",
+                    "[MLT] Pesos→ml: %s | $%.0f ÷ $%.4f/ml = %.1f ml",
                     prod.get("nombre"), total, precio_por_ml, ml
                 )
                 return venta
 
-            # ── CASO 3: cantidad ya en ml → no tocar ──
+            # ── CASO 3: cantidad ya en ml → verificar coherencia y no tocar ──
+            # Si total ≈ cantidad × precio_por_ml ya está bien
+            logging.getLogger("ferrebot.ai").debug(
+                "[MLT] Sin conversión (ya en ml): %s | %.1f ml | $%.0f",
+                prod.get("nombre"), cantidad, total
+            )
 
         except Exception as e:
             logging.getLogger("ferrebot.ai").warning("[MLT] Error conversión: %s", e)
