@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import json
+import logging
 import os
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -243,11 +244,31 @@ def _cantidad_a_float(val) -> float:
 @app.get("/ventas/hoy")
 def ventas_hoy():
     try:
-        ventas   = sheets_leer_ventas_del_dia()
-        hoy      = _hoy()
-        filtradas = [v for v in ventas if str(v.get("fecha", ""))[:10] == hoy]
+        hoy = _hoy()
 
-        # Enriquecer con unidad_medida desde el catálogo
+        # ── Fuente principal: Google Sheets (datos en tiempo real) ────────────
+        filtradas = []
+        fuente    = "sheets"
+        try:
+            ventas    = sheets_leer_ventas_del_dia()
+            filtradas = [v for v in ventas if str(v.get("fecha", ""))[:10] == hoy]
+        except Exception as e_sheets:
+            logging.getLogger("ferrebot.api").warning(
+                f"Sheets no disponible, usando Excel como fallback: {e_sheets}"
+            )
+            fuente = "excel_fallback"
+
+        # ── Fallback al Excel si Sheets devuelve vacío o falló ────────────────
+        if not filtradas:
+            try:
+                ventas_xls = _leer_excel_rango(dias=1)
+                filtradas  = [v for v in ventas_xls if str(v.get("fecha", ""))[:10] == hoy]
+                if filtradas:
+                    fuente = "excel_fallback"
+            except Exception:
+                pass
+
+        # ── Enriquecer con unidad_medida desde el catálogo ────────────────────
         try:
             if os.path.exists(config.MEMORIA_FILE):
                 with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
@@ -268,7 +289,7 @@ def ventas_hoy():
         except Exception:
             pass
 
-        return {"fecha": hoy, "ventas": filtradas, "total": len(filtradas)}
+        return {"fecha": hoy, "ventas": filtradas, "total": len(filtradas), "fuente": fuente}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -876,21 +897,30 @@ def crear_producto(body: NuevoProducto):
 
         catalogo[key] = nuevo
 
-        # Stock inicial
+        # Stock inicial — guardar en formato dict igual al que usa el bot
+        # (float plano hace que descontar_inventario() retorne False silenciosamente)
         if body.stock_inicial is not None:
-            inventario[key] = float(body.stock_inicial)
+            from datetime import datetime as _dt
+            inventario[key] = {
+                "nombre_original": body.nombre.strip(),
+                "cantidad":        float(body.stock_inicial),
+                "minimo":          body.stock_minimo if hasattr(body, "stock_minimo") else 0,
+                "unidad":          "und",
+                "fecha_conteo":    _dt.now().strftime("%Y-%m-%d %H:%M"),
+            }
 
         mem["catalogo"]   = catalogo
         mem["inventario"] = inventario
 
-        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-            json.dump(mem, f, ensure_ascii=False, indent=2)
-
+        # guardar_memoria sube a Drive automáticamente (urgente=True evita pérdida en reinicios)
         try:
-            from memoria import invalidar_cache_memoria
+            from memoria import guardar_memoria, invalidar_cache_memoria
+            guardar_memoria(mem, urgente=True)
             invalidar_cache_memoria()
         except Exception:
-            pass
+            # Fallback: escritura directa si el módulo no está disponible
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
 
         # Intentar escribir en el Excel de productos (no bloquea si falla)
         excel_resultado = {"ok": False, "error": "no intentado"}
@@ -944,20 +974,22 @@ def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
         precio_anterior = catalogo[key].get("precio_unidad", 0)
         nuevo_precio    = int(body.precio)
 
-        # 1 ── memoria.json
+        # 1 ── memoria.json + Drive (guardar_memoria sincroniza ambos)
         catalogo[key]["precio_unidad"] = nuevo_precio
         mem["catalogo"] = catalogo
-        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-            json.dump(mem, f, ensure_ascii=False, indent=2)
+        try:
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
 
         # 2 ── Excel BASE_DE_DATOS_PRODUCTOS (via precio_sync, cola FIFO)
         try:
             from precio_sync import actualizar_precio as _sync_precio
-            from memoria import invalidar_cache_memoria
             _sync_precio(nombre_prod, nuevo_precio, None)
-            invalidar_cache_memoria()
         except Exception as e_sync:
-            # No bloquear la respuesta si el sync falla (el json ya se guardó)
             import logging
             logging.getLogger("ferrebot.api").warning(
                 f"precio_sync falló para '{nombre_prod}': {e_sync}"
@@ -1000,21 +1032,31 @@ def actualizar_fracciones(key: str, body: FraccionesUpdate):
             else:
                 fracs_formateadas[k] = {"precio": int(v)}
 
-        # 1 ── memoria.json
+        # 1 ── memoria.json + Drive
         catalogo[key]["precios_fraccion"] = fracs_formateadas
+
+        # Si fracción "1" (unidad completa) cambió, sincronizar precio_unidad para que la IA cotice bien
+        if "1" in fracs_formateadas:
+            precio_unidad_nuevo = fracs_formateadas["1"].get("precio") if isinstance(fracs_formateadas["1"], dict) else int(fracs_formateadas["1"])
+            if precio_unidad_nuevo:
+                catalogo[key]["precio_unidad"] = precio_unidad_nuevo
+
         mem["catalogo"] = catalogo
-        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-            json.dump(mem, f, ensure_ascii=False, indent=2)
+        try:
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
 
         # 2 ── Excel: encolar cada fracción via precio_sync
         try:
             from precio_sync import actualizar_precio as _sync_precio
-            from memoria import invalidar_cache_memoria
             for frac_key, frac_val in fracs_formateadas.items():
                 precio_frac = frac_val["precio"] if isinstance(frac_val, dict) else int(frac_val)
                 if precio_frac > 0:
                     _sync_precio(nombre_prod, precio_frac, frac_key)
-            invalidar_cache_memoria()
         except Exception as e_sync:
             import logging
             logging.getLogger("ferrebot.api").warning(
@@ -1447,14 +1489,13 @@ def actualizar_stock(key: str, body: StockUpdate):
             }
 
         mem["inventario"] = inventario
-        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-            json.dump(mem, f, ensure_ascii=False, indent=2)
-
         try:
-            from memoria import invalidar_cache_memoria
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
             invalidar_cache_memoria()
         except Exception:
-            pass
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
 
         return {
             "ok": True, "key": key,
@@ -1520,18 +1561,43 @@ class NuevoCliente(BaseModel):
 def crear_cliente_endpoint(body: NuevoCliente):
     """Crea un cliente nuevo en la hoja Clientes del Excel."""
     try:
-        from excel import guardar_cliente_nuevo, buscar_cliente
+        from excel import guardar_cliente_nuevo, buscar_cliente, buscar_clientes_multiples
+        from utils import _normalizar
+
         if not body.nombre.strip():
             raise HTTPException(status_code=400, detail="El nombre es obligatorio")
-        # Verificar si ya existe
-        existente = buscar_cliente(body.identificacion) if body.identificacion else None
-        if existente:
-            return {
-                "ok":       True,
-                "existia":  True,
-                "cliente":  existente,
-                "mensaje":  "El cliente ya estaba registrado",
-            }
+
+        # ── Verificar duplicados ──────────────────────────────────────────────
+        # 1. Por identificación (exacto) si viene informada
+        if body.identificacion.strip():
+            existente = buscar_cliente(body.identificacion.strip())
+            if existente:
+                return {
+                    "ok":      True,
+                    "existia": True,
+                    "cliente": existente,
+                    "mensaje": "El cliente ya estaba registrado (misma identificación)",
+                }
+
+        # 2. Por nombre (flexible) — evita duplicados cuando no hay cédula
+        candidatos_nombre = buscar_clientes_multiples(body.nombre.strip(), limite=3)
+        for candidato in candidatos_nombre:
+            nombre_existente = _normalizar(candidato.get("Nombre tercero", "") or "")
+            nombre_nuevo     = _normalizar(body.nombre.strip())
+            # Coincidencia de ≥80 % de palabras → considerar duplicado
+            palabras_ex  = set(nombre_existente.split())
+            palabras_nu  = set(nombre_nuevo.split())
+            if palabras_ex and palabras_nu:
+                interseccion = palabras_ex & palabras_nu
+                similitud    = len(interseccion) / max(len(palabras_ex), len(palabras_nu))
+                if similitud >= 0.8:
+                    return {
+                        "ok":      True,
+                        "existia": True,
+                        "cliente": candidato,
+                        "mensaje": f"Ya existe un cliente con nombre similar: '{candidato.get('Nombre tercero')}'",
+                    }
+
         ok = guardar_cliente_nuevo(
             nombre         = body.nombre.strip(),
             tipo_id        = body.tipo_id,
@@ -1715,17 +1781,39 @@ def editar_producto(key: str, body: EditarProductoBody):
             catalogo[key] = prod
 
         mem["catalogo"] = catalogo
-        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-            json.dump(mem, f, ensure_ascii=False, indent=2)
+        try:
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
 
-        invalidar_cache_memoria()
-
-        # Sync precio al Excel si cambió
+        # Sync al Excel BASE_DE_DATOS_PRODUCTOS
+        # — precio si cambió
         if "precio_unidad" in cambios:
             try:
                 _sync_precio(prod["nombre"], int(cambios["precio_unidad"]), None)
             except Exception:
                 pass
+
+        # — nombre, categoría o unidad_medida: actualizar fila completa en el Excel
+        if any(c in cambios for c in ("nombre", "categoria", "unidad_medida", "codigo")):
+            try:
+                from precio_sync import _actualizar_metadatos_en_excel
+                _actualizar_metadatos_en_excel(
+                    nombre_original = catalogo.get(key, prod).get("nombre", prod["nombre"]) if nueva_clave == key else key.replace("_", " "),
+                    datos_nuevos    = {
+                        "nombre":        prod.get("nombre", ""),
+                        "categoria":     prod.get("categoria", ""),
+                        "unidad_medida": prod.get("unidad_medida", "Unidad"),
+                        "codigo":        prod.get("codigo", ""),
+                    },
+                )
+            except Exception as e_meta:
+                logging.getLogger("ferrebot.api").warning(
+                    f"_actualizar_metadatos_en_excel falló para '{prod.get('nombre')}': {e_meta}"
+                )
 
         return {"ok": True, "key_nueva": nueva_clave, "producto": prod}
 
@@ -1753,11 +1841,32 @@ def eliminar_producto(key: str):
         mem["catalogo"]   = catalogo
         mem["inventario"] = inventario
 
-        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-            json.dump(mem, f, ensure_ascii=False, indent=2)
-        invalidar_cache_memoria()
+        try:
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
 
-        return {"ok": True, "nombre": nombre, "mensaje": f"'{nombre}' eliminado del catálogo"}
+        # Eliminar también de BASE_DE_DATOS_PRODUCTOS.xlsx para evitar que
+        # un sync-desde-excel resucite el producto eliminado
+        excel_resultado = {"ok": False, "error": "no intentado"}
+        try:
+            from precio_sync import eliminar_producto_de_excel as _del_xls
+            excel_resultado = _del_xls(nombre)
+        except Exception as e_xls:
+            logging.getLogger("ferrebot.api").warning(
+                f"eliminar_producto_de_excel falló para '{nombre}': {e_xls}"
+            )
+
+        return {
+            "ok":             True,
+            "nombre":         nombre,
+            "mensaje":        f"'{nombre}' eliminado del catálogo",
+            "excel_borrado":  excel_resultado.get("ok", False),
+            "excel_detalle":  excel_resultado,
+        }
     except HTTPException:
         raise
     except Exception as e:
