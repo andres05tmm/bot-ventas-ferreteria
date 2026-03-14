@@ -159,8 +159,8 @@ export default function TabCompras({ refreshKey }) {
                 <tbody>
                   {compras.map((c, i) => (
                     <tr key={i} style={{ borderBottom: `1px solid ${t.border}` }}
-                      onMouseEnter={e => e.currentTarget.style.background = t.cardHover}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      onMouseEnter={e => { e.currentTarget.style.background = t.cardHover; e.currentTarget.style.transform = 'translateX(2px)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.transform = 'translateX(0)' }}>
                       <td style={{ padding: '9px 14px', color: t.textMuted, whiteSpace: 'nowrap' }}>
                         {String(c.fecha || '').slice(0, 10)}
                       </td>
