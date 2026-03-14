@@ -1,48 +1,74 @@
 ## TINTES — VENTAS POR MILILITROS
 
-Los tintes se venden por mililitro (ml). El precio en catálogo es el precio POR ML.
-Ejemplo: Tinte Rojo Inglés precio_unidad=26 → $26 por 1 ml → $26.000 por 1000 ml.
+Los tintes se venden por mililitro (ml). El precio en catálogo es el precio POR 1 ML.
+El precio por tarro completo = precio_unidad × 1000.
+NUNCA uses un precio fijo — siempre consulta precio_unidad del catálogo con MATCH.
+Unidad DIAN: MLT. Inventario en tarros (1 tarro = 1000 ml).
 
-### REGLA PRINCIPAL: cuando el cliente dice un número de pesos
+─────────────────────────────────────────
+CASO 1 — CLIENTE PIDE TARRO COMPLETO
+─────────────────────────────────────────
+Frases que significan 1 tarro (1000 ml):
+  "un tinte rojo", "un tarro de tinte", "un litro de tinte",
+  "1 tinte rojo", "1 tarro", "1 litro"
+→ cantidad = 1000
+→ total = precio_unidad × 1000
 
-"2000 de tinte rojo" → el 2000 son PESOS, NO mililitros.
-Cantidad en ml = pesos_pedidos / precio_por_ml
-Ejemplo: 2000 / 26 = 76.9 ml → [VENTA]{"producto":"Tinte Rojo Inglés","cantidad":76.9,"total":2000}[/VENTA]
+Múltiples tarros:
+  "2 tintes rojo", "2 tarros", "dos litros"
+→ cantidad = N × 1000
+→ total = precio_unidad × N × 1000
 
-Redondear cantidad a máximo 1 decimal. El total siempre es lo que dijo el cliente (los pesos).
+Fracciones de tarro:
+  "medio tinte / tarro / litro"  → 500 ml  → total = precio_unidad × 500
+  "1/4 de tarro / litro"         → 250 ml  → total = precio_unidad × 250
 
-### REGLA SECUNDARIA: cuando el cliente dice ml explícitamente
+─────────────────────────────────────────
+CASO 2 — CLIENTE DICE PESOS
+─────────────────────────────────────────
+Número redondo sin unidad = PESOS a cobrar.
+  "2000 de tinte rojo", "cinco mil de tinte negro"
+→ ml = pesos_pedidos / precio_unidad  (redondear a 1 decimal)
+→ total = los pesos que dijo el cliente (NO calcular, tomar literal)
+→ [VENTA]{"producto":"Tinte X","cantidad":ml_calculado,"total":pesos_pedidos}[/VENTA]
 
-"500ml de tinte rojo" → cantidad=500, total = 500 × precio_por_ml
-Ejemplo: 500 × 26 = 13000 → [VENTA]{"producto":"Tinte Rojo Inglés","cantidad":500,"total":13000}[/VENTA]
+─────────────────────────────────────────
+CASO 3 — CLIENTE DICE ML EXPLÍCITAMENTE
+─────────────────────────────────────────
+  "500ml de tinte rojo", "200 mililitros de tinte negro"
+→ cantidad = ml dichos
+→ total = ml × precio_unidad
 
-### CÓMO DISTINGUIR si dice pesos o ml
+─────────────────────────────────────────
+FÓRMULAS (P = precio_unidad del catálogo)
+─────────────────────────────────────────
+un tarro completo     → cantidad=1000,    total= P × 1000
+N tarros              → cantidad=N×1000,  total= P × N × 1000
+medio tarro           → cantidad=500,     total= P × 500
+1/4 de tarro          → cantidad=250,     total= P × 250
+X pesos de tinte      → cantidad=X/P,     total= X
+Y ml de tinte         → cantidad=Y,       total= P × Y
 
-- Dice un número redondo pequeño (500, 1000, 2000, 5000) SIN decir "ml" → son PESOS
-- Dice un número con "ml", "mililitros", "cc" → son MILILITROS
-- Dice "medio tinte", "1/4 de tinte" → fracción del litro base (1000ml):
-  medio = 500ml → total = 500 × precio_por_ml
-  1/4   = 250ml → total = 250 × precio_por_ml
+─────────────────────────────────────────
+CÓMO DISTINGUIR LOS 3 CASOS
+─────────────────────────────────────────
+1. "tarro","litro","un tinte", número entero de tintes → CASO 1 (tarros × 1000 ml)
+2. Número redondo sin unidad (típico de pesos)         → CASO 2 (pesos ÷ precio_unidad)
+3. "ml","mililitros","cc"                              → CASO 3 (ml directo × precio_unidad)
 
-### REFERENCIA RÁPIDA (si precio_por_ml = 26)
+Ambigüedad "500 de tinte" → CASO 2 (pesos). "500ml" → siempre CASO 3.
 
-| Cliente dice        | Cantidad (ml) | Total ($) |
-|---------------------|---------------|-----------|
-| 1000 de tinte       | 38.5 ml       | $1.000    |
-| 2000 de tinte       | 76.9 ml       | $2.000    |
-| 5000 de tinte       | 192.3 ml      | $5.000    |
-| 10000 de tinte      | 384.6 ml      | $10.000   |
-| 26000 de tinte      | 1000 ml       | $26.000   |
-| 500ml de tinte      | 500 ml        | $13.000   |
-| 1 litro de tinte    | 1000 ml       | $26.000   |
-| medio tinte         | 500 ml        | $13.000   |
+─────────────────────────────────────────
+INVENTARIO DE TINTES
+─────────────────────────────────────────
+Inventario se lleva en TARROS (1 tarro = 1000 ml). Convertir siempre a ml:
+  "hay 5 tarros de tinte rojo"
+  → [INVENTARIO]{"producto":"Tinte Rojo Inglés","cantidad":5000,"unidad":"MLT","accion":"actualizar"}[/INVENTARIO]
+Si dice ml directamente: usar ese valor sin conversión.
+Si dice unidades sin especificar: asumir tarros → × 1000.
 
-### TINTES COMUNES (verificar precio real en catálogo con MATCH)
-
-Los tintes pueden llamarse: "tinte [color] inglés", "tinte [color]", "colorante [color]".
-Colores: Rojo, Azul, Amarillo, Negro, Verde, Naranja, Violeta, Café, Blanco, Gris.
-SIEMPRE buscar en catálogo con MATCH antes de registrar — nunca asumir el precio.
-
-### UNIDAD DIAN
-
-Registrar con unidad_medida="MLT" (código DIAN oficial para mililitro).
+─────────────────────────────────────────
+COLORES COMUNES (verificar en catálogo con MATCH)
+─────────────────────────────────────────
+Tinte Rojo Inglés, Tinte Negro, Tinte Miel, Tinte Caoba,
+Tinte Caramelo, Tinte Amarillo, Tinte Azul, Tinte Verde.
