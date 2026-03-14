@@ -95,6 +95,7 @@ function ordenarTornilleria(prods) {
 // ── Tipo de producto ──────────────────────────────────────────────────────────
 function tipoProd(prod) {
   if (prod.nombre?.toLowerCase().includes('esmeril')) return 'cm'
+  if ((prod.unidad_medida || '').toUpperCase() === 'MLT') return 'mlt'
   if (prod.precios_fraccion && Object.keys(prod.precios_fraccion).length > 0) return 'fraccion'
   return 'simple'
 }
@@ -165,7 +166,7 @@ function ProdCard({ prod, onClick, isFav, onFav, cantCarrito }) {
           background: t.border, borderRadius: 3, padding: '1px 4px',
           fontFamily: 'monospace',
         }}>
-          {tipo === 'cm' ? 'cm' : '½'}
+          {tipo === 'cm' ? 'cm' : tipo === 'mlt' ? 'ml' : '½'}
         </div>
       )}
 
@@ -438,6 +439,143 @@ function ModalCm({ prod, onClose, onConfirm }) {
         Precio por cm: <span style={{ color: t.green, fontFamily: 'monospace' }}>{cop(pxcm)}</span>
       </div>
       <PrecioEditor precioCalc={totalCalc} precioFinal={precioFinal} onChange={(v) => { setPrecioCustom(v) }} desc={`${cmNum} cm`} />
+    </Modal>
+  )
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MODAL MLT — Tintes y productos por mililitro
+// ══════════════════════════════════════════════════════════════════════════════
+function ModalMlt({ prod, onClose, onConfirm }) {
+  const t = useTheme()
+  const [modo,    setModo]    = useState('pesos')  // 'pesos' | 'ml'
+  const [valor,   setValor]   = useState('')
+  if (!prod) return null
+
+  const precioMl  = prod.precio  // precio_unidad = precio por 1 ml
+  const valorNum  = parseFloat(valor) || 0
+
+  // Calcular según modo
+  const mlCalc    = modo === 'pesos'  ? (valorNum > 0 ? Math.round((valorNum / precioMl) * 10) / 10 : 0) : valorNum
+  const totalCalc = modo === 'pesos'  ? valorNum : Math.round(valorNum * precioMl)
+
+  const valido = valorNum > 0 && mlCalc > 0 && totalCalc > 0
+
+  const ACCESOS_RAPIDOS = [
+    { label: 'Tarro completo', ml: 1000, icon: '🪣' },
+    { label: '½ Tarro',        ml: 500,  icon: '½'  },
+    { label: '¼ Tarro',        ml: 250,  icon: '¼'  },
+  ]
+
+  const aplicarAcceso = (ml) => {
+    setModo('ml')
+    setValor(String(ml))
+  }
+
+  const confirmar = () => {
+    if (!valido) return
+    onConfirm({
+      ml:    mlCalc,
+      total: totalCalc,
+      desc:  mlCalc >= 1000
+        ? `${mlCalc / 1000} L`
+        : `${mlCalc} ml`,
+    })
+  }
+
+  return (
+    <Modal show title={prod.nombre} subtitle={`Precio: ${cop(precioMl)} por ml · ${cop(precioMl * 1000)} por tarro`}
+      onClose={onClose} onConfirm={confirmar} okDisabled={!valido}
+      okLabel="Agregar al carrito">
+
+      {/* Accesos rápidos */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        {ACCESOS_RAPIDOS.map(a => (
+          <button key={a.ml} onClick={() => aplicarAcceso(a.ml)} style={{
+            flex: 1, padding: '8px 4px', borderRadius: 8, cursor: 'pointer', textAlign: 'center',
+            background: (modo === 'ml' && parseFloat(valor) === a.ml) ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#111'),
+            border: `1px solid ${(modo === 'ml' && parseFloat(valor) === a.ml) ? t.accent : t.border}`,
+            color: (modo === 'ml' && parseFloat(valor) === a.ml) ? t.accent : t.text,
+            fontSize: 11, fontFamily: 'inherit', transition: 'all .15s',
+          }}>
+            <div style={{ fontSize: 16, marginBottom: 3 }}>{a.icon}</div>
+            <div style={{ fontWeight: 600 }}>{a.label}</div>
+            <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>{cop(a.ml * precioMl)}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Toggle modo */}
+      <div style={{
+        display: 'flex', background: t.id === 'caramelo' ? '#f1f5f9' : '#111',
+        border: `1px solid ${t.border}`, borderRadius: 8, padding: 3, marginBottom: 12, gap: 3,
+      }}>
+        {[
+          { key: 'pesos', label: '$ Pesos',       hint: 'El cliente dice cuánto plata' },
+          { key: 'ml',    label: 'ml Mililitros',  hint: 'Sabes exactamente cuántos ml' },
+        ].map(m => (
+          <button key={m.key} onClick={() => { setModo(m.key); setValor('') }} style={{
+            flex: 1, padding: '7px 6px', borderRadius: 6, cursor: 'pointer',
+            background: modo === m.key ? t.card : 'transparent',
+            border: `1px solid ${modo === m.key ? t.accent + '55' : 'transparent'}`,
+            color: modo === m.key ? t.accent : t.textMuted,
+            fontSize: 11, fontFamily: 'inherit', fontWeight: modo === m.key ? 600 : 400,
+            transition: 'all .15s',
+          }}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+        border: `1px solid ${t.accent}66`, borderRadius: 8,
+        padding: '10px 14px', marginBottom: 10,
+      }}>
+        <span style={{ fontSize: 16, color: t.textMuted, minWidth: 20 }}>
+          {modo === 'pesos' ? '$' : 'ml'}
+        </span>
+        <input
+          autoFocus type="number" min="1" value={valor}
+          onChange={e => setValor(e.target.value)}
+          placeholder={modo === 'pesos' ? 'ej: 2000' : 'ej: 500'}
+          style={{
+            flex: 1, background: 'transparent', border: 'none',
+            color: t.text, fontSize: 26, fontFamily: 'monospace',
+            outline: 'none', textAlign: 'center',
+            MozAppearance: 'textfield', appearance: 'textfield',
+          }}
+        />
+      </div>
+
+      {/* Resultado calculado */}
+      {valido && (
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          background: t.accentSub, border: `1px solid ${t.accent}33`,
+          borderRadius: 8, padding: '10px 14px', marginBottom: 4,
+        }}>
+          <div>
+            <div style={{ fontSize: 10, color: t.textMuted, marginBottom: 2 }}>
+              {modo === 'pesos' ? 'Cantidad en ml' : 'Total a cobrar'}
+            </div>
+            <div style={{ fontSize: 18, fontFamily: 'monospace', fontWeight: 700, color: t.accent }}>
+              {modo === 'pesos' ? `${mlCalc} ml` : cop(totalCalc)}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: t.textMuted, marginBottom: 2 }}>
+              {modo === 'pesos' ? 'Total' : 'Mililitros'}
+            </div>
+            <div style={{ fontSize: 13, color: t.text, fontFamily: 'monospace' }}>
+              {modo === 'pesos' ? cop(totalCalc) : `${mlCalc} ml`}
+            </div>
+          </div>
+        </div>
+      )}
     </Modal>
   )
 }
@@ -1233,6 +1371,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [modalFrac, setModalFrac] = useState(null)
   const [modalCm,   setModalCm]   = useState(null)
   const [modalQty,  setModalQty]  = useState(null)
+  const [modalMlt,  setModalMlt]  = useState(null)
   const [toast,     setToast]     = useState(null)
   const [enviando,  setEnviando]  = useState(false)
   const [subcatFiltro,      setSubcatFiltro]      = useState(null)
@@ -1305,6 +1444,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const clickProd = useCallback((prod) => {
     if (prod.tipo === 'fraccion') { setModalFrac(prod); return }
     if (prod.tipo === 'cm')       { setModalCm(prod);   return }
+    if (prod.tipo === 'mlt')      { setModalMlt(prod);  return }
     // Simple: primer click = directo, segundo click = editar qty
     const ya = carrito.find(c => c.key === prod.key && c.tipo === 'simple')
     if (ya) { setModalQty(prod) }
@@ -1318,6 +1458,13 @@ export default function TabVentasRapidas({ refreshKey }) {
   }, [carrito])
 
   // ── Confirmaciones ─────────────────────────────────────────────────────────
+  const confirmarMlt = ({ ml, total, desc }) => {
+    setCarrito(p => [...p, {
+      id: Date.now(), key: modalMlt.key, nombre: modalMlt.nombre,
+      precio: total, qty: ml, total, desc, tipo: 'mlt',
+    }])
+    setModalMlt(null)
+  }
   const confirmarFrac = ({ unidades, fracKey, total, desc }) => {
     setCarrito(p => [...p, { id: Date.now(), key: modalFrac.key, nombre: modalFrac.nombre, precio: total, qty: 1, total, desc, tipo: 'fraccion' }])
     setModalFrac(null)
@@ -1374,7 +1521,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          productos: carrito.map(c => ({ nombre: c.nombre, cantidad: c.qty, total: c.total })),
+          productos: carrito.map(c => ({ nombre: c.nombre, cantidad: c.tipo === 'mlt' ? c.qty : c.qty, total: c.total })),
           metodo, vendedor,
           cliente_nombre: clienteSeleccionado?.nombre || '',
           cliente_id:     clienteSeleccionado?.id     || '',
@@ -1736,6 +1883,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       <ModalFraccion prod={modalFrac} onClose={() => setModalFrac(null)} onConfirm={confirmarFrac} />
       <ModalCm       prod={modalCm}   onClose={() => setModalCm(null)}   onConfirm={confirmarCm}  />
       <ModalQty      prod={modalQty}  onClose={() => setModalQty(null)}  onConfirm={confirmarQty} />
+      <ModalMlt      prod={modalMlt}  onClose={() => setModalMlt(null)}  onConfirm={confirmarMlt} />
 
       {/* Toast */}
       {toast && (
