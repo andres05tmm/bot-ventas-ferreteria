@@ -355,6 +355,103 @@ function FraccionesEditor({ fracciones, prodKey, onSaved }) {
 }
 
 // ── Fila de producto ──────────────────────────────────────────────────────────
+// ── Editor de precio mayorista inline ────────────────────────────────────────
+function MayoristaInline({ mayorista, prodKey, onSaved, topSpacing }) {
+  const t = useTheme()
+  const [editando, setEditando] = useState(false)
+  const [precio,   setPrecio]   = useState('')
+  const [umbral,   setUmbral]   = useState('')
+  const [estado,   setEstado]   = useState('idle')
+
+  const abrir = () => {
+    setPrecio(String(mayorista.precio))
+    setUmbral(String(mayorista.umbral))
+    setEstado('idle')
+    setEditando(true)
+  }
+  const cerrar = () => { setEditando(false); setEstado('idle') }
+
+  const guardar = async () => {
+    const p = parseInt(precio)
+    const u = parseInt(umbral)
+    if (isNaN(p) || p <= 0) { cerrar(); return }
+    setEstado('saving')
+    try {
+      const r = await fetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/mayorista`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ precio: p, umbral: isNaN(u) ? mayorista.umbral : u }),
+      })
+      if (!r.ok) throw new Error()
+      setEstado('ok')
+      onSaved({ ...mayorista, precio: p, umbral: isNaN(u) ? mayorista.umbral : u })
+      setTimeout(cerrar, 800)
+    } catch { setEstado('err'); setTimeout(cerrar, 1200) }
+  }
+
+  const inputStyle = {
+    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+    border: `1px solid ${t.blue}66`,
+    borderRadius: 6, padding: '4px 8px',
+    fontSize: 12, color: t.text, fontFamily: 'monospace',
+    outline: 'none', MozAppearance: 'textfield', appearance: 'textfield',
+  }
+
+  return (
+    <div style={{ marginTop: topSpacing ? 14 : 0 }}>
+      <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>
+        Precio mayorista
+      </div>
+
+      {editando ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 10, color: t.textMuted }}>Desde</span>
+            <input type="number" min="1" value={umbral} onChange={e => setUmbral(e.target.value)}
+              style={{ ...inputStyle, width: 60, textAlign: 'center' }}
+            />
+            <span style={{ fontSize: 10, color: t.textMuted }}>uds →</span>
+            <span style={{ fontSize: 10, color: t.textMuted }}>$</span>
+            <input type="number" min="0" value={precio} onChange={e => setPrecio(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') cerrar() }}
+              autoFocus style={{ ...inputStyle, width: 90 }}
+            />
+            <span style={{ fontSize: 10, color: t.textMuted }}>c/u</span>
+          </div>
+          <button onClick={guardar} style={{
+            background: estado === 'ok' ? t.green : t.blue, border: 'none', borderRadius: 6,
+            color: '#fff', padding: '5px 14px', cursor: 'pointer', fontFamily: 'inherit',
+            fontSize: 11, fontWeight: 600,
+          }}>
+            {estado === 'saving' ? 'Guardando…' : estado === 'ok' ? '✓ Guardado' : 'Guardar'}
+          </button>
+          <button onClick={cerrar} style={{
+            background: 'transparent', border: `1px solid ${t.border}`, borderRadius: 6,
+            color: t.textMuted, padding: '5px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11,
+          }}>Cancelar</button>
+          {estado === 'err' && <span style={{ fontSize: 10, color: t.accent }}>✗ Error</span>}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            background: t.card, border: `1px solid ${t.blue}33`,
+            borderRadius: 7, padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}>
+            <span style={{ color: t.textMuted, fontSize: 10 }}>Desde {mayorista.umbral} uds:</span>
+            <span style={{ color: t.blue, fontWeight: 700, fontSize: 13, fontFamily: 'monospace' }}>{cop(mayorista.precio)}</span>
+            <span style={{ color: t.textMuted, fontSize: 10 }}>c/u</span>
+          </div>
+          <button onClick={abrir} style={{
+            fontSize: 10, color: t.blue, background: t.id === 'caramelo' ? '#eff6ff' : '#172554',
+            border: `1px solid ${t.blue}44`, borderRadius: 6, padding: '4px 10px',
+            cursor: 'pointer', fontFamily: 'inherit',
+          }}>✏ Editar</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
   const t = useTheme()
   const [p, setP] = useState(pInit)
@@ -439,18 +536,21 @@ function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
       {expanded && (
         <tr style={{ background:t.tableAlt }}>
           <td colSpan={7} style={{ padding:'10px 24px 14px' }}>
-            <FraccionesEditor
-              fracciones={p.fracciones} prodKey={p.key}
-              onSaved={v=>setP(prev=>({...prev,fracciones:v}))}
-            />
+            {/* Fracciones SOLO para productos fraccionables */}
+            {hasFracs && (
+              <FraccionesEditor
+                fracciones={p.fracciones} prodKey={p.key}
+                onSaved={v=>setP(prev=>({...prev,fracciones:v}))}
+              />
+            )}
+            {/* Precio mayorista editable */}
             {p.mayorista && (
-              <div style={{ marginTop: hasFracs?12:0 }}>
-                <div style={{ fontSize:10, color:t.textMuted, textTransform:'uppercase', letterSpacing:'.08em', marginBottom:6 }}>Precio mayorista</div>
-                <div style={{ background:t.card, border:`1px solid ${t.blue}33`, borderRadius:7, padding:'6px 12px', display:'inline-block' }}>
-                  <span style={{ color:t.textMuted, fontSize:10 }}>Desde {p.mayorista.umbral} uds: </span>
-                  <span style={{ color:t.blue, fontWeight:600, fontSize:12 }}>{cop(p.mayorista.precio)} c/u</span>
-                </div>
-              </div>
+              <MayoristaInline
+                mayorista={p.mayorista}
+                prodKey={p.key}
+                onSaved={v=>setP(prev=>({...prev,mayorista:v}))}
+                topSpacing={hasFracs}
+              />
             )}
           </td>
         </tr>
