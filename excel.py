@@ -11,6 +11,7 @@ CORRECCIONES v2:
 import logging
 import asyncio
 import os
+import time
 from datetime import datetime
 
 import openpyxl
@@ -24,6 +25,20 @@ from utils import (
     obtener_nombre_hoja,
     _normalizar,          # ← importada de utils, ya no duplicada aquí
 )
+
+# ─────────────────────────────────────────────
+# CACHÉ DE CLIENTES (TTL 5 minutos)
+# Evita abrir el Excel completo en cada búsqueda de autocompletado
+# ─────────────────────────────────────────────
+_clientes_cache: list = []
+_clientes_cache_ts: float = 0.0
+_CLIENTES_CACHE_TTL: float = 300.0  # segundos
+
+
+def _invalidar_cache_clientes():
+    """Fuerza recarga en la próxima llamada a cargar_clientes()."""
+    global _clientes_cache_ts
+    _clientes_cache_ts = 0.0
 
 
 # ─────────────────────────────────────────────
@@ -242,6 +257,11 @@ def obtener_consecutivo_actual() -> int:
 # ─────────────────────────────────────────────
 
 def cargar_clientes() -> list:
+    global _clientes_cache, _clientes_cache_ts
+    # Retornar caché si aún es válida (TTL 5 min)
+    if _clientes_cache and (time.time() - _clientes_cache_ts) < _CLIENTES_CACHE_TTL:
+        return _clientes_cache
+
     if not os.path.exists(config.EXCEL_FILE):
         return []
     try:
@@ -270,6 +290,9 @@ def cargar_clientes() -> list:
             if cliente:
                 clientes.append(cliente)
         wb.close()
+        # Guardar en caché con timestamp
+        _clientes_cache    = clientes
+        _clientes_cache_ts = time.time()
         return clientes
     except Exception as e:
         print(f"Error cargando clientes: {e}")
@@ -396,6 +419,7 @@ def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural
         wb.save(config.EXCEL_FILE)
         from drive import subir_a_drive
         subir_a_drive(config.EXCEL_FILE)
+        _invalidar_cache_clientes()
         return True
     except Exception as e:
         print(f"Error guardando cliente: {e}")
@@ -431,6 +455,7 @@ def borrar_cliente(termino: str) -> tuple[bool, str]:
         wb.save(config.EXCEL_FILE)
         from drive import subir_a_drive
         subir_a_drive(config.EXCEL_FILE)
+        _invalidar_cache_clientes()
         return True, f"✅ Cliente '{nombre_borrado}' borrado del sistema."
     except Exception as e:
         print(f"Error borrando cliente: {e}")
