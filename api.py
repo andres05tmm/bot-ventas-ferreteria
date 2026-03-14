@@ -1590,7 +1590,7 @@ def crear_cliente_endpoint(body: NuevoCliente):
             if palabras_ex and palabras_nu:
                 interseccion = palabras_ex & palabras_nu
                 similitud    = len(interseccion) / max(len(palabras_ex), len(palabras_nu))
-                if similitud >= 0.8:
+                if similitud >= 0.6:
                     return {
                         "ok":      True,
                         "existia": True,
