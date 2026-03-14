@@ -598,6 +598,213 @@ def _escribir_en_excel(nombre: str, precio: float, fraccion: Optional[str]) -> t
 
 
 # ─────────────────────────────────────────────────────────────────
+# ACTUALIZAR METADATOS EN EXCEL (nombre, categoría, unidad, código)
+# ─────────────────────────────────────────────────────────────────
+
+def _actualizar_metadatos_en_excel(nombre_original: str, datos_nuevos: dict) -> dict:
+    """
+    Actualiza nombre, categoría, unidad_medida y/o código de un producto
+    en la hoja 'Datos' de BASE_DE_DATOS_PRODUCTOS.xlsx.
+    Busca la fila por nombre_original (flexible).
+    datos_nuevos puede tener: nombre, categoria, unidad_medida, codigo.
+    Retorna {"ok": True} o {"ok": False, "error": "..."}.
+    """
+    try:
+        from drive import descargar_de_drive, subir_a_drive
+    except ImportError:
+        descargar_de_drive = subir_a_drive = None
+
+    import tempfile
+
+    # Localizar el Excel de productos
+    ruta = None
+    for candidato in [
+        getattr(config, "EXCEL_PRODUCTOS", None),
+        getattr(config, "BASE_DATOS_FILE", None),
+        os.path.join(os.path.dirname(config.EXCEL_FILE), "BASE_DE_DATOS_PRODUCTOS.xlsx"),
+        "BASE_DE_DATOS_PRODUCTOS.xlsx",
+    ]:
+        if candidato and os.path.exists(candidato):
+            ruta = candidato
+            break
+
+    ruta_tmp = None
+    if not ruta and descargar_de_drive:
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+                ruta_tmp = tmp.name
+            if descargar_de_drive("BASE_DE_DATOS_PRODUCTOS.xlsx", ruta_tmp):
+                ruta = ruta_tmp
+        except Exception:
+            pass
+
+    if not ruta or not os.path.exists(ruta):
+        return {"ok": False, "error": "No se encontró el Excel de productos"}
+
+    try:
+        wb = openpyxl.load_workbook(ruta)
+        ws = wb["Datos"] if "Datos" in wb.sheetnames else wb.active
+
+        # Detectar índices de columna leyendo la fila de encabezados (fila 1)
+        col_map = {}
+        for cell in next(ws.iter_rows(min_row=1, max_row=1)):
+            if cell.value:
+                col_map[_norm_cat(str(cell.value))] = cell.column
+
+        # Mapear campos del dict a los nombres de columna del Excel
+        _CAMPO_COL = {
+            "nombre":        ["nombre del producto", "nombre", "product name"],
+            "categoria":     ["categoria", "categoría", "category"],
+            "unidad_medida": ["unidad de medida", "unidad medida", "unidad", "unit"],
+            "codigo":        ["codigo del producto", "código del producto", "codigo", "código", "code"],
+        }
+
+        nombre_norm = _norm_cat(nombre_original)
+        fila_prod = None
+        for row in range(2, ws.max_row + 1):
+            val = ws.cell(row=row, column=_IDX_NOMBRE + 1).value  # Col B (idx 1 → col 2)
+            if val and _norm_cat(str(val)) == nombre_norm:
+                fila_prod = row
+                break
+
+        # Búsqueda flexible si no hay coincidencia exacta
+        if not fila_prod:
+            palabras = [p for p in nombre_norm.split() if len(p) > 2]
+            for row in range(2, ws.max_row + 1):
+                val = ws.cell(row=row, column=_IDX_NOMBRE + 1).value
+                if val and palabras and all(p in _norm_cat(str(val)) for p in palabras):
+                    fila_prod = row
+                    break
+
+        if not fila_prod:
+            _limpiar(ruta_tmp)
+            return {"ok": False, "error": f"Fila de '{nombre_original}' no encontrada en Excel"}
+
+        actualizados = []
+        for campo, valor in datos_nuevos.items():
+            if not valor:
+                continue
+            claves_posibles = _CAMPO_COL.get(campo, [campo])
+            col_idx = None
+            for clave in claves_posibles:
+                col_idx = col_map.get(clave)
+                if col_idx:
+                    break
+            if col_idx:
+                ws.cell(row=fila_prod, column=col_idx).value = valor.strip() if isinstance(valor, str) else valor
+                actualizados.append(campo)
+
+        if actualizados:
+            wb.save(ruta)
+            if subir_a_drive:
+                try:
+                    subir_a_drive(ruta)
+                except Exception as e:
+                    log.warning("_actualizar_metadatos_en_excel: Drive upload falló: %s", e)
+
+        _limpiar(ruta_tmp)
+        return {"ok": True, "actualizados": actualizados, "fila": fila_prod}
+
+    except Exception as e:
+        _limpiar(ruta_tmp)
+        return {"ok": False, "error": str(e)}
+
+
+# ─────────────────────────────────────────────────────────────────
+# ELIMINAR PRODUCTO DEL EXCEL
+# ─────────────────────────────────────────────────────────────────
+
+def eliminar_producto_de_excel(nombre_producto: str) -> dict:
+    """
+    Elimina la fila del producto en BASE_DE_DATOS_PRODUCTOS.xlsx (hoja 'Datos').
+    Busca por nombre exacto o flexible (igual que el sistema de búsqueda del bot).
+    Retorna {"ok": True, "fila": N} o {"ok": False, "error": "..."}.
+    """
+    try:
+        from drive import descargar_de_drive, subir_a_drive
+    except ImportError:
+        descargar_de_drive = subir_a_drive = None
+
+    import shutil, tempfile
+
+    # Localizar el Excel de productos
+    ruta = None
+    for candidato in [
+        getattr(config, "EXCEL_PRODUCTOS", None),
+        getattr(config, "BASE_DATOS_FILE", None),
+        os.path.join(os.path.dirname(config.EXCEL_FILE), "BASE_DE_DATOS_PRODUCTOS.xlsx"),
+        "BASE_DE_DATOS_PRODUCTOS.xlsx",
+    ]:
+        if candidato and os.path.exists(candidato):
+            ruta = candidato
+            break
+
+    ruta_tmp = None
+    if not ruta and descargar_de_drive:
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+                ruta_tmp = tmp.name
+            ok = descargar_de_drive("BASE_DE_DATOS_PRODUCTOS.xlsx", ruta_tmp)
+            if ok:
+                ruta = ruta_tmp
+        except Exception:
+            pass
+
+    if not ruta or not os.path.exists(ruta):
+        return {"ok": False, "error": "No se encontró el Excel de productos"}
+
+    try:
+        wb = openpyxl.load_workbook(ruta)
+        ws = wb["Datos"] if "Datos" in wb.sheetnames else wb.active
+
+        nombre_lower = _norm_cat(nombre_producto)
+        fila_borrar = None
+        for row in range(2, ws.max_row + 1):
+            val = ws.cell(row=row, column=2).value  # Col B = Nombre
+            if val and _norm_cat(str(val)) == nombre_lower:
+                fila_borrar = row
+                break
+
+        # Búsqueda flexible si no hay coincidencia exacta
+        if not fila_borrar:
+            palabras = [p for p in nombre_lower.split() if len(p) > 2]
+            for row in range(2, ws.max_row + 1):
+                val = ws.cell(row=row, column=2).value
+                if val and palabras and all(p in _norm_cat(str(val)) for p in palabras):
+                    fila_borrar = row
+                    break
+
+        if not fila_borrar:
+            _limpiar(ruta_tmp)
+            return {"ok": False, "error": f"Producto '{nombre_producto}' no encontrado en el Excel"}
+
+        ws.delete_rows(fila_borrar)
+        wb.save(ruta)
+
+        # Subir a Drive
+        if subir_a_drive:
+            try:
+                subir_a_drive(ruta)
+            except Exception as e:
+                log.warning("eliminar_producto_de_excel: fallo Drive upload: %s", e)
+
+        # Si usamos temporal, copiar de vuelta al destino canónico
+        if ruta_tmp and ruta == ruta_tmp:
+            destino = os.path.join(os.path.dirname(config.EXCEL_FILE), "BASE_DE_DATOS_PRODUCTOS.xlsx")
+            try:
+                shutil.copy2(ruta_tmp, destino)
+            except Exception:
+                pass
+
+        _limpiar(ruta_tmp)
+        return {"ok": True, "fila": fila_borrar}
+
+    except Exception as e:
+        _limpiar(ruta_tmp)
+        return {"ok": False, "error": str(e)}
+
+
+# ─────────────────────────────────────────────────────────────────
 # FUNCIÓN PÚBLICA PRINCIPAL
 # ─────────────────────────────────────────────────────────────────
 
