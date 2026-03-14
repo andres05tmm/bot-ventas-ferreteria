@@ -281,6 +281,36 @@ function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
 }
 
 // ── Tab principal ─────────────────────────────────────────────────────────────
+function KpiHistorial({ label, value, color }) {
+  const t = useTheme()
+  const [hov, setHov] = useState(false)
+  return (
+    <div
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        background: t.card,
+        border: `1px solid ${hov ? color : t.border}`,
+        borderRadius: 12, padding: '14px 18px',
+        flex: 1, minWidth: 120, cursor: 'default',
+        transition: 'border-color .2s ease, box-shadow .25s ease',
+        boxShadow: hov ? `0 0 0 3px ${color}44, 0 0 16px ${color}22` : 'none',
+      }}
+    >
+      <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: hov ? 22 : 18, fontWeight: 700, color: hov ? color : color,
+        transition: 'font-size .2s ease',
+        fontVariantNumeric: 'tabular-nums',
+      }}>
+        {value}
+      </div>
+    </div>
+  )
+}
+
 export default function TabHistorial({ refreshKey }) {
   const t = useTheme()
   const [refresh,    setRefresh]    = useState(0)
@@ -344,10 +374,7 @@ export default function TabHistorial({ refreshKey }) {
           {label:'✅ Pagados',    value:pagados,            color:t.green},
           {label:'⏳ Sin método', value:pendientes,         color:t.yellow},
         ].map(item=>(
-          <div key={item.label} style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:8,padding:'10px 16px',flex:1,minWidth:120}}>
-            <div style={{fontSize:10,color:t.textMuted,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:5}}>{item.label}</div>
-            <div style={{fontSize:18,fontWeight:700,color:item.color}}>{item.value}</div>
-          </div>
+          <KpiHistorial key={item.label} label={item.label} value={item.value} color={item.color}/>
         ))}
       </div>
 
