@@ -1424,7 +1424,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         display: isMobile ? 'block' : 'grid',
         gridTemplateColumns: '1fr 310px',
         gap: 16, alignItems: 'start',
-        paddingBottom: isMobile ? 120 : 0,
+        paddingBottom: isMobile ? 150 : 0,
       }}>
 
       {/* ══ PANEL IZQUIERDO ══ */}
@@ -1639,8 +1639,8 @@ export default function TabVentasRapidas({ refreshKey }) {
       {/* ══ MÓVIL: barra inferior fija del carrito ══ */}
       {isMobile && (
         <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
-          zIndex: 200, padding: '10px 16px 14px',
+          position: 'fixed', bottom: 62, left: 0, right: 0,
+          zIndex: 200, padding: '10px 16px 10px',
           background: t.header,
           borderTop: `1px solid ${t.border}`,
           boxShadow: '0 -4px 20px rgba(0,0,0,.15)',
