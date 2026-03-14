@@ -15,7 +15,6 @@ function metodoBadge(metodo, t) {
   return { bg: t.card, color: t.textMuted, border: t.border }
 }
 
-// Convierte cantidad decimal a fracción legible (0.75 → "3/4", 0.5 → "1/2", 2.5 → "2 1/2")
 const FRACS = [
   [3/4,'3/4'],[1/2,'1/2'],[1/4,'1/4'],[1/3,'1/3'],[2/3,'2/3'],
   [1/8,'1/8'],[1/10,'1/10'],[1/16,'1/16'],[3/8,'3/8'],[7/8,'7/8'],
@@ -23,7 +22,6 @@ const FRACS = [
 function cantidadLegible(val) {
   if (val === null || val === undefined || val === '') return '—'
   const s = String(val).trim()
-  // Si ya viene como fracción legible del bot ("3/4", "1 y 3/4"), devolverla tal cual
   if (/[\/y]/.test(s) && !/^\d+$/.test(s)) return s
   const n = parseFloat(s.replace(',','.'))
   if (isNaN(n)) return s
@@ -36,7 +34,6 @@ function cantidadLegible(val) {
   return n.toFixed(2).replace(/\.?0+$/, '')
 }
 
-// Badge de unidad con color según tipo
 const UNIDAD_ESTILOS = {
   'galón': { color:'#a16207', bg:'#fef9c320' },
   'galon': { color:'#a16207', bg:'#fef9c320' },
@@ -72,7 +69,7 @@ function exportCSV(ventas) {
   URL.revokeObjectURL(url)
 }
 
-// ── Modal Editar Venta ────────────────────────────────────────────────────────
+// ── Modal Editar Venta (edita UNA línea) ─────────────────────────────────────
 const METODOS = ['efectivo','transferencia','nequi','daviplata','datafono','otro']
 
 function ModalEditarVenta({ venta, onClose, onGuardado }) {
@@ -94,13 +91,13 @@ function ModalEditarVenta({ venta, onClose, onGuardado }) {
     setEstado('saving'); setErr('')
     try {
       const body = {}
-      if (form.producto        !== venta.producto)        body.producto        = form.producto
-      if (String(form.cantidad)!== String(venta.cantidad))body.cantidad        = Number(form.cantidad)
-      if (String(form.precio_unitario)!==String(venta.precio_unitario)) body.precio_unitario = Number(form.precio_unitario)
-      if (String(form.total)   !== String(venta.total))   body.total           = Number(form.total)
-      if (form.metodo_pago     !== venta.metodo)          body.metodo_pago     = form.metodo_pago
-      if (form.cliente         !== venta.cliente)         body.cliente         = form.cliente
-      if (form.vendedor        !== venta.vendedor)        body.vendedor        = form.vendedor
+      if (form.producto         !== venta.producto)                         body.producto        = form.producto
+      if (String(form.cantidad) !== String(venta.cantidad))                 body.cantidad        = Number(form.cantidad)
+      if (String(form.precio_unitario) !== String(venta.precio_unitario))   body.precio_unitario = Number(form.precio_unitario)
+      if (String(form.total)    !== String(venta.total))                    body.total           = Number(form.total)
+      if (form.metodo_pago      !== venta.metodo)                           body.metodo_pago     = form.metodo_pago
+      if (form.cliente          !== venta.cliente)                          body.cliente         = form.cliente
+      if (form.vendedor         !== venta.vendedor)                         body.vendedor        = form.vendedor
       if (!Object.keys(body).length) { onClose(); return }
       const r = await fetch(`${API_BASE}/ventas/${venta.num}`, {
         method:'PATCH', headers:{'Content-Type':'application/json'},
@@ -115,7 +112,7 @@ function ModalEditarVenta({ venta, onClose, onGuardado }) {
 
   const inp = {
     width:'100%', boxSizing:'border-box',
-    background: t.id==='caramelo'?'#f8fafc':'#111',
+    background: '#111',
     border:`1px solid ${t.border}`, borderRadius:7,
     color:t.text, fontSize:12, padding:'7px 10px',
     outline:'none', fontFamily:'inherit',
@@ -185,18 +182,23 @@ function ModalEditarVenta({ venta, onClose, onGuardado }) {
   )
 }
 
-// ── Modal Confirmar Eliminar ──────────────────────────────────────────────────
-function ModalConfirmarEliminar({ venta, onClose, onEliminado }) {
+// ── Modal Confirmar Eliminar — agrupa TODOS los productos del consecutivo ─────
+function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
   const t = useTheme()
   const [estado, setEstado] = useState('idle')
   const [err,    setErr]    = useState('')
 
+  // El consecutivo viene del primer item del grupo
+  const consecutivo = grupo[0]?.num
+  const totalGrupo  = grupo.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
+  const esMultiple  = grupo.length > 1
+
   const eliminar = async () => {
     setEstado('saving')
     try {
-      const r = await fetch(`${API_BASE}/ventas/${venta.num}`, { method:'DELETE' })
+      const r = await fetch(`${API_BASE}/ventas/${consecutivo}`, { method: 'DELETE' })
       const d = await r.json()
-      if (!r.ok) throw new Error(d.detail||'Error')
+      if (!r.ok) throw new Error(d.detail || 'Error')
       setEstado('ok')
       setTimeout(() => { onEliminado(); onClose() }, 600)
     } catch(e) { setErr(e.message); setEstado('err') }
@@ -207,18 +209,60 @@ function ModalConfirmarEliminar({ venta, onClose, onEliminado }) {
       position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,.6)',
       display:'flex',alignItems:'center',justifyContent:'center',padding:16,
     }}>
-      <div style={{background:t.bg,border:`1px solid ${t.border}`,borderRadius:14,width:'100%',maxWidth:380,padding:24,boxShadow:'0 24px 64px rgba(0,0,0,.4)'}}>
-        <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:8}}>🗑 Eliminar venta #{venta.num}</div>
-        <div style={{fontSize:12,color:t.textMuted,marginBottom:4}}>
-          <strong style={{color:t.text}}>{venta.producto}</strong>
+      <div style={{background:t.bg,border:`1px solid ${t.border}`,borderRadius:14,width:'100%',maxWidth:420,padding:24,boxShadow:'0 24px 64px rgba(0,0,0,.4)'}}>
+        <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:10}}>
+          🗑 Eliminar consecutivo #{consecutivo}
         </div>
-        <div style={{fontSize:12,color:t.textMuted,marginBottom:16}}>
-          Total: <strong style={{color:t.accent}}>{cop(venta.total)}</strong> · {venta.metodo||'—'}
+
+        {/* Lista de productos del consecutivo */}
+        <div style={{
+          background:t.tableAlt, border:`1px solid ${t.border}`,
+          borderRadius:8, marginBottom:14, overflow:'hidden',
+        }}>
+          {grupo.map((v, i) => (
+            <div key={i} style={{
+              display:'flex', justifyContent:'space-between', alignItems:'center',
+              padding:'8px 12px',
+              borderBottom: i < grupo.length - 1 ? `1px solid ${t.border}` : 'none',
+            }}>
+              <div style={{flex:1}}>
+                <span style={{color:t.text,fontSize:12}}>{v.producto}</span>
+                <span style={{color:t.textMuted,fontSize:10,marginLeft:8}}>
+                  ×{cantidadLegible(v.cantidad)}
+                </span>
+              </div>
+              <span style={{color:t.green,fontWeight:600,fontSize:12}}>{cop(v.total)}</span>
+            </div>
+          ))}
+          {/* Total del grupo */}
+          <div style={{
+            display:'flex', justifyContent:'space-between', alignItems:'center',
+            padding:'9px 12px',
+            background: t.id === 'light' ? '#f1f5f9' : '#1a1a1a',
+            borderTop:`1px solid ${t.border}`,
+          }}>
+            <span style={{fontSize:11,color:t.textMuted,fontWeight:600}}>
+              TOTAL {esMultiple ? `(${grupo.length} productos)` : ''}
+            </span>
+            <span style={{color:t.accent,fontWeight:700,fontSize:14}}>{cop(totalGrupo)}</span>
+          </div>
         </div>
+
+        {/* Info método y vendedor */}
+        <div style={{fontSize:12,color:t.textMuted,marginBottom:14,display:'flex',gap:16}}>
+          <span>Método: <strong style={{color:t.text}}>{grupo[0]?.metodo || '—'}</strong></span>
+          <span>Vendedor: <strong style={{color:t.text}}>{grupo[0]?.vendedor || '—'}</strong></span>
+        </div>
+
         <div style={{padding:'10px 12px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,fontSize:11,color:'#dc2626',marginBottom:16}}>
-          ⚠ Esta acción elimina la venta del Excel y Google Sheets, y descuenta el total de la caja del día.
+          ⚠ {esMultiple
+            ? `Esta acción elimina los ${grupo.length} productos de esta venta del Excel y Google Sheets, y descuenta el total de la caja.`
+            : 'Esta acción elimina la venta del Excel y Google Sheets, y descuenta el total de la caja del día.'
+          }
         </div>
+
         {err && <div style={{padding:'6px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626',marginBottom:12}}>✗ {err}</div>}
+
         <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
           <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>Cancelar</button>
           <button onClick={eliminar} disabled={estado==='saving'} style={{
@@ -239,35 +283,49 @@ function ModalConfirmarEliminar({ venta, onClose, onEliminado }) {
 // ── Tab principal ─────────────────────────────────────────────────────────────
 export default function TabHistorial({ refreshKey }) {
   const t = useTheme()
-  const [refresh, setRefresh] = useState(0)
-  const { data, loading, error } = useFetch('/ventas/hoy', [refreshKey, refresh])
-  const [busqueda, setBusqueda] = useState('')
-  const [filtro,   setFiltro]   = useState('todos')
-  const [editando, setEditando] = useState(null)
+  const [refresh,    setRefresh]    = useState(0)
+  const { data, loading, error }    = useFetch('/ventas/hoy', [refreshKey, refresh])
+  const [busqueda,   setBusqueda]   = useState('')
+  const [filtro,     setFiltro]     = useState('todos')
+  const [editando,   setEditando]   = useState(null)
+  // eliminando ahora es el GRUPO completo (array), no una sola venta
   const [eliminando, setEliminando] = useState(null)
 
-  const todasVentas = useMemo(() => (data?.ventas||[]).map(v=>({
-    ...v, estado:(v.metodo&&v.metodo.trim()&&v.metodo!=='—')?'pagado':'pendiente',
+  // Filas planas con estado calculado
+  const todasVentas = useMemo(() => (data?.ventas || []).map(v => ({
+    ...v,
+    estado: (v.metodo && v.metodo.trim() && v.metodo !== '—') ? 'pagado' : 'pendiente',
   })), [data])
 
+  // Agrupar por consecutivo para el botón de eliminar
+  const gruposPorConsecutivo = useMemo(() => {
+    const mapa = {}
+    for (const v of todasVentas) {
+      const key = String(v.num)
+      if (!mapa[key]) mapa[key] = []
+      mapa[key].push(v)
+    }
+    return mapa
+  }, [todasVentas])
+
   const ventas = useMemo(() => {
-    let res = filtro==='todos' ? todasVentas : todasVentas.filter(v=>v.estado===filtro)
+    let res = filtro === 'todos' ? todasVentas : todasVentas.filter(v => v.estado === filtro)
     if (busqueda) {
       const q = busqueda.toLowerCase()
-      res = res.filter(v=>
-        String(v.producto).toLowerCase().includes(q)||
-        String(v.cliente ).toLowerCase().includes(q)||
-        String(v.vendedor).toLowerCase().includes(q)||
+      res = res.filter(v =>
+        String(v.producto).toLowerCase().includes(q) ||
+        String(v.cliente ).toLowerCase().includes(q) ||
+        String(v.vendedor).toLowerCase().includes(q) ||
         String(v.num     ).includes(q)
       )
     }
     return res
-  }, [todasVentas,filtro,busqueda])
+  }, [todasVentas, filtro, busqueda])
 
-  const total      = ventas.reduce((a,v)=>a+(parseFloat(v.total)||0),0)
-  const totalTodo  = todasVentas.reduce((a,v)=>a+(parseFloat(v.total)||0),0)
-  const pagados    = todasVentas.filter(v=>v.estado==='pagado').length
-  const pendientes = todasVentas.filter(v=>v.estado==='pendiente').length
+  const total      = ventas.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
+  const totalTodo  = todasVentas.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
+  const pagados    = todasVentas.filter(v => v.estado === 'pagado').length
+  const pendientes = todasVentas.filter(v => v.estado === 'pendiente').length
 
   if (loading) return <Spinner />
   if (error)   return <ErrorMsg msg={`Error: ${error}`} />
@@ -275,8 +333,8 @@ export default function TabHistorial({ refreshKey }) {
   return (
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
 
-      {editando   && <ModalEditarVenta       venta={editando}    onClose={()=>setEditando(null)}    onGuardado={()=>setRefresh(r=>r+1)}/>}
-      {eliminando && <ModalConfirmarEliminar venta={eliminando}  onClose={()=>setEliminando(null)} onEliminado={()=>setRefresh(r=>r+1)}/>}
+      {editando   && <ModalEditarVenta       venta={editando}   onClose={()=>setEditando(null)}    onGuardado={()=>setRefresh(r=>r+1)}/>}
+      {eliminando && <ModalConfirmarEliminar grupo={eliminando} onClose={()=>setEliminando(null)} onEliminado={()=>setRefresh(r=>r+1)}/>}
 
       {/* KPIs */}
       <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
@@ -335,14 +393,35 @@ export default function TabHistorial({ refreshKey }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {ventas.map((v,i)=>{
-                    const badge = metodoBadge(v.metodo,t)
+                  {ventas.map((v, i) => {
+                    const badge        = metodoBadge(v.metodo, t)
+                    const grupoConsec  = gruposPorConsecutivo[String(v.num)] || [v]
+                    const esMultiple   = grupoConsec.length > 1
+                    // Saber si esta fila es la primera de su consecutivo (para no repetir el icono)
+                    const primeraDelGrupo = grupoConsec[0] === v ||
+                      ventas.findIndex(x => String(x.num) === String(v.num)) === i
+
                     return (
-                      <tr key={i} style={{borderBottom:`1px solid ${t.border}`}}
+                      <tr key={i} style={{
+                        borderBottom:`1px solid ${t.border}`,
+                        // Fondo sutil para diferenciar grupos multi-producto
+                        background: esMultiple ? (t.id==='light' ? '#fefce8' : '#1a1600') : 'transparent',
+                      }}
                         onMouseEnter={e=>e.currentTarget.style.background=t.cardHover}
-                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}
+                        onMouseLeave={e=>e.currentTarget.style.background= esMultiple ? (t.id==='light' ? '#fefce8' : '#1a1600') : 'transparent'}
                       >
-                        <td style={{padding:'8px 14px',color:t.accent,fontWeight:700}}>{v.num}</td>
+                        <td style={{padding:'8px 14px',color:t.accent,fontWeight:700}}>
+                          {v.num}
+                          {esMultiple && (
+                            <span style={{
+                              fontSize:8,fontWeight:700,marginLeft:4,
+                              background:t.yellow,color:'#000',
+                              padding:'1px 4px',borderRadius:3,
+                            }} title={`Venta con ${grupoConsec.length} productos`}>
+                              ×{grupoConsec.length}
+                            </span>
+                          )}
+                        </td>
                         <td style={{padding:'8px 14px',color:t.textMuted,fontStyle:'italic',whiteSpace:'nowrap'}}>{v.hora}</td>
                         <td style={{padding:'8px 14px',color:t.text,maxWidth:180}}>{v.producto}</td>
                         <td style={{padding:'8px 14px',color:t.textMuted,fontSize:11}}>{v.cliente||'Consumidor Final'}</td>
@@ -367,16 +446,24 @@ export default function TabHistorial({ refreshKey }) {
                         </td>
                         <td style={{padding:'8px 10px',textAlign:'center'}}>
                           <div style={{display:'flex',gap:5,justifyContent:'center'}}>
-                            <button onClick={()=>setEditando(v)} title="Editar venta" style={{
-                              background:t.accentSub,border:`1px solid ${t.accent}44`,color:t.accent,
-                              borderRadius:6,width:28,height:28,cursor:'pointer',fontSize:13,
-                              display:'flex',alignItems:'center',justifyContent:'center',
-                            }}>✏</button>
-                            <button onClick={()=>setEliminando(v)} title="Eliminar venta" style={{
-                              background:'#fef2f2',border:'1px solid #fca5a544',color:'#dc2626',
-                              borderRadius:6,width:28,height:28,cursor:'pointer',fontSize:13,
-                              display:'flex',alignItems:'center',justifyContent:'center',
-                            }}>🗑</button>
+                            <button
+                              onClick={()=>setEditando(v)}
+                              title="Editar esta línea"
+                              style={{
+                                background:t.accentSub,border:`1px solid ${t.accent}44`,color:t.accent,
+                                borderRadius:6,width:28,height:28,cursor:'pointer',fontSize:13,
+                                display:'flex',alignItems:'center',justifyContent:'center',
+                              }}>✏</button>
+                            <button
+                              onClick={()=>setEliminando(grupoConsec)}
+                              title={esMultiple
+                                ? `Eliminar consecutivo #${v.num} (${grupoConsec.length} productos)`
+                                : `Eliminar venta #${v.num}`}
+                              style={{
+                                background:'#fef2f2',border:'1px solid #fca5a544',color:'#dc2626',
+                                borderRadius:6,width:28,height:28,cursor:'pointer',fontSize:13,
+                                display:'flex',alignItems:'center',justifyContent:'center',
+                              }}>🗑</button>
                           </div>
                         </td>
                       </tr>
