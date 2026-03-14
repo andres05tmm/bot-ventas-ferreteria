@@ -8,8 +8,8 @@ function MovRow({ m, t }) {
   const esEntrada = m.tipo === 'entrada'
   return (
     <tr style={{ borderBottom: `1px solid ${t.border}` }}
-      onMouseEnter={e => e.currentTarget.style.background = t.cardHover}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+      onMouseEnter={e => { e.currentTarget.style.background = t.cardHover; e.currentTarget.style.transform = 'translateX(2px)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.transform = 'translateX(0)' }}>
       <td style={{ padding: '8px 12px', color: t.textMuted, fontSize: 11, whiteSpace: 'nowrap' }}>{m.fecha}</td>
       <td style={{ padding: '8px 12px', color: t.textMuted, fontSize: 10 }}>{m.hora}</td>
       <td style={{ padding: '8px 12px' }}>
@@ -55,8 +55,8 @@ function ProductoKardex({ item, t }) {
           padding: '12px 16px', display: 'flex', alignItems: 'center',
           justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none',
         }}
-        onMouseEnter={e => e.currentTarget.style.background = t.cardHover}
-        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+        onMouseEnter={e => { e.currentTarget.style.background = t.cardHover; e.currentTarget.style.transform = 'translateX(2px)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.transform = 'translateX(0)' }}>
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <span style={{ fontSize: 16 }}>📦</span>
