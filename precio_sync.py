@@ -148,6 +148,9 @@ _UNIDAD_MAP: dict[str, str] = {
     # litro
     "lt":      "Lt",    "lts":    "Lts",   "litro":  "Lt",
     "litros":  "Lts",
+    # mililitro — código DIAN: MLT (tabla 13.3.6 anexo técnico v1.8)
+    "ml":      "MLT",   "mlt":    "MLT",   "mililitro":  "MLT",
+    "mililitros": "MLT", "cc":    "MLT",   "centimetro cubico": "MLT",
     # unidad (por defecto)
     "unidad":  "Unidad","und":    "Unidad","un":     "Unidad",
     "unidades":"Unidad","uni":    "Unidad",
