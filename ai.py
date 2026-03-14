@@ -462,7 +462,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         else:
             print("[PRECALCULADO DEBUG] No se generó precalculado para este mensaje")
 
-    # ── Precalcular tornillos mayorista y unidad_suelta ──────────────────────
+    # ── Precalcular tornillos mayorista ──────────────────────────────────────
     # Estos casos no los cubre el bloque mixto de arriba.
     # Construimos totales determinísticos antes de que Claude los vea.
     _lineas_pre_extra = []
@@ -510,17 +510,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 _tier = f"mayorista x{_umbral}+" if _cant >= _umbral else "normal"
                 _lineas_pre_extra.append(
                     f"{_nombre}: cantidad={_cant}, precio_unit={_precio_u}({_tier}), total={_total}"
-                )
-
-        # unidad_suelta: si tiene unidad_suelta y el segmento NO menciona kilo/kg
-        elif _fracs and "unidad_suelta" in _fracs:
-            _kilo_mencionado = any(k in _seg for k in ("kilo", "kg", "medio kilo"))
-            if not _kilo_mencionado:
-                _p_suelta = _fracs["unidad_suelta"]
-                _precio_suelta = _p_suelta["precio"] if isinstance(_p_suelta, dict) else _p_suelta
-                _total = _cant * _precio_suelta
-                _lineas_pre_extra.append(
-                    f"{_nombre}: cantidad={_cant}, precio_unit={_precio_suelta}(unidad_suelta), total={_total}"
                 )
 
     if _lineas_pre_extra:
