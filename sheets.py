@@ -382,6 +382,85 @@ def sheets_borrar_consecutivo(numero_venta) -> tuple[int, list]:
         return 0, []
 
 
+def sheets_editar_consecutivo(numero_venta: int, cambios: dict) -> int:
+    """
+    Actualiza en Sheets TODOS los campos indicados en `cambios` para las filas
+    cuyo CONSECUTIVO DE VENTA == numero_venta.
+    `cambios` es un dict con claves: producto, cantidad, precio_unitario, total,
+    metodo_pago, cliente, vendedor.
+    Retorna el número de filas actualizadas.
+    """
+    if not config.SHEETS_ID or not cambios:
+        return 0
+    try:
+        ws = _obtener_hoja_sheets()
+        if not ws:
+            return 0
+
+        todas = ws.get_all_values()
+        if not todas:
+            return 0
+
+        # Fila 0 = encabezados
+        headers = [h.upper().strip() for h in todas[0]]
+
+        # Mapeo campo → nombre de columna en Sheets
+        CAMPO_HEADER = {
+            "producto":        ["PRODUCTO"],
+            "cantidad":        ["CANTIDAD"],
+            "precio_unitario": ["VALOR UNITARIO", "PRECIO UNITARIO"],
+            "total":           ["TOTAL"],
+            "metodo_pago":     ["METODO DE PAGO", "MÉTODO PAGO"],
+            "cliente":         ["CLIENTE"],
+            "vendedor":        ["VENDEDOR"],
+        }
+
+        # Columna del consecutivo
+        col_consec = None
+        for i, h in enumerate(headers):
+            if "CONSECUTIVO" in h or h == "#":
+                col_consec = i
+                break
+        if col_consec is None:
+            return 0
+
+        # Resolver índices de columna para cada campo a cambiar
+        col_map = {}
+        for campo, valor in cambios.items():
+            posibles = CAMPO_HEADER.get(campo, [campo.upper().replace("_", " ")])
+            for nombre in posibles:
+                for i, h in enumerate(headers):
+                    if h == nombre:
+                        col_map[campo] = i
+                        break
+                if campo in col_map:
+                    break
+
+        actualizadas = 0
+        for idx, fila in enumerate(todas[1:], start=2):   # start=2 → fila real en Sheets
+            if not fila:
+                continue
+            try:
+                consec_fila = int(float(str(fila[col_consec]).strip()))
+            except (ValueError, IndexError):
+                continue
+            if consec_fila != int(numero_venta):
+                continue
+
+            for campo, col_idx in col_map.items():
+                valor = cambios[campo]
+                # Sheets usa notación fila/col 1-indexed
+                ws.update_cell(idx, col_idx + 1, valor)
+                actualizadas += 1
+
+        _invalidar_ws_cache()
+        return actualizadas
+    except Exception as e:
+        print(f"⚠️ Error editando Sheets consecutivo #{numero_venta}: {e}")
+        _invalidar_ws_cache()
+        return 0
+
+
 def sheets_sincronizar_clientes() -> tuple[bool, str]:
     """
     Copia la hoja 'clientes' del Excel al Sheets, sobreescribiendo siempre
