@@ -1424,7 +1424,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         display: isMobile ? 'block' : 'grid',
         gridTemplateColumns: '1fr 310px',
         gap: 16, alignItems: 'start',
-        paddingBottom: isMobile ? 100 : 0,
+        paddingBottom: isMobile ? 120 : 0,
       }}>
 
       {/* ══ PANEL IZQUIERDO ══ */}
@@ -1636,32 +1636,43 @@ export default function TabVentasRapidas({ refreshKey }) {
 
       </div>{/* fin grid */}
 
-      {/* ══ MÓVIL: botón flotante carrito ══ */}
+      {/* ══ MÓVIL: barra inferior fija del carrito ══ */}
       {isMobile && (
-        <button
-          onClick={() => setCarritoAbierto(true)}
-          style={{
-            position: 'fixed', bottom: 20, right: 20,
-            width: 62, height: 62, borderRadius: '50%',
-            background: carrito.length ? t.accent : t.border,
-            border: 'none', color: '#fff', fontSize: 26,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', zIndex: 200,
-            boxShadow: carrito.length ? `0 4px 20px ${t.accent}66` : t.shadow,
-            transition: 'all .2s',
-          }}
-        >
-          🛒
-          {totalItems > 0 && (
-            <div style={{
-              position: 'absolute', top: 4, right: 4,
-              background: '#fff', color: t.accent,
-              fontSize: 10, fontWeight: 800,
-              width: 18, height: 18, borderRadius: '50%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>{totalItems}</div>
-          )}
-        </button>
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0,
+          zIndex: 200, padding: '10px 16px 14px',
+          background: t.header,
+          borderTop: `1px solid ${t.border}`,
+          boxShadow: '0 -4px 20px rgba(0,0,0,.15)',
+        }}>
+          <button
+            onClick={() => setCarritoAbierto(true)}
+            style={{
+              width: '100%', padding: '13px 18px',
+              background: carrito.length ? t.accent : t.card,
+              border: `1px solid ${carrito.length ? t.accent : t.border}`,
+              borderRadius: 12, color: carrito.length ? '#fff' : t.textMuted,
+              fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
+              cursor: 'pointer', display: 'flex',
+              alignItems: 'center', justifyContent: 'space-between',
+              transition: 'all .2s',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 18 }}>🛒</span>
+              {totalItems > 0 ? (
+                <span>{totalItems} {totalItems === 1 ? 'producto' : 'productos'}</span>
+              ) : (
+                <span>Ver carrito</span>
+              )}
+            </div>
+            {totalItems > 0 ? (
+              <span style={{ fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>{cop(totalCarrito)}</span>
+            ) : (
+              <span style={{ fontSize: 12, opacity: .5 }}>vacío</span>
+            )}
+          </button>
+        </div>
       )}
 
       {/* ══ MÓVIL: bottom drawer del carrito ══ */}
