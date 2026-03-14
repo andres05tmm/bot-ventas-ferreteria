@@ -162,7 +162,7 @@ export function KpiCard({ label, value, sub, color, icon }) {
     <Card style={{ flex: 1, minWidth: 160, padding: '16px 18px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: t.textSub, letterSpacing: '.03em', marginBottom: 8 }}>
             {label}
           </div>
           <div style={{ fontSize: 22, fontWeight: 700, color: t.text, letterSpacing: '-0.02em' }}>
@@ -182,13 +182,13 @@ export function SectionTitle({ children }) {
   const t = useTheme()
   return (
     <h2 style={{
-      fontSize:      14,
+      fontSize:      13,
       fontWeight:    600,
-      color:         t.text,
+      color:         t.textSub,
       marginBottom:  14,
       paddingBottom: 10,
       borderBottom:  `1px solid ${t.border}`,
-      letterSpacing: '.01em',
+      letterSpacing: '.02em',
     }}>
       {children}
     </h2>
@@ -313,11 +313,11 @@ export function Th({ children, center, right }) {
     <th style={{
       padding:       '9px 14px',
       textAlign:     center ? 'center' : right ? 'right' : 'left',
-      fontSize:      9,
-      color:         t.textMuted,
+      fontSize:      10,
+      color:         t.textSub,
       textTransform: 'uppercase',
-      letterSpacing: '.08em',
-      fontWeight:    500,
+      letterSpacing: '.05em',
+      fontWeight:    600,
       borderBottom:  `1px solid ${t.border}`,
       whiteSpace:    'nowrap',
     }}>
