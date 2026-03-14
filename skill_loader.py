@@ -49,7 +49,7 @@ def precargar_todos():
     """Precarga todos los skills al inicio del bot para evitar I/O en runtime."""
     skills_disponibles = ["core", "precios_base", "clientes",
                           "tornillos", "thinner_varsol", "lija_esmeril",
-                          "pinturas", "granel", "pele"]
+                          "pinturas", "granel", "pele", "tintes"]
     for nombre in skills_disponibles:
         _cargar_skill(nombre)
     _logger.info(f"[SKILLS] {len(_skills_cache)} skills precargados en RAM")
@@ -83,6 +83,10 @@ _KEYWORDS_SKILLS: dict[str, list[str]] = {
     ],
     "pele": [
         "pele", "cinta pele",
+    ],
+    "tintes": [
+        "tinte", "tintes", "colorante", "colorantes",
+        "ingles", "ingles",
     ],
     "clientes": [
         "cliente", "para ", "a nombre", "de parte", "factura",
