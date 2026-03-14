@@ -71,7 +71,7 @@ function KpiBig({ label, value, sub, color, icon }) {
         </span>
         <span style={{ fontSize: 18, opacity: .55 }}>{icon}</span>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 400, color: t.text, letterSpacing: '-0.02em', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ fontSize: 22, fontWeight: 400, color: t.text, letterSpacing: '-0.02em', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </div>
       {sub && (
