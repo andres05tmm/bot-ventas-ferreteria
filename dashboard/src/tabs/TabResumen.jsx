@@ -47,86 +47,70 @@ const METODO_ICONS  = { Efectivo:'💵', Nequi:'📲', Billetera:'👛', Transfe
 const TOP_COLORS    = ['#dc2626','#ef4444','#f97316','#fb923c','#fbbf24']
 const MEDALLAS      = ['🥇','🥈','🥉']
 
-// ── KPI con hover: fondo elevado + pill revelado ──────────────────────────────
+// ── KPI hover: glow borde agresivo + número que crece ────────────────────────
 function KpiBig({ label, value, sub, color, icon, pill }) {
-  const t = useTheme()
-  const [hovered, setHovered] = useState(false)
+  const t   = useTheme()
+  const c   = color || t.accent
+  const [hov, setHov] = useState(false)
 
   return (
     <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
       style={{
-        background: hovered ? t.card : t.bg,
-        border: `1px solid ${hovered ? (color || t.accent) + '66' : t.border}`,
+        background: t.card,
+        border: `1px solid ${hov ? c : t.border}`,
         borderRadius: 12,
         padding: '18px 20px',
-        flex: 1,
-        minWidth: 150,
+        flex: 1, minWidth: 150,
         cursor: 'default',
-        transition: 'background .2s ease, border-color .2s ease, transform .2s ease',
-        transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
-        position: 'relative',
-        overflow: 'hidden',
+        transition: 'border-color .2s ease, box-shadow .25s ease',
+        boxShadow: hov
+          ? `0 0 0 3px ${c}44, 0 0 16px ${c}22`
+          : 'none',
       }}
     >
-      {/* Línea top que aparece en hover */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-        background: color || t.accent,
-        opacity: hovered ? 1 : 0,
-        transition: 'opacity .2s ease',
-        borderRadius: '12px 12px 0 0',
-      }}/>
-
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-        {/* Ícono con fondo activo en hover */}
-        <div style={{
-          width: 34, height: 34, borderRadius: 9,
-          background: hovered ? (color || t.accent) + '18' : t.tableAlt,
-          border: `1px solid ${hovered ? (color || t.accent) + '44' : t.border}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 15, transition: 'background .2s, border-color .2s',
-        }}>
-          {icon}
-        </div>
+      {/* Header: label + ícono */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 500, letterSpacing: '.07em', textTransform: 'uppercase' }}>
+          {label}
+        </span>
         <span style={{
-          fontSize: 10, color: t.textMuted, fontWeight: 500,
-          letterSpacing: '.05em', textTransform: 'uppercase',
-          paddingTop: 6,
-        }}>{label}</span>
+          fontSize: 18,
+          opacity: hov ? 1 : .45,
+          transform: hov ? 'scale(1.18)' : 'scale(1)',
+          transition: 'opacity .2s, transform .2s ease',
+          display: 'inline-block',
+        }}>{icon}</span>
       </div>
 
-      {/* Valor */}
+      {/* Valor — crece en hover */}
       <div style={{
-        fontSize: 24, fontWeight: 500, color: t.text,
+        fontSize: hov ? 26 : 22,
+        fontWeight: 500,
+        color: hov ? c : t.text,
         letterSpacing: '-0.03em', lineHeight: 1,
-        fontVariantNumeric: 'tabular-nums', marginBottom: 10,
+        fontVariantNumeric: 'tabular-nums',
+        transition: 'font-size .2s ease, color .2s ease',
+        marginBottom: 10,
       }}>
         {value}
       </div>
 
-      {/* Sub texto */}
-      {sub && (
-        <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 8 }}>
-          {sub}
-        </div>
-      )}
+      {/* Sub */}
+      {sub && <div style={{ fontSize: 11, color: t.textMuted }}>{sub}</div>}
 
-      {/* Pill revelado en hover */}
+      {/* Pill revelado */}
       {pill && (
         <div style={{
-          display: 'inline-block',
+          display: 'inline-block', marginTop: 8,
           fontSize: 10, padding: '3px 9px', borderRadius: 99,
-          background: (color || t.accent) + '18',
-          color: color || t.accent,
-          border: `1px solid ${(color || t.accent)}33`,
+          background: c + '1a', color: c,
+          border: `1px solid ${c}44`,
           fontWeight: 600,
-          opacity: hovered ? 1 : 0,
-          transform: hovered ? 'translateY(0)' : 'translateY(5px)',
+          opacity: hov ? 1 : 0,
+          transform: hov ? 'translateY(0)' : 'translateY(5px)',
           transition: 'opacity .2s ease, transform .2s ease',
-          pointerEvents: 'none',
         }}>
           {pill}
         </div>
