@@ -1353,6 +1353,52 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     with _estado_lock:
         esperando_pago = bool(ventas_pendientes.get(chat_id))
 
+    # ── Helper: conversión pesos → ml para productos vendidos por mililitro ──
+    def _convertir_venta_mlt(venta: dict) -> dict:
+        """
+        Si el producto tiene unidad_medida='MLT', verifica si la cantidad
+        parece ser un monto en pesos (ej: 2000) en lugar de ml.
+        Convierte automáticamente: ml = total / precio_por_ml.
+        Si ya viene en ml (con 'total' calculado correctamente), no toca nada.
+        """
+        try:
+            prod = buscar_producto_en_catalogo(venta.get("producto", ""))
+            if not prod:
+                return venta
+            unidad = prod.get("unidad_medida", "Unidad")
+            if unidad != "MLT":
+                return venta
+
+            precio_por_ml = prod.get("precio_unidad", 0)
+            if not precio_por_ml:
+                return venta
+
+            cantidad  = float(venta.get("cantidad", 1))
+            total     = float(venta.get("total", 0))
+
+            # Detectar si cantidad parece pesos:
+            # Condición: cantidad > 10 Y cantidad == total (el bot puso el mismo número)
+            # O: cantidad es un número redondo típico de pesos (múltiplo de 500 o 1000)
+            # Y es mayor al precio por ml × 10 (claramente no son ml)
+            cantidad_parece_pesos = (
+                cantidad == total                              # bot repitió el mismo número
+                or (cantidad > precio_por_ml * 10             # demasiado grande para ser ml razonables
+                    and cantidad % 500 == 0)                  # y es múltiplo de 500 (monto redondo)
+            )
+
+            if cantidad_parece_pesos and total > 0:
+                # total ya está correcto (los pesos que dijo el cliente)
+                ml = round(total / precio_por_ml, 1)
+                venta = dict(venta)
+                venta["cantidad"] = ml
+                logging.getLogger("ferrebot.ai").info(
+                    "[MLT] Conversión pesos→ml: %s | $%.0f / $%.2f por ml = %.1f ml",
+                    prod.get("nombre"), total, precio_por_ml, ml
+                )
+        except Exception as e:
+            logging.getLogger("ferrebot.ai").warning("[MLT] Error conversión: %s", e)
+        return venta
+
     for venta_json in re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL):
         try:
             if esperando_pago:
@@ -1360,6 +1406,8 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             else:
                 venta = json.loads(venta_json.strip())
                 logging.getLogger("ferrebot.ai").debug(f"[VENTA] JSON recibido: {venta}")
+                # Aplicar conversión ml si aplica
+                venta = _convertir_venta_mlt(venta)
                 if venta.get("metodo_pago"):
                     ventas_con_metodo.append(venta)
                 else:
