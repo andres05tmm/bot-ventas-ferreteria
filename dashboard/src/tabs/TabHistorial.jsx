@@ -407,8 +407,8 @@ export default function TabHistorial({ refreshKey }) {
                         // Fondo sutil para diferenciar grupos multi-producto
                         background: esMultiple ? (t.id==='light' ? '#fefce8' : '#1a1600') : 'transparent',
                       }}
-                        onMouseEnter={e=>e.currentTarget.style.background=t.cardHover}
-                        onMouseLeave={e=>e.currentTarget.style.background= esMultiple ? (t.id==='light' ? '#fefce8' : '#1a1600') : 'transparent'}
+                        onMouseEnter={e=>{e.currentTarget.style.background=t.cardHover;e.currentTarget.style.transform='translateX(2px)'}}
+                        onMouseLeave={e=>{e.currentTarget.style.background=esMultiple?(t.id==='caramelo'?'#fefce8':'#1a1600'):'transparent';e.currentTarget.style.transform='translateX(0)'}}
                       >
                         <td style={{padding:'8px 14px',color:t.accent,fontWeight:700}}>
                           {v.num}
