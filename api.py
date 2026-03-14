@@ -1585,14 +1585,15 @@ class EditarVentaBody(BaseModel):
 @app.patch("/ventas/{numero}")
 def editar_venta(numero: int, body: EditarVentaBody):
     """
-    Edita los campos de un consecutivo en el Excel (hoja mensual + Acumulado).
+    Edita los campos de un consecutivo en el Excel (hoja mensual + Acumulado)
+    y sincroniza los cambios a Google Sheets.
     Solo actualiza los campos que vienen en el body.
     """
     try:
         import openpyxl
         from excel import inicializar_excel, obtener_nombre_hoja, detectar_columnas, recalcular_caja_desde_excel
         from drive import subir_a_drive
-        from sheets import sheets_leer_ventas_del_dia
+        from sheets import sheets_editar_consecutivo
 
         inicializar_excel()
         wb          = openpyxl.load_workbook(config.EXCEL_FILE)
@@ -1649,6 +1650,11 @@ def editar_venta(numero: int, body: EditarVentaBody):
             except Exception:
                 pass
             recalcular_caja_desde_excel()
+            # ── Sincronizar a Google Sheets ───────────────────────────────
+            try:
+                sheets_editar_consecutivo(numero, cambios)
+            except Exception:
+                pass   # No fallar la respuesta si Sheets falla
             return {"ok": True, "actualizadas": actualizadas, "mensaje": f"Venta #{numero} actualizada"}
 
         return {"ok": False, "mensaje": f"No se encontró el consecutivo #{numero}"}
