@@ -42,41 +42,93 @@ function agruparVendedores(ventas) {
     .sort((a, b) => b.total - a.total)
 }
 
-const METODO_COLORS  = ['#dc2626','#2563eb','#16a34a','#d97706','#7c3aed','#6b7280']
-const METODO_ICONS   = { Efectivo:'💵', Nequi:'📲', Billetera:'👛', Transferencia:'🏦', Tarjeta:'💳', 'Sin registrar':'❓', Otro:'💸' }
-const TOP_COLORS     = ['#dc2626','#ef4444','#f97316','#fb923c','#fbbf24']
-const MEDALLAS       = ['🥇','🥈','🥉']
+const METODO_COLORS = ['#dc2626','#2563eb','#16a34a','#d97706','#7c3aed','#6b7280']
+const METODO_ICONS  = { Efectivo:'💵', Nequi:'📲', Billetera:'👛', Transferencia:'🏦', Tarjeta:'💳', 'Sin registrar':'❓', Otro:'💸' }
+const TOP_COLORS    = ['#dc2626','#ef4444','#f97316','#fb923c','#fbbf24']
+const MEDALLAS      = ['🥇','🥈','🥉']
 
-function KpiBig({ label, value, sub, color, icon }) {
+// ── KPI con hover: fondo elevado + pill revelado ──────────────────────────────
+function KpiBig({ label, value, sub, color, icon, pill }) {
   const t = useTheme()
+  const [hovered, setHovered] = useState(false)
+
   return (
-    <div style={{
-      background: t.card,
-      border: `1px solid ${t.border}`,
-      borderRadius: 12,
-      padding: '18px 20px',
-      flex: 1,
-      minWidth: 150,
-      position: 'relative',
-      overflow: 'hidden',
-    }}>
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: hovered ? t.card : t.bg,
+        border: `1px solid ${hovered ? (color || t.accent) + '66' : t.border}`,
+        borderRadius: 12,
+        padding: '18px 20px',
+        flex: 1,
+        minWidth: 150,
+        cursor: 'default',
+        transition: 'background .2s ease, border-color .2s ease, transform .2s ease',
+        transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Línea top que aparece en hover */}
       <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: 3,
+        position: 'absolute', top: 0, left: 0, right: 0, height: 2,
         background: color || t.accent,
+        opacity: hovered ? 1 : 0,
+        transition: 'opacity .2s ease',
         borderRadius: '12px 12px 0 0',
-      }} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-        <span style={{ fontSize: 12, fontWeight: 500, color: t.textSub, letterSpacing: '.02em' }}>
-          {label}
-        </span>
-        <span style={{ fontSize: 18, opacity: .55 }}>{icon}</span>
+      }}/>
+
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+        {/* Ícono con fondo activo en hover */}
+        <div style={{
+          width: 34, height: 34, borderRadius: 9,
+          background: hovered ? (color || t.accent) + '18' : t.tableAlt,
+          border: `1px solid ${hovered ? (color || t.accent) + '44' : t.border}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 15, transition: 'background .2s, border-color .2s',
+        }}>
+          {icon}
+        </div>
+        <span style={{
+          fontSize: 10, color: t.textMuted, fontWeight: 500,
+          letterSpacing: '.05em', textTransform: 'uppercase',
+          paddingTop: 6,
+        }}>{label}</span>
       </div>
-      <div style={{ fontSize: 22, fontWeight: 400, color: t.text, letterSpacing: '-0.02em', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
+
+      {/* Valor */}
+      <div style={{
+        fontSize: 24, fontWeight: 500, color: t.text,
+        letterSpacing: '-0.03em', lineHeight: 1,
+        fontVariantNumeric: 'tabular-nums', marginBottom: 10,
+      }}>
         {value}
       </div>
+
+      {/* Sub texto */}
       {sub && (
-        <div style={{ fontSize: 11, color: color || t.accent, marginTop: 6, fontWeight: 500 }}>
+        <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 8 }}>
           {sub}
+        </div>
+      )}
+
+      {/* Pill revelado en hover */}
+      {pill && (
+        <div style={{
+          display: 'inline-block',
+          fontSize: 10, padding: '3px 9px', borderRadius: 99,
+          background: (color || t.accent) + '18',
+          color: color || t.accent,
+          border: `1px solid ${(color || t.accent)}33`,
+          fontWeight: 600,
+          opacity: hovered ? 1 : 0,
+          transform: hovered ? 'translateY(0)' : 'translateY(5px)',
+          transition: 'opacity .2s ease, transform .2s ease',
+          pointerEvents: 'none',
+        }}>
+          {pill}
         </div>
       )}
     </div>
@@ -184,11 +236,11 @@ export default function TabResumen({ refreshKey }) {
   if (lRes) return <Spinner />
   if (eRes) return <ErrorMsg msg={`Error cargando resumen: ${eRes}`} />
 
-  const r           = resumen || {}
-  const rawHist     = periodo === 'semana' ? (r.historico_7d || []) : (r.historico_mes || [])
-  const chartData   = rawHist.map(d => ({ dia: fmtFecha(d.fecha), ventas: d.total || 0 }))
-  const totalChart  = chartData.reduce((a, d) => a + d.ventas, 0)
-  const maxTop5Ing  = top5?.[0]?.ingresos || 1
+  const r          = resumen || {}
+  const rawHist    = periodo === 'semana' ? (r.historico_7d || []) : (r.historico_mes || [])
+  const chartData  = rawHist.map(d => ({ dia: fmtFecha(d.fecha), ventas: d.total || 0 }))
+  const totalChart = chartData.reduce((a, d) => a + d.ventas, 0)
+  const maxTop5Ing = top5?.[0]?.ingresos || 1
 
   const metodosData    = agruparMetodos(ventasHoy?.ventas)
   const vendedoresData = agruparVendedores(ventasHoy?.ventas)
@@ -205,20 +257,23 @@ export default function TabResumen({ refreshKey }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
+      {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
         <KpiBig
           label="Ventas hoy"
           value={cop(r.total_hoy)}
-          sub={tendencia != null
+          sub="Acumulado del día"
+          pill={tendencia != null
             ? (tendencia >= 0 ? `▲ ${tendencia}% vs promedio` : `▼ ${Math.abs(tendencia)}% vs promedio`)
-            : 'Acumulado del día'}
+            : 'Sin comparativa aún'}
           icon="💰"
           color={t.green}
         />
         <KpiBig
           label="Pedidos hoy"
           value={r.pedidos_hoy ?? 0}
-          sub={r.pedidos_hoy > 0 ? `Ticket prom: ${cop(r.ticket_prom)}` : 'Transacciones'}
+          sub="Transacciones"
+          pill={r.pedidos_hoy > 0 ? `Ticket prom: ${cop(r.ticket_prom)}` : 'Sin ventas aún'}
           icon="🧾"
           color={t.accent}
         />
@@ -226,13 +281,15 @@ export default function TabResumen({ refreshKey }) {
           label="Stock con alerta"
           value={alertasData?.total ?? '—'}
           sub={alertasData?.total > 0 ? 'Sin precio o agotados' : 'Sin alertas'}
+          pill={alertasData?.total > 0 ? 'Ver en Inventario' : 'Todo en orden'}
           icon="⚠️"
           color={alertasData?.total > 0 ? t.yellow : t.green}
         />
         <KpiBig
           label="Ticket promedio"
           value={cop(r.ticket_prom)}
-          sub="Promedio últimos 7 días"
+          sub="Últimos 7 días"
+          pill="Promedio por venta"
           icon="🧮"
           color={t.textSub}
         />
@@ -240,6 +297,7 @@ export default function TabResumen({ refreshKey }) {
           label="Total semana"
           value={cop(r.total_semana)}
           sub="Últimos 7 días"
+          pill="Ver gráfica abajo"
           icon="📅"
           color={t.blue}
         />
@@ -247,11 +305,13 @@ export default function TabResumen({ refreshKey }) {
           label="Total mes"
           value={cop(r.total_mes)}
           sub="Mes en curso"
+          pill="Acumulado mensual"
           icon="🗓️"
           color={t.textSub}
         />
       </div>
 
+      {/* Gráfica */}
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div>
@@ -276,7 +336,7 @@ export default function TabResumen({ refreshKey }) {
                 <defs>
                   <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor={t.accent} stopOpacity={.25} />
-                    <stop offset="95%"  stopColor={t.accent} stopOpacity={0}   />
+                    <stop offset="95%" stopColor={t.accent} stopOpacity={0}   />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={t.border} vertical={false} />
@@ -300,6 +360,7 @@ export default function TabResumen({ refreshKey }) {
           )}
       </Card>
 
+      {/* Métodos + Top 5 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Card>
           <SectionTitle>Métodos de Pago · Hoy</SectionTitle>
@@ -360,6 +421,7 @@ export default function TabResumen({ refreshKey }) {
         </Card>
       </div>
 
+      {/* Vendedores */}
       {vendedoresData.length > 0 && (
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, paddingBottom: 10, borderBottom: `1px solid ${t.border}` }}>
