@@ -7,6 +7,7 @@ import {
   useTheme, useFetch, Card, SectionTitle, KpiCard,
   Spinner, ErrorMsg, PeriodBtn, EmptyState, cop, num,
 } from '../components/shared.jsx'
+import { useIsMobile } from '../components/shared.jsx'
 
 function fmtDia(s) {
   if (!s) return ''
@@ -171,7 +172,7 @@ function ProyeccionCaja({ pd, t }) {
       ) : (
         <>
           {/* KPIs proyección */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
             {[
               { label: 'Caja hoy',           valor: cop(pd.efectivo_actual),   color: t.text },
               { label: 'Ingreso prom/día',   valor: cop(pd.prom_ventas_dia),   color: t.green },
@@ -233,7 +234,7 @@ function ProyeccionCaja({ pd, t }) {
           </ResponsiveContainer>
 
           {/* Resumen mes */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10, marginTop: 12 }}>
             {[
               { label: 'Ventas acumuladas',    real: pd.ventas_mes_actual,  proy: pd.proy_ventas_mes,  color: t.green },
               { label: 'Gastos acumulados',    real: pd.gastos_mes_actual,  proy: pd.proy_gastos_mes,  color: '#f87171' },
@@ -291,6 +292,7 @@ function GraficaHistorica({ historico, t }) {
 // ── Tab principal ───────────────────────────────────────────────────────────
 export default function TabResultados({ refreshKey }) {
   const t = useTheme()
+  const isMobile = useIsMobile()
   const [periodo, setPeriodo] = useState('mes')
 
   const { data: rd, loading: rl, error: re } = useFetch(`/resultados?periodo=${periodo}`, [periodo, refreshKey])
