@@ -53,7 +53,7 @@ _PATRON_PARA_CLIENTE = _re_para.compile(r'\bpara\s+[a-záéíóúñ]{3,}', _re_p
 _PALABRAS_CONSULTA = {
     "cuanto", "cuánto", "vale", "precio", "cuesta",
     "hay", "stock", "queda", "quedan", "inventario",
-    "vendimos", "reporte", "total", "gasto", "caja",
+    "vendimos", "reporte", "total", "gasto",
     "ultimo", "últimos", "reciente",
 }
 
@@ -192,11 +192,127 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
         return None
 
     # ── Sin palabras problemáticas ──
+    # "caja" se bloquea solo si NO va con puntilla (evita bloquear "caja puntilla X")
     for palabra in _PALABRAS_CLIENTE | _PALABRAS_CONSULTA | _PALABRAS_MODIFICACION:
         if palabra in msg_norm:
+            if palabra == "caja" and "puntilla" in msg_norm:
+                continue  # "caja puntilla X" es venta, no consulta
             return None
     # Nota: "para" se verifica más abajo, después de intentar encontrar el producto
     # (para no bloquear "bandeja para rodillo", "rieles para gaveta", etc.)
+
+    # ════════════════════════════════════════════
+    # CASO 0B: PUNTILLAS POR GRAMOS / PESOS / CAJA
+    # Patrones: "2000 de puntilla 1 sc" | "300 gramos puntilla 2"
+    #           "caja puntilla 1 sc"    | "media caja puntilla 2"
+    #           "1/4 caja puntilla 2"
+    # ════════════════════════════════════════════
+    _PESO_CAJA_GR = 500
+
+    # Solo actuar si el mensaje menciona puntilla
+    if "puntilla" in msg_norm:
+
+        # Helper local: buscar puntilla en fragmento de texto
+        def _buscar_puntilla(texto: str):
+            frag = re.sub(r'^(caja|cajas|gramos?|gr|de|media|medio|cuarto|mitad)\s+', '', texto.strip())
+            # Expandir abreviaciones comunes de puntillas
+            frag = re.sub(r'\bsc\b', 'sin cabeza', frag)
+            frag = re.sub(r'\bcc\b', 'con cabeza', frag)
+            frag = re.sub(r'\bsin\s*cab\.?\b', 'sin cabeza', frag)
+            frag = re.sub(r'\bcon\s*cab\.?\b', 'con cabeza', frag)
+            # Intentar búsqueda exacta primero
+            prod = _buscar_producto_exacto(frag, catalogo)
+            if prod and "puntilla" in prod.get("nombre", "").lower():
+                return prod
+            # Fallback: buscar entre puntillas del catálogo por palabras clave
+            palabras = set(_norm(frag).split())
+            mejores = []
+            for p in catalogo.values():
+                if "puntilla" not in p.get("nombre", "").lower():
+                    continue
+                nombre_n = set(_norm(p.get("nombre_lower", p.get("nombre", ""))).replace('"', '').split())
+                coincide = palabras & nombre_n
+                if coincide:
+                    mejores.append((len(coincide), len(nombre_n), p))
+            if mejores:
+                mejores.sort(key=lambda x: (-x[0], x[1]))
+                return mejores[0][2]
+            return None
+
+        # ── Caso A: por pesos "$2000 de puntilla X" o "2000 de puntilla X" ──
+        m_pesos = re.match(
+            r'^\$?(\d{3,})\s+(?:pesos?\s+)?de\s+(?:la\s+|las\s+)?(puntilla.+)$',
+            msg_norm
+        )
+        if not m_pesos:
+            # también: "de a 2000 puntilla X"
+            m_pesos = re.match(r'^de\s+a\s+(\d{3,})\s+(puntilla.+)$', msg_norm)
+
+        if m_pesos:
+            pesos = int(m_pesos.group(1))
+            nombre_frag = m_pesos.group(2)
+            prod = _buscar_puntilla(nombre_frag)
+            if prod and prod.get("unidad_medida", "").upper() == "GRM":
+                precio_caja = prod.get("precio_unidad", 0)
+                precio_gr   = precio_caja / _PESO_CAJA_GR
+                gramos      = round(pesos / precio_gr, 1)
+                nombre_oficial = prod["nombre"]
+                venta = {"producto": nombre_oficial, "cantidad": gramos, "total": pesos, "metodo_pago": ""}
+                texto = f"{gramos:g} gr {nombre_oficial} — ${pesos:,.0f}"
+                logger.info(f"[BYPASS PUNTILLA $] '{msg}' → {gramos}gr = ${pesos:,}")
+                return texto, venta
+
+        # ── Caso B: por gramos "300 gramos puntilla X" / "300gr puntilla X" ──
+        m_gramos = re.match(r'^(\d+(?:\.\d+)?)\s*gr(?:amos?)?\s+(puntilla.+)$', msg_norm)
+        if m_gramos:
+            gramos = float(m_gramos.group(1))
+            nombre_frag = m_gramos.group(2)
+            prod = _buscar_puntilla(nombre_frag)
+            if prod and prod.get("unidad_medida", "").upper() == "GRM":
+                precio_caja = prod.get("precio_unidad", 0)
+                precio_gr   = precio_caja / _PESO_CAJA_GR
+                total       = round(gramos * precio_gr)
+                nombre_oficial = prod["nombre"]
+                venta = {"producto": nombre_oficial, "cantidad": gramos, "total": total, "metodo_pago": ""}
+                texto = f"{gramos:g} gr {nombre_oficial} — ${total:,.0f}"
+                logger.info(f"[BYPASS PUNTILLA GR] '{msg}' → {gramos}gr = ${total:,}")
+                return texto, venta
+
+        # ── Caso C: caja completa "caja puntilla X" ──
+        m_caja = re.match(r'^(?:una?\s+)?caja\s+(puntilla.+)$', msg_norm)
+        if m_caja:
+            nombre_frag = m_caja.group(1)
+            prod = _buscar_puntilla(nombre_frag)
+            if prod and prod.get("unidad_medida", "").upper() == "GRM":
+                precio_caja    = prod.get("precio_unidad", 0)
+                nombre_oficial = prod["nombre"]
+                venta = {"producto": nombre_oficial, "cantidad": float(_PESO_CAJA_GR), "total": precio_caja, "metodo_pago": ""}
+                texto = f"Caja {nombre_oficial} (500 gr) — ${precio_caja:,.0f}"
+                logger.info(f"[BYPASS PUNTILLA CAJA] '{msg}' → 500gr = ${precio_caja:,}")
+                return texto, venta
+
+        # ── Caso D: fracciones "media caja puntilla X" / "1/4 caja puntilla X" ──
+        _FRAC_CAJA = [
+            (r'^(?:media|medio|1/2)\s+(?:caja\s+)?(puntilla.+)$', 0.5),
+            (r'^(?:un?\s+)?cuarto\s+(?:de\s+)?(?:caja\s+)?(puntilla.+)$', 0.25),
+            (r'^1/4\s+(?:de\s+)?(?:caja\s+)?(puntilla.+)$', 0.25),
+            (r'^3/4\s+(?:de\s+)?(?:caja\s+)?(puntilla.+)$', 0.75),
+        ]
+        for patron_fc, fraccion in _FRAC_CAJA:
+            m_fc = re.match(patron_fc, msg_norm)
+            if m_fc:
+                nombre_frag = m_fc.group(1)
+                prod = _buscar_puntilla(nombre_frag)
+                if prod and prod.get("unidad_medida", "").upper() == "GRM":
+                    precio_caja    = prod.get("precio_unidad", 0)
+                    gramos         = round(_PESO_CAJA_GR * fraccion, 1)
+                    total          = round(precio_caja * fraccion)
+                    nombre_oficial = prod["nombre"]
+                    frac_label     = {0.5: "Media caja", 0.25: "1/4 caja", 0.75: "3/4 caja"}.get(fraccion, f"{fraccion} caja")
+                    venta = {"producto": nombre_oficial, "cantidad": gramos, "total": total, "metodo_pago": ""}
+                    texto = f"{frac_label} {nombre_oficial} ({gramos:g} gr) — ${total:,.0f}"
+                    logger.info(f"[BYPASS PUNTILLA FRAC] '{msg}' → {gramos}gr = ${total:,}")
+                    return texto, venta
 
     # ════════════════════════════════════════════
     # CASO 1: FRACCIÓN MIXTA  "1-1/2 vinilo azul"
