@@ -523,6 +523,90 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             info_fracciones_extra = _bloque_pre
         print(f"[PRECALCULADO EXTRA]\n{_bloque_pre}")
 
+    # ── Precalcular puntillas por gramos / por pesos ────────────────────────
+    # Puntillas tienen unidad_medida=GRM. Caja = 500 gr.
+    # Formas: "300 gramos puntilla X", "$2000 de puntilla X", "media caja puntilla X"
+    _PESO_CAJA_GR = 500
+    _grm_lines = []
+    _msg_lower = mensaje_usuario.lower()
+
+    # Detectar si el mensaje menciona puntillas
+    if "puntilla" in _msg_lower:
+        for _seg in re.split(r'[,\n]+', _msg_lower):
+            _seg = _seg.strip()
+            if "puntilla" not in _seg:
+                continue
+
+            # Buscar el producto puntilla en este segmento
+            _pprod = None
+            _palabras_seg = _seg.split()
+            for _largo in [5, 4, 3, 2]:
+                for _ii in range(len(_palabras_seg) - _largo + 1):
+                    _frag = " ".join(_palabras_seg[_ii:_ii+_largo])
+                    if "puntilla" in _frag:
+                        _pp = buscar_producto_en_catalogo(_frag)
+                        if _pp and _pp.get("unidad_medida", "").upper() == "GRM":
+                            _pprod = _pp
+                            break
+                if _pprod:
+                    break
+
+            if not _pprod:
+                continue
+
+            _precio_caja = _pprod.get("precio_unidad", 0)
+            if not _precio_caja:
+                continue
+            _precio_gr = _precio_caja / _PESO_CAJA_GR  # pesos por gramo
+
+            # Caso 1: venta por pesos ("2000 pesos", "$2000", "de a 2000")
+            _m_pesos = re.search(r'(?:\$|de\s+a\s+|de\s+)?\s*(\d{3,})\s*(?:pesos?|peso|\$)?', _seg)
+            _m_gramos = re.search(r'(\d+(?:\.\d+)?)\s*(?:gr(?:amos?)?|g\b)', _seg)
+            _m_media = re.search(r'media\s+caja|1/2\s+caja|medio', _seg)
+            _m_cuarto = re.search(r'cuarto\s+caja|1/4\s+caja', _seg)
+            _m_caja = re.search(r'\bcaja\b', _seg) and not _m_media and not _m_cuarto
+
+            if _m_gramos:
+                _gr = float(_m_gramos.group(1))
+                _total = round(_gr * _precio_gr)
+                _grm_lines.append(
+                    f"{_pprod['nombre']}: {_gr}gr × ${_precio_gr:.1f}/gr = ${_total} total"
+                )
+            elif _m_media:
+                _gr = _PESO_CAJA_GR / 2
+                _total = round(_precio_caja / 2)
+                _grm_lines.append(
+                    f"{_pprod['nombre']}: media caja={_gr}gr, total=${_total}"
+                )
+            elif _m_cuarto:
+                _gr = _PESO_CAJA_GR / 4
+                _total = round(_precio_caja / 4)
+                _grm_lines.append(
+                    f"{_pprod['nombre']}: 1/4 caja={_gr}gr, total=${_total}"
+                )
+            elif _m_pesos:
+                _pesos = int(_m_pesos.group(1))
+                if 500 <= _pesos <= 200000:  # rango razonable de venta
+                    _gr = round(_pesos / _precio_gr, 1)
+                    _grm_lines.append(
+                        f"{_pprod['nombre']}: ${_pesos} → {_gr}gr (${_precio_gr:.1f}/gr), total=${_pesos}"
+                    )
+            elif _m_caja:
+                _grm_lines.append(
+                    f"{_pprod['nombre']}: caja completa=500gr, total=${_precio_caja}"
+                )
+
+    if _grm_lines:
+        _bloque_grm = (
+            "TOTALES PRECALCULADOS PUNTILLAS (USA EXACTAMENTE, NO recalcules):\n"
+            + "\n".join(_grm_lines)
+        )
+        if info_fracciones_extra:
+            info_fracciones_extra += "\n" + _bloque_grm
+        else:
+            info_fracciones_extra = _bloque_grm
+        print(f"[PRECALCULADO PUNTILLAS GRM]\n{_bloque_grm}")
+
     # ── Candidatos del catálogo para este mensaje específico ──
     info_candidatos_extra = ""
     # palabras_clave ya definida arriba con _es_keyword_relevante (incluye t1/t2/t3)
