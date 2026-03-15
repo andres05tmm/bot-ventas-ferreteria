@@ -278,17 +278,25 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
                 logger.info(f"[BYPASS PUNTILLA GR] '{msg}' → {gramos}gr = ${total:,}")
                 return texto, venta
 
-        # ── Caso C: caja completa "caja puntilla X" ──
-        m_caja = re.match(r'^(?:una?\s+)?caja\s+(puntilla.+)$', msg_norm)
+        # ── Caso C: N cajas "caja puntilla X" / "2 cajas puntilla X" / "1 caja de puntillas X" ──
+        # Patrón: (N cajas? | caja) [de] puntilla(s) X
+        m_caja = re.match(
+            r'^(?:(\d+)\s+)?(?:una?\s+)?cajas?\s+(?:de\s+)?(?:las?\s+|los?\s+)?(puntillas?.+)$',
+            msg_norm
+        )
         if m_caja:
-            nombre_frag = m_caja.group(1)
+            n_cajas     = int(m_caja.group(1)) if m_caja.group(1) else 1
+            nombre_frag = m_caja.group(2)
             prod = _buscar_puntilla(nombre_frag)
             if prod and prod.get("unidad_medida", "").upper() == "GRM":
                 precio_caja    = prod.get("precio_unidad", 0)
                 nombre_oficial = prod["nombre"]
-                venta = {"producto": nombre_oficial, "cantidad": float(_PESO_CAJA_GR), "total": precio_caja, "metodo_pago": ""}
-                texto = f"Caja {nombre_oficial} (500 gr) — ${precio_caja:,.0f}"
-                logger.info(f"[BYPASS PUNTILLA CAJA] '{msg}' → 500gr = ${precio_caja:,}")
+                gramos_total   = float(_PESO_CAJA_GR * n_cajas)
+                total          = precio_caja * n_cajas
+                label          = f"{n_cajas} caja{'s' if n_cajas > 1 else ''}" if n_cajas > 1 else "Caja"
+                venta = {"producto": nombre_oficial, "cantidad": gramos_total, "total": total, "metodo_pago": ""}
+                texto = f"{label} {nombre_oficial} ({int(gramos_total)} gr) — ${total:,.0f}"
+                logger.info(f"[BYPASS PUNTILLA CAJA] '{msg}' → {n_cajas} cajas={gramos_total}gr = ${total:,}")
                 return texto, venta
 
         # ── Caso D: fracciones "media caja puntilla X" / "1/4 caja puntilla X" ──
