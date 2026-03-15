@@ -1846,13 +1846,13 @@ export default function TabVentasRapidas({ refreshKey }) {
         <div
           onClick={e => e.target === e.currentTarget && setCarritoAbierto(false)}
           style={{
-            position: 'fixed', inset: 0, background: '#00000077',
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 130, background: '#00000077',
             zIndex: 300, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
           }}
         >
           <div style={{
             background: t.card, borderRadius: '18px 18px 0 0',
-            maxHeight: '88vh', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            maxHeight: 'calc(100vh - 140px)', overflow: 'hidden', display: 'flex', flexDirection: 'column',
             animation: 'drawerUp .25s cubic-bezier(.34,1.2,.64,1)',
           }}>
             <style>{`@keyframes drawerUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
@@ -1873,7 +1873,7 @@ export default function TabVentasRapidas({ refreshKey }) {
               }}>✕</button>
             </div>
             {/* Contenido carrito */}
-            <div style={{ overflowY: 'auto', flex: 1 }}>
+            <div style={{ overflowY: 'auto', flex: 1, paddingBottom: 16 }}>
               <PanelCarrito
                 t={t} carrito={carrito} totalCarrito={totalCarrito}
                 vendedor={vendedor} setVendedor={setVendedor}
