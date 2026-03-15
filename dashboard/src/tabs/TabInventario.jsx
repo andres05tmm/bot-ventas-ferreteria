@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   useTheme, useFetch, Spinner, ErrorMsg,
   StyledInput, Badge, EmptyState, cop, API_BASE,
-} from '../components/shared.jsx'
+}, useIsMobile } from '../components/shared.jsx'
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const nl = s => (s || '').toLowerCase()
@@ -318,7 +318,7 @@ function FraccionesEditor({ fracciones, prodKey, onSaved }) {
 
   return (
     <div onClick={e=>e.stopPropagation()}>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:6, marginBottom:10 }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3,1fr)', gap:6, marginBottom:10 }}>
         {FRACS_ORDEN.map(f => (
           <div key={f}>
             <div style={{ fontSize:9, color:t.textMuted, marginBottom:3 }}>{f}</div>
@@ -965,6 +965,7 @@ function ModalCrearProducto({ onClose, onCreado }) {
 // ── Tab principal ─────────────────────────────────────────────────────────────
 export default function TabInventario({ refreshKey }) {
   const t = useTheme()
+  const isMobile = useIsMobile()
   const [busqueda,     setBusqueda]     = useState('')
   const [abierta,      setAbierta]      = useState(null)
   const [subcatActiva, setSubcatActiva] = useState({})
