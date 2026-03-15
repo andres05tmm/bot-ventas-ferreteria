@@ -1455,7 +1455,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     ventas_sin_metodo = []
 
     with _estado_lock:
-        limpiar_pendientes_expirados()
         esperando_pago = bool(ventas_pendientes.get(chat_id))
 
     # ── Helper: conversión para productos vendidos por mililitro (MLT) ──────
