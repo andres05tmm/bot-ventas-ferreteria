@@ -170,6 +170,33 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
     return resultado
 
 
+# ── Wayper: stock unificado (inventario en unidades, venta en kg o unidades) ──
+_WAYPER_KG_A_UNIDAD = 12  # 1 kg = 12 unidades
+_WAYPER_KG_KEYS = {
+    "wayper_blanco":   "wayper_blanco_unidad",
+    "wayper_de_color": "wayper_de_color_unidad",
+}
+
+def _stock_wayper(key: str, inventario: dict):
+    """
+    Para waypers por kg: muestra stock en kg (= unidades / 12).
+    Para waypers por unidad: muestra stock en unidades directamente.
+    """
+    # Si es el producto "por kg", leer el stock de unidades y convertir
+    if key in _WAYPER_KG_KEYS:
+        inv_und = inventario.get(_WAYPER_KG_KEYS[key])
+        if inv_und is not None:
+            und = inv_und.get("cantidad") if isinstance(inv_und, dict) else inv_und
+            if und is not None:
+                return round(und / _WAYPER_KG_A_UNIDAD, 2)  # kg
+        return None
+    # Stock normal
+    raw = inventario.get(key)
+    if raw is None:
+        return None
+    return raw.get("cantidad") if isinstance(raw, dict) else raw
+
+
 def _leer_excel_compras(dias: int | None = None) -> list[dict]:
     """Lee la hoja 'Compras' del Excel de ventas."""
     if not os.path.exists(config.EXCEL_FILE):
@@ -418,7 +445,7 @@ def productos():
                 "categoria":        v.get("categoria", "Sin categoría"),
                 "precio":           v.get("precio_unidad", 0),
                 "codigo":           v.get("codigo", ""),
-                "stock":            (lambda v: v.get("cantidad") if isinstance(v, dict) else v)(inventario.get(k)),
+                "stock":            _stock_wayper(k, inventario),
                 "precios_fraccion": v.get("precios_fraccion", None),
                 "unidad_medida":    v.get("unidad_medida", "Unidad"),
             }
@@ -792,14 +819,13 @@ def catalogo_nav(q: str = Query(default="")):
             if q_lower and q_lower not in nombre.lower() and q_lower not in (prod.get("codigo","")).lower():
                 continue
 
-            # Stock info
-            inv_data = inventario.get(key)
-            if isinstance(inv_data, dict):
-                stock = inv_data.get("cantidad")
-                costo = inv_data.get("costo_promedio")
-            else:
-                stock = inv_data
+            # Stock info (wayper por kg usa inventario de unidades)
+            stock = _stock_wayper(key, inventario)
+            if key in _WAYPER_KG_KEYS:
                 costo = None
+            else:
+                inv_data = inventario.get(key)
+                costo = inv_data.get("costo_promedio") if isinstance(inv_data, dict) else None
 
             # Fracciones
             fracs = {}
