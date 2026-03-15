@@ -602,7 +602,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 from handlers.callbacks import _enviar_confirmacion_con_metodo
                 await _enviar_confirmacion_con_metodo(update.message, chat_id, _venta_actual, metodo_original)
             else:
-                from handlers.callbacks import _enviar_botones_pago
                 await _enviar_botones_pago(update.message, chat_id, _venta_actual)
             return
         # ── Fin parser — sin prefijo reconocido, va a Claude normal ──────────
