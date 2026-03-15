@@ -6,7 +6,7 @@ import {
 import {
   useTheme, useFetch, Card, SectionTitle, Spinner, ErrorMsg,
   PeriodBtn, EmptyState, cop, num, API_BASE,
-} from '../components/shared.jsx'
+}, useIsMobile } from '../components/shared.jsx'
 
 function fmtFecha(s) {
   if (!s) return ''
@@ -203,6 +203,7 @@ function TopRow({ p, i, max, t }) {
 
 export default function TabResumen({ refreshKey }) {
   const t = useTheme()
+  const isMobile = useIsMobile()
   const [periodo, setPeriodo] = useState('semana')
 
   const { data: resumen, loading: lRes, error: eRes } = useFetch('/ventas/resumen', [refreshKey])
@@ -242,7 +243,7 @@ export default function TabResumen({ refreshKey }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
         <KpiBig
           label="Ventas hoy"
           value={cop(r.total_hoy)}
@@ -315,7 +316,7 @@ export default function TabResumen({ refreshKey }) {
         {chartData.length === 0
           ? <EmptyState msg="Sin datos para este período." />
           : (
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={isMobile ? 160 : 200}>
               <AreaChart data={chartData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
