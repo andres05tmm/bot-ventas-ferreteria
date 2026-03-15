@@ -514,8 +514,14 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         #   reemplazar nombre [por N nuevo=total] → quita y opcionalmente agrega
         # Sin prefijo → va a Claude (correcciones de precio, cantidad, etc.)
 
+        # Patrón con cantidad obligatoria: "2 nombre = 5000"
         _PATRON_ITEM_MOD = _re_mod.compile(
             r'(\d+(?:[.,]\d+)?)\s+([a-zA-Z\xe1\xe9\xed\xf3\xfa\xf1\xc1\xc9\xcd\xd3\xda\xd1][^=]+?)\s*=\s*(\d+)',
+            _re_mod.IGNORECASE
+        )
+        # Patrón sin cantidad (default=1): "nombre = 5000"
+        _PATRON_ITEM_MOD_SIN_CANT = _re_mod.compile(
+            r'([a-zA-Z\xe1\xe9\xed\xf3\xfa\xf1\xc1\xc9\xcd\xd3\xda\xd1][^=]+?)\s*=\s*(\d+)',
             _re_mod.IGNORECASE
         )
 
@@ -523,13 +529,20 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             ml = msg.strip().lower()
             _PREFIJOS_ANADIR = ('añadir ', 'anadir ', 'agregar ', 'añade ', 'añade:', 'anadir:', 'agrega ', 'agrega:')
             if ml.startswith(_PREFIJOS_ANADIR):
-                resto = _re_mod.sub(r'^(a[nñ]ad[ei][r]?|agreg[ao][r]?)[:\s]+', '', msg.strip(), flags=_re_mod.IGNORECASE)
-                m = _PATRON_ITEM_MOD.match(resto.strip())
+                resto = _re_mod.sub(r'^(a[nñ]ad[ei][r]?|agreg[ao][r]?)[:\s]+', '', msg.strip(), flags=_re_mod.IGNORECASE).strip()
+                m = _PATRON_ITEM_MOD.match(resto)
                 if m:
                     return {'accion': 'anadir',
                             'cantidad': float(m.group(1).replace(',', '.')),
                             'producto': m.group(2).strip(),
                             'total': int(m.group(3))}
+                # Sin cantidad explícita → default 1
+                m2 = _PATRON_ITEM_MOD_SIN_CANT.match(resto)
+                if m2:
+                    return {'accion': 'anadir',
+                            'cantidad': 1,
+                            'producto': m2.group(1).strip(),
+                            'total': int(m2.group(2))}
             if ml.startswith(('quitar ', 'eliminar ', 'borrar ', 'sacar ', 'quita ', 'quita:', 'elimina ', 'borra ')):
                 resto = _re_mod.sub(r'^(quitar|eliminar|borrar|sacar)\s+(los?\s+|las?\s+)?',
                                     '', msg.strip(), flags=_re_mod.IGNORECASE)
