@@ -81,7 +81,6 @@ function TablaDetalle({ top, criterio, t }) {
               style={{ borderBottom: `1px solid ${t.border}` }}
               onMouseEnter={e => { e.currentTarget.style.background = t.cardHover; e.currentTarget.style.transform = 'translateX(2px)' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.transform = 'translateX(0)' }}>
-            >
               <td style={{ padding: '10px 14px', textAlign: 'center' }}>
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
