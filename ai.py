@@ -492,6 +492,18 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             if _prod_encontrado:
                 break
 
+        # Fallback: strip leading number + normalize plurals
+        # "49 chazos 1/4" → "chazos 1/4" → "chazo 1/4" → Chazo Plastico 1/4
+        if not _prod_encontrado:
+            _sin_numero = re.sub(r'^\d+\s*', '', _seg).strip()
+            # Normalize common plurals
+            _sin_numero_s = re.sub(r'\b(\w+)s\b', r'\1', _sin_numero)
+            for _intento in [_sin_numero, _sin_numero_s]:
+                if len(_intento) >= 3:
+                    _prod_encontrado = buscar_producto_en_catalogo(_intento)
+                    if _prod_encontrado:
+                        break
+
         if not _prod_encontrado:
             continue
 
