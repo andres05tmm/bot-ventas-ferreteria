@@ -6,7 +6,7 @@ import {
 import {
   useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg,
   PeriodBtn, EmptyState, cop,
-} from '../components/shared.jsx'
+}, useIsMobile } from '../components/shared.jsx'
 
 const DIAS_OPTIONS = [
   { label: 'Hoy',     value: 1 },
@@ -25,6 +25,7 @@ function fmtFecha(s) {
 
 export default function TabGastos({ refreshKey }) {
   const t = useTheme()
+  const isMobile = useIsMobile()
   const [dias, setDias] = useState(7)
   const { data, loading, error } = useFetch(`/gastos?dias=${dias}`, [dias, refreshKey])
 
@@ -74,7 +75,7 @@ export default function TabGastos({ refreshKey }) {
       ) : (
         <>
           {/* Gráficas */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             {/* Histórico diario */}
             {dias > 1 && (
               <Card>
