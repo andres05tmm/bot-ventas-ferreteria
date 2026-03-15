@@ -135,8 +135,8 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             "  - los tornillos eran 3 docenas no 5\n"
             "  - agrega 1 brocha 5000\n\n"
             "Para modificar sin IA usa prefijos:\n"
-            "  añadir 2 tornillo especial= 5000\n"
-            "  quitar aerosoles\n"
+            "  añade: 2 tornillo especial= 5000\n"
+            "  quita: aerosoles\n"
             "  reemplazar sellador por 1 clavija= 3000"
         )
         return
