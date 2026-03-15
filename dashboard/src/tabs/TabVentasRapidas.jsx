@@ -1614,10 +1614,10 @@ export default function TabVentasRapidas({ refreshKey }) {
           {/* Espaciador */}
           <div style={{ flex: 1 }} />
 
-          {/* Selector de columnas */}
+          {/* Selector de columnas — 2/3 en móvil, 4/5/6 en desktop */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, color: t.textMuted, marginRight: 2 }}>Columnas:</span>
-            {[4, 5, 6].map(n => (
+            <span style={{ fontSize: 10, color: t.textMuted, marginRight: 2 }}>Col:</span>
+            {(isMobile ? [2, 3] : [4, 5, 6]).map(n => (
               <button
                 key={n}
                 onClick={() => setColumnas(n)}
@@ -1790,38 +1790,54 @@ export default function TabVentasRapidas({ refreshKey }) {
       {isMobile && (
         <div style={{
           position: 'fixed', bottom: 62, left: 0, right: 0,
-          zIndex: 200, padding: '10px 16px 10px',
+          zIndex: 200, padding: '8px 12px',
           background: t.header,
           borderTop: `1px solid ${t.border}`,
           boxShadow: '0 -4px 20px rgba(0,0,0,.15)',
+          display: 'flex', gap: 8,
         }}>
+          {/* Botón ver/editar carrito */}
           <button
             onClick={() => setCarritoAbierto(true)}
             style={{
-              width: '100%', padding: '13px 18px',
-              background: carrito.length ? t.accent : t.card,
-              border: `1px solid ${carrito.length ? t.accent : t.border}`,
-              borderRadius: 12, color: carrito.length ? '#fff' : t.textMuted,
-              fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
+              flex: 1, padding: '12px 14px',
+              background: totalItems > 0 ? t.accentSub : t.card,
+              border: `1px solid ${totalItems > 0 ? t.accent + '66' : t.border}`,
+              borderRadius: 11, color: totalItems > 0 ? t.accent : t.textMuted,
+              fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
               cursor: 'pointer', display: 'flex',
-              alignItems: 'center', justifyContent: 'space-between',
+              alignItems: 'center', justifyContent: 'center', gap: 8,
               transition: 'all .2s',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 18 }}>🛒</span>
-              {totalItems > 0 ? (
-                <span>{totalItems} {totalItems === 1 ? 'producto' : 'productos'}</span>
-              ) : (
-                <span>Ver carrito</span>
-              )}
-            </div>
-            {totalItems > 0 ? (
-              <span style={{ fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>{cop(totalCarrito)}</span>
-            ) : (
-              <span style={{ fontSize: 12, opacity: .5 }}>vacío</span>
-            )}
+            <span style={{ fontSize: 17 }}>🛒</span>
+            {totalItems > 0
+              ? <span>{totalItems} {totalItems === 1 ? 'ítem' : 'ítems'} · {cop(totalCarrito)}</span>
+              : <span>Carrito vacío</span>
+            }
           </button>
+
+          {/* Botón REGISTRAR directo — solo visible cuando hay ítems */}
+          {totalItems > 0 && (
+            <button
+              onClick={enviando ? undefined : registrar}
+              disabled={enviando}
+              style={{
+                padding: '12px 18px',
+                background: t.accent,
+                border: 'none',
+                borderRadius: 11, color: '#fff',
+                fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
+                cursor: enviando ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap',
+                opacity: enviando ? 0.7 : 1,
+                transition: 'all .2s',
+                flexShrink: 0,
+              }}
+            >
+              {enviando ? '⏳' : '✓ Registrar'}
+            </button>
+          )}
         </div>
       )}
 
