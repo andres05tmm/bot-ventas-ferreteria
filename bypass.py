@@ -559,6 +559,13 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
         cantidad_raw = int(m.group(1))
         nombre_txt   = _norm(m.group(2).strip())
 
+        # Aplicar aliases dinámicos (corrige typos: drwayll→drywall, tiner→thinner, etc.)
+        try:
+            import alias_manager as _am
+            nombre_txt = _norm(_am.aplicar_aliases_dinamicos(nombre_txt))
+        except Exception:
+            pass
+
         # Conversión docenas/gruesas
         cantidad = cantidad_raw
         for unidad, factor in [("docenas", 12), ("docena", 12),
@@ -585,6 +592,7 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
             r'^(?:una?\s+)?cajas?\s+(?:de\s+)?(puntilla.+)$',
             nombre_txt, re.IGNORECASE
         )
+        _total_grm_override = None  # precio total precalculado para GRM por cajas
         if _m_caja_multi:
             nombre_sin_caja = _m_caja_multi.group(1).strip()
             try:
@@ -596,6 +604,8 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
                 prod = _prod_grm
                 # N cajas → N × 500 gramos
                 cantidad = float(_PESO_CAJA_GR_MULTI * cantidad_raw)
+                # Total = precio_caja × N_cajas (NO precio_caja × gramos)
+                _total_grm_override = _prod_grm.get("precio_unidad", 0) * cantidad_raw
 
         if not prod:
             return None  # no encontrado ni exacto ni fuzzy → Claude
@@ -604,7 +614,12 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
         if not precio or precio <= 0:
             return None
 
-        total = cantidad * precio
+        # Para GRM por cajas: usar total precalculado para evitar precio_unidad × gramos
+        if _total_grm_override is not None:
+            total = _total_grm_override
+            precio = int(_total_grm_override / cantidad) if cantidad > 0 else precio  # precio por gramo
+        else:
+            total = cantidad * precio
         es_mayorista = (
             prod.get("precio_por_cantidad")
             and cantidad >= prod["precio_por_cantidad"].get("umbral", 50)
