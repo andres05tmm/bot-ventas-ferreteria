@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import {
   useTheme, useFetch, Spinner, ErrorMsg,
   StyledInput, Badge, EmptyState, cop, API_BASE,
-}, useIsMobile } from '../components/shared.jsx'
+  useIsMobile,
+} from '../components/shared.jsx'
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const nl = s => (s || '').toLowerCase()
