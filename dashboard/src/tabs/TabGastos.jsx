@@ -6,7 +6,8 @@ import {
 import {
   useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg,
   PeriodBtn, EmptyState, cop,
-}, useIsMobile } from '../components/shared.jsx'
+  useIsMobile,
+} from '../components/shared.jsx'
 
 const DIAS_OPTIONS = [
   { label: 'Hoy',     value: 1 },
