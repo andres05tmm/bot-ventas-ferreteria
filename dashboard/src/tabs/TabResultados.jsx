@@ -6,8 +6,8 @@ import {
 import {
   useTheme, useFetch, Card, SectionTitle, KpiCard,
   Spinner, ErrorMsg, PeriodBtn, EmptyState, cop, num,
+  useIsMobile,
 } from '../components/shared.jsx'
-import { useIsMobile } from '../components/shared.jsx'
 
 function fmtDia(s) {
   if (!s) return ''
