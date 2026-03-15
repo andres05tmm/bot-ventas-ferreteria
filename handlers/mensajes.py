@@ -499,6 +499,113 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         if ventas_actuales and ventas_actuales[0].get("metodo_pago"):
             metodo_original = ventas_actuales[0]["metodo_pago"]
 
+        # ── PARSER RÁPIDO: agregar productos no encontrados sin Claude ──────
+        # Formato: "modificar = 2---Tornillo especial=5000, 1---Clavija=3000"
+        # o línea por línea:
+        #   2---Tornillo especial=5000
+        #   1---Clavija=3000
+        import re as _re_mod
+
+        # ── Parser de acciones explícitas ─────────────────────────────────
+        # Prefijo obligatorio para evitar confusión con correcciones normales:
+        #   añadir/agregar N nombre = total  → agrega producto a la venta
+        #   quitar/eliminar/borrar nombre    → elimina de la venta
+        #   reemplazar nombre [por N nuevo=total] → quita y opcionalmente agrega
+        # Sin prefijo → va a Claude (correcciones de precio, cantidad, etc.)
+
+        _PATRON_ITEM_MOD = _re_mod.compile(
+            r'(\d+(?:[.,]\d+)?)\s+([a-zA-Z\xe1\xe9\xed\xf3\xfa\xf1\xc1\xc9\xcd\xd3\xda\xd1][^=]+?)\s*=\s*(\d+)',
+            _re_mod.IGNORECASE
+        )
+
+        def _parse_accion_mod(msg):
+            ml = msg.strip().lower()
+            if ml.startswith(('añadir ', 'anadir ', 'agregar ')):
+                resto = _re_mod.sub(r'^(a[nñ]adir|agregar)\s+', '', msg.strip(), flags=_re_mod.IGNORECASE)
+                m = _PATRON_ITEM_MOD.match(resto.strip())
+                if m:
+                    return {'accion': 'anadir',
+                            'cantidad': float(m.group(1).replace(',', '.')),
+                            'producto': m.group(2).strip(),
+                            'total': int(m.group(3))}
+            if ml.startswith(('quitar ', 'eliminar ', 'borrar ', 'sacar ')):
+                resto = _re_mod.sub(r'^(quitar|eliminar|borrar|sacar)\s+(los?\s+|las?\s+)?',
+                                    '', msg.strip(), flags=_re_mod.IGNORECASE)
+                return {'accion': 'quitar', 'termino': resto.strip()}
+            if ml.startswith(('reemplazar ', 'cambiar ')):
+                resto = _re_mod.sub(r'^(reemplazar|cambiar)\s+', '', msg.strip(), flags=_re_mod.IGNORECASE)
+                if _re_mod.search(r'\s+por\s+', resto, flags=_re_mod.IGNORECASE):
+                    partes = _re_mod.split(r'\s+por\s+', resto, maxsplit=1, flags=_re_mod.IGNORECASE)
+                    m = _PATRON_ITEM_MOD.match(partes[1].strip())
+                    if m:
+                        return {'accion': 'reemplazar',
+                                'termino': partes[0].strip(),
+                                'cantidad': float(m.group(1).replace(',', '.')),
+                                'producto': m.group(2).strip(),
+                                'total': int(m.group(3))}
+                return {'accion': 'quitar', 'termino': resto.strip()}
+            return None
+
+        _acciones_parsed = []
+        for _linea in mensaje.strip().splitlines():
+            _linea = _linea.strip()
+            if not _linea:
+                continue
+            _a = _parse_accion_mod(_linea)
+            if _a:
+                _acciones_parsed.append(_a)
+            else:
+                _acciones_parsed = []
+                break
+
+        if _acciones_parsed:
+            with _estado_lock:
+                _venta_actual = list(ventas_pendientes.get(chat_id, []))
+            _resumen_cambios = []
+            for _ac in _acciones_parsed:
+                if _ac['accion'] == 'anadir':
+                    _venta_actual.append({
+                        "producto":    _ac['producto'],
+                        "cantidad":    _ac['cantidad'],
+                        "total":       _ac['total'],
+                        "metodo_pago": metodo_original or "",
+                    })
+                    _resumen_cambios.append(f"\u2795 {_ac['cantidad']:g} {_ac['producto']} ${_ac['total']:,}")
+                elif _ac['accion'] == 'quitar':
+                    _t = _ac['termino'].lower()
+                    _antes = len(_venta_actual)
+                    _venta_actual = [v for v in _venta_actual if _t not in v.get('producto','').lower()]
+                    if len(_venta_actual) < _antes:
+                        _resumen_cambios.append(f"\u2796 {_ac['termino']} (eliminado)")
+                    else:
+                        _resumen_cambios.append(f"\u26a0\ufe0f No encontr\xe9 '{_ac['termino']}' en la venta")
+                elif _ac['accion'] == 'reemplazar':
+                    _t = _ac['termino'].lower()
+                    _venta_actual = [v for v in _venta_actual if _t not in v.get('producto','').lower()]
+                    _venta_actual.append({
+                        "producto":    _ac['producto'],
+                        "cantidad":    _ac['cantidad'],
+                        "total":       _ac['total'],
+                        "metodo_pago": metodo_original or "",
+                    })
+                    _resumen_cambios.append(
+                        f"\U0001f501 {_ac['termino']} \u2192 {_ac['cantidad']:g} {_ac['producto']} ${_ac['total']:,}"
+                    )
+            with _estado_lock:
+                ventas_pendientes[chat_id] = _venta_actual
+            _total_general = sum(v.get("total", 0) for v in _venta_actual)
+            await update.message.reply_text(
+                "\n".join(_resumen_cambios) + f"\nTotal venta: ${_total_general:,.0f}"
+            )
+            if metodo_original:
+                from handlers.callbacks import _enviar_confirmacion_con_metodo
+                await _enviar_confirmacion_con_metodo(update.message, chat_id, _venta_actual, metodo_original)
+            else:
+                from handlers.callbacks import _enviar_botones_pago
+                await _enviar_botones_pago(update.message, chat_id, _venta_actual)
+            return
+        # ── Fin parser — sin prefijo reconocido, va a Claude normal ──────────
+
         import json as _json
         resumen_venta = _json.dumps(ventas_actuales, ensure_ascii=False)
 
