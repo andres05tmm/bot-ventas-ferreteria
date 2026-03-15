@@ -729,18 +729,26 @@ function ModalGrm({ prod, onClose, onConfirm }) {
 // ══════════════════════════════════════════════════════════════════════════════
 function ModalQty({ prod, onClose, onConfirm }) {
   const t = useTheme()
-  const [qty, setQty] = useState(1)
+  const [qtyStr, setQtyStr] = useState('1')  // string para permitir borrar el campo
   const [precioCustom, setPrecioCustom] = useState(null)
   if (!prod) return null
-  const totalCalc   = qty * prod.precio
-  const precioFinal = precioCustom !== null ? precioCustom : totalCalc
-  const desc        = `${qty} ${qty === 1 ? 'unidad' : 'unidades'}`
 
-  const cambiarQty = (fn) => { setQty(fn); setPrecioCustom(null) }
+  const qty       = parseInt(qtyStr) || 0
+  const totalCalc = qty * prod.precio
+  const precioFinal = precioCustom !== null ? precioCustom : totalCalc
+  const desc      = `${qty} ${qty === 1 ? 'unidad' : 'unidades'}`
+  const valido    = qty >= 1
+
+  const cambiarQtyNum = (fn) => {
+    setQtyStr(String(Math.max(1, fn(qty))))
+    setPrecioCustom(null)
+  }
 
   return (
     <Modal show title={prod.nombre} subtitle={`Precio unitario: ${cop(prod.precio)}`}
-      onClose={onClose} onConfirm={() => onConfirm({ qty, total: precioFinal, desc })}>
+      onClose={onClose}
+      onConfirm={() => valido && onConfirm({ qty, total: precioFinal, desc })}
+      okDisabled={!valido}>
       <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
         Cantidad
       </div>
@@ -750,10 +758,13 @@ function ModalQty({ prod, onClose, onConfirm }) {
         border: `1px solid ${t.accent}66`, borderRadius: 8,
         padding: 14, marginBottom: 14,
       }}>
-        <button onClick={() => cambiarQty(q => Math.max(1, q - 1))} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>−</button>
+        <button onClick={() => cambiarQtyNum(q => Math.max(1, q - 1))} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>−</button>
         <input
-          type="number" min="1" value={qty}
-          onChange={e => { const v = parseInt(e.target.value) || 1; cambiarQty(() => v) }}
+          autoFocus
+          type="number" min="1"
+          value={qtyStr}
+          onChange={e => { setQtyStr(e.target.value); setPrecioCustom(null) }}
+          onBlur={e => { if (!parseInt(e.target.value) || parseInt(e.target.value) < 1) setQtyStr('1') }}
           style={{
             width: 60, background: 'transparent', border: 'none',
             borderBottom: `1px solid ${t.accent}66`,
@@ -762,7 +773,7 @@ function ModalQty({ prod, onClose, onConfirm }) {
             MozAppearance: 'textfield', appearance: 'textfield',
           }}
         />
-        <button onClick={() => cambiarQty(q => q + 1)} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>+</button>
+        <button onClick={() => cambiarQtyNum(q => q + 1)} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>+</button>
       </div>
       <PrecioEditor precioCalc={totalCalc} precioFinal={precioFinal} onChange={setPrecioCustom} desc={desc} />
     </Modal>
