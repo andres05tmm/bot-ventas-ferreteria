@@ -122,20 +122,22 @@ def _get_precio_fraccion(prod: dict, clave: str) -> int | None:
 def _slug(s: str) -> str:
     """Normaliza para comparación: quita especiales, normaliza plurales y fracciones."""
     s = _norm(s)
+    # Preservar fracciones ANTES de limpiar especiales: "1/4"→"1_4", "3/8"→"3_8"
+    # Sin esto, _slug("chazos 1/4") → "chazo 14" que no matchea "chazo plastico 14"
+    s = re.sub(r'\b(\d+)/(\d+)\b', r'\1_\2', s)
     # Plurales
     s = re.sub(r'\btornillos\b', 'tornillo', s)
     s = re.sub(r'\bpuntillas\b', 'puntilla', s)
     s = re.sub(r'\bchazos\b',    'chazo',    s)
     s = re.sub(r'\bplasticos\b', 'plastico', s)
     # Plurales genéricos: quitar 's' o 'es' final si el producto existe sin él
-    s = re.sub(r'\b(\w{4,})es\b', r'\1', s)   # martilles→martill (no aplica bien)
-    s = re.sub(r'\b(\w{4,})s\b',  r'\1', s)   # martillos→martillo, brochas→brocha
+    s = re.sub(r'\b(\w{4,})es\b', r'\1', s)
+    s = re.sub(r'\b(\w{4,})s\b',  r'\1', s)
     # Quitar 'de' suelto: "chazo de 3/8" → "chazo 3/8"
     s = re.sub(r'\s+de\s+', ' ', s)
-    # Normalizar fracción con espacio: "8x2 1/2" → "8x2-1/2"
+    # Normalizar fracción con espacio: "8x2 1/2" → "8x2-1_2"
     s = re.sub(r'(\d+x\d+)\s+(1/2|1/4|3/4|1/8)', r'\1-\2', s)
     return re.sub(r'[^\w\s]', '', s).strip()
-
 def _buscar_producto_exacto(nombre_msg: str, catalogo: dict) -> dict | None:
     """
     Busca producto por match exacto normalizado (slug).
@@ -147,15 +149,24 @@ def _buscar_producto_exacto(nombre_msg: str, catalogo: dict) -> dict | None:
         slug_prod = _slug(prod.get("nombre_lower", prod.get("nombre", "")))
         if slug_prod == slug_msg:
             return prod
-    # 2. El slug del mensaje contiene el slug del catálogo (o viceversa)
-    #    → elegir el producto con nombre MÁS LARGO (más específico)
+    # 2. Coincidencia por palabras — todas las palabras del mensaje están en el producto
+    # Ej: msg="chazo 1_4" → words={"chazo","1_4"} ⊆ "chazo plastico 1_4" → ✅
+    # Ej: msg="lija 80" → words={"lija","80"} ⊆ "Lija N°80" → ✅
+    words_msg = set(slug_msg.split())
+    if not words_msg:
+        return None
     candidatos = []
     for prod in catalogo.values():
         slug_prod = _slug(prod.get("nombre_lower", prod.get("nombre", "")))
-        if slug_prod and (slug_msg.endswith(slug_prod) or slug_prod == slug_msg):
+        if not slug_prod:
+            continue
+        words_prod = set(slug_prod.split())
+        # Todas las palabras del mensaje deben estar en el producto
+        if words_msg.issubset(words_prod):
             candidatos.append((len(slug_prod), prod))
     if candidatos:
-        candidatos.sort(key=lambda x: -x[0])
+        # Preferir el producto más específico (más palabras) que aún contenga todas las del msg
+        candidatos.sort(key=lambda x: x[0])
         return candidatos[0][1]
     return None
 
