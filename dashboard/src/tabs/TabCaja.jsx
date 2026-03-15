@@ -1,4 +1,5 @@
-import { useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg, cop } from '../components/shared.jsx'
+import { useState } from 'react'
+import { useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg, cop, useIsMobile } from '../components/shared.jsx'
 
 function MetodoRow({ label, valor, icon, t }) {
   if (!valor) return null
@@ -42,6 +43,7 @@ function GastoRow({ g, t }) {
 
 export default function TabCaja({ refreshKey }) {
   const t = useTheme()
+  const isMobile = useIsMobile()
   const { data, loading, error } = useFetch('/caja', [refreshKey])
 
   if (loading) return <Spinner />
@@ -81,7 +83,7 @@ export default function TabCaja({ refreshKey }) {
       </div>
 
       {/* KPIs */}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 10 }}>
         <KpiCard label="Monto apertura"   value={cop(d.monto_apertura)}  sub="Base inicial"          icon="🏦" color={t.textSub} />
         <KpiCard label="Total ventas hoy" value={cop(d.total_ventas)}    sub="Efectivo + transf. + datafono" icon="💰" color={t.green} />
         <KpiCard label="Total gastos"     value={cop(d.total_gastos)}    sub="Todos los egresos"      icon="💸" color="#f87171" />
@@ -89,7 +91,7 @@ export default function TabCaja({ refreshKey }) {
       </div>
 
       {/* Desglose por método */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <Card>
           <SectionTitle>Ingresos por Método</SectionTitle>
           <MetodoRow label="Efectivo"      valor={d.efectivo}       icon="💵" t={t} />
