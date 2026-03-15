@@ -89,6 +89,10 @@ _ALIAS_FERRETERIA = [
     # Evita que "3 rodillos" matchee "Rodillo de 1"", "Rodillo de 2"", etc.
     # Solo aplica cuando NO va seguido de una medida explícita (número o pulgadas)
     (r'\b(\d+)\s+rodillos?\b(?!\s*(?:de\s+)?\d)', lambda m: f"{m.group(1)} rodillo convencional"),
+    # Pita sin color especificado → pita para carpa azul (la más vendida)
+    # Solo aplica cuando NO va seguido de un color
+    (r'\b(\d+)\s+(?:metros?\s+(?:de\s+)?)?pitas?\b(?!\s*(?:para\s+)?(?:carpa\s+)?(?:azul|rojo|negro|blanco|amarillo))',
+        lambda m: f"{m.group(1)} pita para carpa azul"),
     # Pegaternit: normalizar variantes de escritura
     (r'\bpagaternit\b', r'pegaternit'),
     (r'\bpega\s*ternit\b', r'pegaternit'),
@@ -481,8 +485,20 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         # IMPORTANTE: solo aceptar productos con precio_por_cantidad (tornillos/chazos/mayorista)
         # Evita que "1/4" matchee "Formón de 1/4" antes de que el fallback encuentre "Chazo 1/4"
         _palabras = _seg.split()
+
+        # Palabras que indican que el segmento NO es un tornillo/arandela mayorista
+        _palabras_no_tornillo = {
+            "broca", "broca_para", "lija", "esmeril", "disco", "sierra",
+            "metro", "metros", "pita", "cable", "manguera", "varilla",
+            "pintura", "vinilo", "esmalte", "thinner", "laca", "aerosol",
+            "brocha", "rodillo", "martillo", "taladro",
+        }
+        _seg_words = set(_seg.split())
+        _es_no_tornillo = any(w in _seg_words for w in _palabras_no_tornillo)
+
         _prod_encontrado = None
-        for _largo in [4, 3, 2, 1]:
+        if not _es_no_tornillo:
+          for _largo in [4, 3, 2, 1]:
             for _i in range(len(_palabras) - _largo + 1):
                 _frag = " ".join(_palabras[_i:_i+_largo])
                 if len(_frag) < 3:
@@ -1427,7 +1443,8 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
 # ─────────────────────────────────────────────
 
 def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
-    from ventas_state import ventas_pendientes, registrar_ventas_con_metodo, _estado_lock, mensajes_standby
+    from ventas_state import (ventas_pendientes, registrar_ventas_con_metodo,
+        _estado_lock, mensajes_standby, limpiar_pendientes_expirados, _guardar_pendiente)
 
     acciones:       list[str] = []
     archivos_excel: list[str] = []
@@ -1438,6 +1455,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     ventas_sin_metodo = []
 
     with _estado_lock:
+        limpiar_pendientes_expirados()
         esperando_pago = bool(ventas_pendientes.get(chat_id))
 
     # ── Helper: conversión para productos vendidos por mililitro (MLT) ──────
@@ -1575,7 +1593,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
 
     if cliente_desconocido and not esperando_pago:
         with _estado_lock:
-            ventas_pendientes[chat_id] = todas_las_ventas_nuevas
+            _guardar_pendiente(chat_id, todas_las_ventas_nuevas)
         acciones.append(f"CLIENTE_DESCONOCIDO:{cliente_desconocido}")
         ventas_con_metodo.clear()
         ventas_sin_metodo.clear()
@@ -1583,7 +1601,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     if ventas_con_metodo:
         metodo_conocido = ventas_con_metodo[0].get("metodo_pago", "efectivo").lower()
         with _estado_lock:
-            ventas_pendientes[chat_id] = ventas_con_metodo
+            _guardar_pendiente(chat_id, ventas_con_metodo)
         acciones.append(f"PEDIR_CONFIRMACION:{metodo_conocido}")
 
     ventas_ignoradas = esperando_pago and bool(
@@ -1593,7 +1611,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         acciones.append("PAGO_PENDIENTE_AVISO")
     elif ventas_sin_metodo:
         with _estado_lock:
-            ventas_pendientes[chat_id] = ventas_sin_metodo
+            _guardar_pendiente(chat_id, ventas_sin_metodo)
         acciones.append("PEDIR_METODO_PAGO")
 
     # ── Cliente nuevo (datos completos) ──
