@@ -514,12 +514,62 @@ def buscar_clave_inventario(termino: str) -> str | None:
     return None
 
 
+# ── Wayper: conversión kg ↔ unidades ────────────────────────────────────────
+# 1 kg = 12 unidades. El inventario siempre se lleva en UNIDADES.
+# Cuando se vende por kg (WAYPER BLANCO / WAYPER DE COLOR), se convierte a unidades.
+_WAYPER_KG_A_UNIDADES = 12  # unidades por kg
+
+_WAYPER_KG_A_UNIDAD_KEY = {
+    # producto vendido por kg → clave de inventario en unidades
+    "wayper blanco":   "wayper_blanco_unidad",
+    "wayper de color": "wayper_de_color_unidad",
+}
+
+def _resolver_wayper_inventario(nombre_producto: str, cantidad: float) -> tuple[str | None, float]:
+    """
+    Para waypers vendidos por kg: convierte a unidades y retorna la clave de inventario correcta.
+    Retorna (clave_inventario, cantidad_en_unidades) o (None, cantidad) si no es wayper por kg.
+    """
+    nombre_lower = nombre_producto.lower().strip()
+    for nombre_kg, clave_und in _WAYPER_KG_A_UNIDAD_KEY.items():
+        if nombre_lower == nombre_kg or nombre_lower.startswith(nombre_kg):
+            # Verificar que NO sea la variante "unidad" (esa ya está en unidades)
+            if "unidad" not in nombre_lower:
+                unidades = round(cantidad * _WAYPER_KG_A_UNIDADES, 2)
+                return clave_und, unidades
+    return None, cantidad
+
+
 def descontar_inventario(nombre_producto: str, cantidad: float) -> tuple[bool, str | None, float | None]:
     """
     Descuenta cantidad del inventario si el producto está registrado.
+    Para waypers vendidos por kg, convierte automáticamente a unidades (1 kg = 12 und).
     Retorna (descontado, alerta_stock_bajo, cantidad_restante).
     Si el producto no está en inventario, retorna (False, None, None).
     """
+    # Wayper por kg → convertir a unidades y buscar inventario de unidades
+    clave_wayper, cantidad_real = _resolver_wayper_inventario(nombre_producto, cantidad)
+    if clave_wayper:
+        inventario = cargar_inventario()
+        if clave_wayper in inventario:
+            cantidad = cantidad_real
+            # Continuar con la clave de unidades directamente
+            datos = inventario.get(clave_wayper, {})
+            if isinstance(datos, dict):
+                cantidad_actual = datos.get("cantidad", 0)
+                cantidad_nueva  = max(0, round(cantidad_actual - cantidad, 4))
+                datos["cantidad"]     = cantidad_nueva
+                datos["ultima_venta"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                guardar_inventario(inventario)
+                minimo = datos.get("minimo", 5)
+                nombre = datos.get("nombre_original", clave_wayper)
+                unidad = datos.get("unidad", "unidades")
+                alerta = None
+                if cantidad_nueva <= minimo:
+                    alerta = f"⚠️ Stock bajo: {nombre} — quedan {cantidad_nueva:.0f} {unidad}"
+                return True, alerta, cantidad_nueva
+        # No hay inventario de unidades registrado → intentar con la clave original
+    
     clave = buscar_clave_inventario(nombre_producto)
     if not clave:
         return False, None, None

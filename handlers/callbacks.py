@@ -133,7 +133,11 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             "  - el precio del sellador era 25000\n"
             "  - quita los aerosoles\n"
             "  - los tornillos eran 3 docenas no 5\n"
-            "  - agrega 1 brocha 5000"
+            "  - agrega 1 brocha 5000\n\n"
+            "Para modificar sin IA usa prefijos:\n"
+            "  añade: 2 tornillo especial= 5000\n"
+            "  quita: aerosoles\n"
+            "  reemplazar sellador por 1 clavija= 3000"
         )
         return
 
@@ -343,7 +347,7 @@ async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, m
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
         total        = parsear_precio(v.get("total", 0))
-        cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
+        cantidad_leg = _formato_cantidad(cantidad_dec, producto)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
         if not cliente and v.get("cliente"):
             cliente = v.get("cliente")
@@ -387,7 +391,7 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         total        = parsear_precio(v.get("total", 0))
         p_unitario   = parsear_precio(v.get("precio_unitario", 0))
         valor_final  = total if total > 0 else round(p_unitario * cantidad_dec)
-        cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
+        cantidad_leg = _formato_cantidad(cantidad_dec, producto)
         lineas.append(f"• {cantidad_leg} {producto} ${valor_final:,.0f}")
 
     tiene_cliente = any(v.get("cliente") for v in ventas)
@@ -541,6 +545,18 @@ async def manejar_callback_cliente(update: Update, context: ContextTypes.DEFAULT
 # HELPER: botones de pago sin objeto message (via bot directo)
 # ─────────────────────────────────────────────
 
+def _formato_cantidad(cantidad_dec: float, producto: str) -> str:
+    """Formatea la cantidad según el tipo de producto.
+    Puntillas (vendidas por gramos) → '133.3 gr'
+    Resto → fracción legible ('1 y 3/4', '1/2', etc.)
+    """
+    if "puntilla" in (producto or "").lower():
+        # Mostrar gramos con 1 decimal, sin ceros innecesarios
+        gr = round(cantidad_dec, 1)
+        return f"{gr:g} gr"
+    return decimal_a_fraccion_legible(cantidad_dec)
+
+
 async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
     """
     Versión de _enviar_botones_pago que usa bot.send_message directamente.
@@ -551,7 +567,7 @@ async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
         total        = parsear_precio(v.get("total", 0))
-        cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
+        cantidad_leg = _formato_cantidad(cantidad_dec, producto)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
 
     tiene_cliente = any(v.get("cliente") for v in ventas)

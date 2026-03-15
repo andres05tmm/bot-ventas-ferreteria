@@ -44,6 +44,7 @@ GARANTÍAS:
 import logging
 import os
 import queue
+import re
 import shutil
 import threading
 from typing import Optional
@@ -59,17 +60,15 @@ log = logging.getLogger("ferrebot.precio_sync")
 NOMBRE_EXCEL_PRODUCTOS = "BASE_DE_DATOS_PRODUCTOS.xlsx"
 UMBRAL_TORNILLERIA     = 50
 
-_IDX_CODIGO    = 0
-_IDX_NOMBRE    = 1
-_IDX_CATEGORIA = 3
-_IDX_UNIDAD    = 16   # Col Q
+_IDX_CODIGO         = 0
+_IDX_NOMBRE         = 1
+_IDX_CATEGORIA      = 3
+_IDX_UNIDAD_MEDIDA  = 8   # Col I — Unidad de Medida Impresión Factura (DIAN)
+_IDX_UNIDAD         = 16  # Col Q — Precio por unidad completa
 
 # header_str → (col_idx_base0, decimal_real, label)
 # "0.13" y "0.06" son aproximaciones de 1/8 y 1/16 (los headers del Excel
 # están redondeados, pero los decimales reales son 0.125 y 0.0625)
-# "Precio de venta 8" → col W (idx 22) → label "unidad_suelta"
-#   Para productos como WAYPER que se venden también por unidad individual.
-#   decimal_real = None → el valor de la celda ES el precio total directamente.
 _HEADER_MAP: dict[str, tuple[int, float, str]] = {
     "0.75":             (17, 0.75,   "3/4"),
     "0.5":              (18, 0.5,    "1/2"),
@@ -77,11 +76,11 @@ _HEADER_MAP: dict[str, tuple[int, float, str]] = {
     "0.13":             (20, 0.125,  "1/8"),
     "0.06":             (21, 0.0625, "1/16"),
     "0.1":              (22, 0.1,    "1/10"),
-    "precio de venta 8":(23, None,   "unidad_suelta"),  # col X, precio directo
+    # "Precio de venta 8" (col X) eliminado — el precio por unidad suelta
+    # ahora se maneja como un producto separado en el catálogo (ej: "Wayper Blanco Unidad")
 }
 
 # label → (decimal_real, col_idx_base0) — índice inverso
-# decimal_real puede ser None para "unidad_suelta" (precio directo)
 _LABEL_MAP: dict[str, tuple[float, int]] = {
     label: (dec, idx) for _, (idx, dec, label) in _HEADER_MAP.items()
 }
@@ -132,6 +131,37 @@ def _limpiar(*rutas):
             pass
 
 
+# Mapa de normalización de unidades para factura electrónica (DIAN)
+_UNIDAD_MAP: dict[str, str] = {
+    # galón y variantes
+    "galon":   "Galón", "galón":  "Galón", "gal":    "Galón",
+    # kilogramo
+    "kg":      "Kg",    "kgs":    "Kg",    "kilo":   "Kg",
+    "kilos":   "Kg",    "kilogramo": "Kg", "25 kg":  "Kg",
+    # metro
+    "mts":     "Mts",   "mt":     "Mts",   "metro":  "Mts",
+    "metros":  "Mts",   "m":      "Mts",
+    # centímetro
+    "cms":     "Cms",   "cm":     "Cms",   "centimetro": "Cms",
+    # litro
+    "lt":      "Lt",    "lts":    "Lts",   "litro":  "Lt",
+    "litros":  "Lts",
+    # mililitro — código DIAN: MLT (tabla 13.3.6 anexo técnico v1.8)
+    "ml":      "MLT",   "mlt":    "MLT",   "mililitro":  "MLT",
+    "mililitros": "MLT", "cc":    "MLT",   "centimetro cubico": "MLT",
+    # unidad (por defecto)
+    "unidad":  "Unidad","und":    "Unidad","un":     "Unidad",
+    "unidades":"Unidad","uni":    "Unidad",
+}
+
+def _normalizar_unidad(raw: str) -> str:
+    """Normaliza el texto de la col I → etiqueta canónica para DIAN."""
+    if not raw:
+        return "Unidad"
+    clave = raw.strip().lower().replace("á","a").replace("é","e").replace("ó","o")
+    return _UNIDAD_MAP.get(clave, raw.strip()) or "Unidad"
+
+
 # ─────────────────────────────────────────────────────────────────
 # CONSTRUCCIÓN DE UN PRODUCTO DESDE UNA FILA
 # ─────────────────────────────────────────────────────────────────
@@ -152,6 +182,10 @@ def construir_producto_desde_fila(row: tuple, col_headers: list) -> Optional[dic
     codigo   = str(row[_IDX_CODIGO] or "").strip()
     p_unidad = _num(row[_IDX_UNIDAD]) if _IDX_UNIDAD < len(row) else None
 
+    # ── Col I: Unidad de Medida Impresión Factura (DIAN) ─────────────────────
+    unidad_raw = str(row[_IDX_UNIDAD_MEDIDA] or "").strip() if len(row) > _IDX_UNIDAD_MEDIDA else ""
+    unidad_medida = _normalizar_unidad(unidad_raw)
+
     if p_unidad is None:
         return None
 
@@ -162,6 +196,7 @@ def construir_producto_desde_fila(row: tuple, col_headers: list) -> Optional[dic
         "nombre_lower":  nombre_lower,
         "categoria":     cat,
         "precio_unidad": round(p_unidad),
+        "unidad_medida": unidad_medida,
     }
     if codigo:
         prod["codigo"] = codigo
@@ -199,7 +234,6 @@ def construir_producto_desde_fila(row: tuple, col_headers: list) -> Optional[dic
             }
 
     # ── Resto: fracciones directas (celda = total, solo si < precio_unidad) ──
-    # También incluye "unidad_suelta" (Precio de venta 8) si tiene valor.
     else:
         fracs = {}
         for i, header in enumerate(col_headers):
@@ -207,7 +241,6 @@ def construir_producto_desde_fila(row: tuple, col_headers: list) -> Optional[dic
                 continue
             info = _HEADER_MAP.get(str(header).strip().lower())
             if not info:
-                # También buscar sin importar mayúsculas
                 info = _HEADER_MAP.get(str(header).strip())
             if not info:
                 continue
@@ -215,13 +248,8 @@ def construir_producto_desde_fila(row: tuple, col_headers: list) -> Optional[dic
             v = _num(row[i]) if i < len(row) else None
             if v is None:
                 continue
-            # unidad_suelta: decimal_real es None, valor = precio total directo
-            if decimal_real is None:
-                fracs[label] = {
-                    "precio":  round(v),
-                    "decimal": None,
-                }
-            elif v < p_unidad:   # fracción normal: solo si es menor al precio unidad
+            # Solo fracciones con decimal definido y valor menor al precio unidad
+            if decimal_real is not None and v < p_unidad:
                 fracs[label] = {
                     "precio":  round(v),
                     "decimal": decimal_real,
@@ -268,7 +296,10 @@ def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
             if prod is None:
                 omitidos += 1
                 continue
-            clave = prod["nombre_lower"].replace(" ", "_")
+            # Sanitizar clave: reemplazar espacios con _ y eliminar chars que rompen URLs/JSON
+            # Ej: 'brocha de 1"' → 'brocha_de_1' (sin comilla doble)
+            clave = re.sub(r'["\'\°\#\!\?\(\)\[\]\{\}]', '', prod["nombre_lower"]).replace(" ", "_")
+            clave = re.sub(r'_+', '_', clave).strip('_')  # limpiar guiones dobles o extremos
             catalogo[clave] = prod
             importados += 1
         except Exception as e:
@@ -283,6 +314,119 @@ def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
     invalidar_cache_memoria()
 
     return {"importados": importados, "omitidos": omitidos, "errores": errores[:10]}
+
+
+
+# ─────────────────────────────────────────────────────────────────
+# CREAR PRODUCTO NUEVO (Dashboard → Excel + memoria.json)
+# ─────────────────────────────────────────────────────────────────
+
+def agregar_producto_a_excel(datos: dict) -> dict:
+    """
+    Agrega una nueva fila al Excel BASE_DE_DATOS_PRODUCTOS.xlsx (hoja 'Datos')
+    con los datos del producto recibidos desde el dashboard.
+
+    datos = {
+        "codigo":        str,          # opcional
+        "nombre":        str,          # obligatorio
+        "categoria":     str,          # obligatorio
+        "precio_unidad": int/float,    # obligatorio
+        "unidad_medida": str,          # default "Unidad"
+        "inventariable": bool,         # default True
+        "visible_facturas": bool,      # default True
+        "stock_minimo":  int,          # default 0
+        "codigo_dian":   str,          # default "94"
+    }
+    Retorna {"ok": True, "fila": N} o {"ok": False, "error": "..."}
+    """
+    import shutil
+    import tempfile
+    try:
+        from drive import descargar_de_drive, subir_a_drive
+    except ImportError:
+        descargar_de_drive = subir_a_drive = None
+
+    ruta = config.EXCEL_PRODUCTOS if hasattr(config, "EXCEL_PRODUCTOS") else None
+    # Intentar localizar el Excel de productos
+    for candidato in [
+        getattr(config, "EXCEL_PRODUCTOS", None),
+        getattr(config, "BASE_DATOS_FILE", None),
+        os.path.join(os.path.dirname(config.EXCEL_FILE), "BASE_DE_DATOS_PRODUCTOS.xlsx"),
+        "BASE_DE_DATOS_PRODUCTOS.xlsx",
+    ]:
+        if candidato and os.path.exists(candidato):
+            ruta = candidato
+            break
+
+    # Si no existe localmente, intentar descargar de Drive
+    ruta_tmp = None
+    if not ruta and descargar_de_drive:
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+                ruta_tmp = tmp.name
+            ok = descargar_de_drive("BASE_DE_DATOS_PRODUCTOS.xlsx", ruta_tmp)
+            if ok:
+                ruta = ruta_tmp
+        except Exception:
+            pass
+
+    if not ruta or not os.path.exists(ruta):
+        return {"ok": False, "error": "No se encontró el Excel de productos"}
+
+    try:
+        wb = openpyxl.load_workbook(ruta)
+        ws = wb["Datos"] if "Datos" in wb.sheetnames else wb.active
+
+        # Encontrar la primera fila vacía (col B = Nombre)
+        fila_nueva = ws.max_row + 1
+        for r in range(2, ws.max_row + 2):
+            if not ws.cell(row=r, column=2).value:
+                fila_nueva = r
+                break
+
+        nombre    = str(datos.get("nombre", "")).strip()
+        codigo    = str(datos.get("codigo", "")).strip()
+        categoria = str(datos.get("categoria", "")).strip()
+        precio    = datos.get("precio_unidad", 0)
+        unidad    = datos.get("unidad_medida", "Unidad")
+        inv       = "SI" if datos.get("inventariable", True) else "NO"
+        vis       = "SI" if datos.get("visible_facturas", True) else "NO"
+        stock_min = datos.get("stock_minimo", 0)
+        cod_dian  = str(datos.get("codigo_dian", "94"))
+
+        # Col A: Código, B: Nombre, C: Tipo, D: Categoría,
+        # E: Inventariable, F: Visible, G: Stock mínimo,
+        # H: Código DIAN, I: Unidad medida, Q: Precio unidad
+        ws.cell(row=fila_nueva, column=1,  value=codigo or nombre.lower().replace(" ", "")[:20])
+        ws.cell(row=fila_nueva, column=2,  value=nombre)
+        ws.cell(row=fila_nueva, column=3,  value="P-Producto")
+        ws.cell(row=fila_nueva, column=4,  value=categoria)
+        ws.cell(row=fila_nueva, column=5,  value=inv)
+        ws.cell(row=fila_nueva, column=6,  value=vis)
+        ws.cell(row=fila_nueva, column=7,  value=stock_min)
+        ws.cell(row=fila_nueva, column=8,  value=cod_dian)
+        ws.cell(row=fila_nueva, column=9,  value=unidad)
+        ws.cell(row=fila_nueva, column=17, value=int(precio) if precio else 0)  # Col Q
+
+        wb.save(ruta)
+
+        # Subir a Drive si está disponible
+        if subir_a_drive and ruta != ruta_tmp:
+            try:
+                subir_a_drive(ruta, "BASE_DE_DATOS_PRODUCTOS.xlsx")
+            except Exception:
+                pass
+
+        return {"ok": True, "fila": fila_nueva}
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        if ruta_tmp:
+            try:
+                os.unlink(ruta_tmp)
+            except Exception:
+                pass
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -364,7 +508,6 @@ def _valor_para_celda(precio_total: float, fraccion: Optional[str], cat: str) ->
 
     Para pinturas/impermeabilizantes la celda almacena precio UNITARIO:
       valor_celda = precio_total / decimal
-    Para unidad_suelta (decimal=None): se escribe el precio directamente.
     Para el resto (tornillería, ferretería) la celda almacena el valor tal cual.
     """
     if not fraccion or fraccion == "1":
@@ -374,7 +517,7 @@ def _valor_para_celda(precio_total: float, fraccion: Optional[str], cat: str) ->
         return round(precio_total)
     decimal_real = info[0]
     if decimal_real is None:
-        # unidad_suelta → precio directo
+        # precio directo
         return round(precio_total)
     if _es_galon(cat) and decimal_real > 0:
         return round(precio_total / decimal_real)
@@ -448,6 +591,213 @@ def _escribir_en_excel(nombre: str, precio: float, fraccion: Optional[str]) -> t
 
     col_letra = chr(ord("A") + col_idx)
     return True, f"col {col_letra} = {val_celda:,}"
+
+
+# ─────────────────────────────────────────────────────────────────
+# ACTUALIZAR METADATOS EN EXCEL (nombre, categoría, unidad, código)
+# ─────────────────────────────────────────────────────────────────
+
+def _actualizar_metadatos_en_excel(nombre_original: str, datos_nuevos: dict) -> dict:
+    """
+    Actualiza nombre, categoría, unidad_medida y/o código de un producto
+    en la hoja 'Datos' de BASE_DE_DATOS_PRODUCTOS.xlsx.
+    Busca la fila por nombre_original (flexible).
+    datos_nuevos puede tener: nombre, categoria, unidad_medida, codigo.
+    Retorna {"ok": True} o {"ok": False, "error": "..."}.
+    """
+    try:
+        from drive import descargar_de_drive, subir_a_drive
+    except ImportError:
+        descargar_de_drive = subir_a_drive = None
+
+    import tempfile
+
+    # Localizar el Excel de productos
+    ruta = None
+    for candidato in [
+        getattr(config, "EXCEL_PRODUCTOS", None),
+        getattr(config, "BASE_DATOS_FILE", None),
+        os.path.join(os.path.dirname(config.EXCEL_FILE), "BASE_DE_DATOS_PRODUCTOS.xlsx"),
+        "BASE_DE_DATOS_PRODUCTOS.xlsx",
+    ]:
+        if candidato and os.path.exists(candidato):
+            ruta = candidato
+            break
+
+    ruta_tmp = None
+    if not ruta and descargar_de_drive:
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+                ruta_tmp = tmp.name
+            if descargar_de_drive("BASE_DE_DATOS_PRODUCTOS.xlsx", ruta_tmp):
+                ruta = ruta_tmp
+        except Exception:
+            pass
+
+    if not ruta or not os.path.exists(ruta):
+        return {"ok": False, "error": "No se encontró el Excel de productos"}
+
+    try:
+        wb = openpyxl.load_workbook(ruta)
+        ws = wb["Datos"] if "Datos" in wb.sheetnames else wb.active
+
+        # Detectar índices de columna leyendo la fila de encabezados (fila 1)
+        col_map = {}
+        for cell in next(ws.iter_rows(min_row=1, max_row=1)):
+            if cell.value:
+                col_map[_norm_cat(str(cell.value))] = cell.column
+
+        # Mapear campos del dict a los nombres de columna del Excel
+        _CAMPO_COL = {
+            "nombre":        ["nombre del producto", "nombre", "product name"],
+            "categoria":     ["categoria", "categoría", "category"],
+            "unidad_medida": ["unidad de medida", "unidad medida", "unidad", "unit"],
+            "codigo":        ["codigo del producto", "código del producto", "codigo", "código", "code"],
+        }
+
+        nombre_norm = _norm_cat(nombre_original)
+        fila_prod = None
+        for row in range(2, ws.max_row + 1):
+            val = ws.cell(row=row, column=_IDX_NOMBRE + 1).value  # Col B (idx 1 → col 2)
+            if val and _norm_cat(str(val)) == nombre_norm:
+                fila_prod = row
+                break
+
+        # Búsqueda flexible si no hay coincidencia exacta
+        if not fila_prod:
+            palabras = [p for p in nombre_norm.split() if len(p) > 2]
+            for row in range(2, ws.max_row + 1):
+                val = ws.cell(row=row, column=_IDX_NOMBRE + 1).value
+                if val and palabras and all(p in _norm_cat(str(val)) for p in palabras):
+                    fila_prod = row
+                    break
+
+        if not fila_prod:
+            _limpiar(ruta_tmp)
+            return {"ok": False, "error": f"Fila de '{nombre_original}' no encontrada en Excel"}
+
+        actualizados = []
+        for campo, valor in datos_nuevos.items():
+            if not valor:
+                continue
+            claves_posibles = _CAMPO_COL.get(campo, [campo])
+            col_idx = None
+            for clave in claves_posibles:
+                col_idx = col_map.get(clave)
+                if col_idx:
+                    break
+            if col_idx:
+                ws.cell(row=fila_prod, column=col_idx).value = valor.strip() if isinstance(valor, str) else valor
+                actualizados.append(campo)
+
+        if actualizados:
+            wb.save(ruta)
+            if subir_a_drive:
+                try:
+                    subir_a_drive(ruta)
+                except Exception as e:
+                    log.warning("_actualizar_metadatos_en_excel: Drive upload falló: %s", e)
+
+        _limpiar(ruta_tmp)
+        return {"ok": True, "actualizados": actualizados, "fila": fila_prod}
+
+    except Exception as e:
+        _limpiar(ruta_tmp)
+        return {"ok": False, "error": str(e)}
+
+
+# ─────────────────────────────────────────────────────────────────
+# ELIMINAR PRODUCTO DEL EXCEL
+# ─────────────────────────────────────────────────────────────────
+
+def eliminar_producto_de_excel(nombre_producto: str) -> dict:
+    """
+    Elimina la fila del producto en BASE_DE_DATOS_PRODUCTOS.xlsx (hoja 'Datos').
+    Busca por nombre exacto o flexible (igual que el sistema de búsqueda del bot).
+    Retorna {"ok": True, "fila": N} o {"ok": False, "error": "..."}.
+    """
+    try:
+        from drive import descargar_de_drive, subir_a_drive
+    except ImportError:
+        descargar_de_drive = subir_a_drive = None
+
+    import shutil, tempfile
+
+    # Localizar el Excel de productos
+    ruta = None
+    for candidato in [
+        getattr(config, "EXCEL_PRODUCTOS", None),
+        getattr(config, "BASE_DATOS_FILE", None),
+        os.path.join(os.path.dirname(config.EXCEL_FILE), "BASE_DE_DATOS_PRODUCTOS.xlsx"),
+        "BASE_DE_DATOS_PRODUCTOS.xlsx",
+    ]:
+        if candidato and os.path.exists(candidato):
+            ruta = candidato
+            break
+
+    ruta_tmp = None
+    if not ruta and descargar_de_drive:
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+                ruta_tmp = tmp.name
+            ok = descargar_de_drive("BASE_DE_DATOS_PRODUCTOS.xlsx", ruta_tmp)
+            if ok:
+                ruta = ruta_tmp
+        except Exception:
+            pass
+
+    if not ruta or not os.path.exists(ruta):
+        return {"ok": False, "error": "No se encontró el Excel de productos"}
+
+    try:
+        wb = openpyxl.load_workbook(ruta)
+        ws = wb["Datos"] if "Datos" in wb.sheetnames else wb.active
+
+        nombre_lower = _norm_cat(nombre_producto)
+        fila_borrar = None
+        for row in range(2, ws.max_row + 1):
+            val = ws.cell(row=row, column=2).value  # Col B = Nombre
+            if val and _norm_cat(str(val)) == nombre_lower:
+                fila_borrar = row
+                break
+
+        # Búsqueda flexible si no hay coincidencia exacta
+        if not fila_borrar:
+            palabras = [p for p in nombre_lower.split() if len(p) > 2]
+            for row in range(2, ws.max_row + 1):
+                val = ws.cell(row=row, column=2).value
+                if val and palabras and all(p in _norm_cat(str(val)) for p in palabras):
+                    fila_borrar = row
+                    break
+
+        if not fila_borrar:
+            _limpiar(ruta_tmp)
+            return {"ok": False, "error": f"Producto '{nombre_producto}' no encontrado en el Excel"}
+
+        ws.delete_rows(fila_borrar)
+        wb.save(ruta)
+
+        # Subir a Drive
+        if subir_a_drive:
+            try:
+                subir_a_drive(ruta)
+            except Exception as e:
+                log.warning("eliminar_producto_de_excel: fallo Drive upload: %s", e)
+
+        # Si usamos temporal, copiar de vuelta al destino canónico
+        if ruta_tmp and ruta == ruta_tmp:
+            destino = os.path.join(os.path.dirname(config.EXCEL_FILE), "BASE_DE_DATOS_PRODUCTOS.xlsx")
+            try:
+                shutil.copy2(ruta_tmp, destino)
+            except Exception:
+                pass
+
+        _limpiar(ruta_tmp)
+        return {"ok": True, "fila": fila_borrar}
+
+    except Exception as e:
+        _limpiar(ruta_tmp)
+        return {"ok": False, "error": str(e)}
 
 
 # ─────────────────────────────────────────────────────────────────

@@ -319,10 +319,40 @@ async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caja["datafono"] = 0
         guardar_caja(caja)
         await update.message.reply_text(f"💰 Caja abierta con ${monto:,} de base.")
+
+    elif args and args[0].lower() == "reset":
+        # /caja reset — limpia los montos guardados de la última caja cerrada
+        from memoria import cargar_caja, guardar_caja
+        caja = cargar_caja()
+        if caja.get("abierta"):
+            await update.message.reply_text("⚠️ La caja está abierta. Ciérrala primero con /cerrar antes de resetear.")
+            return
+        guardar_caja({
+            "abierta": False,
+            "fecha": None,
+            "monto_apertura": 0,
+            "efectivo": 0,
+            "transferencias": 0,
+            "datafono": 0,
+        })
+        await update.message.reply_text(
+            "🗑️ Caja reseteada. Los montos anteriores fueron borrados.\n"
+            "El dashboard ya no mostrará valores de la última sesión.\n\n"
+            "Usa /caja abrir [monto] para comenzar un nuevo día."
+        )
+
     else:
         # /caja → ver estado
         resumen = obtener_resumen_caja()
         await update.message.reply_text(f"💰 {resumen}")
+
+
+async def comando_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📊 *Dashboard Ferretería Punto Rojo*\n\n"
+        "🔗 https://bot-ventas-ferreteria-production.up.railway.app/",
+        parse_mode="Markdown"
+    )
 
 
 async def comando_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -348,6 +378,28 @@ async def comando_inventario(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # /inv - Registrar conteo de inventario
 # ─────────────────────────────────────────────
 
+
+
+def _resolver_grm(nombre_producto: str, cantidad: float, es_cajas: bool = False) -> tuple[str, float, str]:
+    """
+    Para productos GRM (puntillas): convierte cajas a gramos y devuelve
+    (nombre_oficial, cantidad_en_gramos, label_para_mostrar).
+    Si no es GRM, devuelve los valores originales.
+    """
+    from memoria import buscar_producto_en_catalogo as _bpc
+    _PESO_CAJA_GR = 500
+    prod = _bpc(nombre_producto)
+    if prod and prod.get("unidad_medida", "").upper() == "GRM":
+        if es_cajas:
+            gr = cantidad * _PESO_CAJA_GR
+            label = f"{int(cantidad)} caja{'s' if cantidad > 1 else ''} ({int(gr)} gr)"
+        else:
+            gr = cantidad
+            cajas = gr / _PESO_CAJA_GR
+            label = f"{int(gr)} gr ({cajas:.1f} caja{'s' if cajas != 1 else ''})" if gr >= _PESO_CAJA_GR else f"{int(gr)} gr"
+        return prod["nombre"], gr, label
+    return nombre_producto, cantidad, str(int(cantidad) if cantidad == int(cantidad) else cantidad)
+
 async def comando_inv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Registra conteo de inventario.
@@ -371,29 +423,52 @@ async def comando_inv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Primer argumento es la cantidad
-    try:
-        cantidad = float(args[0].replace(",", "."))
-    except ValueError:
-        await update.message.reply_text(
-            f"❌ '{args[0]}' no es una cantidad válida.\n"
-            "Usa números: `/inv 25 brocha 2\"`",
-            parse_mode="Markdown"
-        )
-        return
-    
-    # Resto es el nombre del producto
-    nombre_producto = " ".join(args[1:])
-    
+    # Detectar si viene "N cajas puntilla X" o "N gramos puntilla X"
+    import re as _re_inv
+    texto_inv = " ".join(args)
+    _m_cajas = _re_inv.match(r'^(\d+(?:[.,]\d+)?)\s+cajas?\s+(.+)$', texto_inv, _re_inv.IGNORECASE)
+    _m_gramos = _re_inv.match(r'^(\d+(?:[.,]\d+)?)\s+gr(?:amos?)?\s+(.+)$', texto_inv, _re_inv.IGNORECASE)
+
+    if _m_cajas:
+        try:
+            _n_cajas = float(_m_cajas.group(1).replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Cantidad inválida.")
+            return
+        nombre_producto = _m_cajas.group(2).strip()
+        nombre_producto, cantidad, _lbl = _resolver_grm(nombre_producto, _n_cajas, es_cajas=True)
+    elif _m_gramos:
+        try:
+            _gr = float(_m_gramos.group(1).replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Cantidad inválida.")
+            return
+        nombre_producto = _m_gramos.group(2).strip()
+        nombre_producto, cantidad, _lbl = _resolver_grm(nombre_producto, _gr, es_cajas=False)
+    else:
+        # Formato normal: N producto
+        try:
+            cantidad = float(args[0].replace(",", "."))
+        except ValueError:
+            await update.message.reply_text(
+                f"❌ '{args[0]}' no es una cantidad válida.\n"
+                "Usa números: `/inv 25 brocha 2\"`",
+                parse_mode="Markdown"
+            )
+            return
+        nombre_producto = " ".join(args[1:])
+        _lbl = None
+
     if len(nombre_producto) < 3:
         await update.message.reply_text("❌ Nombre del producto muy corto.")
         return
-    
-    # Registrar en inventario
+
     exito, mensaje = await asyncio.to_thread(
         registrar_conteo_inventario, nombre_producto, cantidad
     )
-    
+    # Si fue en cajas, añadir aclaración
+    if exito and _lbl:
+        mensaje = mensaje.replace(str(cantidad), _lbl)
     await update.message.reply_text(mensaje)
 
 
@@ -444,7 +519,18 @@ async def comando_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             emoji = "✅"
         
-        texto += f"{emoji} *{p['nombre']}*: {cantidad} {unidad}\n"
+        # Para puntillas GRM: mostrar en cajas en lugar de gramos crudos
+        from memoria import buscar_producto_en_catalogo as _bpc_s
+        _prod_s = _bpc_s(p['nombre'])
+        if _prod_s and _prod_s.get("unidad_medida", "").upper() == "GRM" and cantidad >= 500:
+            _cajas = cantidad / 500
+            _cajas_txt = f"{int(_cajas)}" if _cajas == int(_cajas) else f"{_cajas:.1f}"
+            _gr_txt = int(cantidad)
+            texto += f"{emoji} *{p['nombre']}*: {_cajas_txt} caja(s) ({_gr_txt} gr)\n"
+        elif _prod_s and _prod_s.get("unidad_medida", "").upper() == "GRM":
+            texto += f"{emoji} *{p['nombre']}*: {int(cantidad)} gr\n"
+        else:
+            texto += f"{emoji} *{p['nombre']}*: {cantidad} {unidad}\n"
     
     if alertas > 0:
         texto += f"\n⚠️ {alertas} producto(s) con stock bajo"
@@ -561,19 +647,61 @@ async def comando_compra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         parte_costo = resto
     
-    # Extraer cantidad (primer número del producto)
+    # Extraer cantidad — soporta "N cajas puntilla X" o "N producto"
+    import re as _re_compra
     palabras_producto = parte_producto.split()
-    try:
-        cantidad = float(palabras_producto[0].replace(",", "."))
-    except ValueError:
-        await update.message.reply_text(
-            f"❌ '{palabras_producto[0]}' no es una cantidad válida.",
-            parse_mode="Markdown"
-        )
-        return
-    
-    # Resto es el nombre del producto
-    nombre_producto = " ".join(palabras_producto[1:])
+
+    _m_cajas_c = _re_compra.match(r'^(\d+(?:[.,]\d+)?)\s+cajas?\s+(.+)$',
+                                    parte_producto, _re_compra.IGNORECASE)
+    _m_gramos_c = _re_compra.match(r'^(\d+(?:[.,]\d+)?)\s+gr(?:amos?)?\s+(.+)$',
+                                    parte_producto, _re_compra.IGNORECASE)
+
+    if _m_cajas_c:
+        try:
+            _n_cajas_c = float(_m_cajas_c.group(1).replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Cantidad inválida.", parse_mode="Markdown")
+            return
+        nombre_producto = _m_cajas_c.group(2).strip()
+        _prod_c_check = None
+        try:
+            from memoria import buscar_producto_en_catalogo as _bpc_c
+            _prod_c_check = _bpc_c(nombre_producto)
+        except Exception:
+            pass
+        if _prod_c_check and _prod_c_check.get("unidad_medida", "").upper() == "GRM":
+            # Convertir cajas → gramos; el costo ya viene "por caja" → dividir a por gramo
+            cantidad = float(500 * _n_cajas_c)
+            nombre_producto = _prod_c_check["nombre"]
+            _label_compra = f"{int(_n_cajas_c)} caja(s) = {int(cantidad)} gr"
+            _dividir_costo = True  # costo viene por caja, hay que dividir entre 500
+        else:
+            # No es GRM, tratar normal
+            cantidad = _n_cajas_c
+            _label_compra = None
+            _dividir_costo = False
+    elif _m_gramos_c:
+        try:
+            cantidad = float(_m_gramos_c.group(1).replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Cantidad inválida.", parse_mode="Markdown")
+            return
+        nombre_producto = _m_gramos_c.group(2).strip()
+        _label_compra = None
+        _dividir_costo = False
+    else:
+        try:
+            cantidad = float(palabras_producto[0].replace(",", "."))
+        except ValueError:
+            await update.message.reply_text(
+                f"❌ '{palabras_producto[0]}' no es una cantidad válida.",
+                parse_mode="Markdown"
+            )
+            return
+        nombre_producto = " ".join(palabras_producto[1:])
+        _label_compra = None
+        _dividir_costo = False
+
     if len(nombre_producto) < 2:
         await update.message.reply_text("❌ Nombre del producto muy corto.")
         return
@@ -593,8 +721,14 @@ async def comando_compra(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Registrar compra en memoria
+    # Si fue "N cajas puntilla a X la caja", costo viene por caja → convertir a por gramo
+    if _dividir_costo and costo >= 500:
+        costo_gramo = costo / 500
+    else:
+        costo_gramo = costo
+
     exito, mensaje, datos_excel = await asyncio.to_thread(
-        registrar_compra, nombre_producto, cantidad, costo, proveedor
+        registrar_compra, nombre_producto, cantidad, costo_gramo, proveedor
     )
     
     # Guardar en Excel
@@ -1516,12 +1650,24 @@ async def comando_keepalive(update, context):
 # ─────────────────────────────────────────────
 
 CATEGORIAS_DISPONIBLES = {
-    "1": "2 Pinturas y Disolventes",
-    "2": "1 Artículos de Ferreteria",
+    "1": "1 Artículos de Ferreteria",
+    "2": "2 Pinturas y Disolventes",
     "3": "3 Tornilleria",
     "4": "4 Impermeabilizantes y Materiales de construcción",
     "5": "5 Materiales Electricos",
 }
+
+# Nombres limpios para mostrar al usuario (sin el prefijo numérico)
+CATEGORIAS_DISPLAY = {
+    "1": "Artículos de Ferreteria",
+    "2": "Pinturas y Disolventes",
+    "3": "Tornilleria",
+    "4": "Impermeabilizantes y Materiales de construcción",
+    "5": "Materiales Eléctricos",
+}
+
+# Orden de pasos para poder retroceder
+_PASOS_ORDEN = ["nombre", "categoria", "precio"]
 
 CATEGORIAS_CON_FRACCIONES = {"2 pinturas y disolventes"}
 CATEGORIAS_TORNILLERIA    = {"3 tornilleria"}
@@ -1536,7 +1682,19 @@ async def comando_agregar_producto(update: Update, context: ContextTypes.DEFAULT
 
     await update.message.reply_text(
         "➕ Agregar producto nuevo\n\n"
-        "Escribe el nombre del producto:"
+        "Escribe el nombre del producto:\n\n"
+        "_(Escribe 'cancelar' en cualquier momento para salir)_",
+        parse_mode="Markdown"
+    )
+
+
+def _texto_categoria_prompt(nombre_prod: str) -> str:
+    cats = "\n".join(f"  {k}. {v}" for k, v in CATEGORIAS_DISPLAY.items())
+    return (
+        f"Producto: *{nombre_prod}*\n\n"
+        f"Elige la categoría:\n{cats}\n\n"
+        f"Responde con el número (1-5):\n\n"
+        f"_(Escribe 'volver' para cambiar el nombre o 'cancelar' para salir)_"
     )
 
 
@@ -1555,10 +1713,84 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
     if texto.lower() in {"cancelar", "/cancelar"}:
         context.user_data.pop("nuevo_producto", None)
         context.user_data.pop("paso_producto", None)
-        await update.message.reply_text("❌ Cancelado.")
+        await update.message.reply_text("❌ Registro cancelado.")
         return True
 
     prod = context.user_data.get("nuevo_producto", {})
+
+    # ── Volver al paso anterior ──
+    if texto.lower() in {"volver", "atras", "atrás"}:
+        if paso == "categoria":
+            context.user_data["paso_producto"] = "nombre"
+            await update.message.reply_text(
+                "↩️ Volvemos al nombre.\n\nEscribe el nombre del producto:"
+            )
+            return True
+        elif paso == "precio":
+            context.user_data["paso_producto"] = "categoria"
+            await update.message.reply_text(
+                _texto_categoria_prompt(prod.get("nombre", "")),
+                parse_mode="Markdown"
+            )
+            return True
+        elif paso in {"fracciones_3_4", "mayorista"}:
+            context.user_data["paso_producto"] = "precio"
+            await update.message.reply_text(
+                f"↩️ Volvemos al precio.\n\n"
+                f"¿Cuál es el precio de la unidad completa?\n(solo el número, ej: 50000)\n\n"
+                f"_(Escribe 'volver' para cambiar la categoría)_",
+                parse_mode="Markdown"
+            )
+            return True
+        elif paso.startswith("fracciones_"):
+            # Dentro de fracciones, volver a la fracción anterior
+            orden_fracs = ["fracciones_3_4", "fracciones_1_2", "fracciones_1_4", "fracciones_1_8", "fracciones_1_16"]
+            idx = orden_fracs.index(paso) if paso in orden_fracs else -1
+            if idx > 0:
+                paso_ant = orden_fracs[idx - 1]
+                context.user_data["paso_producto"] = paso_ant
+                fracs_labels = {"fracciones_3_4": "3/4", "fracciones_1_2": "1/2",
+                                "fracciones_1_4": "1/4", "fracciones_1_8": "1/8", "fracciones_1_16": "1/16"}
+                frac_ant = fracs_labels.get(paso_ant, "")
+                # Limpiar la fracción anterior para re-ingresarla
+                prod.get("fracciones", {}).pop(frac_ant, None)
+                context.user_data["nuevo_producto"] = prod
+                await update.message.reply_text(
+                    f"↩️ Volvemos a la fracción {frac_ant}.\n\n"
+                    f"¿Precio unitario para vender {frac_ant}?\n(Escribe 0 si no aplica)"
+                )
+            else:
+                context.user_data["paso_producto"] = "precio"
+                await update.message.reply_text(
+                    f"↩️ Volvemos al precio.\n\n"
+                    f"¿Cuál es el precio de la unidad completa?\n(solo el número, ej: 50000)"
+                )
+            return True
+        elif paso == "confirmar":
+            # Volver al último paso de datos
+            cat_lower = prod.get("categoria", "").lower()
+            if cat_lower in CATEGORIAS_CON_FRACCIONES:
+                context.user_data["paso_producto"] = "fracciones_1_16"
+                await update.message.reply_text(
+                    "↩️ Volvemos a la última fracción.\n\n"
+                    "¿Precio unitario para vender 1/16?\n(Escribe 0 si no aplica)"
+                )
+            elif cat_lower in CATEGORIAS_TORNILLERIA:
+                context.user_data["paso_producto"] = "mayorista"
+                await update.message.reply_text(
+                    "↩️ Volvemos al precio mayorista.\n\n"
+                    "¿Cuál es el precio unitario para compras de 50 o más unidades?\n(Escribe 0 si no aplica)"
+                )
+            else:
+                context.user_data["paso_producto"] = "precio"
+                await update.message.reply_text(
+                    "↩️ Volvemos al precio.\n\n"
+                    "¿Cuál es el precio de la unidad completa?\n(solo el número, ej: 50000)"
+                )
+            return True
+        else:
+            await update.message.reply_text("Ya estás en el primer paso. Escribe 'cancelar' para salir.")
+            return True
 
     # ── Paso 1: nombre ──
     if paso == "nombre":
@@ -1569,11 +1801,9 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
         context.user_data["nuevo_producto"] = prod
         context.user_data["paso_producto"]  = "categoria"
 
-        cats = "\n".join(f"  {k}. {v}" for k, v in CATEGORIAS_DISPONIBLES.items())
         await update.message.reply_text(
-            f"Producto: {texto}\n\n"
-            f"Elige la categoría:\n{cats}\n\n"
-            f"Responde con el número (1-5):"
+            _texto_categoria_prompt(texto),
+            parse_mode="Markdown"
         )
         return True
 
@@ -1586,11 +1816,14 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
         prod["categoria"] = categoria
         context.user_data["nuevo_producto"] = prod
         context.user_data["paso_producto"]  = "precio"
+        nombre_display = CATEGORIAS_DISPLAY[texto]
 
         await update.message.reply_text(
-            f"Categoría: {categoria}\n\n"
+            f"Categoría: *{nombre_display}*\n\n"
             f"¿Cuál es el precio de la unidad completa?\n"
-            f"(solo el número, ej: 50000)"
+            f"(solo el número, ej: 50000)\n\n"
+            f"_(Escribe 'volver' para cambiar la categoría)_",
+            parse_mode="Markdown"
         )
         return True
 
@@ -1616,14 +1849,17 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
                 f"Es de Pinturas/Disolventes — necesito los precios por fracción.\n"
                 f"(Escribe 0 si no aplica esa fracción)\n\n"
                 f"¿Precio unitario para vender 3/4?\n"
-                f"(precio que multiplicado × 0.75 da el total)"
+                f"_(Escribe 'volver' para corregir el precio base)_",
+                parse_mode="Markdown"
             )
         elif cat_lower in CATEGORIAS_TORNILLERIA:
             context.user_data["paso_producto"] = "mayorista"
             await update.message.reply_text(
                 f"Precio base: ${precio:,.0f}\n\n"
                 f"Es Tornillería — ¿cuál es el precio unitario para compras de 50 o más unidades?\n"
-                f"(Escribe 0 si no aplica precio mayorista)"
+                f"(Escribe 0 si no aplica precio mayorista)\n\n"
+                f"_(Escribe 'volver' para corregir el precio base)_",
+                parse_mode="Markdown"
             )
         else:
             context.user_data["paso_producto"] = "confirmar"
@@ -1704,8 +1940,8 @@ async def _mostrar_confirmacion(update, prod: dict):
     if prod.get("precio_mayorista"):
         lineas.append(f"Mayorista: ${prod['precio_mayorista']:,.0f} (x50+)")
 
-    lineas.append("\n¿Confirmas? (si / no)")
-    await update.message.reply_text("\n".join(lineas))
+    lineas.append("\n¿Confirmas? (si / no)\n_(Escribe 'volver' para corregir el último dato)_")
+    await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
 
 
 async def _guardar_producto(update, context, prod: dict):

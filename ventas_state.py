@@ -2,20 +2,15 @@
 Estado en memoria para ventas pendientes de confirmación y borrados pendientes.
 Protegido con threading.Lock para evitar race conditions en el event loop async.
 
-CORRECCIONES v2:
-  - _parsear_precio eliminada — se usa parsear_precio de utils (era duplicado)
-  - mensajes_standby tiene cap de MAX_STANDBY mensajes por chat (evita crecimiento infinito)
-  - consecutivo siempre >= 1: se usa obtener_siguiente_consecutivo() directamente
-    en lugar de obtener_consecutivo_actual() que podía retornar 0
-  - Docstring movido ANTES del import logging
-
-CORRECCIONES v3:
-  - Protección mejorada en descuento de inventario (manejo explícito de None)
+CORRECCIONES v4:
+  - ventas_pendientes con timestamp para expiración automática (5 min)
+  - limpiar_pendientes_expirados() evita estado atascado tras excepción
 """
 
 import logging
 import asyncio
 import threading
+import time
 
 import config
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, es_thinner, parsear_precio
@@ -28,11 +23,17 @@ from memoria import cargar_inventario, guardar_inventario, cargar_caja, guardar_
 
 _estado_lock = threading.Lock()
 
-# Límite máximo de mensajes en standby por chat (evita crecimiento infinito)
+# Límite máximo de mensajes en standby por chat
 MAX_STANDBY = 3
+
+# Tiempo máximo que una venta puede estar pendiente de confirmación (segundos)
+_TIMEOUT_PENDIENTE = 300  # 5 minutos
 
 # {chat_id: [lista de ventas pendientes de confirmar método de pago]}
 ventas_pendientes: dict[int, list] = {}
+
+# {chat_id: timestamp} — cuándo se guardó cada pendiente
+_ventas_pendientes_ts: dict[int, float] = {}
 
 # {chat_id: [mensajes en standby esperando que se confirme el pago anterior]}
 mensajes_standby: dict[int, list[str]] = {}
@@ -58,6 +59,37 @@ mensaje_contexto_pendiente: dict[int, str] = {}
 
 _chat_locks: dict[int, asyncio.Lock] = {}
 _chat_locks_meta = threading.Lock()
+
+
+def _guardar_pendiente(chat_id: int, ventas: list):
+    """Guarda ventas pendientes con timestamp. Usar DENTRO del lock."""
+    ventas_pendientes[chat_id]     = ventas
+    _ventas_pendientes_ts[chat_id] = time.time()
+
+
+def limpiar_pendientes_expirados():
+    """
+    Elimina ventas_pendientes que llevan más de _TIMEOUT_PENDIENTE sin confirmarse.
+    Seguro de llamar con o sin _estado_lock tomado: usa trylock para no deadlockear.
+    """
+    ahora = time.time()
+    # Usar acquire(blocking=False) para no bloquear si ya está tomado
+    adquirido = _estado_lock.acquire(blocking=False)
+    try:
+        expirados = [
+            cid for cid, ts in list(_ventas_pendientes_ts.items())
+            if ahora - ts > _TIMEOUT_PENDIENTE
+        ]
+        for cid in expirados:
+            ventas_pendientes.pop(cid, None)
+            _ventas_pendientes_ts.pop(cid, None)
+            mensajes_standby.pop(cid, None)
+            logging.getLogger("ferrebot.ventas_state").info(
+                f"[TIMEOUT] Pendiente expirado chat {cid} — estado limpiado"
+            )
+    finally:
+        if adquirido:
+            _estado_lock.release()
 
 
 def get_chat_lock(chat_id: int) -> asyncio.Lock:

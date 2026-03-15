@@ -1,0 +1,1990 @@
+"""
+FerreBot Dashboard API — FastAPI
+Expone datos de ventas (Google Sheets + Excel) y catálogo (memoria.json).
+Corre en el mismo entorno que el bot; reutiliza config.py y sheets.py.
+"""
+
+from __future__ import annotations
+
+from dotenv import load_dotenv
+load_dotenv()
+
+import json
+import logging
+import os
+from collections import defaultdict
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import openpyxl
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from typing import Union
+
+import config
+from sheets import sheets_leer_ventas_del_dia
+
+# ── App ───────────────────────────────────────────────────────────────────────
+app = FastAPI(
+    title="FerreBot Dashboard API",
+    description="API de ventas y catálogo para Ferretería Punto Rojo",
+    version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Helpers de fecha ──────────────────────────────────────────────────────────
+def _hoy() -> str:
+    return datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+
+
+def _hace_n_dias(n: int) -> datetime:
+    return datetime.now(config.COLOMBIA_TZ) - timedelta(days=n)
+
+
+# ── Helper: leer Excel histórico ──────────────────────────────────────────────
+def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list[dict]:
+    if not os.path.exists(config.EXCEL_FILE):
+        return []
+
+    try:
+        wb = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True, data_only=True)
+    except Exception:
+        return []
+
+    ahora = datetime.now(config.COLOMBIA_TZ)
+    hojas_candidatas = [
+        f"{config.MESES[ahora.month]} {ahora.year}",
+    ]
+    if ahora.month > 1:
+        hojas_candidatas.append(f"{config.MESES[ahora.month - 1]} {ahora.year}")
+    else:
+        hojas_candidatas.append(f"{config.MESES[12]} {ahora.year - 1}")
+
+    if dias is not None:
+        limite = (_hace_n_dias(dias)).strftime("%Y-%m-%d")
+    else:
+        limite = None
+
+    resultado = []
+    for nombre_hoja in hojas_candidatas:
+        if nombre_hoja not in wb.sheetnames:
+            continue
+        ws = wb[nombre_hoja]
+
+        # En modo read_only ws.max_column puede ser None y ws.cell() no es confiable.
+        # Leer headers iterando la fila exacta.
+        cols: dict[str, int] = {}
+        try:
+            for fila_hdr in ws.iter_rows(
+                min_row=config.EXCEL_FILA_HEADERS,
+                max_row=config.EXCEL_FILA_HEADERS,
+            ):
+                for cell in fila_hdr:
+                    if cell.value:
+                        cols[str(cell.value).lower().strip()] = cell.column
+                break
+        except Exception:
+            continue
+
+        def _col(*claves) -> int | None:
+            for k in claves:
+                if k in cols:
+                    return cols[k]
+            return None
+
+        c_fecha    = _col("fecha")
+        c_hora     = _col("hora")
+        c_producto = _col("producto")
+        c_cantidad = _col("cantidad")
+        c_precio   = _col("valor unitario", "precio unitario", "precio")
+        c_total    = _col("total")
+        c_alias    = _col("alias")
+        c_vendedor = _col("vendedor")
+        c_metodo   = _col("metodo de pago", "metodo pago", "método pago")
+        c_num      = _col("#", "consecutivo", "num", "consecutivo de venta")
+
+        for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
+            if not any(fila):
+                continue
+
+            fecha_raw = fila[c_fecha - 1] if (c_fecha and c_fecha <= len(fila)) else None
+            if fecha_raw is None:
+                continue
+
+            if isinstance(fecha_raw, datetime):
+                fecha_str = fecha_raw.strftime("%Y-%m-%d")
+            else:
+                fecha_str = str(fecha_raw)[:10]
+
+            if limite and fecha_str < limite:
+                continue
+            if mes_actual and not fecha_str.startswith(f"{ahora.year}-{ahora.month:02d}"):
+                continue
+
+            def _v(col_idx):
+                if col_idx is None or col_idx > len(fila):
+                    return ""
+                v = fila[col_idx - 1]
+                return v if v is not None else ""
+
+            try:
+                total = float(str(_v(c_total)).replace(",", ".") or 0)
+            except (ValueError, TypeError):
+                total = 0.0
+
+            try:
+                precio_unit = float(str(_v(c_precio)).replace(",", ".") or 0)
+            except (ValueError, TypeError):
+                precio_unit = 0.0
+
+            resultado.append({
+                "num":             _v(c_num),
+                "fecha":           fecha_str,
+                "hora":            str(_v(c_hora)),
+                "id_cliente":      "CF",
+                "cliente":         "Consumidor Final",
+                "codigo_producto": "",
+                "producto":        str(_v(c_producto)),
+                "cantidad":        str(_v(c_cantidad)),
+                "precio_unitario": precio_unit,
+                "total":           total,
+                "alias":           str(_v(c_alias)),
+                "vendedor":        str(_v(c_vendedor)),
+                "metodo":          str(_v(c_metodo)),
+            })
+
+    try:
+        wb.close()
+    except Exception:
+        pass
+    return resultado
+
+
+# ── Wayper: stock unificado (inventario en unidades, venta en kg o unidades) ──
+_WAYPER_KG_A_UNIDAD = 12  # 1 kg = 12 unidades
+_WAYPER_KG_KEYS = {
+    "wayper_blanco":   "wayper_blanco_unidad",
+    "wayper_de_color": "wayper_de_color_unidad",
+}
+
+def _stock_wayper(key: str, inventario: dict):
+    """
+    Para waypers por kg: muestra stock en kg (= unidades / 12).
+    Para waypers por unidad: muestra stock en unidades directamente.
+    """
+    # Si es el producto "por kg", leer el stock de unidades y convertir
+    if key in _WAYPER_KG_KEYS:
+        inv_und = inventario.get(_WAYPER_KG_KEYS[key])
+        if inv_und is not None:
+            und = inv_und.get("cantidad") if isinstance(inv_und, dict) else inv_und
+            if und is not None:
+                return round(und / _WAYPER_KG_A_UNIDAD, 2)  # kg
+        return None
+    # Stock normal
+    raw = inventario.get(key)
+    if raw is None:
+        return None
+    return raw.get("cantidad") if isinstance(raw, dict) else raw
+
+
+def _leer_excel_compras(dias: int | None = None) -> list[dict]:
+    """Lee la hoja 'Compras' del Excel de ventas."""
+    if not os.path.exists(config.EXCEL_FILE):
+        return []
+    try:
+        wb = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True, data_only=True)
+    except Exception:
+        return []
+    if "Compras" not in wb.sheetnames:
+        wb.close()
+        return []
+    ws     = wb["Compras"]
+    ahora  = datetime.now(config.COLOMBIA_TZ)
+    limite = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d") if dias else None
+    resultado = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not any(row):
+            continue
+        fecha = str(row[0])[:10] if row[0] else ""
+        if limite and fecha < limite:
+            continue
+        resultado.append({
+            "fecha":          fecha,
+            "hora":           str(row[1] or ""),
+            "proveedor":      str(row[2] or "—"),
+            "producto":       str(row[3] or ""),
+            "cantidad":       _to_float(row[4]),
+            "costo_unitario": _to_float(row[5]),
+            "costo_total":    _to_float(row[6]),
+        })
+    wb.close()
+    return sorted(resultado, key=lambda x: x["fecha"])
+
+
+def _to_float(val) -> float:
+    try:
+        return float(str(val).replace(",", ".") or 0)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _cantidad_a_float(val) -> float:
+    if val is None:
+        return 0.0
+    s = str(val).strip()
+    if not s:
+        return 0.0
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    if "/" in s and " " not in s:
+        parts = s.split("/")
+        try:
+            return float(parts[0]) / float(parts[1])
+        except (ValueError, ZeroDivisionError):
+            return 0.0
+    if " y " in s:
+        partes = s.split(" y ")
+        try:
+            entero = float(partes[0])
+            frac_parts = partes[1].split("/")
+            frac = float(frac_parts[0]) / float(frac_parts[1])
+            return entero + frac
+        except (ValueError, IndexError, ZeroDivisionError):
+            return 0.0
+    return 0.0
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@app.get("/ventas/hoy")
+def ventas_hoy():
+    try:
+        hoy = _hoy()
+
+        # ── Fuente principal: Google Sheets (datos en tiempo real) ────────────
+        filtradas = []
+        fuente    = "sheets"
+        try:
+            ventas    = sheets_leer_ventas_del_dia()
+            filtradas = [v for v in ventas if str(v.get("fecha", ""))[:10] == hoy]
+        except Exception as e_sheets:
+            logging.getLogger("ferrebot.api").warning(
+                f"Sheets no disponible, usando Excel como fallback: {e_sheets}"
+            )
+            fuente = "excel_fallback"
+
+        # ── Fallback al Excel si Sheets devuelve vacío o falló ────────────────
+        if not filtradas:
+            try:
+                ventas_xls = _leer_excel_rango(dias=1)
+                filtradas  = [v for v in ventas_xls if str(v.get("fecha", ""))[:10] == hoy]
+                if filtradas:
+                    fuente = "excel_fallback"
+            except Exception:
+                pass
+
+        # ── Enriquecer con unidad_medida desde el catálogo ────────────────────
+        try:
+            if os.path.exists(config.MEMORIA_FILE):
+                with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                    _mem = json.load(_f)
+                catalogo = _mem.get("catalogo", {})
+
+                def _unidad_para(nombre_prod: str) -> str:
+                    if not nombre_prod:
+                        return "Unidad"
+                    n = nombre_prod.lower().strip()
+                    for key, prod in catalogo.items():
+                        if prod.get("nombre", "").lower().strip() == n or key == n.replace(" ", "_"):
+                            return prod.get("unidad_medida", "Unidad") or "Unidad"
+                    return "Unidad"
+
+                for v in filtradas:
+                    v["unidad_medida"] = _unidad_para(v.get("producto", ""))
+        except Exception:
+            pass
+
+        return {"fecha": hoy, "ventas": filtradas, "total": len(filtradas), "fuente": fuente}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ventas/semana")
+def ventas_semana():
+    try:
+        ventas = _leer_excel_rango(dias=7)
+        return {"ventas": ventas, "total": len(ventas)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ventas/top")
+def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$")):
+    try:
+        dias = 7 if periodo == "semana" else None
+        mes = periodo == "mes"
+        ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
+
+        por_producto: dict[str, dict] = defaultdict(lambda: {"unidades": 0.0, "ingresos": 0.0})
+        for v in ventas:
+            nombre = str(v.get("producto", "")).strip()
+            if not nombre:
+                continue
+            cantidad = _cantidad_a_float(v.get("cantidad", 0))
+            total    = _to_float(v.get("total", 0))
+            por_producto[nombre]["unidades"] += cantidad
+            por_producto[nombre]["ingresos"] += total
+
+        ranking = sorted(
+            [{"producto": k, **v} for k, v in por_producto.items()],
+            key=lambda x: x["unidades"],
+            reverse=True,
+        )[:10]
+
+        for i, item in enumerate(ranking, 1):
+            item["posicion"] = i
+
+        return {"periodo": periodo, "top": ranking}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ventas/resumen")
+def ventas_resumen():
+    try:
+        hoy = _hoy()
+
+        # Sheets — tolerante a fallo
+        try:
+            ventas_hoy_list = sheets_leer_ventas_del_dia()
+            ventas_hoy_list = [v for v in ventas_hoy_list if str(v.get("fecha", ""))[:10] == hoy]
+        except Exception:
+            ventas_hoy_list = []
+
+        total_hoy   = sum(_to_float(v.get("total", 0)) for v in ventas_hoy_list)
+        pedidos_hoy = len({str(v.get("num", i)) for i, v in enumerate(ventas_hoy_list)})
+
+        # Excel semana — tolerante a fallo
+        try:
+            ventas_sem = _leer_excel_rango(dias=7)
+        except Exception:
+            ventas_sem = []
+        total_sem   = sum(_to_float(v.get("total", 0)) for v in ventas_sem)
+        pedidos_sem = len({str(v.get("num", i)) for i, v in enumerate(ventas_sem)}) or 1
+        ticket_prom = round(total_sem / pedidos_sem, 0) if pedidos_sem else 0
+
+        ventas_por_dia: dict[str, float] = defaultdict(float)
+        for v in ventas_sem:
+            fecha = str(v.get("fecha", ""))[:10]
+            ventas_por_dia[fecha] += _to_float(v.get("total", 0))
+
+        historico = []
+        for i in range(6, -1, -1):
+            dia = (_hace_n_dias(i)).strftime("%Y-%m-%d")
+            historico.append({"fecha": dia, "total": ventas_por_dia.get(dia, 0)})
+
+        # Excel mes — tolerante a fallo
+        try:
+            ventas_mes = _leer_excel_rango(mes_actual=True)
+        except Exception:
+            ventas_mes = []
+        total_mes = sum(_to_float(v.get("total", 0)) for v in ventas_mes)
+
+        ventas_mes_por_dia: dict[str, float] = defaultdict(float)
+        for v in ventas_mes:
+            fecha = str(v.get("fecha", ""))[:10]
+            ventas_mes_por_dia[fecha] += _to_float(v.get("total", 0))
+
+        ahora_local = datetime.now(config.COLOMBIA_TZ)
+        primer_dia  = ahora_local.replace(day=1)
+        historico_mes = []
+        current = primer_dia
+        while current.date() <= ahora_local.date():
+            dia_str = current.strftime("%Y-%m-%d")
+            historico_mes.append({"fecha": dia_str, "total": ventas_mes_por_dia.get(dia_str, 0)})
+            current += timedelta(days=1)
+
+        return {
+            "total_hoy":     total_hoy,
+            "pedidos_hoy":   pedidos_hoy,
+            "total_semana":  total_sem,
+            "ticket_prom":   ticket_prom,
+            "historico_7d":  historico,
+            "total_mes":     total_mes,
+            "historico_mes": historico_mes,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/productos")
+def productos():
+    try:
+        if not os.path.exists(config.MEMORIA_FILE):
+            return {"productos": []}
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+        lista = [
+            {
+                "key":              k,
+                "nombre":           v.get("nombre", k),
+                "categoria":        v.get("categoria", "Sin categoría"),
+                "precio":           v.get("precio_unidad", 0),
+                "codigo":           v.get("codigo", ""),
+                "stock":            _stock_wayper(k, inventario),
+                "precios_fraccion": v.get("precios_fraccion", None),
+                "unidad_medida":    v.get("unidad_medida", "Unidad"),
+            }
+            for k, v in catalogo.items()
+        ]
+        return {"productos": lista, "total": len(lista)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/inventario/bajo")
+def inventario_bajo():
+    try:
+        if not os.path.exists(config.MEMORIA_FILE):
+            return {"alertas": []}
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+
+        alertas = []
+        for key, prod in catalogo.items():
+            precio = prod.get("precio_unidad", None)
+            raw_stock = inventario.get(key, None)
+            stock = raw_stock.get("cantidad") if isinstance(raw_stock, dict) else raw_stock
+
+            sin_precio = precio is None or precio == 0
+            sin_stock  = stock is not None and (stock == 0 or stock == "0" or stock == 0.0)
+
+            if sin_precio or sin_stock:
+                alertas.append({
+                    "key":       key,
+                    "nombre":    prod.get("nombre", key),
+                    "categoria": prod.get("categoria", ""),
+                    "precio":    precio or 0,
+                    "stock":     stock,
+                    "motivo":    "sin_precio" if sin_precio else "stock_cero",
+                })
+
+        return {"alertas": alertas, "total": len(alertas)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Caja del día ─────────────────────────────────────────────────────────────
+@app.get("/caja")
+def caja():
+    try:
+        if not os.path.exists(config.MEMORIA_FILE):
+            return {"caja": {}, "gastos": []}
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        caja_data = mem.get("caja_actual", {
+            "abierta": False, "fecha": None,
+            "monto_apertura": 0, "efectivo": 0,
+            "transferencias": 0, "datafono": 0,
+        })
+
+        ahora     = datetime.now(config.COLOMBIA_TZ)
+        hoy       = ahora.strftime("%Y-%m-%d")
+        gastos_hoy = mem.get("gastos", {}).get(hoy, [])
+
+        total_gastos_caja = sum(
+            g.get("monto", 0) for g in gastos_hoy
+            if g.get("origen") == "caja"
+        )
+        total_gastos      = sum(g.get("monto", 0) for g in gastos_hoy)
+
+        abierta = caja_data.get("abierta", False)
+
+        # Si la caja está cerrada, mostrar ceros — los valores guardados
+        # corresponden al último día activo y no deben mostrarse como "de hoy"
+        if not abierta:
+            return {
+                "abierta":           False,
+                "fecha":             caja_data.get("fecha"),
+                "monto_apertura":    0,
+                "efectivo":          0,
+                "transferencias":    0,
+                "datafono":          0,
+                "total_ventas":      0,
+                "total_gastos_caja": 0,
+                "total_gastos":      0,
+                "efectivo_esperado": 0,
+                "gastos":            [],
+            }
+
+        efectivo       = _to_float(caja_data.get("efectivo", 0))
+        transferencias = _to_float(caja_data.get("transferencias", 0))
+        datafono       = _to_float(caja_data.get("datafono", 0))
+        apertura       = _to_float(caja_data.get("monto_apertura", 0))
+        total_ventas      = efectivo + transferencias + datafono
+        efectivo_esperado = apertura + efectivo - total_gastos_caja
+
+        return {
+            "abierta":           True,
+            "fecha":             caja_data.get("fecha"),
+            "monto_apertura":    apertura,
+            "efectivo":          efectivo,
+            "transferencias":    transferencias,
+            "datafono":          datafono,
+            "total_ventas":      total_ventas,
+            "total_gastos_caja": total_gastos_caja,
+            "total_gastos":      total_gastos,
+            "efectivo_esperado": efectivo_esperado,
+            "gastos":            gastos_hoy,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Ventas Rápidas (desde el Dashboard) ──────────────────────────────────────
+class VentaRapidaItem(BaseModel):
+    nombre:        str
+    cantidad:      Union[float, str] = 1
+    total:         float
+    unidad_medida: str = ""   # si viene vacío se busca en catálogo
+
+class VentaRapidaPayload(BaseModel):
+    productos:       list[VentaRapidaItem]
+    metodo:          str = "efectivo"
+    vendedor:        str = "Dashboard"
+    cliente_nombre:  str = ""
+    cliente_id:      str = ""
+
+@app.post("/venta-rapida")
+def venta_rapida(payload: VentaRapidaPayload):
+    try:
+        from excel import guardar_venta_excel, recalcular_caja_desde_excel, obtener_siguiente_consecutivo
+
+        # Cargar catálogo una sola vez para resolver unidad_medida
+        _catalogo_cache = {}
+        try:
+            if os.path.exists(config.MEMORIA_FILE):
+                with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                    _mem = json.load(_f)
+                _catalogo_cache = _mem.get("catalogo", {})
+        except Exception:
+            pass
+
+        def _resolver_unidad(item: VentaRapidaItem) -> str:
+            """Devuelve la unidad_medida del item: primero la del payload, si no la del catálogo."""
+            if item.unidad_medida and item.unidad_medida not in ("", "Unidad"):
+                return item.unidad_medida
+            # Buscar en catálogo por nombre normalizado
+            nombre_norm = item.nombre.lower().strip()
+            for prod_key, prod_val in _catalogo_cache.items():
+                if prod_val.get("nombre", "").lower().strip() == nombre_norm or prod_key == nombre_norm.replace(" ", "_"):
+                    return prod_val.get("unidad_medida", "Unidad")
+            return item.unidad_medida or "Unidad"
+
+        # Un solo consecutivo para toda la venta
+        consecutivo = obtener_siguiente_consecutivo()
+
+        filas = []
+        for item in payload.productos:
+            try:
+                cant_num = float(item.cantidad) if isinstance(item.cantidad, (int, float)) else 1.0
+            except (ValueError, TypeError):
+                cant_num = 1.0
+            # Bug fix: cant_num <= 0 causaba precio_unitario=total (incorrecto).
+            # Si la cantidad es 0 o invalida, forzamos 1 para que precio_unitario = total.
+            if not cant_num or cant_num <= 0:
+                cant_num = 1.0
+            precio_unitario = round(item.total / cant_num, 2)
+
+            unidad = _resolver_unidad(item)
+
+            fila = guardar_venta_excel(
+                producto        = item.nombre,
+                cantidad        = cant_num,
+                precio_unitario = precio_unitario,
+                total           = item.total,
+                vendedor        = payload.vendedor,
+                observaciones   = "venta-rapida",
+                metodo_pago     = payload.metodo,
+                consecutivo     = consecutivo,
+                unidad_medida   = unidad,
+                cliente_nombre  = payload.cliente_nombre or None,
+                cliente_id      = payload.cliente_id     or None,
+            )
+            filas.append(fila)
+
+            # Descontar inventario (igual que hace el bot por Telegram)
+            try:
+                from memoria import descontar_inventario
+                descontar_inventario(item.nombre, cant_num)
+            except Exception:
+                pass
+
+        recalcular_caja_desde_excel()
+
+        return {
+            "ok":          True,
+            "consecutivo": consecutivo,
+            "productos":   len(filas),
+            "total":       sum(i.total for i in payload.productos),
+            "metodo":      payload.metodo,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.get("/gastos")
+def gastos(dias: int = Query(default=7, ge=1, le=90)):
+    try:
+        if not os.path.exists(config.MEMORIA_FILE):
+            return {"gastos": [], "total": 0, "por_categoria": {}}
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        todos_gastos = mem.get("gastos", {})
+        ahora  = datetime.now(config.COLOMBIA_TZ)
+        limite = (ahora - timedelta(days=dias - 1)).strftime("%Y-%m-%d")
+
+        resultado = []
+        por_categoria: dict[str, float] = defaultdict(float)
+        por_dia: dict[str, float]       = defaultdict(float)
+
+        for fecha, lista in todos_gastos.items():
+            if fecha < limite:
+                continue
+            for g in lista:
+                monto = _to_float(g.get("monto", 0))
+                cat   = g.get("categoria", "Sin categoría")
+                resultado.append({**g, "fecha": fecha, "monto": monto})
+                por_categoria[cat]  += monto
+                por_dia[fecha]      += monto
+
+        resultado.sort(key=lambda x: (x["fecha"], x.get("hora", "")), reverse=True)
+
+        # Historico por día para gráfica
+        historico = []
+        for i in range(dias - 1, -1, -1):
+            dia = (ahora - timedelta(days=i)).strftime("%Y-%m-%d")
+            historico.append({"fecha": dia, "total": por_dia.get(dia, 0)})
+
+        return {
+            "gastos":        resultado,
+            "total":         sum(g["monto"] for g in resultado),
+            "por_categoria": dict(por_categoria),
+            "historico":     historico,
+            "dias":          dias,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Historial de compras a proveedores ────────────────────────────────────────
+@app.get("/compras")
+def compras(dias: int = Query(default=30, ge=1, le=365)):
+    try:
+        if not os.path.exists(config.MEMORIA_FILE):
+            return {"compras": [], "total_invertido": 0, "por_proveedor": {}}
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        historial = mem.get("historial_compras", [])
+        ahora  = datetime.now(config.COLOMBIA_TZ)
+        limite = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d")
+
+        filtradas      = [c for c in historial if str(c.get("fecha", ""))[:10] >= limite]
+        por_proveedor: dict[str, float] = defaultdict(float)
+        por_producto:  dict[str, float] = defaultdict(float)
+
+        for c in filtradas:
+            prov = c.get("proveedor") or "Sin proveedor"
+            por_proveedor[prov] += _to_float(c.get("costo_total", 0))
+            por_producto[c.get("producto", "")] += _to_float(c.get("costo_total", 0))
+
+        filtradas.sort(key=lambda x: x.get("fecha", ""), reverse=True)
+
+        return {
+            "compras":        filtradas,
+            "total_invertido": sum(_to_float(c.get("costo_total", 0)) for c in filtradas),
+            "por_proveedor":  dict(por_proveedor),
+            "por_producto":   dict(sorted(por_producto.items(), key=lambda x: -x[1])[:20]),
+            "dias":           dias,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Top ventas (v2 — por ingresos, frecuencia o categoría) ───────────────────
+@app.get("/ventas/top2")
+def ventas_top2(
+    periodo:  str = Query(default="semana", pattern="^(semana|mes)$"),
+    criterio: str = Query(default="ingresos", pattern="^(ingresos|frecuencia|categoria)$"),
+):
+    try:
+        dias = 7 if periodo == "semana" else None
+        mes  = periodo == "mes"
+        ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
+
+        # Leer catálogo para saber la categoría de cada producto
+        cat_map: dict[str, str] = {}
+        if os.path.exists(config.MEMORIA_FILE):
+            with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+                mem = json.load(f)
+            for v in mem.get("catalogo", {}).values():
+                nombre_lower = v.get("nombre_lower", "").strip()
+                cat_map[nombre_lower] = v.get("categoria", "Sin categoría")
+
+        # Acumular por producto
+        acum: dict[str, dict] = defaultdict(lambda: {
+            "ingresos": 0.0, "frecuencia": 0, "categoria": "Sin categoría"
+        })
+        for v in ventas:
+            nombre = str(v.get("producto", "")).strip()
+            if not nombre:
+                continue
+            total = _to_float(v.get("total", 0))
+            acum[nombre]["ingresos"]   += total
+            acum[nombre]["frecuencia"] += 1
+            if acum[nombre]["categoria"] == "Sin categoría":
+                acum[nombre]["categoria"] = cat_map.get(nombre.lower(), "Sin categoría")
+
+        if criterio == "ingresos":
+            ranking = sorted(acum.items(), key=lambda x: -x[1]["ingresos"])[:10]
+            items = [{"producto": k, "valor": v["ingresos"], "frecuencia": v["frecuencia"],
+                      "categoria": v["categoria"], "posicion": i+1}
+                     for i, (k, v) in enumerate(ranking)]
+
+        elif criterio == "frecuencia":
+            ranking = sorted(acum.items(), key=lambda x: -x[1]["frecuencia"])[:10]
+            items = [{"producto": k, "valor": v["frecuencia"], "ingresos": v["ingresos"],
+                      "categoria": v["categoria"], "posicion": i+1}
+                     for i, (k, v) in enumerate(ranking)]
+
+        else:  # categoria
+            # Top 5 por ingresos dentro de cada categoría
+            por_cat: dict[str, list] = defaultdict(list)
+            for nombre, datos in acum.items():
+                por_cat[datos["categoria"]].append({"producto": nombre, **datos})
+            result_cat = {}
+            for cat, prods in por_cat.items():
+                top = sorted(prods, key=lambda x: -x["ingresos"])[:5]
+                result_cat[cat] = [{"producto": p["producto"], "valor": p["ingresos"],
+                                    "frecuencia": p["frecuencia"], "posicion": i+1}
+                                   for i, p in enumerate(top)]
+            return {"periodo": periodo, "criterio": criterio, "por_categoria": result_cat}
+
+        return {"periodo": periodo, "criterio": criterio, "top": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Catálogo navegable (para dashboard) ──────────────────────────────────────
+@app.get("/catalogo/nav")
+def catalogo_nav(q: str = Query(default="")):
+    try:
+        if not os.path.exists(config.MEMORIA_FILE):
+            return {"categorias": {}, "total": 0}
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+
+        # Filtro de búsqueda
+        q_lower = q.strip().lower()
+
+        categorias: dict[str, list] = defaultdict(list)
+        for key, prod in catalogo.items():
+            nombre   = prod.get("nombre", key)
+            categoria = prod.get("categoria", "Sin categoría")
+
+            if q_lower and q_lower not in nombre.lower() and q_lower not in (prod.get("codigo","")).lower():
+                continue
+
+            # Stock info (wayper por kg usa inventario de unidades)
+            stock = _stock_wayper(key, inventario)
+            if key in _WAYPER_KG_KEYS:
+                costo = None
+            else:
+                inv_data = inventario.get(key)
+                costo = inv_data.get("costo_promedio") if isinstance(inv_data, dict) else None
+
+            # Fracciones
+            fracs = {}
+            for frac_key, frac_val in (prod.get("precios_fraccion") or {}).items():
+                if isinstance(frac_val, dict):
+                    fracs[frac_key] = frac_val.get("precio", 0)
+                else:
+                    fracs[frac_key] = frac_val
+
+            # Precio mayorista
+            ppc = prod.get("precio_por_cantidad")
+            mayorista = None
+            if ppc:
+                mayorista = {
+                    "umbral":  ppc.get("umbral", 50),
+                    "precio":  ppc.get("precio_sobre_umbral", 0),
+                }
+
+            categorias[categoria].append({
+                "key":           key,
+                "nombre":        nombre,
+                "codigo":        prod.get("codigo", ""),
+                "precio":        prod.get("precio_unidad", 0),
+                "stock":         stock,
+                "costo":         costo,
+                "fracciones":    fracs,
+                "mayorista":     mayorista,
+                "unidad_medida": prod.get("unidad_medida", "Unidad"),
+            })
+
+        # Ordenar por prefijo numérico de categoría y productos por nombre
+        result = {}
+        for cat in sorted(categorias.keys(), key=lambda c: (int(c.split()[0]) if c[0].isdigit() else 999)):
+            prods = sorted(categorias[cat], key=lambda p: p["nombre"].lower())
+            result[cat] = prods
+
+        total = sum(len(v) for v in result.values())
+        return {"categorias": result, "total": total, "query": q}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Edición de precios desde el dashboard ────────────────────────────────────
+class PrecioUpdate(BaseModel):
+    precio: Union[float, int]
+
+class FraccionesUpdate(BaseModel):
+    fracciones: dict   # { "1/4": 8000, "1/2": 13000, ... }
+
+class MayoristaUpdate(BaseModel):
+    precio: Union[float, int]
+    umbral: Optional[int] = None   # Si None, conserva el umbral existente
+
+class NuevoProducto(BaseModel):
+    nombre:          str
+    categoria:       str
+    precio_unidad:   Union[float, int]
+    unidad_medida:   str  = "Unidad"
+    codigo:          str  = ""
+    stock_inicial:   Union[float, int, None] = None
+    codigo_dian:     str  = "94"
+    inventariable:   bool = True
+    visible_facturas:bool = True
+    stock_minimo:    int  = 0
+
+@app.post("/catalogo")
+def crear_producto(body: NuevoProducto):
+    """
+    Crea un producto nuevo en memoria.json y en BASE_DE_DATOS_PRODUCTOS.xlsx.
+    """
+    try:
+        from utils import _normalizar
+        from precio_sync import agregar_producto_a_excel, _normalizar_unidad
+
+        if not body.nombre.strip():
+            raise HTTPException(status_code=400, detail="El nombre es obligatorio")
+
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+
+        # Generar clave única
+        key_base = _normalizar(body.nombre.strip()).replace(" ", "_")
+        key = key_base
+        sufijo = 2
+        while key in catalogo:
+            key = f"{key_base}_{sufijo}"
+            sufijo += 1
+
+        unidad_norm = _normalizar_unidad(body.unidad_medida)
+
+        nuevo = {
+            "nombre":        body.nombre.strip(),
+            "nombre_lower":  _normalizar(body.nombre.strip()),
+            "categoria":     body.categoria.strip(),
+            "precio_unidad": int(body.precio_unidad),
+            "unidad_medida": unidad_norm,
+        }
+        if body.codigo.strip():
+            nuevo["codigo"] = body.codigo.strip()
+
+        catalogo[key] = nuevo
+
+        # Stock inicial — guardar en formato dict igual al que usa el bot
+        # (float plano hace que descontar_inventario() retorne False silenciosamente)
+        if body.stock_inicial is not None:
+            from datetime import datetime as _dt
+            inventario[key] = {
+                "nombre_original": body.nombre.strip(),
+                "cantidad":        float(body.stock_inicial),
+                "minimo":          body.stock_minimo if hasattr(body, "stock_minimo") else 0,
+                "unidad":          "und",
+                "fecha_conteo":    _dt.now().strftime("%Y-%m-%d %H:%M"),
+            }
+
+        mem["catalogo"]   = catalogo
+        mem["inventario"] = inventario
+
+        # guardar_memoria sube a Drive automáticamente (urgente=True evita pérdida en reinicios)
+        try:
+            from memoria import guardar_memoria, invalidar_cache_memoria
+            guardar_memoria(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            # Fallback: escritura directa si el módulo no está disponible
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        # Intentar escribir en el Excel de productos (no bloquea si falla)
+        excel_resultado = {"ok": False, "error": "no intentado"}
+        try:
+            excel_resultado = agregar_producto_a_excel({
+                "codigo":          body.codigo.strip() or key,
+                "nombre":          body.nombre.strip(),
+                "categoria":       body.categoria.strip(),
+                "precio_unidad":   int(body.precio_unidad),
+                "unidad_medida":   unidad_norm,
+                "inventariable":   body.inventariable,
+                "visible_facturas":body.visible_facturas,
+                "stock_minimo":    body.stock_minimo,
+                "codigo_dian":     body.codigo_dian,
+            })
+        except Exception as e_excel:
+            excel_resultado = {"ok": False, "error": str(e_excel)}
+
+        return {
+            "ok":             True,
+            "key":            key,
+            "nombre":         nuevo["nombre"],
+            "categoria":      nuevo["categoria"],
+            "precio_unidad":  nuevo["precio_unidad"],
+            "unidad_medida":  unidad_norm,
+            "stock_inicial":  body.stock_inicial,
+            "excel_guardado": excel_resultado.get("ok", False),
+            "excel_detalle":  excel_resultado,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/catalogo/{key}/precio")
+def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
+    """
+    Actualiza precio_unidad de un producto.
+    1. Guarda en memoria.json (inmediato).
+    2. Encola actualización en BASE_DE_DATOS_PRODUCTOS.xlsx via precio_sync.
+    """
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        nombre_prod     = catalogo[key].get("nombre", key)
+        precio_anterior = catalogo[key].get("precio_unidad", 0)
+        nuevo_precio    = int(body.precio)
+
+        # 1 ── memoria.json + Drive (guardar_memoria sincroniza ambos)
+        catalogo[key]["precio_unidad"] = nuevo_precio
+        mem["catalogo"] = catalogo
+        try:
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        # 2 ── Excel BASE_DE_DATOS_PRODUCTOS (via precio_sync, cola FIFO)
+        try:
+            from precio_sync import actualizar_precio as _sync_precio
+            _sync_precio(nombre_prod, nuevo_precio, None)
+        except Exception as e_sync:
+            import logging
+            logging.getLogger("ferrebot.api").warning(
+                f"precio_sync falló para '{nombre_prod}': {e_sync}"
+            )
+
+        return {
+            "ok":            True,
+            "key":           key,
+            "nombre":        nombre_prod,
+            "precio_anterior": precio_anterior,
+            "precio_nuevo":  nuevo_precio,
+            "excel_encolado": True,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/catalogo/{key}/fracciones")
+def actualizar_fracciones(key: str, body: FraccionesUpdate):
+    """
+    Actualiza precios_fraccion de un producto.
+    1. Guarda en memoria.json (inmediato).
+    2. Encola cada fracción en BASE_DE_DATOS_PRODUCTOS.xlsx via precio_sync.
+    """
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        nombre_prod = catalogo[key].get("nombre", key)
+
+        # Convertir a { frac: { "precio": X } } si llegan como { frac: precio }
+        fracs_formateadas = {}
+        for k, v in body.fracciones.items():
+            if isinstance(v, dict):
+                fracs_formateadas[k] = v
+            else:
+                fracs_formateadas[k] = {"precio": int(v)}
+
+        # 1 ── memoria.json + Drive
+        catalogo[key]["precios_fraccion"] = fracs_formateadas
+
+        # Si fracción "1" (unidad completa) cambió, sincronizar precio_unidad para que la IA cotice bien
+        if "1" in fracs_formateadas:
+            precio_unidad_nuevo = fracs_formateadas["1"].get("precio") if isinstance(fracs_formateadas["1"], dict) else int(fracs_formateadas["1"])
+            if precio_unidad_nuevo:
+                catalogo[key]["precio_unidad"] = precio_unidad_nuevo
+
+        mem["catalogo"] = catalogo
+        try:
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        # 2 ── Excel: encolar cada fracción via precio_sync
+        try:
+            from precio_sync import actualizar_precio as _sync_precio
+            for frac_key, frac_val in fracs_formateadas.items():
+                precio_frac = frac_val["precio"] if isinstance(frac_val, dict) else int(frac_val)
+                if precio_frac > 0:
+                    _sync_precio(nombre_prod, precio_frac, frac_key)
+        except Exception as e_sync:
+            import logging
+            logging.getLogger("ferrebot.api").warning(
+                f"precio_sync fracciones falló para '{nombre_prod}': {e_sync}"
+            )
+
+        return {"ok": True, "key": key, "nombre": nombre_prod, "fracciones": fracs_formateadas}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Sync inverso: Excel → memoria.json ───────────────────────────────────────
+@app.post("/catalogo/sync-desde-excel")
+def sync_catalogo_desde_excel():
+    """
+    Descarga BASE_DE_DATOS_PRODUCTOS.xlsx desde Drive y reimporta
+    todos los precios a memoria.json.
+    Útil cuando el Excel se edita directamente (no desde el dashboard).
+    """
+    import tempfile, os
+    try:
+        from drive import descargar_de_drive
+        from precio_sync import importar_catalogo_desde_excel
+
+        # Descargar Excel fresco de Drive a un archivo temporal
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            ruta_tmp = tmp.name
+
+        try:
+            ok = descargar_de_drive("BASE_DE_DATOS_PRODUCTOS.xlsx", ruta_tmp)
+            if not ok:
+                raise HTTPException(status_code=502, detail="No se pudo descargar el Excel de Drive")
+
+            resultado = importar_catalogo_desde_excel(ruta_tmp)
+        finally:
+            try:
+                os.unlink(ruta_tmp)
+            except Exception:
+                pass
+
+        if resultado.get("errores"):
+            logging.getLogger("ferrebot.api").warning(
+                f"sync-desde-excel errores parciales: {resultado['errores']}"
+            )
+
+        return {
+            "ok":         True,
+            "importados": resultado.get("importados", 0),
+            "omitidos":   resultado.get("omitidos", 0),
+            "errores":    resultado.get("errores", []),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Kárdex por producto ───────────────────────────────────────────────────────
+@app.get("/kardex")
+def kardex(q: str = Query(default="")):
+    """
+    Devuelve el kárdex de movimientos de inventario.
+    - Entradas: hoja Compras del Excel + historial_compras de memoria.json
+    - Salidas: calculadas como diferencia (entradas - stock actual)
+    - Si q != "" filtra por nombre de producto.
+    """
+    try:
+        compras_excel = _leer_excel_compras()
+
+        mem = {}
+        if os.path.exists(config.MEMORIA_FILE):
+            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                mem = json.load(_f)
+        inventario = mem.get("inventario", {})
+        q_lower    = q.strip().lower()
+
+        # Agrupar entradas por producto
+        entradas_por_prod: dict[str, list] = defaultdict(list)
+        for c in compras_excel:
+            nombre = c["producto"].strip()
+            if not nombre:
+                continue
+            if q_lower and q_lower not in nombre.lower():
+                continue
+            entradas_por_prod[nombre].append(c)
+
+        kardex_items = []
+        for nombre, entradas in entradas_por_prod.items():
+            # Buscar stock actual en inventario
+            stock_actual = 0.0
+            costo_actual = 0.0
+            for clave, datos in inventario.items():
+                if isinstance(datos, dict):
+                    n = datos.get("nombre_original", "").lower()
+                    if n == nombre.lower() or clave.replace("_", " ") == nombre.lower():
+                        stock_actual = _to_float(datos.get("cantidad", 0))
+                        costo_actual = _to_float(datos.get("costo_promedio", 0))
+                        break
+
+            # Construir movimientos con saldo running
+            movimientos = []
+            saldo      = 0.0
+            costo_prom = 0.0
+            total_entradas = 0.0
+
+            for e in sorted(entradas, key=lambda x: (x["fecha"], x["hora"])):
+                cant  = e["cantidad"]
+                costo = e["costo_unitario"]
+                # Recalcular promedio ponderado
+                if saldo + cant > 0:
+                    costo_prom = round((saldo * costo_prom + cant * costo) / (saldo + cant))
+                saldo         += cant
+                total_entradas += cant
+                movimientos.append({
+                    "tipo":           "entrada",
+                    "fecha":          e["fecha"],
+                    "hora":           e["hora"],
+                    "concepto":       f"Compra — {e['proveedor']}",
+                    "entrada":        cant,
+                    "salida":         0,
+                    "saldo":          round(saldo, 3),
+                    "costo_unitario": costo,
+                    "costo_promedio": costo_prom,
+                    "valor_total":    round(cant * costo),
+                })
+
+            # Salidas estimadas = total_entradas - stock_actual (si hay inventario registrado)
+            salidas_est = round(max(0.0, total_entradas - stock_actual), 3)
+
+            kardex_items.append({
+                "producto":       nombre,
+                "total_entradas": round(total_entradas, 3),
+                "stock_actual":   stock_actual,
+                "salidas_est":    salidas_est,
+                "costo_promedio": costo_actual or costo_prom,
+                "valor_inventario": round(stock_actual * (costo_actual or costo_prom)),
+                "movimientos":    movimientos,
+            })
+
+        kardex_items.sort(key=lambda x: x["producto"].lower())
+        total_valor_inv = sum(k["valor_inventario"] for k in kardex_items)
+
+        return {
+            "kardex":          kardex_items,
+            "total_productos": len(kardex_items),
+            "valor_inventario_total": total_valor_inv,
+            "tiene_datos":     len(kardex_items) > 0,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Estado de Resultados ──────────────────────────────────────────────────────
+@app.get("/resultados")
+def resultados(periodo: str = Query(default="mes", pattern="^(semana|mes)$")):
+    """
+    Estado de Resultados:
+      Ingresos (ventas)
+    — CMV (costo de mercancía vendida = compras del período × promedio ponderado)
+    = Utilidad Bruta
+    — Gastos operativos
+    = Utilidad Neta
+    """
+    try:
+        ahora = datetime.now(config.COLOMBIA_TZ)
+
+        # ── 1. INGRESOS ──────────────────────────────────────────────────────
+        dias_rango = 7 if periodo == "semana" else None
+        es_mes     = periodo == "mes"
+        ventas     = _leer_excel_rango(dias=dias_rango, mes_actual=es_mes)
+
+        total_ventas = sum(_to_float(v.get("total", 0)) for v in ventas)
+
+        # Ventas por día para gráfica
+        ventas_por_dia: dict[str, float] = defaultdict(float)
+        for v in ventas:
+            ventas_por_dia[v["fecha"]] += _to_float(v.get("total", 0))
+
+        # ── 2. CMV ───────────────────────────────────────────────────────────
+        # Costo de lo vendido = unidades vendidas × costo_promedio del producto
+        mem = {}
+        if os.path.exists(config.MEMORIA_FILE):
+            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                mem = json.load(_f)
+        inventario = mem.get("inventario", {})
+
+        # Índice de inventario por nombre normalizado
+        inv_idx: dict[str, dict] = {}
+        for clave, datos in inventario.items():
+            if isinstance(datos, dict):
+                nombre_n = datos.get("nombre_original", "").lower().strip()
+                inv_idx[nombre_n] = datos
+                inv_idx[clave.replace("_", " ")] = datos
+
+        # Agrupar ventas por producto
+        ventas_prod: dict[str, dict] = defaultdict(lambda: {"cantidad": 0.0, "ingresos": 0.0})
+        for v in ventas:
+            nombre = str(v.get("producto", "")).strip()
+            if not nombre:
+                continue
+            cant = _to_float(v.get("cantidad", 1))
+            ventas_prod[nombre]["cantidad"] += cant
+            ventas_prod[nombre]["ingresos"] += _to_float(v.get("total", 0))
+
+        cmv           = 0.0
+        cmv_detalle   = []
+        sin_costo     = []
+
+        for nombre, datos_v in ventas_prod.items():
+            datos_inv = inv_idx.get(nombre.lower().strip())
+            costo_u   = _to_float(datos_inv.get("costo_promedio", 0)) if datos_inv else 0
+
+            if costo_u > 0:
+                costo_total_prod = costo_u * datos_v["cantidad"]
+                cmv             += costo_total_prod
+                margen = round(((datos_v["ingresos"] - costo_total_prod) / datos_v["ingresos"]) * 100, 1) if datos_v["ingresos"] else 0
+                cmv_detalle.append({
+                    "producto":    nombre,
+                    "cantidad":    round(datos_v["cantidad"], 3),
+                    "ingresos":    round(datos_v["ingresos"]),
+                    "costo_unit":  costo_u,
+                    "cmv":         round(costo_total_prod),
+                    "margen_pct":  margen,
+                })
+            else:
+                sin_costo.append(nombre)
+
+        cmv_detalle.sort(key=lambda x: -x["cmv"])
+
+        # ── 3. GASTOS ────────────────────────────────────────────────────────
+        gastos_mem    = mem.get("gastos", {})
+        if periodo == "semana":
+            limite_g  = (ahora - timedelta(days=7)).strftime("%Y-%m-%d")
+        else:
+            limite_g  = f"{ahora.year}-{ahora.month:02d}-01"
+
+        total_gastos      = 0.0
+        gastos_por_cat: dict[str, float] = defaultdict(float)
+        for fecha_g, lista_g in gastos_mem.items():
+            if fecha_g < limite_g:
+                continue
+            for g in lista_g:
+                monto = _to_float(g.get("monto", 0))
+                total_gastos += monto
+                gastos_por_cat[g.get("categoria", "Sin categoría")] += monto
+
+        # ── 4. RESULTADOS ────────────────────────────────────────────────────
+        utilidad_bruta = total_ventas - cmv
+        utilidad_neta  = utilidad_bruta - total_gastos
+        margen_bruto   = round((utilidad_bruta / total_ventas) * 100, 1) if total_ventas else 0
+        margen_neto    = round((utilidad_neta  / total_ventas) * 100, 1) if total_ventas else 0
+
+        # Histórico diario para gráfica
+        dias_n = 7 if periodo == "semana" else ahora.day
+        historico = []
+        for i in range(dias_n - 1, -1, -1):
+            dia = (ahora - timedelta(days=i)).strftime("%Y-%m-%d")
+            gastos_dia = sum(_to_float(g.get("monto", 0))
+                             for g in gastos_mem.get(dia, []))
+            historico.append({
+                "fecha":   dia,
+                "ventas":  ventas_por_dia.get(dia, 0),
+                "gastos":  gastos_dia,
+            })
+
+        return {
+            "periodo":          periodo,
+            "total_ventas":     round(total_ventas),
+            "cmv":              round(cmv),
+            "utilidad_bruta":   round(utilidad_bruta),
+            "total_gastos":     round(total_gastos),
+            "utilidad_neta":    round(utilidad_neta),
+            "margen_bruto_pct": margen_bruto,
+            "margen_neto_pct":  margen_neto,
+            "cmv_detalle":      cmv_detalle,
+            "sin_costo":        sin_costo[:20],
+            "gastos_por_cat":   dict(gastos_por_cat),
+            "historico":        historico,
+            "tiene_cmv":        cmv > 0,
+            "cobertura_cmv_pct": round((len(cmv_detalle) / max(len(ventas_prod), 1)) * 100, 1),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Proyección de Caja ────────────────────────────────────────────────────────
+@app.get("/proyeccion")
+def proyeccion():
+    """
+    Proyecta el cierre del mes basándose en promedios de los últimos 14 días.
+    Proyección = efectivo_actual + (ingreso_diario_prom - gasto_diario_prom) × días_restantes
+    """
+    try:
+        ahora     = datetime.now(config.COLOMBIA_TZ)
+        mem = {}
+        if os.path.exists(config.MEMORIA_FILE):
+            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                mem = json.load(_f)
+        caja_data = mem.get("caja_actual", {})
+
+        # ── Base de caja actual ───────────────────────────────────────────
+        efectivo_actual = (
+            _to_float(caja_data.get("efectivo", 0)) +
+            _to_float(caja_data.get("transferencias", 0)) +
+            _to_float(caja_data.get("datafono", 0)) +
+            _to_float(caja_data.get("monto_apertura", 0))
+        )
+
+        # ── Ventas últimos 14 días ────────────────────────────────────────
+        ventas_14 = _leer_excel_rango(dias=14)
+        ventas_por_dia14: dict[str, float] = defaultdict(float)
+        for v in ventas_14:
+            ventas_por_dia14[v["fecha"]] += _to_float(v.get("total", 0))
+
+        dias_con_ventas = [d for d, t in ventas_por_dia14.items() if t > 0]
+        prom_ventas_dia = (
+            sum(ventas_por_dia14.values()) / len(dias_con_ventas)
+            if dias_con_ventas else 0
+        )
+
+        # ── Gastos últimos 14 días ────────────────────────────────────────
+        gastos_mem = mem.get("gastos", {})
+        limite_14  = (ahora - timedelta(days=14)).strftime("%Y-%m-%d")
+        total_gastos_14 = 0.0
+        gastos_por_dia14: dict[str, float] = defaultdict(float)
+        for fecha_g, lista_g in gastos_mem.items():
+            if fecha_g < limite_14:
+                continue
+            for g in lista_g:
+                m = _to_float(g.get("monto", 0))
+                total_gastos_14         += m
+                gastos_por_dia14[fecha_g] += m
+
+        dias_con_gastos = max(len([d for d, t in gastos_por_dia14.items() if t > 0]), 1)
+        prom_gastos_dia = total_gastos_14 / dias_con_gastos if total_gastos_14 else 0
+
+        # ── Días restantes del mes ────────────────────────────────────────
+        import calendar
+        ultimo_dia   = calendar.monthrange(ahora.year, ahora.month)[1]
+        dias_rest    = ultimo_dia - ahora.day
+        dias_pasados = ahora.day
+
+        # ── Proyecciones ──────────────────────────────────────────────────
+        ventas_proy_rest  = prom_ventas_dia * dias_rest
+        gastos_proy_rest  = prom_gastos_dia * dias_rest
+        ventas_mes_total  = sum(v for d, v in ventas_por_dia14.items()
+                                if d.startswith(f"{ahora.year}-{ahora.month:02d}"))
+        gastos_mes_total  = sum(t for d, t in gastos_por_dia14.items()
+                                if d >= f"{ahora.year}-{ahora.month:02d}-01")
+
+        proy_ventas_mes   = ventas_mes_total  + ventas_proy_rest
+        proy_gastos_mes   = gastos_mes_total  + gastos_proy_rest
+        proy_caja_fin_mes = efectivo_actual   + ventas_proy_rest - gastos_proy_rest
+
+        # Serie diaria para gráfica (real + proyectado)
+        serie = []
+        acum  = _to_float(caja_data.get("monto_apertura", 0))
+        for i in range(1, ultimo_dia + 1):
+            dia_str = f"{ahora.year}-{ahora.month:02d}-{i:02d}"
+            if i < ahora.day:
+                # Días pasados — datos reales
+                v = ventas_por_dia14.get(dia_str, 0)
+                g = sum(_to_float(x.get("monto", 0)) for x in gastos_mem.get(dia_str, []))
+                acum += v - g
+                serie.append({"dia": i, "valor": round(acum), "real": True})
+            elif i == ahora.day:
+                serie.append({"dia": i, "valor": round(efectivo_actual), "real": True, "hoy": True})
+            else:
+                acum_proy = efectivo_actual + (prom_ventas_dia - prom_gastos_dia) * (i - ahora.day)
+                serie.append({"dia": i, "valor": round(acum_proy), "real": False})
+
+        return {
+            "hoy":                  ahora.strftime("%Y-%m-%d"),
+            "dia_del_mes":          ahora.day,
+            "dias_restantes":       dias_rest,
+            "dias_pasados":         dias_pasados,
+            "efectivo_actual":      round(efectivo_actual),
+            "prom_ventas_dia":      round(prom_ventas_dia),
+            "prom_gastos_dia":      round(prom_gastos_dia),
+            "prom_neto_dia":        round(prom_ventas_dia - prom_gastos_dia),
+            "ventas_mes_actual":    round(ventas_mes_total),
+            "gastos_mes_actual":    round(gastos_mes_total),
+            "proy_ventas_mes":      round(proy_ventas_mes),
+            "proy_gastos_mes":      round(proy_gastos_mes),
+            "proy_caja_fin_mes":    round(proy_caja_fin_mes),
+            "serie_diaria":         serie,
+            "tiene_datos":          prom_ventas_dia > 0,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class StockUpdate(BaseModel):
+    stock: Union[float, int, None]
+
+@app.patch("/catalogo/{key}/mayorista")
+def actualizar_mayorista(key: str, body: MayoristaUpdate):
+    """
+    Actualiza el precio mayorista (precio_por_cantidad) de un producto.
+    Guarda precio_sobre_umbral en memoria.json y sincroniza al Excel.
+    """
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        prod = catalogo[key]
+        nombre_prod = prod.get("nombre", key)
+        ppc_actual  = prod.get("precio_por_cantidad")
+
+        # Preservar umbral existente si no se manda uno nuevo
+        umbral = body.umbral if body.umbral else (ppc_actual.get("umbral", 50) if ppc_actual else 50)
+
+        prod["precio_por_cantidad"] = {
+            "umbral":              umbral,
+            "precio_bajo_umbral":  ppc_actual.get("precio_bajo_umbral", prod.get("precio_unidad", 0)) if ppc_actual else prod.get("precio_unidad", 0),
+            "precio_sobre_umbral": int(body.precio),
+        }
+        catalogo[key] = prod
+        mem["catalogo"] = catalogo
+
+        # Usar guardar_memoria() para que también suba a Drive (antes solo hacía open+write)
+        try:
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            # Fallback: al menos guardar en disco si memoria.py falla
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        return {
+            "ok": True, "key": key, "nombre": nombre_prod,
+            "precio_mayorista": int(body.precio), "umbral": umbral,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/inventario/{key}/stock")
+def actualizar_stock(key: str, body: StockUpdate):
+    """
+    Actualiza cantidad en inventario de un producto (memoria.json).
+    Guarda en el mismo formato que usa el bot: {"cantidad": X, "nombre_original": ..., "minimo": N}
+    para mantener sincronía completa bot <-> dashboard.
+    """
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        nombre_prod    = catalogo[key].get("nombre", key)
+        entrada_actual = inventario.get(key)
+
+        # Extraer stock_anterior independientemente del formato (dict o número)
+        if isinstance(entrada_actual, dict):
+            stock_anterior = entrada_actual.get("cantidad")
+        elif entrada_actual is not None:
+            stock_anterior = float(entrada_actual)
+        else:
+            stock_anterior = None
+
+        if body.stock is None:
+            inventario.pop(key, None)
+        else:
+            # Preservar minimo si ya existe, sino usar 0
+            minimo_actual = 0
+            if isinstance(entrada_actual, dict):
+                minimo_actual = entrada_actual.get("minimo", 0)
+
+            from datetime import datetime
+            inventario[key] = {
+                "nombre_original": nombre_prod,
+                "cantidad":        float(body.stock),
+                "minimo":          minimo_actual,
+                "unidad":          "und",
+                "fecha_conteo":    datetime.now().strftime("%Y-%m-%d %H:%M"),
+            }
+
+        mem["inventario"] = inventario
+        try:
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        return {
+            "ok": True, "key": key,
+            "nombre":         nombre_prod,
+            "stock_anterior": stock_anterior,
+            "stock_nuevo":    body.stock,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Health check ──────────────────────────────────────────────────────────────
+@app.get("/api/health")
+def health():
+    return {"estado": "activo", "version": "1.0.0"}
+
+
+# ── Clientes ──────────────────────────────────────────────────────────────────
+@app.get("/clientes/buscar")
+def buscar_clientes_endpoint(q: str = Query(default="")):
+    """
+    Busca clientes en la hoja 'Clientes' del Excel por nombre o identificación.
+    Devuelve lista de coincidencias para el autocompletado del dashboard.
+    """
+    try:
+        from excel import cargar_clientes
+        from utils import _normalizar
+        clientes = cargar_clientes()
+        if not q.strip():
+            return {"clientes": clientes[:10], "total": len(clientes)}
+
+        q_norm = _normalizar(q.strip())
+        resultado = []
+        for c in clientes:
+            nombre_norm = _normalizar(c.get("Nombre tercero", "") or "")
+            id_norm     = _normalizar(str(c.get("Identificacion", "") or ""))
+            # Buscar la query completa como substring (para "rene acosta" → encuentra "rene acosta medina")
+            # O buscar cada palabra individualmente
+            if q_norm in nombre_norm or q_norm in id_norm:
+                resultado.append(c)
+            else:
+                palabras = [p for p in q_norm.split() if p]
+                if palabras and all(p in nombre_norm or p in id_norm for p in palabras):
+                    resultado.append(c)
+        resultado.sort(key=lambda x: len(str(x.get("Nombre tercero", ""))))
+        return {"clientes": resultado[:10], "total": len(resultado)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class NuevoCliente(BaseModel):
+    nombre:         str
+    tipo_id:        str  = "CC"   # CC | NIT | CE | PAS
+    identificacion: str  = ""
+    tipo_persona:   str  = "Natural"
+    correo:         str  = ""
+    telefono:       str  = ""
+    direccion:      str  = ""
+
+@app.post("/clientes")
+def crear_cliente_endpoint(body: NuevoCliente):
+    """Crea un cliente nuevo en la hoja Clientes del Excel."""
+    try:
+        from excel import guardar_cliente_nuevo, buscar_cliente, buscar_clientes_multiples
+        from utils import _normalizar
+
+        if not body.nombre.strip():
+            raise HTTPException(status_code=400, detail="El nombre es obligatorio")
+
+        # ── Verificar duplicados ──────────────────────────────────────────────
+        # 1. Por identificación (exacto) si viene informada
+        if body.identificacion.strip():
+            existente = buscar_cliente(body.identificacion.strip())
+            if existente:
+                return {
+                    "ok":      True,
+                    "existia": True,
+                    "cliente": existente,
+                    "mensaje": "El cliente ya estaba registrado (misma identificación)",
+                }
+
+        # 2. Por nombre (flexible) — evita duplicados cuando no hay cédula
+        candidatos_nombre = buscar_clientes_multiples(body.nombre.strip(), limite=3)
+        for candidato in candidatos_nombre:
+            nombre_existente = _normalizar(candidato.get("Nombre tercero", "") or "")
+            nombre_nuevo     = _normalizar(body.nombre.strip())
+            # Coincidencia de ≥80 % de palabras → considerar duplicado
+            palabras_ex  = set(nombre_existente.split())
+            palabras_nu  = set(nombre_nuevo.split())
+            if palabras_ex and palabras_nu:
+                interseccion = palabras_ex & palabras_nu
+                similitud    = len(interseccion) / max(len(palabras_ex), len(palabras_nu))
+                if similitud >= 0.6:
+                    return {
+                        "ok":      True,
+                        "existia": True,
+                        "cliente": candidato,
+                        "mensaje": f"Ya existe un cliente con nombre similar: '{candidato.get('Nombre tercero')}'",
+                    }
+
+        ok = guardar_cliente_nuevo(
+            nombre         = body.nombre.strip(),
+            tipo_id        = body.tipo_id,
+            identificacion = body.identificacion.strip(),
+            tipo_persona   = body.tipo_persona,
+            correo         = body.correo.strip(),
+            telefono       = body.telefono.strip(),
+            direccion      = body.direccion.strip(),
+        )
+        if not ok:
+            raise HTTPException(status_code=500, detail="Error guardando cliente en Excel")
+        return {"ok": True, "existia": False, "mensaje": f"Cliente '{body.nombre.strip().upper()}' creado"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Editar / Eliminar Ventas ──────────────────────────────────────────────────
+@app.delete("/ventas/{numero}")
+def eliminar_venta(numero: int):
+    """
+    Elimina todas las filas de un consecutivo de venta del Excel y Sheets.
+    También descuenta el total de la caja si era de hoy.
+    """
+    try:
+        from excel import borrar_venta_excel, recalcular_caja_desde_excel
+        ok, msg = borrar_venta_excel(numero)
+        if ok:
+            recalcular_caja_desde_excel()
+        # Si no se encontró, devolver 404 para que el frontend lo muestre
+        if not ok:
+            raise HTTPException(status_code=404, detail=msg)
+        return {"ok": ok, "mensaje": msg}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class EditarVentaBody(BaseModel):
+    producto:       Union[str, None]   = None
+    cantidad:       Union[float, None] = None
+    precio_unitario:Union[float, None] = None
+    total:          Union[float, None] = None
+    metodo_pago:    Union[str, None]   = None
+    cliente:        Union[str, None]   = None
+    id_cliente:     Union[str, None]   = None
+    vendedor:       Union[str, None]   = None
+
+@app.patch("/ventas/{numero}")
+def editar_venta(numero: int, body: EditarVentaBody):
+    """
+    Edita los campos de un consecutivo en el Excel (hoja mensual + Acumulado)
+    y sincroniza los cambios a Google Sheets.
+    Solo actualiza los campos que vienen en el body.
+    """
+    try:
+        import openpyxl
+        from excel import inicializar_excel, obtener_nombre_hoja, detectar_columnas, recalcular_caja_desde_excel
+        from drive import subir_a_drive
+        from sheets import sheets_editar_consecutivo
+
+        inicializar_excel()
+        wb          = openpyxl.load_workbook(config.EXCEL_FILE)
+        hojas       = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+        actualizadas = 0
+
+        cambios = {k: v for k, v in body.dict().items() if v is not None}
+        if not cambios:
+            raise HTTPException(status_code=400, detail="No hay campos para actualizar")
+
+        CAMPO_COL = {
+            "producto":        ["producto"],
+            "cantidad":        ["cantidad"],
+            "precio_unitario": ["valor unitario", "precio unitario"],
+            "total":           ["total"],
+            "metodo_pago":     ["metodo de pago", "metodo pago"],
+            "cliente":         ["cliente"],
+            "id_cliente":      ["id cliente"],
+            "vendedor":        ["vendedor"],
+        }
+
+        for nombre_sh in hojas:
+            if nombre_sh not in wb.sheetnames:
+                continue
+            ws     = wb[nombre_sh]
+            cols   = detectar_columnas(ws)
+            col_id = cols.get("consecutivo de venta") or cols.get("alias")
+            if not col_id:
+                continue
+
+            for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
+                val = ws.cell(row=fila, column=col_id).value
+                try:
+                    if val is None or int(float(str(val))) != numero:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+
+                for campo, valor in cambios.items():
+                    claves = CAMPO_COL.get(campo, [campo.replace("_", " ")])
+                    col_destino = None
+                    for clave in claves:
+                        col_destino = cols.get(clave)
+                        if col_destino:
+                            break
+                    if col_destino:
+                        ws.cell(row=fila, column=col_destino).value = valor
+                        actualizadas += 1
+
+        if actualizadas:
+            wb.save(config.EXCEL_FILE)
+            try:
+                subir_a_drive(config.EXCEL_FILE)
+            except Exception:
+                pass
+            recalcular_caja_desde_excel()
+            # ── Sincronizar a Google Sheets ───────────────────────────────
+            try:
+                sheets_editar_consecutivo(numero, cambios)
+            except Exception:
+                pass   # No fallar la respuesta si Sheets falla
+            return {"ok": True, "actualizadas": actualizadas, "mensaje": f"Venta #{numero} actualizada"}
+
+        return {"ok": False, "mensaje": f"No se encontró el consecutivo #{numero}"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Editar / Eliminar Productos ───────────────────────────────────────────────
+class EditarProductoBody(BaseModel):
+    nombre:        Union[str, None]   = None
+    categoria:     Union[str, None]   = None
+    precio_unidad: Union[float, None] = None
+    unidad_medida: Union[str, None]   = None
+    codigo:        Union[str, None]   = None
+
+@app.patch("/catalogo/{key}")
+def editar_producto(key: str, body: EditarProductoBody):
+    """Edita nombre, categoría, precio, unidad_medida o código de un producto."""
+    try:
+        from utils import _normalizar
+        from precio_sync import actualizar_precio as _sync_precio, _normalizar_unidad
+        from memoria import invalidar_cache_memoria
+
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        prod    = catalogo[key]
+        cambios = {k: v for k, v in body.dict().items() if v is not None}
+        if not cambios:
+            raise HTTPException(status_code=400, detail="Sin campos para actualizar")
+
+        nueva_clave = key
+        if "nombre" in cambios:
+            prod["nombre"]       = cambios["nombre"].strip()
+            prod["nombre_lower"] = _normalizar(cambios["nombre"].strip())
+            nueva_clave          = prod["nombre_lower"].replace(" ", "_")
+
+        if "categoria"     in cambios: prod["categoria"]     = cambios["categoria"].strip()
+        if "precio_unidad" in cambios: prod["precio_unidad"] = int(cambios["precio_unidad"])
+        if "codigo"        in cambios: prod["codigo"]        = cambios["codigo"].strip()
+        if "unidad_medida" in cambios: prod["unidad_medida"] = _normalizar_unidad(cambios["unidad_medida"])
+
+        # Si cambió el nombre → mover a nueva clave
+        if nueva_clave != key:
+            inv = mem.get("inventario", {})
+            catalogo[nueva_clave] = prod
+            del catalogo[key]
+            if key in inv:
+                inv[nueva_clave] = inv.pop(key)
+            mem["inventario"] = inv
+        else:
+            catalogo[key] = prod
+
+        mem["catalogo"] = catalogo
+        try:
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        # Sync al Excel BASE_DE_DATOS_PRODUCTOS
+        # — precio si cambió
+        if "precio_unidad" in cambios:
+            try:
+                _sync_precio(prod["nombre"], int(cambios["precio_unidad"]), None)
+            except Exception:
+                pass
+
+        # — nombre, categoría o unidad_medida: actualizar fila completa en el Excel
+        if any(c in cambios for c in ("nombre", "categoria", "unidad_medida", "codigo")):
+            try:
+                from precio_sync import _actualizar_metadatos_en_excel
+                _actualizar_metadatos_en_excel(
+                    nombre_original = catalogo.get(key, prod).get("nombre", prod["nombre"]) if nueva_clave == key else key.replace("_", " "),
+                    datos_nuevos    = {
+                        "nombre":        prod.get("nombre", ""),
+                        "categoria":     prod.get("categoria", ""),
+                        "unidad_medida": prod.get("unidad_medida", "Unidad"),
+                        "codigo":        prod.get("codigo", ""),
+                    },
+                )
+            except Exception as e_meta:
+                logging.getLogger("ferrebot.api").warning(
+                    f"_actualizar_metadatos_en_excel falló para '{prod.get('nombre')}': {e_meta}"
+                )
+
+        return {"ok": True, "key_nueva": nueva_clave, "producto": prod}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/catalogo/{key}")
+def eliminar_producto(key: str):
+    """Elimina un producto del catálogo e inventario en memoria.json."""
+    try:
+        from memoria import invalidar_cache_memoria
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo   = mem.get("catalogo", {})
+        inventario = mem.get("inventario", {})
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
+
+        nombre = catalogo[key].get("nombre", key)
+        del catalogo[key]
+        inventario.pop(key, None)
+        mem["catalogo"]   = catalogo
+        mem["inventario"] = inventario
+
+        try:
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
+            invalidar_cache_memoria()
+        except Exception:
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        # Eliminar también de BASE_DE_DATOS_PRODUCTOS.xlsx para evitar que
+        # un sync-desde-excel resucite el producto eliminado
+        excel_resultado = {"ok": False, "error": "no intentado"}
+        try:
+            from precio_sync import eliminar_producto_de_excel as _del_xls
+            excel_resultado = _del_xls(nombre)
+        except Exception as e_xls:
+            logging.getLogger("ferrebot.api").warning(
+                f"eliminar_producto_de_excel falló para '{nombre}': {e_xls}"
+            )
+
+        return {
+            "ok":             True,
+            "nombre":         nombre,
+            "mensaje":        f"'{nombre}' eliminado del catálogo",
+            "excel_borrado":  excel_resultado.get("ok", False),
+            "excel_detalle":  excel_resultado,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Servir dashboard React (build estático) ───────────────────────────────────
+# Los archivos del build quedan en dashboard/dist/ después de `npm run build`
+_DIST = Path(__file__).parent / "dashboard" / "dist"
+
+if _DIST.exists():
+    # Archivos estáticos (JS, CSS, assets)
+    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+
+    # Cualquier ruta que no sea /api/* → devolver index.html (SPA routing)
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        index = _DIST / "index.html"
+        if index.exists():
+            return FileResponse(index)
+        return {"error": "Dashboard no buildeado. Ejecuta: cd dashboard && npm run build"}
+else:
+    @app.get("/")
+    def root():
+        return {
+            "servicio": "FerreBot Dashboard API",
+            "estado":   "activo",
+            "version":  "1.0.0",
+            "nota":     "Dashboard no buildeado. Ejecuta: cd dashboard && npm run build",
+            "docs":     "/docs",
+        }

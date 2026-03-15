@@ -8,3 +8,7 @@ google-auth==2.25.2
 gspread>=6.0.0
 matplotlib
 rapidfuzz>=3.0.0
+# Dashboard API
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-dotenv>=1.0.0

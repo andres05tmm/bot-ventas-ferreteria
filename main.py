@@ -23,7 +23,7 @@ from handlers.comandos import (
     comando_pendientes,
     manejar_callback_grafica, comando_sheets, comando_cerrar_dia,
     comando_reset_ventas, comando_actualizar_catalogo, comando_consistencia,
-    comando_exportar_precios, comando_keepalive,
+    comando_exportar_precios, comando_keepalive, comando_dashboard,
     comando_agregar_producto,
     comando_inv, comando_stock, comando_ajuste,
     comando_compra, comando_margenes,
@@ -59,6 +59,8 @@ def main():
     app.add_handler(CommandHandler("buscar",     comando_buscar))
     app.add_handler(CommandHandler("borrar",     comando_borrar))
     app.add_handler(CommandHandler("precios",    comando_precios))
+    app.add_handler(CommandHandler("dashboard",  comando_dashboard))
+    app.add_handler(CommandHandler("puntorojo",  comando_dashboard))
     app.add_handler(CommandHandler("caja",       comando_caja))
     app.add_handler(CommandHandler("gastos",     comando_gastos))
     app.add_handler(CommandHandler("inventario", comando_inventario))

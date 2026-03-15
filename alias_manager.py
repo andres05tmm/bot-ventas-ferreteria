@@ -33,6 +33,13 @@ _ALIASES_DEFAULT: dict[str, str] = {
     "sellador":    "sellante",
     "pagaternit":  "pegaternit",
     "pega ternit": "pegaternit",
+    # Typos comunes de drywall
+    "drwayll":     "drywall",
+    "drwayl":      "drywall",
+    "drwall":      "drywall",
+    "drawall":     "drywall",
+    "drywll":      "drywall",
+    "driwoll":     "drywall",
 }
 
 # Cache en RAM — cargado una vez al iniciar, actualizado en cada /alias

@@ -1,3 +1,9 @@
 .env
 ventas.xlsx
 __pycache__/
+dashboard/node_modules/
+dashboard/dist/
+
+# Archivos de estado en tiempo de ejecución — viven en Drive, no en el repo
+memoria.json
+BASE_DE_DATOS_PRODUCTOS.xlsx
