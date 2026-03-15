@@ -581,7 +581,11 @@ def venta_rapida(payload: VentaRapidaPayload):
                 cant_num = float(item.cantidad) if isinstance(item.cantidad, (int, float)) else 1.0
             except (ValueError, TypeError):
                 cant_num = 1.0
-            precio_unitario = round(item.total / cant_num, 2) if cant_num else item.total
+            # Bug fix: cant_num <= 0 causaba precio_unitario=total (incorrecto).
+            # Si la cantidad es 0 o invalida, forzamos 1 para que precio_unitario = total.
+            if not cant_num or cant_num <= 0:
+                cant_num = 1.0
+            precio_unitario = round(item.total / cant_num, 2)
 
             unidad = _resolver_unidad(item)
 
@@ -1132,7 +1136,10 @@ def kardex(q: str = Query(default="")):
     try:
         compras_excel = _leer_excel_compras()
 
-        mem       = json.load(open(config.MEMORIA_FILE, encoding="utf-8")) if os.path.exists(config.MEMORIA_FILE) else {}
+        mem = {}
+        if os.path.exists(config.MEMORIA_FILE):
+            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                mem = json.load(_f)
         inventario = mem.get("inventario", {})
         q_lower    = q.strip().lower()
 
@@ -1240,7 +1247,10 @@ def resultados(periodo: str = Query(default="mes", pattern="^(semana|mes)$")):
 
         # ── 2. CMV ───────────────────────────────────────────────────────────
         # Costo de lo vendido = unidades vendidas × costo_promedio del producto
-        mem        = json.load(open(config.MEMORIA_FILE, encoding="utf-8")) if os.path.exists(config.MEMORIA_FILE) else {}
+        mem = {}
+        if os.path.exists(config.MEMORIA_FILE):
+            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                mem = json.load(_f)
         inventario = mem.get("inventario", {})
 
         # Índice de inventario por nombre normalizado
@@ -1351,7 +1361,10 @@ def proyeccion():
     """
     try:
         ahora     = datetime.now(config.COLOMBIA_TZ)
-        mem       = json.load(open(config.MEMORIA_FILE, encoding="utf-8")) if os.path.exists(config.MEMORIA_FILE) else {}
+        mem = {}
+        if os.path.exists(config.MEMORIA_FILE):
+            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                mem = json.load(_f)
         caja_data = mem.get("caja_actual", {})
 
         # ── Base de caja actual ───────────────────────────────────────────
@@ -1477,14 +1490,15 @@ def actualizar_mayorista(key: str, body: MayoristaUpdate):
         catalogo[key] = prod
         mem["catalogo"] = catalogo
 
-        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-            json.dump(mem, f, ensure_ascii=False, indent=2)
-
+        # Usar guardar_memoria() para que también suba a Drive (antes solo hacía open+write)
         try:
-            from memoria import invalidar_cache_memoria
+            from memoria import guardar_memoria as _gm, invalidar_cache_memoria
+            _gm(mem, urgente=True)
             invalidar_cache_memoria()
         except Exception:
-            pass
+            # Fallback: al menos guardar en disco si memoria.py falla
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
 
         return {
             "ok": True, "key": key, "nombre": nombre_prod,
