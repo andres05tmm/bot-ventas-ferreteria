@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   useTheme, useFetch, Card, SectionTitle, Spinner, ErrorMsg,
   PeriodBtn, StyledInput, EmptyState, Th, cop, API_BASE,
-} from '../components/shared.jsx'
+}, useIsMobile } from '../components/shared.jsx'
 
 function metodoBadge(metodo, t) {
   const raw = (metodo || '').toLowerCase()
@@ -313,6 +313,7 @@ function KpiHistorial({ label, value, color }) {
 
 export default function TabHistorial({ refreshKey }) {
   const t = useTheme()
+  const isMobile = useIsMobile()
   const [refresh,    setRefresh]    = useState(0)
   const { data, loading, error }    = useFetch('/ventas/hoy', [refreshKey, refresh])
   const [busqueda,   setBusqueda]   = useState('')
@@ -367,7 +368,7 @@ export default function TabHistorial({ refreshKey }) {
       {eliminando && <ModalConfirmarEliminar grupo={eliminando} onClose={()=>setEliminando(null)} onEliminado={()=>setRefresh(r=>r+1)}/>}
 
       {/* KPIs */}
-      <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+      <div style={{display:'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap:10}}>
         {[
           {label:'Total hoy',     value:cop(totalTodo),     color:t.accent},
           {label:'Registros',     value:todasVentas.length, color:t.text},
@@ -437,7 +438,7 @@ export default function TabHistorial({ refreshKey }) {
                         onMouseEnter={e=>{e.currentTarget.style.background=t.cardHover;e.currentTarget.style.transform='translateX(2px)'}}
                         onMouseLeave={e=>{e.currentTarget.style.background=esMultiple?(t.id==='caramelo'?'#fefce8':'#1a1600'):'transparent';e.currentTarget.style.transform='translateX(0)'}}
                       >
-                        <td style={{padding:'8px 14px',color:t.accent,fontWeight:700}}>
+                        <td style={{padding: isMobile ? '7px 8px' : '8px 14px',color:t.accent,fontWeight:700}}>
                           {v.num}
                           {esMultiple && (
                             <span style={{
