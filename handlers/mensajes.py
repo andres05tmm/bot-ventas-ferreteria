@@ -24,6 +24,7 @@ from ventas_state import (
     agregar_al_historial, get_historial,
     ventas_pendientes, clientes_en_proceso, _estado_lock,
     get_chat_lock, registrar_ventas_con_metodo, mensajes_standby,
+    limpiar_pendientes_expirados,
     esperando_correccion, ventas_esperando_cliente,
     agregar_a_standby,   # ← nueva función con cap de MAX_STANDBY
     mensaje_contexto_pendiente,  # ← contexto previo cuando Claude solo preguntó
@@ -388,6 +389,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     # ── Excel cargado por el usuario ──
     excel_temp   = context.user_data.get("excel_temp")
     excel_nombre = context.user_data.get("excel_nombre")
+    limpiar_pendientes_expirados()
     if excel_temp and os.path.exists(excel_temp):
         try:
             await update.message.reply_text("⚙️ Procesando tu Excel...")
