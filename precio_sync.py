@@ -44,6 +44,7 @@ GARANTÍAS:
 import logging
 import os
 import queue
+import re
 import shutil
 import threading
 from typing import Optional
@@ -295,7 +296,10 @@ def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
             if prod is None:
                 omitidos += 1
                 continue
-            clave = prod["nombre_lower"].replace(" ", "_")
+            # Sanitizar clave: reemplazar espacios con _ y eliminar chars que rompen URLs/JSON
+            # Ej: 'brocha de 1"' → 'brocha_de_1' (sin comilla doble)
+            clave = re.sub(r'["\'\°\#\!\?\(\)\[\]\{\}]', '', prod["nombre_lower"]).replace(" ", "_")
+            clave = re.sub(r'_+', '_', clave).strip('_')  # limpiar guiones dobles o extremos
             catalogo[clave] = prod
             importados += 1
         except Exception as e:
