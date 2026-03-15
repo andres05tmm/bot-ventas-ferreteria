@@ -70,12 +70,14 @@ def _guardar_pendiente(chat_id: int, ventas: list):
 def limpiar_pendientes_expirados():
     """
     Elimina ventas_pendientes que llevan más de _TIMEOUT_PENDIENTE sin confirmarse.
-    Llamar al inicio de cada mensaje para evitar estados atascados.
+    Seguro de llamar con o sin _estado_lock tomado: usa trylock para no deadlockear.
     """
     ahora = time.time()
-    with _estado_lock:
+    # Usar acquire(blocking=False) para no bloquear si ya está tomado
+    adquirido = _estado_lock.acquire(blocking=False)
+    try:
         expirados = [
-            cid for cid, ts in _ventas_pendientes_ts.items()
+            cid for cid, ts in list(_ventas_pendientes_ts.items())
             if ahora - ts > _TIMEOUT_PENDIENTE
         ]
         for cid in expirados:
@@ -85,6 +87,9 @@ def limpiar_pendientes_expirados():
             logging.getLogger("ferrebot.ventas_state").info(
                 f"[TIMEOUT] Pendiente expirado chat {cid} — estado limpiado"
             )
+    finally:
+        if adquirido:
+            _estado_lock.release()
 
 
 def get_chat_lock(chat_id: int) -> asyncio.Lock:
