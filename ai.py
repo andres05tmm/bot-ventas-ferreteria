@@ -594,36 +594,45 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             _m_gramos = re.search(r'(\d+(?:\.\d+)?)\s*(?:gr(?:amos?)?|g\b)', _seg)
             _m_media = re.search(r'media\s+caja|1/2\s+caja|medio', _seg)
             _m_cuarto = re.search(r'cuarto\s+caja|1/4\s+caja', _seg)
-            _m_caja = re.search(r'\bcaja\b', _seg) and not _m_media and not _m_cuarto
+            _m_caja_n = re.search(r'(\d+)\s+cajas?\b', _seg)
+            _m_caja   = re.search(r'\bcaja\b', _seg) and not _m_media and not _m_cuarto
 
             if _m_gramos:
                 _gr = float(_m_gramos.group(1))
                 _total = round(_gr * _precio_gr)
                 _grm_lines.append(
-                    f"{_pprod['nombre']}: {_gr}gr × ${_precio_gr:.1f}/gr = ${_total} total"
+                    f"{_pprod['nombre']}: cantidad={_gr}gr, total=${_total} "
+                    f"(usa cantidad={_gr}, NO otro número)"
                 )
             elif _m_media:
                 _gr = _PESO_CAJA_GR / 2
                 _total = round(_precio_caja / 2)
                 _grm_lines.append(
-                    f"{_pprod['nombre']}: media caja={_gr}gr, total=${_total}"
+                    f"{_pprod['nombre']}: media caja={_gr}gr, total=${_total} "
+                    f"(usa cantidad={_gr}, NO 0.5 ni 1)"
                 )
             elif _m_cuarto:
                 _gr = _PESO_CAJA_GR / 4
                 _total = round(_precio_caja / 4)
                 _grm_lines.append(
-                    f"{_pprod['nombre']}: 1/4 caja={_gr}gr, total=${_total}"
+                    f"{_pprod['nombre']}: 1/4 caja={_gr}gr, total=${_total} "
+                    f"(usa cantidad={_gr}, NO 0.25 ni 1)"
                 )
             elif _m_pesos:
                 _pesos = int(_m_pesos.group(1))
                 if 500 <= _pesos <= 200000:  # rango razonable de venta
                     _gr = round(_pesos / _precio_gr, 1)
                     _grm_lines.append(
-                        f"{_pprod['nombre']}: ${_pesos} → {_gr}gr (${_precio_gr:.1f}/gr), total=${_pesos}"
+                        f"{_pprod['nombre']}: ${_pesos} → {_gr}gr (${_precio_gr:.1f}/gr), total=${_pesos} "
+                        f"(usa cantidad={_gr})"
                     )
             elif _m_caja:
+                _n_cajas = int(_m_caja_n.group(1)) if _m_caja_n else 1
+                _gr_total = _PESO_CAJA_GR * _n_cajas
+                _total = _precio_caja * _n_cajas
                 _grm_lines.append(
-                    f"{_pprod['nombre']}: caja completa=500gr, total=${_precio_caja}"
+                    f"{_pprod['nombre']}: {_n_cajas} caja(s)={_gr_total}gr, total=${_total} "
+                    f"(IMPORTANTE: usa cantidad={_gr_total}, NO {_n_cajas})"
                 )
 
     if _grm_lines:
