@@ -521,15 +521,16 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
         def _parse_accion_mod(msg):
             ml = msg.strip().lower()
-            if ml.startswith(('añadir ', 'anadir ', 'agregar ')):
-                resto = _re_mod.sub(r'^(a[nñ]adir|agregar)\s+', '', msg.strip(), flags=_re_mod.IGNORECASE)
+            _PREFIJOS_ANADIR = ('añadir ', 'anadir ', 'agregar ', 'añade ', 'añade:', 'anadir:', 'agrega ', 'agrega:')
+            if ml.startswith(_PREFIJOS_ANADIR):
+                resto = _re_mod.sub(r'^(a[nñ]ad[ei][r]?|agreg[ao][r]?)[:\s]+', '', msg.strip(), flags=_re_mod.IGNORECASE)
                 m = _PATRON_ITEM_MOD.match(resto.strip())
                 if m:
                     return {'accion': 'anadir',
                             'cantidad': float(m.group(1).replace(',', '.')),
                             'producto': m.group(2).strip(),
                             'total': int(m.group(3))}
-            if ml.startswith(('quitar ', 'eliminar ', 'borrar ', 'sacar ')):
+            if ml.startswith(('quitar ', 'eliminar ', 'borrar ', 'sacar ', 'quita ', 'quita:', 'elimina ', 'borra ')):
                 resto = _re_mod.sub(r'^(quitar|eliminar|borrar|sacar)\s+(los?\s+|las?\s+)?',
                                     '', msg.strip(), flags=_re_mod.IGNORECASE)
                 return {'accion': 'quitar', 'termino': resto.strip()}
