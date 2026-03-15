@@ -389,7 +389,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     # ── Excel cargado por el usuario ──
     excel_temp   = context.user_data.get("excel_temp")
     excel_nombre = context.user_data.get("excel_nombre")
-    limpiar_pendientes_expirados()
     if excel_temp and os.path.exists(excel_temp):
         try:
             await update.message.reply_text("⚙️ Procesando tu Excel...")
@@ -720,6 +719,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
     # ── Flujo normal con Claude ──
     try:
+        limpiar_pendientes_expirados()
         # ── Reinyectar contexto pendiente si Claude solo hizo una pregunta antes ──
         _ctx_previo = None
         with _estado_lock:
@@ -901,7 +901,9 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 os.remove(archivo)
 
     except Exception:
-        logger.error("Error en mensaje: %s", traceback.format_exc())
+        _tb = traceback.format_exc()
+        logger.error("Error en mensaje: %s", _tb)
+        print(f"[ERROR _procesar_mensaje]\n{_tb}")  # visible en Railway
         await update.message.reply_text("Tuve un problema. Intenta de nuevo.")
 
 
