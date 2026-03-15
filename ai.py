@@ -478,6 +478,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         _cant = int(_m_cant.group(1))
 
         # Buscar producto en el segmento
+        # IMPORTANTE: solo aceptar productos con precio_por_cantidad (tornillos/chazos/mayorista)
+        # Evita que "1/4" matchee "Formón de 1/4" antes de que el fallback encuentre "Chazo 1/4"
         _palabras = _seg.split()
         _prod_encontrado = None
         for _largo in [4, 3, 2, 1]:
@@ -486,7 +488,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                 if len(_frag) < 3:
                     continue
                 _p = buscar_producto_en_catalogo(_frag)
-                if _p:
+                if _p and _p.get("precio_por_cantidad"):  # solo productos con precio mayorista
                     _prod_encontrado = _p
                     break
             if _prod_encontrado:
