@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import {
   useTheme, useFetch, Card, SectionTitle, Spinner, ErrorMsg,
   PeriodBtn, StyledInput, EmptyState, Th, cop, API_BASE,
-}, useIsMobile } from '../components/shared.jsx'
+  useIsMobile,
+} from '../components/shared.jsx'
 
 function metodoBadge(metodo, t) {
   const raw = (metodo || '').toLowerCase()
