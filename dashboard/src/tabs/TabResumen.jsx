@@ -6,7 +6,8 @@ import {
 import {
   useTheme, useFetch, Card, SectionTitle, Spinner, ErrorMsg,
   PeriodBtn, EmptyState, cop, num, API_BASE,
-}, useIsMobile } from '../components/shared.jsx'
+  useIsMobile,
+} from '../components/shared.jsx'
 
 function fmtFecha(s) {
   if (!s) return ''
