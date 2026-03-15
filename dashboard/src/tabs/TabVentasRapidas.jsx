@@ -96,6 +96,7 @@ function ordenarTornilleria(prods) {
 function tipoProd(prod) {
   if (prod.nombre?.toLowerCase().includes('esmeril')) return 'cm'
   if ((prod.unidad_medida || '').toUpperCase() === 'MLT') return 'mlt'
+  if ((prod.unidad_medida || '').toUpperCase() === 'GRM') return 'grm'
   if (prod.precios_fraccion && Object.keys(prod.precios_fraccion).length > 0) return 'fraccion'
   return 'simple'
 }
@@ -166,7 +167,7 @@ function ProdCard({ prod, onClick, isFav, onFav, cantCarrito }) {
           background: t.border, borderRadius: 3, padding: '1px 4px',
           fontFamily: 'monospace',
         }}>
-          {tipo === 'cm' ? 'cm' : tipo === 'mlt' ? 'ml' : '½'}
+          {tipo === 'cm' ? 'cm' : tipo === 'mlt' ? 'ml' : tipo === 'grm' ? 'gr' : '½'}
         </div>
       )}
 
@@ -575,6 +576,146 @@ function ModalMlt({ prod, onClose, onConfirm }) {
             </div>
             <div style={{ fontSize: 13, color: t.text, fontFamily: 'monospace' }}>
               {modo === 'pesos' ? cop(totalCalc) : `${mlCalc} ml`}
+            </div>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MODAL GRM — Puntillas por gramos / por pesos
+// ══════════════════════════════════════════════════════════════════════════════
+const PESO_CAJA_GR = 500
+
+function ModalGrm({ prod, onClose, onConfirm }) {
+  const t = useTheme()
+  const [modo,  setModo]  = useState('pesos')  // 'pesos' | 'gramos'
+  const [valor, setValor] = useState('')
+  if (!prod) return null
+
+  const precioCaja = prod.precio                    // precio 1 caja (500 gr)
+  const precioGr   = precioCaja / PESO_CAJA_GR      // pesos por gramo
+
+  const valorNum  = parseFloat(valor) || 0
+  const gramosCalc  = modo === 'pesos'
+    ? (valorNum > 0 ? Math.round((valorNum / precioGr) * 10) / 10 : 0)
+    : valorNum
+  const totalCalc   = modo === 'pesos'
+    ? valorNum
+    : Math.round(valorNum * precioGr)
+
+  const valido = valorNum > 0 && gramosCalc > 0 && totalCalc > 0
+
+  const ACCESOS = [
+    { label: 'Caja completa', gr: 500,  icon: '📦' },
+    { label: '½ caja',        gr: 250,  icon: '½'  },
+    { label: '¼ caja',        gr: 125,  icon: '¼'  },
+  ]
+
+  const confirmar = () => {
+    if (!valido) return
+    const grDesc = gramosCalc >= 500
+      ? `${gramosCalc / 500} caja${gramosCalc / 500 !== 1 ? 's' : ''}`
+      : `${gramosCalc} gr`
+    onConfirm({ gramos: gramosCalc, total: totalCalc, desc: grDesc })
+  }
+
+  return (
+    <Modal show title={prod.nombre}
+      subtitle={`$${precioGr.toFixed(0)}/gr · ${cop(precioCaja)} por caja (500 gr)`}
+      onClose={onClose} onConfirm={confirmar} okDisabled={!valido}
+      okLabel="Agregar al carrito">
+
+      {/* Accesos rápidos */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        {ACCESOS.map(a => {
+          const activo = modo === 'gramos' && parseFloat(valor) === a.gr
+          return (
+            <button key={a.gr} onClick={() => { setModo('gramos'); setValor(String(a.gr)) }}
+              style={{
+                flex: 1, padding: '8px 4px', borderRadius: 8, cursor: 'pointer', textAlign: 'center',
+                background: activo ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#111'),
+                border: `1px solid ${activo ? t.accent : t.border}`,
+                color: activo ? t.accent : t.text,
+                fontSize: 11, fontFamily: 'inherit', transition: 'all .15s',
+              }}>
+              <div style={{ fontSize: 16, marginBottom: 3 }}>{a.icon}</div>
+              <div style={{ fontWeight: 600 }}>{a.label}</div>
+              <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>
+                {cop(Math.round(a.gr * precioGr))}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Toggle modo */}
+      <div style={{
+        display: 'flex', background: t.id === 'caramelo' ? '#f1f5f9' : '#111',
+        border: `1px solid ${t.border}`, borderRadius: 8, padding: 3, marginBottom: 12, gap: 3,
+      }}>
+        {[
+          { key: 'pesos',  label: '$ Pesos',    hint: 'El cliente dice cuánto plata' },
+          { key: 'gramos', label: 'gr Gramos',  hint: 'Sabes exactamente cuántos gramos' },
+        ].map(m => (
+          <button key={m.key} onClick={() => { setModo(m.key); setValor('') }} style={{
+            flex: 1, padding: '7px 6px', borderRadius: 6, cursor: 'pointer',
+            background: modo === m.key ? t.card : 'transparent',
+            border: `1px solid ${modo === m.key ? t.accent + '55' : 'transparent'}`,
+            color: modo === m.key ? t.accent : t.textMuted,
+            fontSize: 11, fontFamily: 'inherit', fontWeight: modo === m.key ? 600 : 400,
+            transition: 'all .15s',
+          }}>{m.label}</button>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+        border: `1px solid ${t.accent}66`, borderRadius: 8,
+        padding: '10px 14px', marginBottom: 10,
+      }}>
+        <span style={{ fontSize: 16, color: t.textMuted, minWidth: 20 }}>
+          {modo === 'pesos' ? '$' : 'gr'}
+        </span>
+        <input
+          autoFocus type="number" min="1" value={valor}
+          onChange={e => setValor(e.target.value)}
+          placeholder={modo === 'pesos' ? 'ej: 2000' : 'ej: 250'}
+          style={{
+            flex: 1, background: 'transparent', border: 'none',
+            color: t.text, fontSize: 26, fontFamily: 'monospace',
+            outline: 'none', textAlign: 'center',
+            MozAppearance: 'textfield', appearance: 'textfield',
+          }}
+        />
+      </div>
+
+      {/* Resultado */}
+      {valido && (
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          background: t.accentSub, border: `1px solid ${t.accent}33`,
+          borderRadius: 8, padding: '10px 14px', marginBottom: 4,
+        }}>
+          <div>
+            <div style={{ fontSize: 10, color: t.textMuted, marginBottom: 2 }}>
+              {modo === 'pesos' ? 'Gramos a entregar' : 'Total a cobrar'}
+            </div>
+            <div style={{ fontSize: 18, fontFamily: 'monospace', fontWeight: 700, color: t.accent }}>
+              {modo === 'pesos' ? `${gramosCalc} gr` : cop(totalCalc)}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: t.textMuted, marginBottom: 2 }}>
+              {modo === 'pesos' ? 'Total' : 'Gramos'}
+            </div>
+            <div style={{ fontSize: 13, color: t.text, fontFamily: 'monospace' }}>
+              {modo === 'pesos' ? cop(totalCalc) : `${gramosCalc} gr`}
             </div>
           </div>
         </div>
@@ -1375,6 +1516,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [modalCm,   setModalCm]   = useState(null)
   const [modalQty,  setModalQty]  = useState(null)
   const [modalMlt,  setModalMlt]  = useState(null)
+  const [modalGrm,  setModalGrm]  = useState(null)
   const [toast,     setToast]     = useState(null)
   const [enviando,  setEnviando]  = useState(false)
   const [subcatFiltro,      setSubcatFiltro]      = useState(null)
@@ -1448,6 +1590,7 @@ export default function TabVentasRapidas({ refreshKey }) {
     if (prod.tipo === 'fraccion') { setModalFrac(prod); return }
     if (prod.tipo === 'cm')       { setModalCm(prod);   return }
     if (prod.tipo === 'mlt')      { setModalMlt(prod);  return }
+    if (prod.tipo === 'grm')      { setModalGrm(prod);  return }
     // Simple: primer click = directo, segundo click = editar qty
     const ya = carrito.find(c => c.key === prod.key && c.tipo === 'simple')
     if (ya) { setModalQty(prod) }
@@ -1467,6 +1610,13 @@ export default function TabVentasRapidas({ refreshKey }) {
       precio: total, qty: ml, total, desc, tipo: 'mlt',
     }])
     setModalMlt(null)
+  }
+  const confirmarGrm = ({ gramos, total, desc }) => {
+    setCarrito(p => [...p, {
+      id: Date.now(), key: modalGrm.key, nombre: modalGrm.nombre,
+      precio: total, qty: gramos, total, desc, tipo: 'grm',
+    }])
+    setModalGrm(null)
   }
   const confirmarFrac = ({ unidades, fracKey, total, desc }) => {
     setCarrito(p => [...p, { id: Date.now(), key: modalFrac.key, nombre: modalFrac.nombre, precio: total, qty: 1, total, desc, tipo: 'fraccion' }])
@@ -1903,6 +2053,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       <ModalCm       prod={modalCm}   onClose={() => setModalCm(null)}   onConfirm={confirmarCm}  />
       <ModalQty      prod={modalQty}  onClose={() => setModalQty(null)}  onConfirm={confirmarQty} />
       <ModalMlt      prod={modalMlt}  onClose={() => setModalMlt(null)}  onConfirm={confirmarMlt} />
+      <ModalGrm      prod={modalGrm}  onClose={() => setModalGrm(null)}  onConfirm={confirmarGrm} />
 
       {/* Toast */}
       {toast && (
