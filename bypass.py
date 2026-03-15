@@ -578,6 +578,25 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
                 prod = buscar_producto_en_catalogo(nombre_txt)
             except Exception:
                 prod = None
+
+        # ── Caso especial: "N caja puntilla X" → convertir cantidad a gramos ──
+        _PESO_CAJA_GR_MULTI = 500
+        _m_caja_multi = re.match(
+            r'^(?:una?\s+)?cajas?\s+(?:de\s+)?(puntilla.+)$',
+            nombre_txt, re.IGNORECASE
+        )
+        if _m_caja_multi:
+            nombre_sin_caja = _m_caja_multi.group(1).strip()
+            try:
+                from memoria import buscar_producto_en_catalogo as _bpc
+                _prod_grm = _bpc(nombre_sin_caja)
+            except Exception:
+                _prod_grm = None
+            if _prod_grm and _prod_grm.get("unidad_medida", "").upper() == "GRM":
+                prod = _prod_grm
+                # N cajas → N × 500 gramos
+                cantidad = float(_PESO_CAJA_GR_MULTI * cantidad_raw)
+
         if not prod:
             return None  # no encontrado ni exacto ni fuzzy → Claude
 
@@ -596,6 +615,7 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
             "precio_unitario": precio,
             "total":           total,
             "es_mayorista":    es_mayorista,
+            "es_grm":          prod.get("unidad_medida", "").upper() == "GRM",
         })
 
     if not items_resueltos:
@@ -606,8 +626,12 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
     lineas_texto = []
     for i in items_resueltos:
         sufijo = " 🏭" if i["es_mayorista"] else ""
+        if i.get("es_grm"):
+            cant_label = f"{int(i['cantidad'])} gr"
+        else:
+            cant_label = str(int(i["cantidad"])) if float(i["cantidad"]).is_integer() else str(i["cantidad"])
         lineas_texto.append(
-            f"• {i['cantidad']} {i['producto']} — ${i['total']:,.0f} "
+            f"• {cant_label} {i['producto']} — ${i['total']:,.0f} "
             f"(${i['precio_unitario']:,.0f} c/u{sufijo})"
         )
     lineas_texto.append(f"\n💰 Total: ${total_general:,.0f}")
