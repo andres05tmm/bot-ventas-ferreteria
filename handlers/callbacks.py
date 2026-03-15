@@ -553,7 +553,7 @@ def _formato_cantidad(cantidad_dec: float, producto: str) -> str:
     return decimal_a_fraccion_legible(cantidad_dec)
 
 
-def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
+async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
     """
     Versión de _enviar_botones_pago que usa bot.send_message directamente.
     Úsala cuando no tienes un objeto message disponible.
