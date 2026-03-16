@@ -10,6 +10,7 @@ import TabCompras       from './tabs/TabCompras.jsx'
 import TabKardex        from './tabs/TabKardex.jsx'
 import TabResultados    from './tabs/TabResultados.jsx'
 import TabVentasRapidas from './tabs/TabVentasRapidas.jsx'
+import TabHistoricoVentas from './tabs/TabHistoricoVentas.jsx'
 
 // Logo SVG vectorial
 function Logo({ size = 40, themeId }) {
@@ -85,12 +86,12 @@ const REFRESH_OPTIONS = [
 
 const TABS = [
   'Resumen','Ventas Rápidas','Top 10','Inventario','Historial',
-  'Caja','Gastos','Compras','Kárdex','Resultados',
+  'Caja','Gastos','Compras','Kárdex','Resultados','Histórico',
 ]
 const TAB_ICONS = {
   'Resumen':'📊','Ventas Rápidas':'⚡','Top 10':'🏆','Inventario':'📦',
   'Historial':'🧾','Caja':'💰','Gastos':'💸','Compras':'🚚',
-  'Kárdex':'📋','Resultados':'📈',
+  'Kárdex':'📋','Resultados':'📈','Histórico':'📅',
 }
 const BOTTOM_TABS = ['Ventas Rápidas','Resumen','Historial','Caja']
 
@@ -503,6 +504,7 @@ function AppShell({ themeId, setThemeId }) {
           {tab==='Compras'        && <TabCompras       refreshKey={refreshKey}/>}
           {tab==='Kárdex'         && <TabKardex        refreshKey={refreshKey}/>}
           {tab==='Resultados'     && <TabResultados    refreshKey={refreshKey}/>}
+          {tab==='Histórico'      && <TabHistoricoVentas refreshKey={refreshKey}/>}
         </div>
       </main>
 
