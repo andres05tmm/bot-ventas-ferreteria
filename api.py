@@ -1965,19 +1965,124 @@ def eliminar_producto(key: str):
 
 # ── Historial manual de ventas diarias ────────────────────────────────────────
 
-HISTORICO_FILE = "historico_ventas.json"
+HISTORICO_FILE  = "historico_ventas.json"
 HISTORICO_EXCEL = "historico_ventas.xlsx"
+_NOMBRES_MES    = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                   "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
+
+# ── Helpers internos ──────────────────────────────────────────────────────────
+
+def _excel_a_dict(ruta: str) -> dict:
+    """
+    Lee historico_ventas.xlsx y retorna {fecha: monto}.
+    Columna A = Fecha (YYYY-MM-DD), Columna E = Monto.
+    Ignora filas con fecha o monto inválidos.
+    """
+    data = {}
+    try:
+        wb = openpyxl.load_workbook(ruta, read_only=True, data_only=True)
+        ws = wb.active
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            fecha = str(row[0] or "").strip()
+            monto = row[4]  # Col E
+            if not fecha or not monto:
+                continue
+            try:
+                # Validar formato YYYY-MM-DD
+                parts = fecha.split("-")
+                if len(parts) == 3 and len(parts[0]) == 4:
+                    m = int(monto)
+                    if m > 0:
+                        data[fecha] = m
+            except Exception:
+                pass
+    except Exception as e:
+        logging.getLogger("ferrebot.api").warning(f"[historico] No se pudo leer Excel: {e}")
+    return data
+
+def _dict_a_excel(data: dict, ruta: str) -> None:
+    """
+    Escribe {fecha: monto} en historico_ventas.xlsx.
+    Columnas: Fecha | Año | Mes | Día | Monto
+    """
+    from openpyxl.styles import Font, PatternFill, Alignment
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Historial"
+
+    # Encabezados
+    headers = ["Fecha", "Año", "Mes", "Día", "Monto"]
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=col, value=h)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="C0392B")
+        c.alignment = Alignment(horizontal="center")
+
+    # Datos ordenados por fecha
+    for row_idx, (fecha, monto) in enumerate(sorted(data.items()), 2):
+        try:
+            parts   = fecha.split("-")
+            año_n   = int(parts[0])
+            mes_n   = int(parts[1])
+            dia_n   = int(parts[2])
+            nom_mes = _NOMBRES_MES[mes_n] if 1 <= mes_n <= 12 else str(mes_n)
+            ws.cell(row=row_idx, column=1, value=fecha)
+            ws.cell(row=row_idx, column=2, value=año_n)
+            ws.cell(row=row_idx, column=3, value=nom_mes)
+            ws.cell(row=row_idx, column=4, value=dia_n)
+            ws.cell(row=row_idx, column=5, value=int(monto))
+        except Exception:
+            pass
+
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["E"].width = 16
+    wb.save(ruta)
+
+def _leer_historico_de_excel() -> dict:
+    """
+    Descarga el Excel de Drive → lee datos → retorna dict.
+    Es la fuente de verdad cuando existe.
+    """
+    try:
+        from drive import descargar_de_drive
+        ruta_tmp = HISTORICO_EXCEL + ".tmp"
+        if descargar_de_drive(HISTORICO_EXCEL, ruta_tmp):
+            data = _excel_a_dict(ruta_tmp)
+            try:
+                import os as _os; _os.remove(ruta_tmp)
+            except Exception:
+                pass
+            return data
+    except Exception:
+        pass
+    return {}
 
 def _leer_historico() -> dict:
-    """Lee el JSON de historial desde disco o Drive."""
-    # Intentar local primero
+    """
+    Lee historial: primero intenta Excel de Drive (fuente de verdad),
+    luego JSON local como fallback.
+    """
+    # 1. Excel en Drive (fuente de verdad)
+    data = _leer_historico_de_excel()
+    if data:
+        # Actualizar caché JSON local
+        try:
+            with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        return data
+
+    # 2. JSON local como fallback
     if os.path.exists(HISTORICO_FILE):
         try:
             with open(HISTORICO_FILE, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
-    # Intentar Drive
+
+    # 3. JSON en Drive como último recurso
     try:
         from drive import descargar_de_drive
         if descargar_de_drive(HISTORICO_FILE, HISTORICO_FILE):
@@ -1988,90 +2093,98 @@ def _leer_historico() -> dict:
     return {}
 
 def _guardar_historico(data: dict) -> None:
-    """Guarda el JSON en disco y sube a Drive."""
+    """
+    Guarda en JSON local + Excel local, y sube ambos a Drive.
+    Excel es la fuente de verdad — siempre se regenera completo.
+    """
+    # 1. JSON local (caché rápida para el API)
     with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+    # 2. Excel local (fuente de verdad editable)
+    _dict_a_excel(data, HISTORICO_EXCEL)
+
+    # 3. Subir ambos a Drive
     try:
         from drive import subir_a_drive_urgente
         subir_a_drive_urgente(HISTORICO_FILE)
+        subir_a_drive_urgente(HISTORICO_EXCEL)
     except Exception:
         pass
 
-def _actualizar_excel_historico(data: dict) -> None:
-    """Regenera el Excel historico_ventas.xlsx con todos los datos."""
-    try:
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Historial"
-        ws.append(["Fecha", "Año", "Mes", "Día", "Monto"])
-        for fecha, monto in sorted(data.items()):
-            if monto and monto > 0:
-                try:
-                    parts = fecha.split("-")
-                    año, mes, dia = int(parts[0]), int(parts[1]), int(parts[2])
-                    from calendar import month_name
-                    nombre_mes = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
-                                  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][mes]
-                    ws.append([fecha, año, nombre_mes, dia, monto])
-                except Exception:
-                    pass
-        # Formato
-        ws.column_dimensions["A"].width = 14
-        ws.column_dimensions["C"].width = 14
-        ws.column_dimensions["E"].width = 16
-        wb.save(HISTORICO_EXCEL)
-        try:
-            from drive import subir_a_drive_urgente
-            subir_a_drive_urgente(HISTORICO_EXCEL)
-        except Exception:
-            pass
-    except Exception as e:
-        logging.getLogger("ferrebot.api").warning(f"Error generando Excel histórico: {e}")
+# ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/historico/ventas")
 def historico_ventas_get(año: int = 0, mes: int = 0):
-    """Retorna los montos del mes/año solicitado. {fecha: monto}"""
+    """Retorna montos del mes/año. Siempre lee Excel de Drive primero."""
     data = _leer_historico()
     if not año and not mes:
         return data
-    prefijo = f"{año}-{str(mes).padStart(2,'0')}" if mes else str(año)
-    # Python no tiene padStart — usar formato
     prefijo = f"{año}-{mes:02d}" if mes else str(año)
     return {k: v for k, v in data.items() if k.startswith(prefijo)}
 
 class HistoricoBody(BaseModel):
-    año: int
-    mes: int
+    año:   int
+    mes:   int
     datos: dict   # { "2026-03-01": 850000, ... }
 
 @app.post("/historico/ventas")
 def historico_ventas_post(body: HistoricoBody):
-    """Guarda los montos de un mes en el historial."""
+    """
+    Guarda los montos de un mes.
+    1. Lee estado actual del Excel (para no pisar otros meses)
+    2. Fusiona con los nuevos datos
+    3. Guarda JSON + Excel + sube Drive
+    """
     try:
-        data = _leer_historico()
-        # Actualizar solo las fechas del mes enviado, preservar el resto
+        # Leer estado actual (Excel como fuente de verdad)
+        data   = _leer_historico()
         prefijo = f"{body.año}-{body.mes:02d}"
-        # Eliminar entradas previas del mismo mes
+
+        # Eliminar entradas previas del mes
         data = {k: v for k, v in data.items() if not k.startswith(prefijo)}
-        # Agregar los nuevos (solo valores > 0)
+
+        # Agregar los nuevos (solo > 0)
         for fecha, monto in body.datos.items():
             if fecha.startswith(prefijo) and monto and int(monto) > 0:
                 data[fecha] = int(monto)
+
         _guardar_historico(data)
-        _actualizar_excel_historico(data)
-        return {"ok": True, "registros": len([v for v in data.values() if v > 0])}
+        registros_mes = len([v for k, v in data.items() if k.startswith(prefijo)])
+        return {"ok": True, "registros": registros_mes, "total": len(data)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/historico/sincronizar-excel")
+def historico_sincronizar_excel():
+    """
+    Lee el Excel de Drive (editado manualmente) y actualiza el JSON.
+    Llamar desde dashboard cuando quieras traer cambios hechos en Excel.
+    """
+    try:
+        data = _leer_historico_de_excel()
+        if not data:
+            return {"ok": False, "error": "No se encontró historico_ventas.xlsx en Drive o está vacío"}
+        # Actualizar JSON local con lo que tiene el Excel
+        with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        try:
+            from drive import subir_a_drive_urgente
+            subir_a_drive_urgente(HISTORICO_FILE)
+        except Exception:
+            pass
+        return {"ok": True, "registros": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/historico/resumen")
 def historico_resumen():
-    """Retorna totales mensuales para gráficas."""
+    """Totales mensuales para gráficas."""
     data = _leer_historico()
-    por_mes = defaultdict(int)
+    por_mes: dict = defaultdict(int)
     for fecha, monto in data.items():
         if monto and monto > 0:
-            ym = fecha[:7]   # "2026-03"
-            por_mes[ym] += monto
+            por_mes[fecha[:7]] += monto
     return dict(sorted(por_mes.items()))
 
 # ── Servir dashboard React (build estático) ───────────────────────────────────
