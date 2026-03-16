@@ -342,9 +342,9 @@ def agregar_producto_a_excel(datos: dict) -> dict:
     import shutil
     import tempfile
     try:
-        from drive import descargar_de_drive, subir_a_drive
+        from drive import descargar_de_drive, subir_a_drive, subir_archivo_a_drive
     except ImportError:
-        descargar_de_drive = subir_a_drive = None
+        descargar_de_drive = subir_a_drive = subir_archivo_a_drive = None
 
     ruta = config.EXCEL_PRODUCTOS if hasattr(config, "EXCEL_PRODUCTOS") else None
     # Intentar localizar el Excel de productos
@@ -406,14 +406,22 @@ def agregar_producto_a_excel(datos: dict) -> dict:
         ws.cell(row=fila_nueva, column=7,  value=stock_min)
         ws.cell(row=fila_nueva, column=8,  value=cod_dian)
         ws.cell(row=fila_nueva, column=9,  value=unidad)
-        ws.cell(row=fila_nueva, column=17, value=int(precio) if precio else 0)  # Col Q
+        ws.cell(row=fila_nueva, column=17, value=int(precio) if precio is not None else 0)  # Col Q
 
         wb.save(ruta)
 
-        # Subir a Drive si está disponible
-        if subir_a_drive and ruta != ruta_tmp:
+        # Subir a Drive siempre que esté disponible
+        # Si ruta es un archivo temporal, usar subir_archivo_a_drive que maneja la diferencia
+        # entre ruta local y nombre en Drive
+        if subir_a_drive or subir_archivo_a_drive:
             try:
-                subir_a_drive(ruta, "BASE_DE_DATOS_PRODUCTOS.xlsx")
+                if ruta_tmp and ruta == ruta_tmp:
+                    # Archivo temporal → subir con nombre correcto en Drive
+                    if subir_archivo_a_drive:
+                        subir_archivo_a_drive(ruta_tmp, "BASE_DE_DATOS_PRODUCTOS.xlsx")
+                else:
+                    # Archivo local con nombre correcto → subir directo
+                    subir_a_drive(ruta)
             except Exception:
                 pass
 
