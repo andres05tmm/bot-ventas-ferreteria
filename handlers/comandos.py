@@ -1986,7 +1986,7 @@ async def _guardar_producto(update, context, prod: dict):
 
     catalogo[clave] = entrada
     mem["catalogo"] = catalogo
-    guardar_memoria(mem)
+    guardar_memoria(mem, urgente=True)   # urgente=True: sube a Drive sin debounce
     invalidar_cache_memoria()
 
     # Agregar al Excel BASE_DE_DATOS_PRODUCTOS.xlsx
@@ -2004,9 +2004,18 @@ async def _guardar_producto(update, context, prod: dict):
 
             # Construir fila con el mismo formato de columnas del importador
             fila = [""] * 22  # columnas A-V
-            fila[1]  = nombre        # col B — nombre
-            fila[3]  = categoria     # col D — categoría
-            fila[16] = round(precio_unidad)  # col Q — precio unidad
+            clave_excel = nombre.lower().replace(" ", "")[:20]
+            fila[0]  = clave_excel            # col A — código
+            fila[1]  = nombre                 # col B — nombre
+            fila[2]  = "P-Producto"           # col C — tipo
+            fila[3]  = categoria              # col D — categoría
+            fila[4]  = "SI"                   # col E — inventariable
+            fila[5]  = "SI"                   # col F — visible facturas
+            fila[6]  = 0                      # col G — stock mínimo
+            fila[7]  = "94"                   # col H — código DIAN
+            fila[13] = "22-IVA 0%"            # col N — código impuesto
+            fila[15] = "SI"                   # col P — incluye IVA
+            fila[16] = round(precio_unidad)   # col Q — precio unidad
 
             mult_map = {"3/4":17,"1/2":18,"1/4":19,"1/8":20,"1/16":21}
             for frac, col_idx in mult_map.items():
