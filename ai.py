@@ -802,6 +802,12 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                                 "economica", "simple", "corriente", "basico", "normal",
                                 "plastico", "plastica", "metalico", "metalica", "acero",
                                 "madera", "hierro", "metal", "comun", "especial"}
+            # Patrón de fracción compuesta: 1-1/2, 2-1/4, 3-3/4, etc.
+            # Estas son SIEMPRE cantidades, nunca nombres de producto por sí solas
+            _ES_FRACCION_COMPUESTA = re.compile(r'^\d+[-]\d+/\d+$')
+            # Fracciones simples como 1/2, 1/4 también pueden ser cantidades
+            _ES_FRACCION_SIMPLE = re.compile(r'^\d+/\d+$')
+
             for largo in [4, 3, 2, 1]:
                 encontrado_seg = False
                 for i in range(len(palabras_seg) - largo + 1):
@@ -811,6 +817,17 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     # En largo=1, no buscar con palabras que son solo adjetivos/materiales
                     if largo == 1 and fragmento in _SOLO_ADJETIVOS:
                         continue
+                    # En largo=1, saltar fracciones compuestas (1-1/2, 2-1/4) si hay más
+                    # palabras disponibles — son cantidades, no nombres de producto
+                    if largo == 1 and _ES_FRACCION_COMPUESTA.match(fragmento) and len(palabras_seg) > 1:
+                        continue
+                    # En largo=1, saltar fracciones simples (1/2, 1/4) si hay más palabras
+                    # Y el segmento original tiene palabras no-numéricas después
+                    if largo == 1 and _ES_FRACCION_SIMPLE.match(fragmento) and len(palabras_seg) > 1:
+                        # Solo saltar si las otras palabras del segmento no son puramente numéricas
+                        otras = [p for p in palabras_seg if p != fragmento]
+                        if any(not re.match(r'^[\d/\.\-]+$', p) for p in otras):
+                            continue
                     resultados = buscar_multiples_con_alias(fragmento, limite=_limite_seg)
                     primer = True
                     for prod in resultados:
