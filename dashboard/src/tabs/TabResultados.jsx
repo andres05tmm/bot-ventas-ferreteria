@@ -159,6 +159,7 @@ function EstadoResultados({ d, periodo, t }) {
 
 // ── Proyección de Caja ─────────────────────────────────────────────────────
 function ProyeccionCaja({ pd, t }) {
+  const isMobile = useIsMobile()
   const positivo = pd.proy_caja_fin_mes >= 0
   const serie    = pd.serie_diaria || []
   const hoy      = pd.dia_del_mes
