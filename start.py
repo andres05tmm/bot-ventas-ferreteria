@@ -26,6 +26,11 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     stream=sys.stdout,
 )
+# Silenciar librerías verbosas que generan ruido en logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext.Updater").setLevel(logging.WARNING)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("start")
 
 # ── Importar config AQUÍ — después de fijar WEBHOOK_URL y antes de arrancar hilos
@@ -163,7 +168,7 @@ from telegram import Bot  # noqa: E402
 async def _delete_webhook():
     async with Bot(token=config.TELEGRAM_TOKEN) as bot:
         await bot.delete_webhook(drop_pending_updates=True)
-    log.info("🧹 Webhook eliminado — Telegram usará polling")
+    log.info("🧹 Webhook anterior eliminado")
 
 asyncio.run(_delete_webhook())
 # asyncio.run() cierra el loop al terminar → crear uno nuevo para run_polling()
@@ -171,6 +176,6 @@ loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
 # ── Bot en hilo PRINCIPAL ──────────────────────────────────────────────────────
-log.info("🤖 Iniciando FerreBot en modo polling...")
+log.info("🤖 Iniciando FerreBot...")
 from main import main  # noqa: E402
 main()
