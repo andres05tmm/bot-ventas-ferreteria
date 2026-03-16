@@ -27,19 +27,56 @@ _RUTA_ALIASES = os.getenv("ALIASES_PATH", "aliases_dinamicos.json")
 # Aliases PREDETERMINADOS — siempre activos, no se pueden borrar con /alias
 # Solo términos coloquiales muy comunes que el bypass necesita resolver
 _ALIASES_DEFAULT: dict[str, str] = {
-    "tiner":       "thinner",
-    "tinner":      "thinner",
-    "barsol":      "varsol",
-    "sellador":    "sellante",
-    "pagaternit":  "pegaternit",
-    "pega ternit": "pegaternit",
-    # Typos comunes de drywall
-    "drwayll":     "drywall",
-    "drwayl":      "drywall",
-    "drwall":      "drywall",
-    "drawall":     "drywall",
-    "drywll":      "drywall",
-    "driwoll":     "drywall",
+    # ── Solventes ─────────────────────────────────────────────
+    "tiner":        "thinner",
+    "tinner":       "thinner",
+    "barsol":       "varsol",
+    "barso":        "varsol",
+    # ── Sellantes / impermeabilizantes ────────────────────────
+    "sellador":     "sellante",
+    "pagaternit":   "pegaternit",
+    "pega ternit":  "pegaternit",
+    # ── Cemento ───────────────────────────────────────────────
+    "cemente gris": "cemento gris",
+    # "cemento" solo (sin color) → gris por defecto, pero NO si dice "blanco"
+    # Esto se maneja en el bot con el alias dinámico — NO poner alias genérico aquí
+    # para evitar que "cemento blanco" se convierta en "cemento gris"
+    # ── Cuñetes ───────────────────────────────────────────────
+    "cunete t1":         "cuñete vinilo tipo 1 davinci",
+    "cuñete t1":         "cuñete vinilo tipo 1 davinci",
+    "cunete t2":         "cuñete vinilo t 2",
+    "cuñete t2":         "cuñete vinilo t 2",
+    "medio cunete t2":   "1/2 cuñete vinilo t2 blanco",
+    "medio cuñete t2":   "1/2 cuñete vinilo t2 blanco",
+    "medio cunete t1":   "1/2 cuñete vinilo t1 blanco",
+    "medio cuñete t1":   "1/2 cuñete vinilo t1 blanco",
+    "medio cunete t3":   "1/2 cuñete vinilo t3 blanco",
+    "medio cuñete t3":   "1/2 cuñete vinilo t3 blanco",
+    # ── Wayper ────────────────────────────────────────────────
+    "waiper":       "wayper",
+    "weiper":       "wayper",
+    # ── Pele (tallas escritas de otro modo) ───────────────────
+    "pele pequeña": "cinta pele s",
+    "pele grande":  "cinta pele xl",
+    # ── Pinturas coloquiales ──────────────────────────────────
+    "vinilo davinci": "vinilo davinci t1",   # si no especifica tipo → T1
+    "color preparado": "vinilo davinci t1",
+
+    # ── Typos comunes de drywall ──────────────────────────────
+    "drwayll":      "drywall",
+    "drwayl":       "drywall",
+    "drwall":       "drywall",
+    "drawall":      "drywall",
+    "drywll":       "drywall",
+    "driwoll":      "drywall",
+    # ── Otros typos frecuentes ────────────────────────────────
+    "rodachines":   "rodachina",
+    "rodachin":     "rodachina",
+    "bisagra armillar": "bisagra armillar",  # ya correcto en catálogo
+    "armillar":     "bisagra armillar",
+    # ── Racores / plomería ────────────────────────────────────
+    "racor macho":  "racos p/p macho",
+    "racor pp":     "racos p/p macho",
 }
 
 # Cache en RAM — cargado una vez al iniciar, actualizado en cada /alias
