@@ -50,6 +50,7 @@ import threading
 from typing import Optional
 
 import openpyxl
+import config
 
 log = logging.getLogger("ferrebot.precio_sync")
 
