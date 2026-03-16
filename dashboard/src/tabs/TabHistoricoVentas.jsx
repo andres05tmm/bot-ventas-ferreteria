@@ -22,19 +22,16 @@ export default function TabHistoricoVentas() {
   const hoy   = new Date()
   const [año, setAño]   = useState(2025)
   const [mes, setMes]   = useState(11)
-  // Un solo estado: { "2026-03-01": "850000" } — siempre strings para el input
   const [celdas, setCeldas]       = useState({})
   const [guardando, setGuardando] = useState(false)
   const [msg, setMsg]             = useState(null)
   const [loading, setLoading]     = useState(false)
 
-  // Cargar datos del servidor al cambiar mes/año
   const cargar = useCallback(() => {
     setLoading(true)
     fetch(`${API_BASE}/historico/ventas?año=${año}&mes=${mes}`)
       .then(r => r.ok ? r.json() : {})
       .then(d => {
-        // Convertir { "2026-03-01": 850000 } → { "2026-03-01": "850000" }
         const str = {}
         Object.entries(d).forEach(([k, v]) => {
           if (v && v > 0) str[k] = String(v)
@@ -47,7 +44,6 @@ export default function TabHistoricoVentas() {
 
   useEffect(() => { cargar() }, [cargar])
 
-  // KPIs
   const totalMes = Object.values(celdas)
     .reduce((a, b) => a + (parseInt(b) || 0), 0)
   const diasConVenta = Object.values(celdas)
@@ -59,28 +55,9 @@ export default function TabHistoricoVentas() {
     setCeldas(prev => ({ ...prev, [fecha]: solo }))
   }
 
-  async function sincronizarDesdeExcel() {
+  async function guardar() {
     setGuardando(true)
     setMsg(null)
-    try {
-      const res  = await fetch(`${API_BASE}/historico/sincronizar-excel`, { method: 'POST' })
-      const json = await res.json()
-      if (json.ok) {
-        setMsg({ tipo: 'ok', texto: `✅ Sincronizado desde Excel — ${json.registros} días importados` })
-        cargar()  // recargar datos del mes actual
-      } else {
-        setMsg({ tipo: 'err', texto: `❌ ${json.error || 'Error al sincronizar'}` })
-      }
-    } catch {
-      setMsg({ tipo: 'err', texto: '❌ No se pudo conectar con el servidor' })
-    } finally {
-      setGuardando(false)
-      setTimeout(() => setMsg(null), 5000)
-    }
-  }
-    setGuardando(true)
-    setMsg(null)
-    // Convertir strings a números
     const datos = {}
     Object.entries(celdas).forEach(([k, v]) => {
       const n = parseInt(v)
@@ -106,10 +83,29 @@ export default function TabHistoricoVentas() {
     }
   }
 
+  async function sincronizarDesdeExcel() {
+    setGuardando(true)
+    setMsg(null)
+    try {
+      const res  = await fetch(`${API_BASE}/historico/sincronizar-excel`, { method: 'POST' })
+      const json = await res.json()
+      if (json.ok) {
+        setMsg({ tipo: 'ok', texto: `✅ Sincronizado — ${json.registros} días importados desde Excel` })
+        cargar()
+      } else {
+        setMsg({ tipo: 'err', texto: `❌ ${json.error || 'Error al sincronizar'}` })
+      }
+    } catch {
+      setMsg({ tipo: 'err', texto: '❌ No se pudo conectar con el servidor' })
+    } finally {
+      setGuardando(false)
+      setTimeout(() => setMsg(null), 5000)
+    }
+  }
+
   const numDias = diasEnMes(mes, año)
-  // Día de la semana en que empieza el mes (0=Dom, ajustar a Lun=0)
   const primerDia = new Date(año, mes - 1, 1).getDay()
-  const offset    = primerDia === 0 ? 6 : primerDia - 1  // Lun=0 ... Dom=6
+  const offset    = primerDia === 0 ? 6 : primerDia - 1
 
   return (
     <div style={{ padding:'16px', maxWidth:700, margin:'0 auto' }}>
@@ -145,7 +141,7 @@ export default function TabHistoricoVentas() {
         <div style={{ textAlign:'center', padding:40, color:'#888' }}>Cargando...</div>
       ) : (
         <div style={{ background:'#111', borderRadius:12, padding:14, marginBottom:16 }}>
-          {/* Encabezado días */}
+          {/* Encabezado días semana */}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:3, marginBottom:6 }}>
             {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d => (
               <div key={d} style={{ textAlign:'center', fontSize:11, color:'#555', fontWeight:600, padding:'4px 0' }}>
@@ -156,12 +152,7 @@ export default function TabHistoricoVentas() {
 
           {/* Días del mes con offset */}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:3 }}>
-            {/* Celdas vacías al inicio */}
-            {Array.from({ length: offset }).map((_, i) => (
-              <div key={`e${i}`} />
-            ))}
-
-            {/* Días reales */}
+            {Array.from({ length: offset }).map((_, i) => <div key={`e${i}`} />)}
             {Array.from({ length: numDias }, (_, i) => i + 1).map(dia => {
               const fecha    = formatFecha(año, mes, dia)
               const valor    = celdas[fecha] ?? ''
@@ -169,7 +160,6 @@ export default function TabHistoricoVentas() {
               const esHoy    = fecha === formatFecha(
                 hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate()
               )
-
               return (
                 <div key={dia} style={{
                   background: esHoy ? '#2a1010' : tieneVal ? '#0d1f0d' : '#1a1a1a',
@@ -182,12 +172,7 @@ export default function TabHistoricoVentas() {
                   gap: 2,
                   minHeight: 52,
                 }}>
-                  <span style={{
-                    fontSize: 10,
-                    color: esHoy ? '#e74c3c' : '#444',
-                    fontWeight: 700,
-                    userSelect: 'none',
-                  }}>
+                  <span style={{ fontSize:10, color: esHoy ? '#e74c3c' : '#444', fontWeight:700, userSelect:'none' }}>
                     {dia}
                   </span>
                   <input
