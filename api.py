@@ -990,7 +990,7 @@ def crear_producto(body: NuevoProducto):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.patch("/catalogo/{key}/precio")
+@app.patch("/catalogo/{key:path}/precio")
 def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
     """
     Actualiza precio_unidad de un producto.
@@ -1042,7 +1042,7 @@ def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.patch("/catalogo/{key}/fracciones")
+@app.patch("/catalogo/{key:path}/fracciones")
 def actualizar_fracciones(key: str, body: FraccionesUpdate):
     """
     Actualiza precios_fraccion de un producto.
@@ -1488,7 +1488,7 @@ def proyeccion():
 class StockUpdate(BaseModel):
     stock: Union[float, int, None]
 
-@app.patch("/catalogo/{key}/mayorista")
+@app.patch("/catalogo/{key:path}/mayorista")
 def actualizar_mayorista(key: str, body: MayoristaUpdate):
     """
     Actualiza el precio mayorista (precio_por_cantidad) de un producto.
@@ -1535,7 +1535,7 @@ def actualizar_mayorista(key: str, body: MayoristaUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.patch("/inventario/{key}/stock")
+@app.patch("/inventario/{key:path}/stock")
 def actualizar_stock(key: str, body: StockUpdate):
     """
     Actualiza cantidad en inventario de un producto (memoria.json).
@@ -1829,7 +1829,7 @@ class EditarProductoBody(BaseModel):
     unidad_medida: Union[str, None]   = None
     codigo:        Union[str, None]   = None
 
-@app.patch("/catalogo/{key}")
+@app.patch("/catalogo/{key:path}")
 def editar_producto(key: str, body: EditarProductoBody):
     """Edita nombre, categoría, precio, unidad_medida o código de un producto."""
     try:
@@ -1913,7 +1913,7 @@ def editar_producto(key: str, body: EditarProductoBody):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/catalogo/{key}")
+@app.delete("/catalogo/{key:path}")
 def eliminar_producto(key: str):
     """Elimina un producto del catálogo e inventario en memoria.json."""
     try:
