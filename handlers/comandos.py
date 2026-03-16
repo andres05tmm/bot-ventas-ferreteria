@@ -1721,9 +1721,11 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
     # ── Volver al paso anterior ──
     if texto.lower() in {"volver", "atras", "atrás"}:
         if paso == "categoria":
-            context.user_data["paso_producto"] = "nombre"
+            context.user_data["paso_producto"] = "codigo"
             await update.message.reply_text(
-                "↩️ Volvemos al nombre.\n\nEscribe el nombre del producto:"
+                f"↩️ Volvemos al código.\n\n"
+                f"¿Cuál es el código del producto?\n_(Escribe 'omitir' si no tiene código)_",
+                parse_mode="Markdown"
             )
             return True
         elif paso == "precio":
@@ -1799,10 +1801,28 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
             return True
         prod["nombre"] = texto
         context.user_data["nuevo_producto"] = prod
+        context.user_data["paso_producto"]  = "codigo"
+
+        await update.message.reply_text(
+            f"Nombre: *{texto}*\n\n"
+            f"¿Cuál es el código del producto?\n"
+            f"(ej: `1cepilloacero`, `2viniloT1blanco`)\n\n"
+            f"_Escribe 'omitir' si no tiene código_",
+            parse_mode="Markdown"
+        )
+        return True
+
+    # ── Paso 1b: código ──
+    if paso == "codigo":
+        if texto.lower() in {"omitir", "no", "ninguno", "-"}:
+            prod["codigo"] = ""
+        else:
+            prod["codigo"] = texto.strip()
+        context.user_data["nuevo_producto"] = prod
         context.user_data["paso_producto"]  = "categoria"
 
         await update.message.reply_text(
-            _texto_categoria_prompt(texto),
+            _texto_categoria_prompt(prod["nombre"]),
             parse_mode="Markdown"
         )
         return True
@@ -1969,6 +1989,9 @@ async def _guardar_producto(update, context, prod: dict):
         "categoria":    categoria,
         "precio_unidad": round(precio_unidad),
     }
+    codigo_prod = prod.get("codigo", "").strip()
+    if codigo_prod:
+        entrada["codigo"] = codigo_prod
 
     if _es_tornillo_drywall(nombre) and p_mayorista:
         entrada["precio_por_cantidad"] = {
@@ -2004,8 +2027,8 @@ async def _guardar_producto(update, context, prod: dict):
 
             # Construir fila con el mismo formato de columnas del importador
             fila = [""] * 22  # columnas A-V
-            clave_excel = nombre.lower().replace(" ", "")[:20]
-            fila[0]  = clave_excel            # col A — código
+            codigo_prod = prod.get("codigo", "").strip()
+            fila[0]  = codigo_prod if codigo_prod else nombre.lower().replace(" ", "")[:20]  # col A — código
             fila[1]  = nombre                 # col B — nombre
             fila[2]  = "P-Producto"           # col C — tipo
             fila[3]  = categoria              # col D — categoría
@@ -2025,7 +2048,15 @@ async def _guardar_producto(update, context, prod: dict):
             if p_mayorista:
                 fila[17] = round(p_mayorista)  # col R — precio mayorista (3/4 slot)
 
-            ws.append(fila)
+            # Buscar primera fila vacía en col B (igual que dashboard)
+            fila_nueva_prod = ws.max_row + 1
+            for r in range(2, ws.max_row + 2):
+                if not ws.cell(row=r, column=2).value:
+                    fila_nueva_prod = r
+                    break
+            for col_idx, valor in enumerate(fila, 0):
+                if valor != "":
+                    ws.cell(row=fila_nueva_prod, column=col_idx + 1, value=valor)
             wb.save(ruta)
 
             # Renombrar archivo temporal al nombre original antes de subir
