@@ -406,6 +406,8 @@ def agregar_producto_a_excel(datos: dict) -> dict:
         ws.cell(row=fila_nueva, column=7,  value=stock_min)
         ws.cell(row=fila_nueva, column=8,  value=cod_dian)
         ws.cell(row=fila_nueva, column=9,  value=unidad)
+        ws.cell(row=fila_nueva, column=14, value="22-IVA 0%")  # Col N — código impuesto
+        ws.cell(row=fila_nueva, column=16, value="SI")          # Col P — incluye IVA
         ws.cell(row=fila_nueva, column=17, value=int(precio) if precio is not None else 0)  # Col Q
 
         wb.save(ruta)
