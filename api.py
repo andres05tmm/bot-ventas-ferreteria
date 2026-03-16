@@ -1963,6 +1963,117 @@ def eliminar_producto(key: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Historial manual de ventas diarias ────────────────────────────────────────
+
+HISTORICO_FILE = "historico_ventas.json"
+HISTORICO_EXCEL = "historico_ventas.xlsx"
+
+def _leer_historico() -> dict:
+    """Lee el JSON de historial desde disco o Drive."""
+    # Intentar local primero
+    if os.path.exists(HISTORICO_FILE):
+        try:
+            with open(HISTORICO_FILE, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # Intentar Drive
+    try:
+        from drive import descargar_de_drive
+        if descargar_de_drive(HISTORICO_FILE, HISTORICO_FILE):
+            with open(HISTORICO_FILE, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def _guardar_historico(data: dict) -> None:
+    """Guarda el JSON en disco y sube a Drive."""
+    with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        from drive import subir_a_drive_urgente
+        subir_a_drive_urgente(HISTORICO_FILE)
+    except Exception:
+        pass
+
+def _actualizar_excel_historico(data: dict) -> None:
+    """Regenera el Excel historico_ventas.xlsx con todos los datos."""
+    try:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Historial"
+        ws.append(["Fecha", "Año", "Mes", "Día", "Monto"])
+        for fecha, monto in sorted(data.items()):
+            if monto and monto > 0:
+                try:
+                    parts = fecha.split("-")
+                    año, mes, dia = int(parts[0]), int(parts[1]), int(parts[2])
+                    from calendar import month_name
+                    nombre_mes = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                                  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][mes]
+                    ws.append([fecha, año, nombre_mes, dia, monto])
+                except Exception:
+                    pass
+        # Formato
+        ws.column_dimensions["A"].width = 14
+        ws.column_dimensions["C"].width = 14
+        ws.column_dimensions["E"].width = 16
+        wb.save(HISTORICO_EXCEL)
+        try:
+            from drive import subir_a_drive_urgente
+            subir_a_drive_urgente(HISTORICO_EXCEL)
+        except Exception:
+            pass
+    except Exception as e:
+        logging.getLogger("ferrebot.api").warning(f"Error generando Excel histórico: {e}")
+
+@app.get("/historico/ventas")
+def historico_ventas_get(año: int = 0, mes: int = 0):
+    """Retorna los montos del mes/año solicitado. {fecha: monto}"""
+    data = _leer_historico()
+    if not año and not mes:
+        return data
+    prefijo = f"{año}-{str(mes).padStart(2,'0')}" if mes else str(año)
+    # Python no tiene padStart — usar formato
+    prefijo = f"{año}-{mes:02d}" if mes else str(año)
+    return {k: v for k, v in data.items() if k.startswith(prefijo)}
+
+class HistoricoBody(BaseModel):
+    año: int
+    mes: int
+    datos: dict   # { "2026-03-01": 850000, ... }
+
+@app.post("/historico/ventas")
+def historico_ventas_post(body: HistoricoBody):
+    """Guarda los montos de un mes en el historial."""
+    try:
+        data = _leer_historico()
+        # Actualizar solo las fechas del mes enviado, preservar el resto
+        prefijo = f"{body.año}-{body.mes:02d}"
+        # Eliminar entradas previas del mismo mes
+        data = {k: v for k, v in data.items() if not k.startswith(prefijo)}
+        # Agregar los nuevos (solo valores > 0)
+        for fecha, monto in body.datos.items():
+            if fecha.startswith(prefijo) and monto and int(monto) > 0:
+                data[fecha] = int(monto)
+        _guardar_historico(data)
+        _actualizar_excel_historico(data)
+        return {"ok": True, "registros": len([v for v in data.values() if v > 0])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/historico/resumen")
+def historico_resumen():
+    """Retorna totales mensuales para gráficas."""
+    data = _leer_historico()
+    por_mes = defaultdict(int)
+    for fecha, monto in data.items():
+        if monto and monto > 0:
+            ym = fecha[:7]   # "2026-03"
+            por_mes[ym] += monto
+    return dict(sorted(por_mes.items()))
+
 # ── Servir dashboard React (build estático) ───────────────────────────────────
 # Los archivos del build quedan en dashboard/dist/ después de `npm run build`
 _DIST = Path(__file__).parent / "dashboard" / "dist"
