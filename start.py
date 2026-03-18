@@ -161,6 +161,41 @@ excel_watcher_thread = threading.Thread(target=_run_excel_watcher, name="excel-w
 excel_watcher_thread.start()
 log.info("👀 Excel watcher iniciado (intervalo: 2 horas)")
 
+# ── Safety net histórico: si /cerrar no se ejecutó, persiste a las 9pm ────────
+def _run_historico_safety_net() -> None:
+    """
+    Hilo daemon — safety net por si /cerrar no se ejecutó.
+    Revisa una vez por hora; si son las 9pm+ y hoy no está en el histórico,
+    persiste el total desde Sheets.
+    """
+    import time as _time
+    from datetime import datetime as _dt
+
+    _time.sleep(120)  # esperar 2 min al arranque
+    log.info("[historico-safety] Iniciado — revisa cada hora, persiste a las 9pm si falta")
+
+    while True:
+        _time.sleep(60 * 60)  # cada hora
+        try:
+            ahora = _dt.now(config.COLOMBIA_TZ)
+            if ahora.hour >= 21:  # 9pm+
+                from api import _leer_historico, _sync_historico_hoy
+                hoy = ahora.strftime("%Y-%m-%d")
+                historico = _leer_historico()
+                if hoy not in historico:
+                    result = _sync_historico_hoy()
+                    if result.get("ok"):
+                        log.info(
+                            f"[historico-safety] {hoy}: ${result['monto']:,.0f} "
+                            f"guardado (safety net — /cerrar no fue ejecutado)"
+                        )
+        except Exception as e:
+            log.warning(f"[historico-safety] Error: {e}")
+
+historico_safety_thread = threading.Thread(target=_run_historico_safety_net, name="historico-safety", daemon=True)
+historico_safety_thread.start()
+log.info("📊 Histórico safety net iniciado (backup nocturno si /cerrar no se ejecutó)")
+
 # ── Borrar webhook viejo ───────────────────────────────────────────────────────
 # config ya fue importado al inicio del archivo — no se repite aquí
 from telegram import Bot  # noqa: E402
