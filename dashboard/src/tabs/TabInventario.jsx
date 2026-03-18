@@ -560,11 +560,20 @@ function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
   )
 }
 
-// ── Tabla ─────────────────────────────────────────────────────────────────────
-function TablaCat({ prods, onEdit, onDelete }) {
+// ── Tabla / Cards ────────────────────────────────────────────────────────────
+function TablaCat({ prods, onEdit, onDelete, isMobile }) {
   const t = useTheme()
   const [expanded, setExpanded] = useState({})
   const toggle = useCallback(k => setExpanded(p=>({...p,[k]:!p[k]})), [])
+
+  if (isMobile) return (
+    <div style={{ borderTop:`1px solid ${t.border}`, padding:'8px 10px', display:'flex', flexDirection:'column', gap:8 }}>
+      {prods.map(p => (
+        <MobileProductCard key={p.key} p={p} expanded={!!expanded[p.key]} onToggle={()=>toggle(p.key)}
+          onEdit={()=>onEdit(p)} onDelete={()=>onDelete(p)} />
+      ))}
+    </div>
+  )
 
   return (
     <div style={{ borderTop:`1px solid ${t.border}`, overflowX:'auto' }}>
@@ -587,6 +596,141 @@ function TablaCat({ prods, onEdit, onDelete }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ── Card de producto para móvil ──────────────────────────────────────────────
+function MobileProductCard({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
+  const t = useTheme()
+  const [p, setP] = useState(pInit)
+  const hasFracs   = p.fracciones && Object.keys(p.fracciones).length > 0
+  const expandible = hasFracs || p.mayorista
+
+  const unidad = p.unidad_medida || 'Unidad'
+  const esUnidadEspecial = unidad && unidad.toLowerCase() !== 'unidad'
+  const UNIDAD_COLORES = {
+    'galón': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
+    'galon': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
+    'kg':    { bg: '#dcfce7', color: '#166534', border: '#86efac' },
+    'mts':   { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
+    'cms':   { bg: '#ede9fe', color: '#6d28d9', border: '#c4b5fd' },
+    'lts':   { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
+    'lt':    { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
+  }
+  const unidadKey = unidad.toLowerCase().replace('ó','o')
+  const unidadColor = UNIDAD_COLORES[unidadKey] || { bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db' }
+
+  return (
+    <div style={{
+      background: t.card, border: `1px solid ${t.border}`,
+      borderRadius: 10, overflow: 'hidden',
+    }}>
+      {/* Header del card */}
+      <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+        {/* Nombre + badges */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: t.text, lineHeight: 1.3 }}>
+              {p.nombre}
+            </div>
+            {p.codigo && (
+              <span style={{ fontSize: 10, color: t.textMuted, fontFamily: 'monospace' }}>{p.codigo}</span>
+            )}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+              {esUnidadEspecial && (
+                <span style={{
+                  background: t.id==='caramelo' ? unidadColor.bg : unidadColor.bg+'33',
+                  color: t.id==='caramelo' ? unidadColor.color : unidadColor.border,
+                  border: `1px solid ${unidadColor.border}55`,
+                  padding: '1px 7px', borderRadius: 99, fontSize: 9, fontWeight: 600,
+                }}>{unidad}</span>
+              )}
+              {hasFracs && (
+                <span style={{ background: t.accentSub, color: t.accent, border: `1px solid ${t.accent}33`, padding: '1px 7px', borderRadius: 99, fontSize: 9 }}>fracciones</span>
+              )}
+              {p.mayorista && (
+                <span style={{ background: t.id==='caramelo'?'#eff6ff':'#172554', color: t.blue, border: `1px solid ${t.blue}33`, padding: '1px 7px', borderRadius: 99, fontSize: 9 }}>mayorista</span>
+              )}
+            </div>
+          </div>
+
+          {/* Acciones */}
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <button onClick={e => { e.stopPropagation(); onEdit() }} title="Editar" style={{
+              background: t.accentSub, border: `1px solid ${t.accent}44`, color: t.accent,
+              borderRadius: 8, width: 34, height: 34, cursor: 'pointer', fontSize: 14,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>✏</button>
+            <button onClick={e => { e.stopPropagation(); onDelete() }} title="Eliminar" style={{
+              background: '#fef2f2', border: '1px solid #fca5a544', color: '#dc2626',
+              borderRadius: 8, width: 34, height: 34, cursor: 'pointer', fontSize: 14,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>🗑</button>
+          </div>
+        </div>
+
+        {/* Precio + Stock en fila */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+        }}>
+          <div style={{
+            background: t.tableAlt, borderRadius: 8, padding: '8px 10px',
+            display: 'flex', flexDirection: 'column', gap: 2,
+          }}>
+            <span style={{ fontSize: 9, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em' }}>Precio</span>
+            <div onClick={e => e.stopPropagation()}>
+              <PrecioInline value={p.precio} prodKey={p.key} onSaved={v => setP(prev => ({...prev, precio: v}))} />
+            </div>
+          </div>
+          <div style={{
+            background: t.tableAlt, borderRadius: 8, padding: '8px 10px',
+            display: 'flex', flexDirection: 'column', gap: 2,
+          }}>
+            <span style={{ fontSize: 9, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em' }}>Stock</span>
+            <div onClick={e => e.stopPropagation()}>
+              <StockInline
+                value={p.stock !== null && p.stock !== undefined ? p.stock : null}
+                prodKey={p.key}
+                fracciones={p.fracciones || null}
+                onSaved={v => setP(prev => ({...prev, stock: v}))}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Expandir fracciones/mayorista */}
+        {expandible && (
+          <button onClick={onToggle} style={{
+            background: 'transparent', border: `1px solid ${t.border}`,
+            borderRadius: 7, padding: '6px 0', cursor: 'pointer',
+            color: t.textMuted, fontSize: 11, fontFamily: 'inherit',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+            {expanded ? '▲ Cerrar detalles' : '▼ Ver fracciones / mayorista'}
+          </button>
+        )}
+      </div>
+
+      {/* Expandido: fracciones y mayorista */}
+      {expanded && (
+        <div style={{ borderTop: `1px solid ${t.border}`, padding: '10px 12px', background: t.tableAlt }}>
+          {hasFracs && (
+            <FraccionesEditor
+              fracciones={p.fracciones} prodKey={p.key}
+              onSaved={v => setP(prev => ({...prev, fracciones: v}))}
+            />
+          )}
+          {p.mayorista && (
+            <MayoristaInline
+              mayorista={p.mayorista} prodKey={p.key}
+              onSaved={v => setP(prev => ({...prev, mayorista: v}))}
+              topSpacing={hasFracs}
+            />
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1018,21 +1162,22 @@ export default function TabInventario({ refreshKey }) {
       )}
 
       {/* Header */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+      <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent:'space-between', alignItems: isMobile ? 'stretch' : 'center', gap:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
           <div style={{ fontSize:11, color:t.textMuted }}>
             📦 <strong style={{color:t.text}}>{total}</strong> productos ·{' '}
             <strong style={{color:t.text}}>{catEntries.length}</strong> categorías
-            <span style={{ marginLeft:10, opacity:.6 }}>· Clic en precio o stock para editar ✏</span>
+            {!isMobile && <span style={{ marginLeft:10, opacity:.6 }}>· Clic en precio o stock para editar ✏</span>}
           </div>
           <button
             onClick={() => setModalCrear(true)}
             style={{
               background: t.accent, border: 'none', borderRadius: 8,
-              color: '#fff', padding: '6px 14px', cursor: 'pointer',
-              fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
+              color: '#fff', padding: isMobile ? '10px 16px' : '6px 14px', cursor: 'pointer',
+              fontFamily: 'inherit', fontSize: isMobile ? 13 : 11, fontWeight: 700,
               display: 'flex', alignItems: 'center', gap: 5,
               boxShadow: `0 2px 8px ${t.accent}44`,
+              width: isMobile ? '100%' : 'auto', justifyContent: 'center',
             }}
           >
             ➕ Nuevo producto
@@ -1040,7 +1185,8 @@ export default function TabInventario({ refreshKey }) {
         </div>
         <StyledInput
           value={busqueda} onChange={e=>handleBuscar(e.target.value)}
-          placeholder="🔍  Buscar producto o código..." style={{ width:280 }}
+          placeholder="🔍  Buscar producto o código..."
+          style={{ width: isMobile ? '100%' : 280, fontSize: isMobile ? 14 : 11, padding: isMobile ? '10px 12px' : '7px 12px' }}
         />
       </div>
 
@@ -1071,7 +1217,7 @@ export default function TabInventario({ refreshKey }) {
                   {/* Header categoría */}
                   <div
                     onClick={() => !busqueda && setAbierta(p=>p===cat?null:cat)}
-                    style={{ padding:'13px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:busqueda?'default':'pointer', userSelect:'none' }}
+                    style={{ padding: isMobile ? '14px 12px' : '13px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:busqueda?'default':'pointer', userSelect:'none', minHeight: isMobile ? 52 : 'auto' }}
                     onMouseEnter={e=>{ if(!busqueda) e.currentTarget.style.background=t.cardHover }}
                     onMouseLeave={e=>e.currentTarget.style.background='transparent'}
                   >
@@ -1090,15 +1236,16 @@ export default function TabInventario({ refreshKey }) {
 
                   {/* Subcategorías */}
                   {expandida && subcats.length>0 && (
-                    <div style={{ padding:'8px 16px', borderTop:`1px solid ${t.border}`, display:'flex', gap:6, flexWrap:'wrap', background:t.tableAlt }}>
+                    <div style={{ padding:'8px 16px', borderTop:`1px solid ${t.border}`, display:'flex', gap:6, flexWrap: isMobile ? 'nowrap' : 'wrap', background:t.tableAlt, overflowX: isMobile ? 'auto' : 'visible', WebkitOverflowScrolling: 'touch' }}>
                       <button
                         onClick={()=>setSubcatActiva(prev=>({...prev,[cat]:null}))}
                         style={{
                           background:!subcatSel?t.accent:'transparent',
                           border:`1px solid ${!subcatSel?t.accent:t.border}`,
                           color:!subcatSel?'#fff':t.textMuted,
-                          fontSize:11, padding:'4px 12px', borderRadius:20,
+                          fontSize:11, padding: isMobile ? '6px 14px' : '4px 12px', borderRadius:20,
                           cursor:'pointer', fontFamily:'inherit', fontWeight:!subcatSel?600:400, transition:'all .15s',
+                          whiteSpace:'nowrap', flexShrink:0,
                         }}
                       >Todos ({prods.length})</button>
 
@@ -1113,9 +1260,10 @@ export default function TabInventario({ refreshKey }) {
                               background:active?t.accent:'transparent',
                               border:`1px solid ${active?t.accent:t.border}`,
                               color:active?'#fff':t.textMuted,
-                              fontSize:11, padding:'4px 12px', borderRadius:20,
+                              fontSize:11, padding: isMobile ? '6px 14px' : '4px 12px', borderRadius:20,
                               cursor:'pointer', fontFamily:'inherit', fontWeight:active?600:400,
                               display:'flex', alignItems:'center', gap:5, transition:'all .15s',
+                              whiteSpace:'nowrap', flexShrink:0,
                             }}
                           >
                             <span>{sc.icono}</span><span>{sc.label}</span>
@@ -1130,7 +1278,7 @@ export default function TabInventario({ refreshKey }) {
                   {expandida && (
                     prodsVisibles.length===0
                       ? <div style={{padding:'20px',textAlign:'center',color:t.textMuted,fontSize:12}}>Sin productos en esta subcategoría.</div>
-                      : <TablaCat prods={prodsVisibles} onEdit={setEditandoProd} onDelete={setEliminandoProd}/>
+                      : <TablaCat prods={prodsVisibles} onEdit={setEditandoProd} onDelete={setEliminandoProd} isMobile={isMobile}/>
                   )}
                 </div>
               )
