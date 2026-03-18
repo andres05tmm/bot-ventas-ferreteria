@@ -433,7 +433,7 @@ function DiaCell({ t, dia, valor, tieneVal, esHoy, esFuturo, editMode, heatBg, o
         />
       ) : (
         <span style={{
-          fontSize: mobile ? 9 : 10,
+          fontSize: mobile ? 11 : 13,
           fontWeight: tieneVal ? 600 : 400,
           color: tieneVal ? t.green : t.textMuted,
           fontVariantNumeric: 'tabular-nums',
@@ -510,8 +510,9 @@ function ActionBtn({ t, onClick, icon, label, primary, disabled, title }) {
 /* ── Helpers ───────────────────────────────────────────────────────────────── */
 
 function formatK(n) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2).replace('.', ',')}M`
+  if (n >= 100_000) return `${Math.round(n / 1_000)}k`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace('.', ',')}k`
   return String(n)
 }
 
