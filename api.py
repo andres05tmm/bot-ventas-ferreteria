@@ -1970,6 +1970,75 @@ HISTORICO_EXCEL = "historico_ventas.xlsx"
 _NOMBRES_MES    = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
                    "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
+# ── Helpers: total en vivo desde Sheets / Excel ──────────────────────────────
+
+def _total_ventas_hoy_sheets() -> float:
+    """
+    Calcula el total de ventas del día actual desde Google Sheets (en vivo).
+    Si Sheets falla, intenta Excel como fallback.
+    """
+    hoy = _hoy()
+    try:
+        ventas = sheets_leer_ventas_del_dia()
+        total = 0.0
+        for v in ventas:
+            if str(v.get("fecha", ""))[:10] == hoy:
+                try:
+                    total += float(str(v.get("total", 0)).replace(",", ".") or 0)
+                except (ValueError, TypeError):
+                    pass
+        if total > 0:
+            return total
+    except Exception:
+        pass
+    # Fallback: Excel
+    try:
+        ventas_xls = _leer_excel_rango(dias=1)
+        return sum(
+            float(str(v.get("total", 0)).replace(",", ".") or 0)
+            for v in ventas_xls
+            if str(v.get("fecha", ""))[:10] == hoy
+        )
+    except Exception:
+        return 0.0
+
+
+def _totales_por_dia_excel(dias: int = 30) -> dict:
+    """
+    Lee ventas del Excel y retorna {fecha: total} para los últimos N días.
+    Útil para sincronizar históricos de días pasados.
+    """
+    try:
+        ventas = _leer_excel_rango(dias=dias)
+    except Exception:
+        return {}
+    por_dia: dict[str, float] = defaultdict(float)
+    for v in ventas:
+        fecha = str(v.get("fecha", ""))[:10]
+        if fecha:
+            try:
+                por_dia[fecha] += float(str(v.get("total", 0)).replace(",", ".") or 0)
+            except (ValueError, TypeError):
+                pass
+    return {k: int(v) for k, v in por_dia.items() if v > 0}
+
+
+def _sync_historico_hoy() -> dict:
+    """
+    Sincroniza el total de hoy (desde Sheets) al histórico persistente.
+    Retorna {"fecha": ..., "monto": ..., "ok": True/False}.
+    """
+    hoy = _hoy()
+    total = _total_ventas_hoy_sheets()
+    if total <= 0:
+        return {"fecha": hoy, "monto": 0, "ok": False, "razon": "sin ventas hoy"}
+    monto = int(total)
+    data = _leer_historico()
+    data[hoy] = monto
+    _guardar_historico(data)
+    return {"fecha": hoy, "monto": monto, "ok": True}
+
+
 # ── Helpers internos ──────────────────────────────────────────────────────────
 
 def _excel_a_dict(ruta: str) -> dict:
@@ -2116,8 +2185,19 @@ def _guardar_historico(data: dict) -> None:
 
 @app.get("/historico/ventas")
 def historico_ventas_get(año: int = 0, mes: int = 0):
-    """Retorna montos del mes/año. Siempre lee Excel de Drive primero."""
+    """
+    Retorna montos del mes/año.
+    SIEMPRE inyecta el total en vivo de hoy desde Sheets, para que el
+    dashboard muestre el dato real aunque no se haya hecho sync manual.
+    """
     data = _leer_historico()
+
+    # ── Inyectar total en vivo del día actual ────────────────────────────
+    hoy = _hoy()
+    total_hoy = _total_ventas_hoy_sheets()
+    if total_hoy > 0:
+        data[hoy] = int(total_hoy)
+
     if not año and not mes:
         return data
     prefijo = f"{año}-{mes:02d}" if mes else str(año)
@@ -2179,13 +2259,78 @@ def historico_sincronizar_excel():
 
 @app.get("/historico/resumen")
 def historico_resumen():
-    """Totales mensuales para gráficas."""
+    """Totales mensuales para gráficas — incluye hoy en vivo."""
     data = _leer_historico()
+
+    # Inyectar hoy en vivo
+    hoy = _hoy()
+    total_hoy = _total_ventas_hoy_sheets()
+    if total_hoy > 0:
+        data[hoy] = int(total_hoy)
+
     por_mes: dict = defaultdict(int)
     for fecha, monto in data.items():
         if monto and monto > 0:
             por_mes[fecha[:7]] += monto
     return dict(sorted(por_mes.items()))
+
+
+@app.post("/historico/auto-sync")
+def historico_auto_sync():
+    """
+    Sincroniza el total de hoy desde Sheets → histórico persistente.
+    Llamar desde el dashboard o automáticamente al cierre del día.
+    """
+    try:
+        result = _sync_historico_hoy()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/historico/sync-rango")
+def historico_sync_rango(dias: int = Query(default=30, ge=1, le=365)):
+    """
+    Sincroniza los totales de los últimos N días desde Excel → histórico.
+    Útil para llenar histórico con datos de días pasados que no se guardaron.
+    No sobreescribe datos existentes (solo agrega los que faltan).
+    """
+    try:
+        data = _leer_historico()
+        totales_excel = _totales_por_dia_excel(dias=dias)
+
+        nuevos = 0
+        actualizados = 0
+        for fecha, monto in totales_excel.items():
+            if fecha not in data:
+                data[fecha] = monto
+                nuevos += 1
+            elif data[fecha] != monto:
+                # Solo actualizar si el Excel tiene un monto mayor
+                # (probablemente el dato manual estaba incompleto)
+                if monto > data[fecha]:
+                    data[fecha] = monto
+                    actualizados += 1
+
+        # Inyectar hoy en vivo desde Sheets (más preciso que Excel para el día actual)
+        hoy = _hoy()
+        total_hoy = _total_ventas_hoy_sheets()
+        if total_hoy > 0:
+            if hoy not in data or int(total_hoy) > data.get(hoy, 0):
+                data[hoy] = int(total_hoy)
+                if hoy not in totales_excel:
+                    nuevos += 1
+
+        _guardar_historico(data)
+        return {
+            "ok": True,
+            "dias_escaneados": dias,
+            "nuevos": nuevos,
+            "actualizados": actualizados,
+            "total_registros": len(data),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ── Servir dashboard React (build estático) ───────────────────────────────────
 # Los archivos del build quedan en dashboard/dist/ después de `npm run build`
