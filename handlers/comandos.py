@@ -1181,6 +1181,20 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
         with open(config.EXCEL_FILE, "rb") as f:
             await update.message.reply_document(document=f, filename="ventas.xlsx")
 
+        # ── Guardar total del día en histórico de ventas ─────────────────
+        try:
+            from api import _leer_historico, _guardar_historico
+            historico = _leer_historico()
+            if total_general > 0:
+                historico[fecha_str] = int(total_general)
+                _guardar_historico(historico)
+                await update.message.reply_text(
+                    f"📊 Histórico actualizado: {fecha_str} → ${total_general:,.0f}"
+                )
+        except Exception as e_hist:
+            print(f"⚠️ Error guardando histórico: {e_hist}")
+            # No bloquear el cierre por un error en el histórico
+
     except Exception:
         print(traceback.format_exc())
         await update.message.reply_text("❌ Error actualizando el Excel.")
