@@ -121,10 +121,14 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
 
         fecha = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
         hora  = datetime.now(config.COLOMBIA_TZ).strftime("%H:%M")
-        cantidad_legible = (
-            decimal_a_fraccion_legible(float(cantidad))
-            if not isinstance(cantidad, str) else str(cantidad)
-        )
+
+        # Solo mostrar fracciones para galones y unidades genéricas; el resto en decimal
+        _um = (unidad_medida or "").lower().replace("ó", "o")
+        _usar_fraccion = _um in ("galon", "galón", "unidad", "")
+        if _usar_fraccion and not isinstance(cantidad, str):
+            cantidad_legible = decimal_a_fraccion_legible(float(cantidad))
+        else:
+            cantidad_legible = str(cantidad)
         fila = [
             num,                    # CONSECUTIVO DE VENTA
             fecha,                  # FECHA
