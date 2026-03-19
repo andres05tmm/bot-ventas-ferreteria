@@ -95,8 +95,8 @@ function ordenarTornilleria(prods) {
 // ── Tipo de producto ──────────────────────────────────────────────────────────
 function tipoProd(prod) {
   if (prod.nombre?.toLowerCase().includes('esmeril')) return 'cm'
-  if ((prod.unidad_medida || '').toUpperCase() === 'MLT') return 'mlt'
-  if ((prod.unidad_medida || '').toUpperCase() === 'GRM') return 'grm'
+  if (['MLT','MILILITROS','ML'].includes((prod.unidad_medida || '').toUpperCase())) return 'mlt'
+  if (['GRM','GRAMOS','GR'].includes((prod.unidad_medida || '').toUpperCase())) return 'grm'
   if (prod.precios_fraccion && Object.keys(prod.precios_fraccion).length > 0) return 'fraccion'
   return 'simple'
 }
@@ -1650,7 +1650,7 @@ export default function TabVentasRapidas({ refreshKey }) {
     setCarrito(p => [...p, {
       id: Date.now(), key: modalGrm.key, nombre: modalGrm.nombre,
       precio: total, qty: gramos, total, desc, tipo: 'grm',
-      unidad: modalGrm.unidad_medida || 'GRM',
+      unidad: modalGrm.unidad_medida || 'Gramos',
     }])
     setModalGrm(null)
   }
