@@ -2092,11 +2092,11 @@ export default function TabVentasRapidas({ refreshKey }) {
       />
 
       {/* Modales */}
-      <ModalFraccion prod={modalFrac} onClose={() => setModalFrac(null)} onConfirm={confirmarFrac} />
-      <ModalCm       prod={modalCm}   onClose={() => setModalCm(null)}   onConfirm={confirmarCm}  />
-      <ModalQty      prod={modalQty}  onClose={() => setModalQty(null)}  onConfirm={confirmarQty} />
-      <ModalMlt      prod={modalMlt}  onClose={() => setModalMlt(null)}  onConfirm={confirmarMlt} />
-      <ModalGrm      prod={modalGrm}  onClose={() => setModalGrm(null)}  onConfirm={confirmarGrm} />
+      {modalFrac && <ModalFraccion key={modalFrac.key} prod={modalFrac} onClose={() => setModalFrac(null)} onConfirm={confirmarFrac} />}
+      {modalCm   && <ModalCm       key={modalCm.key}   prod={modalCm}   onClose={() => setModalCm(null)}   onConfirm={confirmarCm}  />}
+      {modalQty  && <ModalQty      key={modalQty.key}   prod={modalQty}  onClose={() => setModalQty(null)}  onConfirm={confirmarQty} />}
+      {modalMlt  && <ModalMlt      key={modalMlt.key}   prod={modalMlt}  onClose={() => setModalMlt(null)}  onConfirm={confirmarMlt} />}
+      {modalGrm  && <ModalGrm      key={modalGrm.key}   prod={modalGrm}  onClose={() => setModalGrm(null)}  onConfirm={confirmarGrm} />}
 
       {/* Toast */}
       {toast && (
