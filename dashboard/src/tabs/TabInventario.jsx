@@ -22,6 +22,18 @@ function catIcon(cat) {
   return '📦'
 }
 
+const UNIDAD_COLORES = {
+  'galón': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
+  'galon': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
+  'kg':    { bg: '#dcfce7', color: '#166534', border: '#86efac' },
+  'gramos':{ bg: '#dcfce7', color: '#166534', border: '#86efac' },
+  'grm':   { bg: '#dcfce7', color: '#166534', border: '#86efac' },
+  'mts':   { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
+  'cms':   { bg: '#ede9fe', color: '#6d28d9', border: '#c4b5fd' },
+  'lts':   { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
+  'lt':    { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
+}
+
 // ── Subcategorías ─────────────────────────────────────────────────────────────
 const SUBCATS = {
   '1 artículos de ferreteria': [
@@ -463,15 +475,6 @@ function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
   // Badge de unidad de medida — solo si no es "Unidad" genérica
   const unidad = p.unidad_medida || 'Unidad'
   const esUnidadEspecial = unidad && unidad.toLowerCase() !== 'unidad'
-  const UNIDAD_COLORES = {
-    'galón': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
-    'galon': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
-    'kg':    { bg: '#dcfce7', color: '#166534', border: '#86efac' },
-    'mts':   { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
-    'cms':   { bg: '#ede9fe', color: '#6d28d9', border: '#c4b5fd' },
-    'lts':   { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
-    'lt':    { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
-  }
   const unidadKey = unidad.toLowerCase().replace('ó','o')
   const unidadColor = UNIDAD_COLORES[unidadKey] || { bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db' }
 
@@ -610,15 +613,6 @@ function MobileProductCard({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
 
   const unidad = p.unidad_medida || 'Unidad'
   const esUnidadEspecial = unidad && unidad.toLowerCase() !== 'unidad'
-  const UNIDAD_COLORES = {
-    'galón': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
-    'galon': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
-    'kg':    { bg: '#dcfce7', color: '#166534', border: '#86efac' },
-    'mts':   { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
-    'cms':   { bg: '#ede9fe', color: '#6d28d9', border: '#c4b5fd' },
-    'lts':   { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
-    'lt':    { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
-  }
   const unidadKey = unidad.toLowerCase().replace('ó','o')
   const unidadColor = UNIDAD_COLORES[unidadKey] || { bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db' }
 
@@ -744,7 +738,7 @@ const CATEGORIAS_EDITAR = [
   '4 Impermeabilizantes y Materiales de Construcción',
   '5 Materiales Electricos',
 ]
-const UNIDADES_EDITAR = ['Unidad','Galón','Kg','Mts','Cms','Lt','Lts','25 kg']
+const UNIDADES_EDITAR = ['Unidad','Galón','Kg','Gramos','Mts','Cms','Lt','Lts','25 kg']
 
 function ModalEditarProducto({ prod, onClose, onGuardado }) {
   const t = useTheme()
@@ -902,7 +896,7 @@ const CATEGORIAS_DISPONIBLES = [
 ]
 
 const UNIDADES_DISPONIBLES = [
-  'Unidad','Galón','Kg','Mts','Cms','Lt','Lts','25 kg',
+  'Unidad','Galón','Kg','Gramos','Mts','Cms','Lt','Lts','25 kg',
 ]
 
 function ModalCrearProducto({ onClose, onCreado }) {
