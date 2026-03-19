@@ -8,11 +8,12 @@ import {
 
 function metodoBadge(metodo, t) {
   const raw = (metodo || '').toLowerCase()
-  if (raw.includes('efect'))  return { bg: '#052e16', color: '#4ade80', border: '#4ade8033' }
-  if (raw.includes('nequi'))  return { bg: '#172554', color: '#93c5fd', border: '#93c5fd33' }
-  if (raw.includes('billet')) return { bg: '#172554', color: '#818cf8', border: '#818cf833' }
-  if (raw.includes('transf')) return { bg: '#1c1917', color: '#d4d4aa', border: '#d4d4aa33' }
-  if (raw.includes('tarjet')) return { bg: '#1e1b4b', color: '#a5b4fc', border: '#a5b4fc33' }
+  const light = t.id === 'caramelo'
+  if (raw.includes('efect'))  return { bg: light ? '#dcfce7' : '#052e16', color: light ? '#166534' : '#4ade80', border: light ? '#86efac44' : '#4ade8033' }
+  if (raw.includes('nequi'))  return { bg: light ? '#dbeafe' : '#172554', color: light ? '#1d4ed8' : '#93c5fd', border: light ? '#93c5fd44' : '#93c5fd33' }
+  if (raw.includes('billet')) return { bg: light ? '#ede9fe' : '#172554', color: light ? '#6d28d9' : '#818cf8', border: light ? '#818cf844' : '#818cf833' }
+  if (raw.includes('transf')) return { bg: light ? '#fef9c3' : '#1c1917', color: light ? '#a16207' : '#d4d4aa', border: light ? '#fde04744' : '#d4d4aa33' }
+  if (raw.includes('tarjet')) return { bg: light ? '#e0e7ff' : '#1e1b4b', color: light ? '#4338ca' : '#a5b4fc', border: light ? '#a5b4fc44' : '#a5b4fc33' }
   return { bg: t.card, color: t.textMuted, border: t.border }
 }
 
@@ -140,7 +141,7 @@ function ModalEditarVenta({ venta, onClose, onGuardado }) {
 
   const inp = {
     width:'100%', boxSizing:'border-box',
-    background: '#111',
+    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
     border:`1px solid ${t.border}`, borderRadius:7,
     color:t.text, fontSize:12, padding:'7px 10px',
     outline:'none', fontFamily:'inherit',
@@ -460,11 +461,11 @@ export default function TabHistorial({ refreshKey }) {
                     return (
                       <tr key={i} style={{
                         borderBottom:`1px solid ${t.border}`,
-                        // Fondo sutil para diferenciar grupos multi-producto
-                        background: esMultiple ? (t.id==='light' ? '#fefce8' : '#1a1600') : 'transparent',
+                        background: esMultiple ? (t.id==='caramelo' ? '#fefce810' : `${t.yellow}08`) : 'transparent',
+                        transition: 'background .15s ease',
                       }}
-                        onMouseEnter={e=>{e.currentTarget.style.background=t.cardHover;e.currentTarget.style.transform='translateX(2px)'}}
-                        onMouseLeave={e=>{e.currentTarget.style.background=esMultiple?(t.id==='caramelo'?'#fefce8':'#1a1600'):'transparent';e.currentTarget.style.transform='translateX(0)'}}
+                        onMouseEnter={e=>{ e.currentTarget.style.background = t.cardHover }}
+                        onMouseLeave={e=>{ e.currentTarget.style.background = esMultiple ? (t.id==='caramelo' ? '#fefce810' : `${t.yellow}08`) : 'transparent' }}
                       >
                         <td style={{padding: isMobile ? '7px 8px' : '8px 14px',color:t.accent,fontWeight:700}}>
                           {v.num}
@@ -495,9 +496,9 @@ export default function TabHistorial({ refreshKey }) {
                         </td>
                         <td style={{padding:'8px 14px',textAlign:'center'}}>
                           <span style={{display:'inline-block',padding:'2px 9px',borderRadius:99,fontSize:10,fontWeight:600,
-                            background:v.estado==='pagado'?'#14532d22':'#78350f22',
-                            color:v.estado==='pagado'?'#4ade80':'#fbbf24',
-                            border:`1px solid ${v.estado==='pagado'?'#4ade8033':'#fbbf2433'}`,
+                            background:v.estado==='pagado' ? `${t.green}18` : `${t.yellow}18`,
+                            color:v.estado==='pagado' ? t.green : t.yellow,
+                            border:`1px solid ${v.estado==='pagado' ? t.green : t.yellow}33`,
                           }}>{v.estado}</span>
                         </td>
                         <td style={{padding:'8px 10px',textAlign:'center'}}>
