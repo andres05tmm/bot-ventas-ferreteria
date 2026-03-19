@@ -20,9 +20,34 @@ const FRACS = [
   [3/4,'3/4'],[1/2,'1/2'],[1/4,'1/4'],[1/3,'1/3'],[2/3,'2/3'],
   [1/8,'1/8'],[1/10,'1/10'],[1/16,'1/16'],[3/8,'3/8'],[7/8,'7/8'],
 ]
-function cantidadLegible(val) {
+// Unidades que SIEMPRE se muestran en decimal (nunca fracciones)
+const UNIDADES_DECIMAL = ['grm','gramos','kg','cms','mts','lt','lts','25 kg','mlt']
+
+function cantidadLegible(val, unidad) {
   if (val === null || val === undefined || val === '') return '—'
   const s = String(val).trim()
+
+  // Si la unidad es decimal (gramos, kg, cms...), parsear a número y mostrar decimal
+  const uKey = (unidad || '').toLowerCase().replace('ó','o')
+  const esDecimal = UNIDADES_DECIMAL.includes(uKey)
+
+  if (esDecimal) {
+    // Parsear "133 y 3/10" → 133.3, o "1/2" → 0.5, o "10" → 10
+    let n = parseFloat(s.replace(',','.'))
+    if (isNaN(n)) {
+      // Intentar parsear fracciones tipo "133 y 3/10"
+      const mixto = s.match(/^(\d+)\s*y\s*(\d+)\/(\d+)$/)
+      if (mixto) n = parseFloat(mixto[1]) + parseFloat(mixto[2]) / parseFloat(mixto[3])
+      const simple = s.match(/^(\d+)\/(\d+)$/)
+      if (simple) n = parseFloat(simple[1]) / parseFloat(simple[2])
+    }
+    if (!isNaN(n)) {
+      return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, '')
+    }
+    return s
+  }
+
+  // Para galones y unidades: mostrar fracciones legibles
   if (/[\/y]/.test(s) && !/^\d+$/.test(s)) return s
   const n = parseFloat(s.replace(',','.'))
   if (isNaN(n)) return s
@@ -231,7 +256,7 @@ function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
               <div style={{flex:1}}>
                 <span style={{color:t.text,fontSize:12}}>{v.producto}</span>
                 <span style={{color:t.textMuted,fontSize:10,marginLeft:8}}>
-                  ×{cantidadLegible(v.cantidad)}
+                  ×{cantidadLegible(v.cantidad, v.unidad_medida)}
                 </span>
               </div>
               <span style={{color:t.green,fontWeight:600,fontSize:12}}>{cop(v.total)}</span>
@@ -457,7 +482,7 @@ export default function TabHistorial({ refreshKey }) {
                         <td style={{padding:'8px 14px',color:t.text,maxWidth:180}}>{v.producto}</td>
                         <td style={{padding:'8px 14px',color:t.textMuted,fontSize:11}}>{v.cliente||'Consumidor Final'}</td>
                         <td style={{padding:'8px 14px',textAlign:'center',color:t.textMuted}}>
-                          <span style={{fontFamily:'monospace'}}>{cantidadLegible(v.cantidad)}</span>
+                          <span style={{fontFamily:'monospace'}}>{cantidadLegible(v.cantidad, v.unidad_medida)}</span>
                           <UnidadBadge unidad={v.unidad_medida} t={t}/>
                         </td>
                         <td style={{padding:'8px 14px',textAlign:'right',color:t.textMuted}}>{v.precio_unitario?cop(v.precio_unitario):'—'}</td>
