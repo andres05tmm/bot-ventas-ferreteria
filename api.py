@@ -1749,6 +1749,95 @@ def eliminar_venta(numero: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/ventas/{numero}/linea")
+def eliminar_linea_venta(numero: int, producto: str = Query(...)):
+    """
+    Elimina UNA sola línea (producto) de un consecutivo multi-producto.
+    Busca por consecutivo + nombre de producto exacto en Excel y Sheets.
+    """
+    try:
+        import openpyxl
+        from excel import inicializar_excel, obtener_nombre_hoja, detectar_columnas, recalcular_caja_desde_excel
+        from drive import subir_a_drive
+
+        inicializar_excel()
+        wb    = openpyxl.load_workbook(config.EXCEL_FILE)
+        hojas = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+        total_borradas = 0
+
+        for nombre_sh in hojas:
+            if nombre_sh not in wb.sheetnames:
+                continue
+            ws   = wb[nombre_sh]
+            cols = detectar_columnas(ws)
+            col_id   = cols.get("consecutivo de venta") or cols.get("consecutivo") or cols.get("alias")
+            col_prod = cols.get("producto")
+            if not col_id or not col_prod:
+                continue
+
+            filas_borrar = []
+            for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
+                val_id = ws.cell(row=fila, column=col_id).value
+                val_prod = str(ws.cell(row=fila, column=col_prod).value or "").strip()
+                try:
+                    if val_id is not None and int(float(str(val_id))) == numero:
+                        if val_prod.lower() == producto.lower():
+                            filas_borrar.append(fila)
+                except (ValueError, TypeError):
+                    pass
+
+            for fila in reversed(filas_borrar):
+                ws.delete_rows(fila)
+            total_borradas += len(filas_borrar)
+
+        if total_borradas:
+            wb.save(config.EXCEL_FILE)
+            try:
+                subir_a_drive(config.EXCEL_FILE)
+            except Exception:
+                pass
+            recalcular_caja_desde_excel()
+
+            # Borrar de Sheets también
+            try:
+                from sheets import _obtener_hoja_sheets, _invalidar_ws_cache
+                ws_sh = _obtener_hoja_sheets()
+                if ws_sh:
+                    todas = ws_sh.get_all_values()
+                    headers = [h.upper().strip() for h in todas[0]] if todas else []
+                    col_consec = None
+                    col_prod_sh = None
+                    for i, h in enumerate(headers):
+                        if "CONSECUTIVO" in h or h == "#":
+                            col_consec = i
+                        if h == "PRODUCTO":
+                            col_prod_sh = i
+                    if col_consec is not None and col_prod_sh is not None:
+                        filas_sh = []
+                        for idx, fila in enumerate(todas[1:], start=2):
+                            try:
+                                if int(float(str(fila[col_consec]).strip())) == numero:
+                                    if fila[col_prod_sh].strip().lower() == producto.lower():
+                                        filas_sh.append(idx)
+                            except (ValueError, IndexError):
+                                pass
+                        for fila_idx in reversed(filas_sh):
+                            ws_sh.delete_rows(fila_idx)
+                        if filas_sh:
+                            _invalidar_ws_cache()
+            except Exception:
+                pass
+
+            return {"ok": True, "borradas": total_borradas, "mensaje": f"'{producto}' eliminado del consecutivo #{numero}"}
+
+        raise HTTPException(status_code=404, detail=f"No se encontró '{producto}' en consecutivo #{numero}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class EditarVentaBody(BaseModel):
     producto:       Union[str, None]   = None
     cantidad:       Union[float, None] = None
