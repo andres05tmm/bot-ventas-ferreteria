@@ -1126,6 +1126,16 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
     hoy       = datetime.now(config.COLOMBIA_TZ)
     fecha_str = hoy.strftime("%Y-%m-%d")
 
+    # Detectar las fechas reales de las ventas en Sheets (puede ser ayer si /cerrar
+    # se ejecuta después de medianoche)
+    fechas_en_sheets = set()
+    for v in ventas_sheets:
+        f = str(v.get("fecha", ""))[:10]
+        if f:
+            fechas_en_sheets.add(f)
+    if not fechas_en_sheets:
+        fechas_en_sheets.add(fecha_str)
+
     try:
         await asyncio.to_thread(inicializar_excel)
         wb = await asyncio.to_thread(openpyxl.load_workbook, config.EXCEL_FILE)
@@ -1137,12 +1147,13 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
             cols = detectar_columnas(ws)
             col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
 
+            # Borrar filas de TODAS las fechas que vienen en Sheets (evita duplicados)
             if col_fecha:
-                filas_hoy = [
+                filas_borrar = [
                     fila for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1)
-                    if str(ws.cell(row=fila, column=col_fecha).value or "")[:10] == fecha_str
+                    if str(ws.cell(row=fila, column=col_fecha).value or "")[:10] in fechas_en_sheets
                 ]
-                for fila in reversed(filas_hoy):
+                for fila in reversed(filas_borrar):
                     ws.delete_rows(fila)
 
             for v in ventas_sheets:
@@ -1160,7 +1171,6 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     "valor unitario":       v.get("precio_unitario", 0),
                     "total":                v.get("total", 0),
                     "consecutivo de venta": v.get("num", fila_nueva - 1),
-                    "alias":                v.get("alias", str(v.get("num", ""))),
                     "vendedor":             v.get("vendedor", ""),
                     "metodo de pago":       v.get("metodo", ""),
                 }
@@ -1187,11 +1197,20 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try:
             from api import _leer_historico, _guardar_historico
             historico = _leer_historico()
-            if total_general > 0:
-                historico[fecha_str] = int(total_general)
+            # Agrupar totales por fecha real (puede ser ayer si /cerrar es post-medianoche)
+            totales_por_fecha = {}
+            for v in ventas_sheets:
+                f = str(v.get("fecha", fecha_str))[:10]
+                totales_por_fecha[f] = totales_por_fecha.get(f, 0) + float(v.get("total", 0) or 0)
+            guardados = []
+            for f, t_dia in totales_por_fecha.items():
+                if t_dia > 0:
+                    historico[f] = int(t_dia)
+                    guardados.append(f"  {f} → ${t_dia:,.0f}")
+            if guardados:
                 _guardar_historico(historico)
                 await update.message.reply_text(
-                    f"📊 Histórico actualizado: {fecha_str} → ${total_general:,.0f}"
+                    f"📊 Histórico actualizado:\n" + "\n".join(guardados)
                 )
         except Exception as e_hist:
             print(f"⚠️ Error guardando histórico: {e_hist}")
