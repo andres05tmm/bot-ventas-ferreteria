@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Union
+from typing import Optional, Union
 
 import config
 from sheets import sheets_leer_ventas_del_dia
