@@ -158,6 +158,19 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         total                   = parsear_precio(venta.get("total", 0))
         precio_unitario_enviado = parsear_precio(venta.get("precio_unitario", 0))
 
+        # ── Resolver unidad de medida desde el catálogo ──────────────
+        unidad = venta.get("unidad_medida", "")
+        if not unidad:
+            try:
+                from memoria import buscar_producto_en_catalogo
+                prod_cat = buscar_producto_en_catalogo(str(producto))
+                if prod_cat:
+                    unidad = prod_cat.get("unidad_medida", "Unidad") or "Unidad"
+            except Exception:
+                pass
+        if not unidad:
+            unidad = "Unidad"
+
         # REGLA DEFINITIVA DE PRECIO:
         # Si llega "total" > 0, es el valor definitivo.
         # "precio_unitario" es fallback por compatibilidad.
@@ -180,6 +193,7 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
             producto, cantidad, precio_u_excel, valor_final, vendedor, metodo,
             cliente_nombre=nombre_c, cliente_id=id_c,
             consecutivo=consecutivo,
+            unidad_medida=unidad,
         )
 
         cliente_txt = f" | {nombre_c}" if nombre_c != "Consumidor Final" else ""
