@@ -83,8 +83,8 @@ COL_METODO   = "metodo de pago"
 # Encabezados del Google Sheets del dia
 SHEETS_HEADERS = [
     "CONSECUTIVO DE VENTA", "FECHA", "HORA", "ID CLIENTE", "CLIENTE",
-    "Código del Producto", "PRODUCTO", "CANTIDAD", "VALOR UNITARIO",
-    "TOTAL", "ALIAS", "VENDEDOR", "METODO DE PAGO", "UNIDAD DE MEDIDA"
+    "Código del Producto", "PRODUCTO", "UNIDAD DE MEDIDA", "CANTIDAD",
+    "VALOR UNITARIO", "TOTAL", "ALIAS", "VENDEDOR", "METODO DE PAGO"
 ]
 
 # Nombres de meses en español (constante global, no repetir en cada funcion)
