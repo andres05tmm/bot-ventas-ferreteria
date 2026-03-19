@@ -546,13 +546,8 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
                 cols["unidad de medida"] = next_col
 
         fila     = max(ws.max_row + 1, config.EXCEL_FILA_DATOS)
-        # CORRECCIÓN: el alias es el número de fila de datos de ESTA hoja específica,
-        # no un contador global. Antes ambas hojas recibían el mismo alias calculado
-        # desde la primera hoja, dejando alias=1 siempre en la hoja Acumulado.
-        num_fila = fila - config.EXCEL_FILA_DATOS + 1
 
-        datos         = datos_base.copy()
-        datos["alias"] = str(num_fila)
+        datos = datos_base.copy()
 
         for nombre_col, num_col in cols.items():
             clave = nombre_col.lower().strip()
@@ -571,17 +566,11 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
     wb.save(config.EXCEL_FILE)
     subir_a_drive(config.EXCEL_FILE)
 
-    # Para el Sheets, el alias es el de la hoja mensual (primera hoja)
-    alias_mensual = str(
-        max(wb[obtener_nombre_hoja()].max_row - config.EXCEL_FILA_DATOS + 1, 1)
-        if obtener_nombre_hoja() in wb.sheetnames else consecutivo_final
-    )
-
     sheets_agregar_venta(
         consecutivo_final, producto, cantidad, precio_unitario, total, vendedor,
         metodo_pago if metodo_pago else observaciones,
         id_cliente=id_cliente_final, nombre_cliente=nombre_cliente_final,
-        codigo_producto=cod_producto_final, alias=alias_mensual,
+        codigo_producto=cod_producto_final,
         unidad_medida=datos_base.get("unidad_medida", "Unidad"),
     )
 
