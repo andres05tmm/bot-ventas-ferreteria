@@ -442,8 +442,16 @@ def productos():
             mem = json.load(f)
         catalogo   = mem.get("catalogo", {})
         inventario = mem.get("inventario", {})
-        lista = [
-            {
+        lista = []
+        for k, v in catalogo.items():
+            ppc = v.get("precio_por_cantidad")
+            mayorista = None
+            if ppc:
+                mayorista = {
+                    "umbral": ppc.get("umbral", 50),
+                    "precio": ppc.get("precio_sobre_umbral", 0),
+                }
+            lista.append({
                 "key":              k,
                 "nombre":           v.get("nombre", k),
                 "categoria":        v.get("categoria", "Sin categoría"),
@@ -452,9 +460,8 @@ def productos():
                 "stock":            _stock_wayper(k, inventario),
                 "precios_fraccion": v.get("precios_fraccion", None),
                 "unidad_medida":    v.get("unidad_medida", "Unidad"),
-            }
-            for k, v in catalogo.items()
-        ]
+                "mayorista":        mayorista,
+            })
         return {"productos": lista, "total": len(lista)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
