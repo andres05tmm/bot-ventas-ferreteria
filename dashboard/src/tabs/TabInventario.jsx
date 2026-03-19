@@ -263,6 +263,7 @@ const FRACS_ORDEN = ['3/4','1/2','1/4','1/8','1/10','1/16']
 
 function FraccionesEditor({ fracciones, prodKey, onSaved }) {
   const t = useTheme()
+  const isMobile = useIsMobile()
   const [editando, setEditando] = useState(false)
   const [vals,     setVals]     = useState({})
   const [estado,   setEstado]   = useState('idle')
@@ -319,7 +320,7 @@ function FraccionesEditor({ fracciones, prodKey, onSaved }) {
 
   return (
     <div onClick={e=>e.stopPropagation()}>
-      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3,1fr)', gap:6, marginBottom:10 }}>
+      <div style={{ display:'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr 1fr' : 'repeat(3,1fr)', gap:6, marginBottom:10 }}>
         {FRACS_ORDEN.map(f => (
           <div key={f}>
             <div style={{ fontSize:9, color:t.textMuted, marginBottom:3 }}>{f}</div>
