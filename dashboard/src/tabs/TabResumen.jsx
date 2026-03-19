@@ -347,7 +347,7 @@ export default function TabResumen({ refreshKey }) {
       </Card>
 
       {/* Métodos + Top 5 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <Card>
           <SectionTitle>Métodos de Pago · Hoy</SectionTitle>
           {!ventasHoy
