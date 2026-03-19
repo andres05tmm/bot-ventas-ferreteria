@@ -513,6 +513,7 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         # Campo para factura electrónica DIAN — se escribe si existe la columna
         # o se adjunta al campo existente para compatibilidad retroactiva
         "unidad_medida":        str(unidad_medida) if unidad_medida else "Unidad",
+        "unidad de medida":     str(unidad_medida) if unidad_medida else "Unidad",
     }
 
     # Hojas donde guardar simultáneamente
@@ -521,6 +522,28 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
     for nombre_sh in hojas_destino:
         ws   = obtener_o_crear_hoja(wb, nombre_sh)
         cols = detectar_columnas(ws)
+
+        # ── Auto-crear columna UNIDAD DE MEDIDA antes de CANTIDAD ─────────
+        if "unidad de medida" not in cols and "unidad_medida" not in cols:
+            col_cantidad = cols.get("cantidad")
+            if col_cantidad:
+                # Insertar columna nueva antes de CANTIDAD
+                ws.insert_cols(col_cantidad)
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=col_cantidad, value="UNIDAD DE MEDIDA")
+                from openpyxl.styles import Font as _Font, PatternFill as _PF, Alignment as _Al
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=col_cantidad).font = _Font(bold=True, color="FFFFFF")
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=col_cantidad).fill = _PF("solid", fgColor="1B56E1")
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=col_cantidad).alignment = _Al(horizontal="center")
+                # Re-detectar columnas después de la inserción
+                cols = detectar_columnas(ws)
+            else:
+                next_col = max(cols.values(), default=0) + 1
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=next_col, value="UNIDAD DE MEDIDA")
+                from openpyxl.styles import Font as _Font, PatternFill as _PF, Alignment as _Al
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=next_col).font = _Font(bold=True, color="FFFFFF")
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=next_col).fill = _PF("solid", fgColor="1B56E1")
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=next_col).alignment = _Al(horizontal="center")
+                cols["unidad de medida"] = next_col
 
         fila     = max(ws.max_row + 1, config.EXCEL_FILA_DATOS)
         # CORRECCIÓN: el alias es el número de fila de datos de ESTA hoja específica,
