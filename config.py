@@ -84,7 +84,7 @@ COL_METODO   = "metodo de pago"
 SHEETS_HEADERS = [
     "CONSECUTIVO DE VENTA", "FECHA", "HORA", "ID CLIENTE", "CLIENTE",
     "Código del Producto", "PRODUCTO", "UNIDAD DE MEDIDA", "CANTIDAD",
-    "VALOR UNITARIO", "TOTAL", "ALIAS", "VENDEDOR", "METODO DE PAGO"
+    "VALOR UNITARIO", "TOTAL", "VENDEDOR", "METODO DE PAGO"
 ]
 
 # Nombres de meses en español (constante global, no repetir en cada funcion)
