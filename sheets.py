@@ -82,15 +82,23 @@ def _obtener_hoja_sheets():
             _formato_encabezado(ws)
             creada_nueva = True
 
-        # ── Migración: agregar columna UNIDAD DE MEDIDA al final si falta ──
+        # ── Migración: insertar UNIDAD DE MEDIDA antes de CANTIDAD si falta ──
         if not creada_nueva:
             try:
                 headers_actuales = ws.row_values(1)
-                if "UNIDAD DE MEDIDA" not in headers_actuales:
-                    next_col = len(headers_actuales) + 1
-                    ws.update_cell(1, next_col, "UNIDAD DE MEDIDA")
+                headers_upper = [h.upper().strip() for h in headers_actuales]
+                if "UNIDAD DE MEDIDA" not in headers_upper:
+                    # Buscar posición de CANTIDAD para insertar antes
+                    try:
+                        idx_cant = headers_upper.index("CANTIDAD")
+                        col_pos = idx_cant + 1  # gspread es 1-indexed
+                    except ValueError:
+                        col_pos = len(headers_actuales) + 1  # fallback: al final
+                    ws.insert_cols(col_pos, number=1)
+                    ws.update_cell(1, col_pos, "UNIDAD DE MEDIDA")
                     _formato_encabezado(ws)
-                    print(f"✅ Migración Sheets: columna UNIDAD DE MEDIDA agregada en col {next_col}")
+                    _invalidar_ws_cache()
+                    print(f"✅ Migración Sheets: UNIDAD DE MEDIDA insertada en col {col_pos} (antes de CANTIDAD)")
             except Exception as e_mig:
                 print(f"⚠️ Migración Sheets (no crítico): {e_mig}")
 
@@ -137,13 +145,13 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
             str(nombre_cliente),    # CLIENTE
             str(codigo_producto),   # Código del Producto
             str(producto),          # PRODUCTO
+            str(unidad_medida or "Unidad"),  # UNIDAD DE MEDIDA
             cantidad_legible,       # CANTIDAD
             float(precio_unitario), # VALOR UNITARIO
             float(total),           # TOTAL
             str(alias or num),      # ALIAS
             str(vendedor),          # VENDEDOR
             str(metodo),            # METODO DE PAGO
-            str(unidad_medida or "Unidad"),  # UNIDAD DE MEDIDA
         ]
         ws.append_row(fila, value_input_option="USER_ENTERED")
 
