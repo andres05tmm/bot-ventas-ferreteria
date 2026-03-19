@@ -55,6 +55,7 @@ def _obtener_hoja_sheets():
     - Cachea el objeto ws durante 5 min para evitar múltiples reads por operación.
     - El chequeo de encabezados solo ocurre al crear la hoja por primera vez,
       no en cada llamada (evitaba 1 read extra por operación → 429 en pico).
+    - Auto-migra: si falta la columna UNIDAD DE MEDIDA, la inserta en su posición.
     - Retorna None si no hay conexión.
     """
     global _ws_cache, _ws_cache_ts
@@ -69,6 +70,7 @@ def _obtener_hoja_sheets():
         import gspread
         gc          = config.get_sheets_client()
         spreadsheet = gc.open_by_key(config.SHEETS_ID)
+        creada_nueva = False
         try:
             ws = spreadsheet.worksheet("Ventas del Dia")
         except gspread.WorksheetNotFound:
@@ -78,6 +80,22 @@ def _obtener_hoja_sheets():
             )
             ws.append_row(config.SHEETS_HEADERS)
             _formato_encabezado(ws)
+            creada_nueva = True
+
+        # ── Migración: insertar columna UNIDAD DE MEDIDA si falta ────────
+        if not creada_nueva:
+            try:
+                headers_actuales = ws.row_values(1)
+                if "UNIDAD DE MEDIDA" not in headers_actuales and len(headers_actuales) >= 8:
+                    # Insertar columna en posición 9 (después de CANTIDAD, antes de VALOR UNITARIO)
+                    col_pos = 9
+                    ws.insert_cols(col_pos, number=1)
+                    ws.update_cell(1, col_pos, "UNIDAD DE MEDIDA")
+                    # Re-formatear encabezado con las nuevas columnas
+                    _formato_encabezado(ws)
+                    print("✅ Migración Sheets: columna UNIDAD DE MEDIDA insertada en posición 9")
+            except Exception as e_mig:
+                print(f"⚠️ Migración Sheets (no crítico): {e_mig}")
 
         # Guardar en caché
         _ws_cache    = ws
@@ -216,7 +234,7 @@ def sheets_leer_ventas_del_dia() -> list:
                 "codigo_producto": fila.get("Código del Producto", ""),
                 "producto":        fila.get("PRODUCTO", fila.get("Producto", "")),
                 "cantidad":        fila.get("CANTIDAD", fila.get("Cantidad", "")),
-                "unidad_medida":   fila.get("UNIDAD DE MEDIDA", fila.get("Unidad de Medida", "Unidad")),
+                "unidad_medida":   fila.get("UNIDAD DE MEDIDA", fila.get("Unidad de Medida", "")) or "Unidad",
                 "precio_unitario": fila.get("VALOR UNITARIO", fila.get("Precio Unitario", 0)),
                 "total":           fila.get("TOTAL", fila.get("Total", 0)),
                 "alias":           fila.get("ALIAS", ""),
