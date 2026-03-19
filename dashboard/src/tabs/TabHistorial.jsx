@@ -216,21 +216,35 @@ function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
   const t = useTheme()
   const [estado, setEstado] = useState('idle')
   const [err,    setErr]    = useState('')
+  const [borrando, setBorrando] = useState(null) // null = nada, 'todo' = consecutivo, index = producto individual
 
-  // El consecutivo viene del primer item del grupo
   const consecutivo = grupo[0]?.num
   const totalGrupo  = grupo.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
   const esMultiple  = grupo.length > 1
 
-  const eliminar = async () => {
-    setEstado('saving')
+  const eliminarTodo = async () => {
+    setEstado('saving'); setBorrando('todo')
     try {
       const r = await fetch(`${API_BASE}/ventas/${consecutivo}`, { method: 'DELETE' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error')
       setEstado('ok')
       setTimeout(() => { onEliminado(); onClose() }, 600)
-    } catch(e) { setErr(e.message); setEstado('err') }
+    } catch(e) { setErr(e.message); setEstado('err'); setBorrando(null) }
+  }
+
+  const eliminarLinea = async (v, idx) => {
+    setEstado('saving'); setBorrando(idx)
+    try {
+      const r = await fetch(
+        `${API_BASE}/ventas/${consecutivo}/linea?producto=${encodeURIComponent(v.producto)}`,
+        { method: 'DELETE' }
+      )
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Error')
+      setEstado('ok')
+      setTimeout(() => { onEliminado(); onClose() }, 600)
+    } catch(e) { setErr(e.message); setEstado('err'); setBorrando(null) }
   }
 
   return createPortal(
@@ -238,12 +252,12 @@ function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
       position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,.6)',
       display:'flex',alignItems:'center',justifyContent:'center',padding:16,
     }}>
-      <div style={{background:t.bg,border:`1px solid ${t.border}`,borderRadius:14,width:'100%',maxWidth:420,padding:24,boxShadow:'0 24px 64px rgba(0,0,0,.4)'}}>
+      <div style={{background:t.bg,border:`1px solid ${t.border}`,borderRadius:14,width:'100%',maxWidth:440,padding:24,boxShadow:'0 24px 64px rgba(0,0,0,.4)'}}>
         <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:10}}>
-          🗑 Eliminar consecutivo #{consecutivo}
+          🗑 Eliminar {esMultiple ? `consecutivo #${consecutivo}` : `venta #${consecutivo}`}
         </div>
 
-        {/* Lista de productos del consecutivo */}
+        {/* Lista de productos — con botón individual si es multi-producto */}
         <div style={{
           background:t.tableAlt, border:`1px solid ${t.border}`,
           borderRadius:8, marginBottom:14, overflow:'hidden',
@@ -254,20 +268,38 @@ function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
               padding:'8px 12px',
               borderBottom: i < grupo.length - 1 ? `1px solid ${t.border}` : 'none',
             }}>
-              <div style={{flex:1}}>
+              <div style={{flex:1, minWidth:0}}>
                 <span style={{color:t.text,fontSize:12}}>{v.producto}</span>
                 <span style={{color:t.textMuted,fontSize:10,marginLeft:8}}>
                   ×{cantidadLegible(v.cantidad, v.unidad_medida)}
                 </span>
               </div>
-              <span style={{color:t.green,fontWeight:600,fontSize:12}}>{cop(v.total)}</span>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <span style={{color:t.green,fontWeight:600,fontSize:12}}>{cop(v.total)}</span>
+                {esMultiple && (
+                  <button
+                    onClick={() => eliminarLinea(v, i)}
+                    disabled={estado === 'saving'}
+                    title={`Eliminar solo "${v.producto}"`}
+                    style={{
+                      background:'transparent', border:`1px solid #dc262644`,
+                      borderRadius:6, width:26, height:26, cursor:'pointer',
+                      fontSize:11, color:'#dc2626',
+                      display:'flex',alignItems:'center',justifyContent:'center',
+                      opacity: estado === 'saving' && borrando === i ? 0.5 : 1,
+                    }}
+                  >
+                    {estado === 'saving' && borrando === i ? '…' : '✕'}
+                  </button>
+                )}
+              </div>
             </div>
           ))}
           {/* Total del grupo */}
           <div style={{
             display:'flex', justifyContent:'space-between', alignItems:'center',
             padding:'9px 12px',
-            background: t.id === 'light' ? '#f1f5f9' : '#1a1a1a',
+            background: t.tableFoot,
             borderTop:`1px solid ${t.border}`,
           }}>
             <span style={{fontSize:11,color:t.textMuted,fontWeight:600}}>
@@ -283,24 +315,31 @@ function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
           <span>Vendedor: <strong style={{color:t.text}}>{grupo[0]?.vendedor || '—'}</strong></span>
         </div>
 
+        {esMultiple && (
+          <div style={{
+            padding:'8px 12px', borderRadius:8, marginBottom:12,
+            background: `${t.blue}12`, border:`1px solid ${t.blue}33`,
+            fontSize:11, color:t.blue,
+          }}>
+            💡 Usá el botón ✕ de cada producto para eliminar solo uno, o "Eliminar todo" para borrar el consecutivo completo.
+          </div>
+        )}
+
         <div style={{padding:'10px 12px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,fontSize:11,color:'#dc2626',marginBottom:16}}>
-          ⚠ {esMultiple
-            ? `Esta acción elimina los ${grupo.length} productos de esta venta del Excel y Google Sheets, y descuenta el total de la caja.`
-            : 'Esta acción elimina la venta del Excel y Google Sheets, y descuenta el total de la caja del día.'
-          }
+          ⚠ Se elimina del Excel y Google Sheets, y se descuenta de la caja.
         </div>
 
         {err && <div style={{padding:'6px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626',marginBottom:12}}>✗ {err}</div>}
 
         <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
           <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>Cancelar</button>
-          <button onClick={eliminar} disabled={estado==='saving'} style={{
+          <button onClick={eliminarTodo} disabled={estado==='saving'} style={{
             background:estado==='ok'?t.green:'#dc2626',
             border:'none',borderRadius:8,color:'#fff',padding:'8px 18px',
             cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
-            opacity:estado==='saving'?.7:1,
+            opacity:estado==='saving' && borrando==='todo' ?.7:1,
           }}>
-            {estado==='saving'?'Eliminando…':estado==='ok'?'✓ Eliminado':'Sí, eliminar'}
+            {estado==='saving' && borrando==='todo' ?'Eliminando…':estado==='ok'?'✓ Eliminado': esMultiple ? 'Eliminar todo' : 'Sí, eliminar'}
           </button>
         </div>
       </div>
