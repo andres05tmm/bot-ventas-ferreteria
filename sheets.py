@@ -82,18 +82,15 @@ def _obtener_hoja_sheets():
             _formato_encabezado(ws)
             creada_nueva = True
 
-        # ── Migración: insertar columna UNIDAD DE MEDIDA si falta ────────
+        # ── Migración: agregar columna UNIDAD DE MEDIDA al final si falta ──
         if not creada_nueva:
             try:
                 headers_actuales = ws.row_values(1)
-                if "UNIDAD DE MEDIDA" not in headers_actuales and len(headers_actuales) >= 8:
-                    # Insertar columna en posición 9 (después de CANTIDAD, antes de VALOR UNITARIO)
-                    col_pos = 9
-                    ws.insert_cols(col_pos, number=1)
-                    ws.update_cell(1, col_pos, "UNIDAD DE MEDIDA")
-                    # Re-formatear encabezado con las nuevas columnas
+                if "UNIDAD DE MEDIDA" not in headers_actuales:
+                    next_col = len(headers_actuales) + 1
+                    ws.update_cell(1, next_col, "UNIDAD DE MEDIDA")
                     _formato_encabezado(ws)
-                    print("✅ Migración Sheets: columna UNIDAD DE MEDIDA insertada en posición 9")
+                    print(f"✅ Migración Sheets: columna UNIDAD DE MEDIDA agregada en col {next_col}")
             except Exception as e_mig:
                 print(f"⚠️ Migración Sheets (no crítico): {e_mig}")
 
@@ -137,12 +134,12 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
             str(codigo_producto),   # Código del Producto
             str(producto),          # PRODUCTO
             cantidad_legible,       # CANTIDAD
-            str(unidad_medida or "Unidad"),  # UNIDAD DE MEDIDA
             float(precio_unitario), # VALOR UNITARIO
             float(total),           # TOTAL
             str(alias or num),      # ALIAS
             str(vendedor),          # VENDEDOR
             str(metodo),            # METODO DE PAGO
+            str(unidad_medida or "Unidad"),  # UNIDAD DE MEDIDA
         ]
         ws.append_row(fila, value_input_option="USER_ENTERED")
 
