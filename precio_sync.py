@@ -659,10 +659,12 @@ def _actualizar_metadatos_en_excel(nombre_original: str, datos_nuevos: dict) -> 
                 col_map[_norm_cat(str(cell.value))] = cell.column
 
         # Mapear campos del dict a los nombres de columna del Excel
+        # IMPORTANTE: "unidad" sola NO se incluye porque col Q se llama "UNIDAD"
+        # (es la columna de PRECIO) y haría match incorrecto.
         _CAMPO_COL = {
             "nombre":        ["nombre del producto", "nombre", "product name"],
             "categoria":     ["categoria", "categoría", "category"],
-            "unidad_medida": ["unidad de medida", "unidad medida", "unidad", "unit"],
+            "unidad_medida": ["unidad de medida impresion factura", "unidad de medida", "unidad medida"],
             "codigo":        ["codigo del producto", "código del producto", "codigo", "código", "code"],
         }
 
