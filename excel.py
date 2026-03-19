@@ -566,6 +566,7 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         metodo_pago if metodo_pago else observaciones,
         id_cliente=id_cliente_final, nombre_cliente=nombre_cliente_final,
         codigo_producto=cod_producto_final, alias=alias_mensual,
+        unidad_medida=datos_base.get("unidad_medida", "Unidad"),
     )
 
     return consecutivo_final
