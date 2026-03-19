@@ -609,7 +609,8 @@ def venta_rapida(payload: VentaRapidaPayload):
         filas = []
         for item in payload.productos:
             try:
-                cant_num = float(item.cantidad) if isinstance(item.cantidad, (int, float)) else 1.0
+                from utils import convertir_fraccion_a_decimal
+                cant_num = convertir_fraccion_a_decimal(item.cantidad)
             except (ValueError, TypeError):
                 cant_num = 1.0
             # Bug fix: cant_num <= 0 causaba precio_unitario=total (incorrecto).
