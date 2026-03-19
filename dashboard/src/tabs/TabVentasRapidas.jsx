@@ -734,9 +734,12 @@ function ModalQty({ prod, onClose, onConfirm }) {
   if (!prod) return null
 
   const qty       = parseInt(qtyStr) || 0
-  const totalCalc = qty * prod.precio
+  const may       = prod.mayorista
+  const esMayorista = may && qty >= may.umbral
+  const precioUnit  = esMayorista ? may.precio : prod.precio
+  const totalCalc   = qty * precioUnit
   const precioFinal = precioCustom !== null ? precioCustom : totalCalc
-  const desc      = `${qty} ${qty === 1 ? 'unidad' : 'unidades'}`
+  const desc      = `${qty} ${qty === 1 ? 'unidad' : 'unidades'}${esMayorista ? ' (mayorista)' : ''}`
   const valido    = qty >= 1
 
   const cambiarQtyNum = (fn) => {
@@ -745,7 +748,7 @@ function ModalQty({ prod, onClose, onConfirm }) {
   }
 
   return (
-    <Modal show title={prod.nombre} subtitle={`Precio unitario: ${cop(prod.precio)}`}
+    <Modal show title={prod.nombre} subtitle={`Precio unitario: ${cop(prod.precio)}${may ? ` · Mayorista ×${may.umbral}: ${cop(may.precio)}` : ''}`}
       onClose={onClose}
       onConfirm={() => valido && onConfirm({ qty, total: precioFinal, desc })}
       okDisabled={!valido}>
@@ -755,7 +758,7 @@ function ModalQty({ prod, onClose, onConfirm }) {
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
         background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-        border: `1px solid ${t.accent}66`, borderRadius: 8,
+        border: `1px solid ${esMayorista ? t.blue : t.accent}66`, borderRadius: 8,
         padding: 14, marginBottom: 14,
       }}>
         <button onClick={() => cambiarQtyNum(q => Math.max(1, q - 1))} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>−</button>
@@ -767,7 +770,7 @@ function ModalQty({ prod, onClose, onConfirm }) {
           onBlur={e => { if (!parseInt(e.target.value) || parseInt(e.target.value) < 1) setQtyStr('1') }}
           style={{
             width: 60, background: 'transparent', border: 'none',
-            borderBottom: `1px solid ${t.accent}66`,
+            borderBottom: `1px solid ${esMayorista ? t.blue : t.accent}66`,
             color: t.text, fontSize: 26, fontFamily: 'monospace',
             outline: 'none', textAlign: 'center', padding: '2px 0',
             MozAppearance: 'textfield', appearance: 'textfield',
@@ -775,6 +778,24 @@ function ModalQty({ prod, onClose, onConfirm }) {
         />
         <button onClick={() => cambiarQtyNum(q => q + 1)} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>+</button>
       </div>
+
+      {/* Indicador mayorista */}
+      {may && (
+        <div style={{
+          padding: '6px 10px', borderRadius: 7, marginBottom: 10, fontSize: 11,
+          background: esMayorista ? `${t.blue}18` : t.tableAlt,
+          border: `1px solid ${esMayorista ? t.blue + '44' : t.border}`,
+          color: esMayorista ? t.blue : t.textMuted,
+          textAlign: 'center', fontWeight: esMayorista ? 600 : 400,
+          transition: 'all .2s',
+        }}>
+          {esMayorista
+            ? `✓ Precio mayorista: ${cop(may.precio)} c/u (desde ${may.umbral} uds)`
+            : `Mayorista desde ${may.umbral} uds → ${cop(may.precio)} c/u`
+          }
+        </div>
+      )}
+
       <PrecioEditor precioCalc={totalCalc} precioFinal={precioFinal} onChange={setPrecioCustom} desc={desc} />
     </Modal>
   )
@@ -1611,6 +1632,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         precio: prod.precio, qty: 1, total: prod.precio,
         desc: '1 unidad', tipo: 'simple',
         unidad: prod.unidad_medida || 'Unidad',
+        mayorista: prod.mayorista || null,
       }])
     }
   }, [carrito])
@@ -1652,7 +1674,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         next[idx] = { ...next[idx], qty, total, desc }
         return next
       }
-      return [...prev, { id: Date.now(), key: modalQty.key, nombre: modalQty.nombre, precio: modalQty.precio, qty, total, desc, tipo: 'simple', unidad: modalQty.unidad_medida || 'Unidad' }]
+      return [...prev, { id: Date.now(), key: modalQty.key, nombre: modalQty.nombre, precio: modalQty.precio, qty, total, desc, tipo: 'simple', unidad: modalQty.unidad_medida || 'Unidad', mayorista: modalQty.mayorista || null }]
     })
     setModalQty(null)
   }
@@ -1677,8 +1699,10 @@ export default function TabVentasRapidas({ refreshKey }) {
   const qtyChange = (idx, d) => setCarrito(prev => {
     const next = [...prev], it = { ...next[idx] }
     it.qty = Math.max(1, it.qty + d)
-    it.total = it.precio * it.qty
-    it.desc  = `${it.qty} ${it.qty === 1 ? 'unidad' : 'unidades'}`
+    const may = it.mayorista
+    const pUnit = (may && it.qty >= may.umbral) ? may.precio : it.precio
+    it.total = pUnit * it.qty
+    it.desc  = `${it.qty} ${it.qty === 1 ? 'unidad' : 'unidades'}${may && it.qty >= may.umbral ? ' (mayorista)' : ''}`
     next[idx] = it; return next
   })
   const removeItem  = idx => setCarrito(p => p.filter((_, i) => i !== idx))
