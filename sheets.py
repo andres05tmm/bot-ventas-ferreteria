@@ -117,7 +117,7 @@ def _obtener_hoja_sheets():
 
 
 def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vendedor, metodo,
-                          id_cliente="CF", nombre_cliente="Consumidor Final", codigo_producto="", alias="",
+                          id_cliente="CF", nombre_cliente="Consumidor Final", codigo_producto="",
                           unidad_medida="") -> bool:
     """Agrega una fila de venta al Google Sheets en tiempo real."""
     if not config.SHEETS_ID:
@@ -149,7 +149,6 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
             cantidad_legible,       # CANTIDAD
             float(precio_unitario), # VALOR UNITARIO
             float(total),           # TOTAL
-            str(alias or num),      # ALIAS
             str(vendedor),          # VENDEDOR
             str(metodo),            # METODO DE PAGO
         ]
