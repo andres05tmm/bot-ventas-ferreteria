@@ -94,7 +94,8 @@ def _obtener_hoja_sheets():
 
 
 def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vendedor, metodo,
-                          id_cliente="CF", nombre_cliente="Consumidor Final", codigo_producto="", alias="") -> bool:
+                          id_cliente="CF", nombre_cliente="Consumidor Final", codigo_producto="", alias="",
+                          unidad_medida="") -> bool:
     """Agrega una fila de venta al Google Sheets en tiempo real."""
     if not config.SHEETS_ID:
         return False
@@ -118,6 +119,7 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
             str(codigo_producto),   # Código del Producto
             str(producto),          # PRODUCTO
             cantidad_legible,       # CANTIDAD
+            str(unidad_medida or "Unidad"),  # UNIDAD DE MEDIDA
             float(precio_unitario), # VALOR UNITARIO
             float(total),           # TOTAL
             str(alias or num),      # ALIAS
@@ -214,6 +216,7 @@ def sheets_leer_ventas_del_dia() -> list:
                 "codigo_producto": fila.get("Código del Producto", ""),
                 "producto":        fila.get("PRODUCTO", fila.get("Producto", "")),
                 "cantidad":        fila.get("CANTIDAD", fila.get("Cantidad", "")),
+                "unidad_medida":   fila.get("UNIDAD DE MEDIDA", fila.get("Unidad de Medida", "Unidad")),
                 "precio_unitario": fila.get("VALOR UNITARIO", fila.get("Precio Unitario", 0)),
                 "total":           fila.get("TOTAL", fila.get("Total", 0)),
                 "alias":           fila.get("ALIAS", ""),
