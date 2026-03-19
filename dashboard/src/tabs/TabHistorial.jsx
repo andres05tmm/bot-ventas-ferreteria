@@ -39,6 +39,8 @@ const UNIDAD_ESTILOS = {
   'galón': { color:'#a16207', bg:'#fef9c320' },
   'galon': { color:'#a16207', bg:'#fef9c320' },
   'kg':    { color:'#166534', bg:'#dcfce720' },
+  'gramos':{ color:'#166534', bg:'#dcfce720' },
+  'grm':   { color:'#166534', bg:'#dcfce720' },
   'mts':   { color:'#1d4ed8', bg:'#dbeafe20' },
   'cms':   { color:'#6d28d9', bg:'#ede9fe20' },
   'lt':    { color:'#0369a1', bg:'#e0f2fe20' },
