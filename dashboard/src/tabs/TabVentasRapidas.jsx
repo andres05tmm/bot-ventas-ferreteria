@@ -1610,6 +1610,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         id: Date.now(), key: prod.key, nombre: prod.nombre,
         precio: prod.precio, qty: 1, total: prod.precio,
         desc: '1 unidad', tipo: 'simple',
+        unidad: prod.unidad_medida || 'Unidad',
       }])
     }
   }, [carrito])
@@ -1619,6 +1620,7 @@ export default function TabVentasRapidas({ refreshKey }) {
     setCarrito(p => [...p, {
       id: Date.now(), key: modalMlt.key, nombre: modalMlt.nombre,
       precio: total, qty: ml, total, desc, tipo: 'mlt',
+      unidad: modalMlt.unidad_medida || 'MLT',
     }])
     setModalMlt(null)
   }
@@ -1626,15 +1628,20 @@ export default function TabVentasRapidas({ refreshKey }) {
     setCarrito(p => [...p, {
       id: Date.now(), key: modalGrm.key, nombre: modalGrm.nombre,
       precio: total, qty: gramos, total, desc, tipo: 'grm',
+      unidad: modalGrm.unidad_medida || 'GRM',
     }])
     setModalGrm(null)
   }
   const confirmarFrac = ({ unidades, fracKey, total, desc }) => {
-    setCarrito(p => [...p, { id: Date.now(), key: modalFrac.key, nombre: modalFrac.nombre, precio: total, qty: 1, total, desc, tipo: 'fraccion' }])
+    // Calcular cantidad real: unidades enteras + fracción decimal
+    const FRAC_DEC = { '3/4': 0.75, '1/2': 0.5, '1/4': 0.25, '1/3': 0.333, '1/8': 0.125, '1/10': 0.1, '1/16': 0.0625, '2/3': 0.667, '3/8': 0.375 }
+    const fracDec = fracKey ? (FRAC_DEC[fracKey] || 0) : 0
+    const cantReal = (unidades || 0) + fracDec
+    setCarrito(p => [...p, { id: Date.now(), key: modalFrac.key, nombre: modalFrac.nombre, precio: total, qty: cantReal || 1, total, desc, tipo: 'fraccion', unidad: modalFrac.unidad_medida || 'Galón' }])
     setModalFrac(null)
   }
   const confirmarCm = ({ cm, total, desc }) => {
-    setCarrito(p => [...p, { id: Date.now(), key: modalCm.key, nombre: modalCm.nombre, precio: total, qty: 1, total, desc, tipo: 'cm' }])
+    setCarrito(p => [...p, { id: Date.now(), key: modalCm.key, nombre: modalCm.nombre, precio: total, qty: cm || 1, total, desc, tipo: 'cm', unidad: modalCm.unidad_medida || 'Cms' }])
     setModalCm(null)
   }
   const confirmarQty = ({ qty, total, desc }) => {
@@ -1645,7 +1652,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         next[idx] = { ...next[idx], qty, total, desc }
         return next
       }
-      return [...prev, { id: Date.now(), key: modalQty.key, nombre: modalQty.nombre, precio: modalQty.precio, qty, total, desc, tipo: 'simple' }]
+      return [...prev, { id: Date.now(), key: modalQty.key, nombre: modalQty.nombre, precio: modalQty.precio, qty, total, desc, tipo: 'simple', unidad: modalQty.unidad_medida || 'Unidad' }]
     })
     setModalQty(null)
   }
@@ -1661,6 +1668,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       nombre: `🎨 Color Preparado: ${desc}`,
       precio, qty: 1, total: precio,
       desc: descCompleta || '1 galón', tipo: 'simple',
+      unidad: 'Galón',
     }])
     setModalColorPrep(false)
   }, [])
@@ -1685,7 +1693,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          productos: carrito.map(c => ({ nombre: c.nombre, cantidad: c.tipo === 'mlt' ? c.qty : c.qty, total: c.total })),
+          productos: carrito.map(c => ({ nombre: c.nombre, cantidad: c.qty, total: c.total, unidad_medida: c.unidad || '' })),
           metodo, vendedor,
           cliente_nombre: clienteSeleccionado?.nombre || '',
           cliente_id:     clienteSeleccionado?.id     || '',
