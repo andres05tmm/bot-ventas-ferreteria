@@ -112,6 +112,7 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
         c_vendedor = _col("vendedor")
         c_metodo   = _col("metodo de pago", "metodo pago", "método pago")
         c_num      = _col("#", "consecutivo", "num", "consecutivo de venta")
+        c_unidad   = _col("unidad de medida", "unidad_medida", "unidad")
 
         for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
             if not any(fila):
@@ -156,6 +157,7 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
                 "codigo_producto": "",
                 "producto":        str(_v(c_producto)),
                 "cantidad":        str(_v(c_cantidad)),
+                "unidad_medida":   str(_v(c_unidad)) or "Unidad",
                 "precio_unitario": precio_unit,
                 "total":           total,
                 "alias":           str(_v(c_alias)),
@@ -295,9 +297,11 @@ def ventas_hoy():
             except Exception:
                 pass
 
-        # ── Enriquecer con unidad_medida desde el catálogo ────────────────────
+        # ── Enriquecer con unidad_medida desde el catálogo (solo si falta) ────
         try:
-            if os.path.exists(config.MEMORIA_FILE):
+            # Sheets ahora trae unidad_medida nativo; solo rellenar filas antiguas
+            necesitan = [v for v in filtradas if not v.get("unidad_medida") or v["unidad_medida"] == "Unidad"]
+            if necesitan and os.path.exists(config.MEMORIA_FILE):
                 with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
                     _mem = json.load(_f)
                 catalogo = _mem.get("catalogo", {})
@@ -311,7 +315,7 @@ def ventas_hoy():
                             return prod.get("unidad_medida", "Unidad") or "Unidad"
                     return "Unidad"
 
-                for v in filtradas:
+                for v in necesitan:
                     v["unidad_medida"] = _unidad_para(v.get("producto", ""))
         except Exception:
             pass
