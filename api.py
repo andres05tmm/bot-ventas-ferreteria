@@ -816,10 +816,19 @@ def catalogo_nav(q: str = Query(default="")):
         # Filtro de búsqueda
         q_lower = q.strip().lower()
 
+        # Mapa de normalización: agrupa categorías que difieren solo en mayúsculas
+        _cat_canonical: dict[str, str] = {}  # lower → primera aparición original
+
         categorias: dict[str, list] = defaultdict(list)
         for key, prod in catalogo.items():
             nombre   = prod.get("nombre", key)
-            categoria = prod.get("categoria", "Sin categoría")
+            cat_raw  = prod.get("categoria", "Sin categoría")
+
+            # Normalizar: usar siempre la primera forma encontrada
+            cat_lower = cat_raw.lower()
+            if cat_lower not in _cat_canonical:
+                _cat_canonical[cat_lower] = cat_raw
+            categoria = _cat_canonical[cat_lower]
 
             if q_lower and q_lower not in nombre.lower() and q_lower not in (prod.get("codigo","")).lower():
                 continue
