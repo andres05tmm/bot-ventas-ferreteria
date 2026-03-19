@@ -1155,6 +1155,8 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     "código del producto":  v.get("codigo_producto", ""),
                     "producto":             v.get("producto", ""),
                     "cantidad":             v.get("cantidad", ""),
+                    "unidad de medida":     v.get("unidad_medida", "Unidad"),
+                    "unidad_medida":        v.get("unidad_medida", "Unidad"),
                     "valor unitario":       v.get("precio_unitario", 0),
                     "total":                v.get("total", 0),
                     "consecutivo de venta": v.get("num", fila_nueva - 1),
