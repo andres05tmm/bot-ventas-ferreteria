@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg, cop, useIsMobile } from '../components/shared.jsx'
+import { useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg, cop, useIsMobile, API_BASE } from '../components/shared.jsx'
 
 function MetodoRow({ label, valor, icon, t }) {
   if (!valor) return null
@@ -44,7 +44,45 @@ function GastoRow({ g, t }) {
 export default function TabCaja({ refreshKey }) {
   const t = useTheme()
   const isMobile = useIsMobile()
-  const { data, loading, error } = useFetch('/caja', [refreshKey])
+  const [localRefresh, setLocalRefresh] = useState(0)
+  const { data, loading, error } = useFetch('/caja', [refreshKey, localRefresh])
+
+  // Estado para abrir caja
+  const [montoApertura, setMontoApertura] = useState('')
+  const [abriendo, setAbriendo] = useState(false)
+  const [cerrando, setCerrando] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  const mostrarMsg = (tipo, texto) => { setMsg({ tipo, texto }); setTimeout(() => setMsg(null), 4000) }
+
+  const abrirCaja = async () => {
+    setAbriendo(true)
+    try {
+      const r = await fetch(`${API_BASE}/caja/abrir`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monto_apertura: parseInt(montoApertura) || 0 }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Error')
+      mostrarMsg('ok', d.mensaje)
+      setMontoApertura('')
+      setLocalRefresh(r => r + 1)
+    } catch (e) { mostrarMsg('err', e.message) }
+    finally { setAbriendo(false) }
+  }
+
+  const cerrarCaja = async () => {
+    if (!confirm('¿Cerrar la caja del día?')) return
+    setCerrando(true)
+    try {
+      const r = await fetch(`${API_BASE}/caja/cerrar`, { method: 'POST' })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Error')
+      mostrarMsg('ok', 'Caja cerrada')
+      setLocalRefresh(r => r + 1)
+    } catch (e) { mostrarMsg('err', e.message) }
+    finally { setCerrando(false) }
+  }
 
   if (loading) return <Spinner />
   if (error)   return <ErrorMsg msg={`Error cargando caja: ${error}`} />
@@ -56,31 +94,83 @@ export default function TabCaja({ refreshKey }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {/* Estado */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '10px 16px',
-        background: abierta ? (t.id === 'caramelo' ? '#f0fdf4' : '#052e1688') : (t.id === 'caramelo' ? '#fafafa' : t.card),
-        border: `1px solid ${abierta ? '#4ade8044' : t.border}`,
-        borderRadius: 9,
-      }}>
-        <span style={{ fontSize: 18 }}>{abierta ? '🟢' : '⚫'}</span>
-        <div>
-          <span style={{ fontWeight: 600, color: abierta ? '#4ade80' : t.textMuted, fontSize: 13 }}>
-            Caja {abierta ? 'abierta' : 'cerrada'}
-          </span>
-          {d.fecha && (
-            <span style={{ color: t.textMuted, fontSize: 11, marginLeft: 10 }}>
-              Fecha: {d.fecha}
-            </span>
+      {/* Toast */}
+      {msg && (
+        <div style={{
+          padding: '10px 16px', borderRadius: 8,
+          background: msg.tipo === 'ok' ? `${t.green}14` : `${t.accent}14`,
+          border: `1px solid ${msg.tipo === 'ok' ? t.green : t.accent}44`,
+          color: msg.tipo === 'ok' ? t.green : t.accent,
+          fontSize: 12, fontWeight: 500,
+        }}>
+          {msg.tipo === 'ok' ? '✓' : '✕'} {msg.texto}
+        </div>
+      )}
+
+      {/* Estado + Acciones */}
+      <Card style={{ padding: '14px 18px' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexWrap: 'wrap', gap: 10,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>{abierta ? '🟢' : '⚫'}</span>
+            <div>
+              <span style={{ fontWeight: 600, color: abierta ? t.green : t.textMuted, fontSize: 13 }}>
+                Caja {abierta ? 'abierta' : 'cerrada'}
+              </span>
+              {d.fecha && (
+                <span style={{ color: t.textMuted, fontSize: 11, marginLeft: 10 }}>
+                  {d.fecha}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Botón cerrar si está abierta */}
+          {abierta && (
+            <button onClick={cerrarCaja} disabled={cerrando} style={{
+              background: 'transparent', border: `1px solid ${t.accent}44`,
+              borderRadius: 8, color: t.accent, padding: '7px 16px',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+              {cerrando ? 'Cerrando…' : '🔒 Cerrar caja'}
+            </button>
           )}
         </div>
+
+        {/* Formulario abrir caja si está cerrada */}
         {!abierta && (
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: t.textMuted }}>
-            Abre la caja con /caja abrir [monto] en Telegram
-          </span>
+          <div style={{
+            marginTop: 14, paddingTop: 14, borderTop: `1px solid ${t.border}`,
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          }}>
+            <span style={{ fontSize: 12, color: t.textSub }}>Monto apertura:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ color: t.textMuted, fontSize: 12 }}>$</span>
+              <input
+                type="number" min="0" value={montoApertura}
+                onChange={e => setMontoApertura(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && abrirCaja()}
+                placeholder="0"
+                style={{
+                  width: 120, background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                  border: `1px solid ${t.border}`, borderRadius: 7,
+                  color: t.text, fontSize: 14, padding: '8px 10px',
+                  outline: 'none', fontFamily: 'monospace',
+                }}
+              />
+            </div>
+            <button onClick={abrirCaja} disabled={abriendo} style={{
+              background: t.green, border: 'none', borderRadius: 8,
+              color: '#fff', padding: '8px 20px', fontSize: 12,
+              fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+              {abriendo ? 'Abriendo…' : '🔓 Abrir caja'}
+            </button>
+          </div>
         )}
-      </div>
+      </Card>
 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 10 }}>
