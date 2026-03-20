@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg,
-  PeriodBtn, EmptyState, cop, num,
+  PeriodBtn, EmptyState, cop, num, API_BASE,
 } from '../components/shared.jsx'
 
 const DIAS_OPTIONS = [
@@ -17,7 +17,44 @@ const PROV_COLORS = ['#60a5fa','#4ade80','#fbbf24','#f87171','#a78bfa','#fb923c'
 export default function TabCompras({ refreshKey }) {
   const t = useTheme()
   const [dias, setDias] = useState(30)
-  const { data, loading, error } = useFetch(`/compras?dias=${dias}`, [dias, refreshKey])
+  const [localRefresh, setLocalRefresh] = useState(0)
+  const { data, loading, error } = useFetch(`/compras?dias=${dias}`, [dias, refreshKey, localRefresh])
+
+  // Form nueva compra
+  const [formOpen, setFormOpen] = useState(false)
+  const [producto, setProducto] = useState('')
+  const [cantidad, setCantidad] = useState('')
+  const [costoUnit, setCostoUnit] = useState('')
+  const [proveedor, setProveedor] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  const mostrarMsg = (tipo, texto) => { setMsg({ tipo, texto }); setTimeout(() => setMsg(null), 4000) }
+
+  const registrarCompra = async () => {
+    if (!producto.trim()) { mostrarMsg('err', 'El producto es obligatorio'); return }
+    if (!cantidad || parseFloat(cantidad) <= 0) { mostrarMsg('err', 'La cantidad debe ser mayor a 0'); return }
+    if (!costoUnit || parseFloat(costoUnit) <= 0) { mostrarMsg('err', 'El costo unitario debe ser mayor a 0'); return }
+    setGuardando(true)
+    try {
+      const r = await fetch(`${API_BASE}/compras`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          producto: producto.trim(),
+          cantidad: parseFloat(cantidad),
+          costo_unitario: parseFloat(costoUnit),
+          proveedor: proveedor.trim(),
+        }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Error')
+      mostrarMsg('ok', `Compra registrada: ${cantidad} ${producto.trim()} a $${parseInt(costoUnit).toLocaleString('es-CO')} c/u`)
+      setProducto(''); setCantidad(''); setCostoUnit(''); setProveedor('')
+      setFormOpen(false)
+      setLocalRefresh(r => r + 1)
+    } catch (e) { mostrarMsg('err', e.message) }
+    finally { setGuardando(false) }
+  }
 
   if (loading) return <Spinner />
   if (error)   return <ErrorMsg msg={`Error: ${error}`} />
@@ -34,6 +71,17 @@ export default function TabCompras({ refreshKey }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
+      {/* Toast */}
+      {msg && (
+        <div style={{
+          padding: '10px 16px', borderRadius: 8,
+          background: msg.tipo === 'ok' ? `${t.green}14` : `${t.accent}14`,
+          border: `1px solid ${msg.tipo === 'ok' ? t.green : t.accent}44`,
+          color: msg.tipo === 'ok' ? t.green : t.accent,
+          fontSize: 12, fontWeight: 500,
+        }}>{msg.tipo === 'ok' ? '✓' : '✕'} {msg.texto}</div>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
         <div>
@@ -42,14 +90,100 @@ export default function TabCompras({ refreshKey }) {
             Historial de mercancía comprada · últimos {dias} días
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {DIAS_OPTIONS.map(o => (
             <PeriodBtn key={o.value} active={dias === o.value} onClick={() => setDias(o.value)}>
               {o.label}
             </PeriodBtn>
           ))}
+          <button onClick={() => setFormOpen(f => !f)} style={{
+            background: formOpen ? t.blue : `${t.blue}18`,
+            border: `1px solid ${t.blue}55`, borderRadius: 8,
+            color: formOpen ? '#fff' : t.blue,
+            padding: '6px 14px', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            {formOpen ? '✕ Cerrar' : '➕ Nueva compra'}
+          </button>
         </div>
       </div>
+
+      {/* Formulario nueva compra */}
+      {formOpen && (
+        <Card>
+          <SectionTitle>Registrar Compra</SectionTitle>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 4 }}>Producto *</label>
+              <input value={producto} onChange={e => setProducto(e.target.value)}
+                placeholder="Ej: Brocha 2 pulgadas, Vinilo T1 Blanco..."
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                  border: `1px solid ${t.border}`, borderRadius: 7,
+                  color: t.text, fontSize: 12, padding: '8px 10px',
+                  outline: 'none', fontFamily: 'inherit',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 4 }}>Cantidad *</label>
+              <input type="number" min="0" step="0.01" value={cantidad} onChange={e => setCantidad(e.target.value)}
+                placeholder="0"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                  border: `1px solid ${t.border}`, borderRadius: 7,
+                  color: t.text, fontSize: 12, padding: '8px 10px',
+                  outline: 'none', fontFamily: 'inherit',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 4 }}>Costo unitario *</label>
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: t.textMuted, fontSize: 11 }}>$</span>
+                <input type="number" min="0" value={costoUnit} onChange={e => setCostoUnit(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && registrarCompra()}
+                  placeholder="0"
+                  style={{
+                    width: '100%', boxSizing: 'border-box', paddingLeft: 22,
+                    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                    border: `1px solid ${t.border}`, borderRadius: 7,
+                    color: t.text, fontSize: 12, padding: '8px 10px 8px 22px',
+                    outline: 'none', fontFamily: 'inherit',
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 4 }}>Proveedor (opcional)</label>
+              <input value={proveedor} onChange={e => setProveedor(e.target.value)}
+                placeholder="Ej: Ferrisariato, Distribuidora Central..."
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                  border: `1px solid ${t.border}`, borderRadius: 7,
+                  color: t.text, fontSize: 12, padding: '8px 10px',
+                  outline: 'none', fontFamily: 'inherit',
+                }}
+              />
+            </div>
+          </div>
+          {cantidad && costoUnit && (
+            <div style={{ fontSize: 12, color: t.textSub, marginBottom: 10 }}>
+              Total: <strong style={{ color: t.blue }}>{cop(parseFloat(cantidad) * parseFloat(costoUnit))}</strong>
+            </div>
+          )}
+          <button onClick={registrarCompra} disabled={guardando} style={{
+            background: t.blue, border: 'none', borderRadius: 8,
+            color: '#fff', padding: '10px 24px', fontSize: 12,
+            fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            {guardando ? 'Guardando…' : '📦 Registrar compra'}
+          </button>
+        </Card>
+      )}
 
       {sinDatos ? (
         <Card>
