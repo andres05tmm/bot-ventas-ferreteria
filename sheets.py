@@ -156,19 +156,38 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
 
         # Alternar color de fila usando row_count (sin read extra)
         # append_row agrega al final → la nueva fila es la última
-        num_filas = ws.row_count
-        num_cols  = len(config.SHEETS_HEADERS)
-        col_letra = _col_a_letra(num_cols)
-        if num_filas % 2 == 0:
-            ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
-                "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0},
-                "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
-            })
-        else:
-            ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
-                "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
-                "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
-            })
+        try:
+            num_filas = ws.row_count
+            num_cols  = len(config.SHEETS_HEADERS)
+            col_letra = _col_a_letra(num_cols)
+
+            # Si append_row creció más allá del grid, redimensionar
+            try:
+                if num_filas % 2 == 0:
+                    ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
+                        "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0},
+                        "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
+                    })
+                else:
+                    ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
+                        "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+                        "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
+                    })
+            except Exception as e_fmt:
+                # Grid limit exceeded — resize and retry
+                if "exceeds grid limits" in str(e_fmt):
+                    try:
+                        ws.resize(rows=num_filas + 100, cols=num_cols)
+                        ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
+                            "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0} if num_filas % 2 == 0 else {"red": 1.0, "green": 1.0, "blue": 1.0},
+                            "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
+                        })
+                    except Exception:
+                        pass  # Formato no es crítico
+                else:
+                    print(f"⚠️ Error formato fila: {e_fmt}")
+        except Exception:
+            pass  # Formato no es crítico — la venta ya se guardó
 
         config._set_sheets_disponible(True)
         return True
