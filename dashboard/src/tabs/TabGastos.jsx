@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import {
   useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg,
-  PeriodBtn, EmptyState, cop,
+  PeriodBtn, EmptyState, cop, API_BASE,
   useIsMobile,
 } from '../components/shared.jsx'
 
@@ -28,7 +28,38 @@ export default function TabGastos({ refreshKey }) {
   const t = useTheme()
   const isMobile = useIsMobile()
   const [dias, setDias] = useState(7)
-  const { data, loading, error } = useFetch(`/gastos?dias=${dias}`, [dias, refreshKey])
+  const [localRefresh, setLocalRefresh] = useState(0)
+  const { data, loading, error } = useFetch(`/gastos?dias=${dias}`, [dias, refreshKey, localRefresh])
+
+  // Form nuevo gasto
+  const [formOpen, setFormOpen] = useState(false)
+  const [concepto, setConcepto] = useState('')
+  const [monto, setMonto] = useState('')
+  const [categoria, setCategoria] = useState('General')
+  const [origen, setOrigen] = useState('caja')
+  const [guardando, setGuardando] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  const mostrarMsg = (tipo, texto) => { setMsg({ tipo, texto }); setTimeout(() => setMsg(null), 4000) }
+
+  const registrarGasto = async () => {
+    if (!concepto.trim()) { mostrarMsg('err', 'El concepto es obligatorio'); return }
+    if (!monto || parseInt(monto) <= 0) { mostrarMsg('err', 'El monto debe ser mayor a 0'); return }
+    setGuardando(true)
+    try {
+      const r = await fetch(`${API_BASE}/gastos`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ concepto: concepto.trim(), monto: parseInt(monto), categoria, origen }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Error')
+      mostrarMsg('ok', d.mensaje)
+      setConcepto(''); setMonto(''); setCategoria('General')
+      setFormOpen(false)
+      setLocalRefresh(r => r + 1)
+    } catch (e) { mostrarMsg('err', e.message) }
+    finally { setGuardando(false) }
+  }
 
   if (loading) return <Spinner />
   if (error)   return <ErrorMsg msg={`Error cargando gastos: ${error}`} />
@@ -44,7 +75,18 @@ export default function TabGastos({ refreshKey }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {/* Selector período */}
+      {/* Toast */}
+      {msg && (
+        <div style={{
+          padding: '10px 16px', borderRadius: 8,
+          background: msg.tipo === 'ok' ? `${t.green}14` : `${t.accent}14`,
+          border: `1px solid ${msg.tipo === 'ok' ? t.green : t.accent}44`,
+          color: msg.tipo === 'ok' ? t.green : t.accent,
+          fontSize: 12, fontWeight: 500,
+        }}>{msg.tipo === 'ok' ? '✓' : '✕'} {msg.texto}</div>
+      )}
+
+      {/* Selector período + botón nuevo */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 700, color: t.text }}>Gastos</div>
@@ -52,14 +94,100 @@ export default function TabGastos({ refreshKey }) {
             {gastos.length} registros · últimos {dias} {dias === 1 ? 'día' : 'días'}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {DIAS_OPTIONS.map(o => (
             <PeriodBtn key={o.value} active={dias === o.value} onClick={() => setDias(o.value)}>
               {o.label}
             </PeriodBtn>
           ))}
+          <button onClick={() => setFormOpen(f => !f)} style={{
+            background: formOpen ? t.accent : t.accentSub,
+            border: `1px solid ${t.accent}55`, borderRadius: 8,
+            color: formOpen ? '#fff' : t.accent,
+            padding: '6px 14px', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            {formOpen ? '✕ Cerrar' : '➕ Nuevo gasto'}
+          </button>
         </div>
       </div>
+
+      {/* Formulario nuevo gasto */}
+      {formOpen && (
+        <Card>
+          <SectionTitle>Registrar Gasto</SectionTitle>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 4 }}>Concepto *</label>
+              <input value={concepto} onChange={e => setConcepto(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && registrarGasto()}
+                placeholder="Ej: Almuerzo, transporte, material..."
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                  border: `1px solid ${t.border}`, borderRadius: 7,
+                  color: t.text, fontSize: 12, padding: '8px 10px',
+                  outline: 'none', fontFamily: 'inherit',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 4 }}>Monto *</label>
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: t.textMuted, fontSize: 11 }}>$</span>
+                <input type="number" min="0" value={monto} onChange={e => setMonto(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && registrarGasto()}
+                  placeholder="0"
+                  style={{
+                    width: '100%', boxSizing: 'border-box', paddingLeft: 22,
+                    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                    border: `1px solid ${t.border}`, borderRadius: 7,
+                    color: t.text, fontSize: 12, padding: '8px 10px 8px 22px',
+                    outline: 'none', fontFamily: 'inherit',
+                  }}
+                />
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 4 }}>Categoría</label>
+              <select value={categoria} onChange={e => setCategoria(e.target.value)}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                  border: `1px solid ${t.border}`, borderRadius: 7,
+                  color: t.text, fontSize: 12, padding: '8px 10px',
+                  outline: 'none', fontFamily: 'inherit', cursor: 'pointer',
+                }}>
+                {['General','Transporte','Alimentación','Servicios','Materiales','Arriendo','Otro'].map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 4 }}>Origen</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[{k:'caja',l:'💵 De caja'},{k:'externo',l:'🏦 Externo'}].map(o => (
+                  <button key={o.k} onClick={() => setOrigen(o.k)} style={{
+                    flex: 1, padding: '8px 10px', borderRadius: 7, fontSize: 11,
+                    fontFamily: 'inherit', cursor: 'pointer',
+                    background: origen === o.k ? t.accentSub : (t.id === 'caramelo' ? '#f8fafc' : '#111'),
+                    border: `1px solid ${origen === o.k ? t.accent : t.border}`,
+                    color: origen === o.k ? t.accent : t.textMuted,
+                    fontWeight: origen === o.k ? 600 : 400,
+                  }}>{o.l}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <button onClick={registrarGasto} disabled={guardando} style={{
+            background: t.accent, border: 'none', borderRadius: 8,
+            color: '#fff', padding: '10px 24px', fontSize: 12,
+            fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            {guardando ? 'Guardando…' : '💸 Registrar gasto'}
+          </button>
+        </Card>
+      )}
 
       {/* KPIs */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
