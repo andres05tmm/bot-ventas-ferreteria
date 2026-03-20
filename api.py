@@ -443,6 +443,12 @@ def productos():
         catalogo   = mem.get("catalogo", {})
         inventario = mem.get("inventario", {})
         lista = []
+        # Fracciones estándar para productos de galón (pinturas/impermeabilizantes)
+        _FRACS_GALON = [
+            ("3/4", 0.75), ("1/2", 0.5), ("1/4", 0.25),
+            ("1/8", 0.125), ("1/16", 0.0625), ("1/10", 0.1),
+        ]
+
         for k, v in catalogo.items():
             ppc = v.get("precio_por_cantidad")
             mayorista = None
@@ -451,14 +457,27 @@ def productos():
                     "umbral": ppc.get("umbral", 50),
                     "precio": ppc.get("precio_sobre_umbral", 0),
                 }
+
+            fracs = v.get("precios_fraccion", None)
+            precio = v.get("precio_unidad", 0)
+
+            # Auto-generar fracciones para pinturas/impermeabilizantes sin precios_fraccion
+            if not fracs and precio > 0:
+                cat_lower = (v.get("categoria", "") or "").lower()
+                es_galon = "pintura" in cat_lower or "disolvente" in cat_lower or "impermeab" in cat_lower
+                if es_galon:
+                    fracs = {}
+                    for label, decimal in _FRACS_GALON:
+                        fracs[label] = {"precio": round(precio * decimal), "decimal": decimal}
+
             lista.append({
                 "key":              k,
                 "nombre":           v.get("nombre", k),
                 "categoria":        v.get("categoria", "Sin categoría"),
-                "precio":           v.get("precio_unidad", 0),
+                "precio":           precio,
                 "codigo":           v.get("codigo", ""),
                 "stock":            _stock_wayper(k, inventario),
-                "precios_fraccion": v.get("precios_fraccion", None),
+                "precios_fraccion": fracs,
                 "unidad_medida":    v.get("unidad_medida", "Unidad"),
                 "mayorista":        mayorista,
             })
