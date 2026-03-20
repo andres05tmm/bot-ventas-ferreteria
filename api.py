@@ -570,6 +570,129 @@ def caja():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Caja: abrir / cerrar desde Dashboard ─────────────────────────────────────
+
+class CajaAbrirBody(BaseModel):
+    monto_apertura: Union[float, int] = 0
+
+@app.post("/caja/abrir")
+def caja_abrir(body: CajaAbrirBody):
+    """Abre la caja del día con un monto inicial."""
+    try:
+        from memoria import cargar_caja, guardar_caja
+        caja = cargar_caja()
+        if caja.get("abierta"):
+            raise HTTPException(status_code=400, detail="La caja ya está abierta")
+
+        hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+        caja = {
+            "abierta": True,
+            "fecha": hoy,
+            "monto_apertura": int(body.monto_apertura),
+            "efectivo": 0,
+            "transferencias": 0,
+            "datafono": 0,
+        }
+        guardar_caja(caja)
+        return {"ok": True, "mensaje": f"Caja abierta con ${int(body.monto_apertura):,}", "caja": caja}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/caja/cerrar")
+def caja_cerrar():
+    """Cierra la caja del día."""
+    try:
+        from memoria import cargar_caja, guardar_caja, cargar_gastos_hoy, obtener_resumen_caja
+        caja = cargar_caja()
+        if not caja.get("abierta"):
+            raise HTTPException(status_code=400, detail="La caja ya está cerrada")
+
+        resumen = obtener_resumen_caja()
+        caja["abierta"] = False
+        guardar_caja(caja)
+        return {"ok": True, "mensaje": "Caja cerrada", "resumen": resumen}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Gastos: registrar desde Dashboard ────────────────────────────────────────
+
+class NuevoGastoBody(BaseModel):
+    concepto:   str
+    monto:      Union[float, int]
+    categoria:  str = "General"
+    origen:     str = "caja"       # "caja" | "externo"
+
+@app.post("/gastos")
+def registrar_gasto(body: NuevoGastoBody):
+    """Registra un gasto del día."""
+    try:
+        from memoria import guardar_gasto
+
+        if not body.concepto.strip():
+            raise HTTPException(status_code=400, detail="El concepto es obligatorio")
+        if body.monto <= 0:
+            raise HTTPException(status_code=400, detail="El monto debe ser mayor a 0")
+
+        hora = datetime.now(config.COLOMBIA_TZ).strftime("%H:%M")
+        gasto = {
+            "concepto":  body.concepto.strip(),
+            "monto":     int(body.monto),
+            "categoria": body.categoria.strip() or "General",
+            "origen":    body.origen,
+            "hora":      hora,
+        }
+        guardar_gasto(gasto)
+        return {"ok": True, "gasto": gasto, "mensaje": f"Gasto registrado: {body.concepto} ${int(body.monto):,}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Compras: registrar desde Dashboard ───────────────────────────────────────
+
+class NuevaCompraBody(BaseModel):
+    producto:       str
+    cantidad:       Union[float, int]
+    costo_unitario: Union[float, int]
+    proveedor:      str = ""
+
+@app.post("/compras")
+def crear_compra(body: NuevaCompraBody):
+    """Registra una compra de mercancía (actualiza inventario + kárdex)."""
+    try:
+        from memoria import registrar_compra
+
+        if not body.producto.strip():
+            raise HTTPException(status_code=400, detail="El producto es obligatorio")
+        if body.cantidad <= 0:
+            raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0")
+        if body.costo_unitario <= 0:
+            raise HTTPException(status_code=400, detail="El costo unitario debe ser mayor a 0")
+
+        ok, mensaje, datos_excel = registrar_compra(
+            nombre_producto=body.producto.strip(),
+            cantidad=float(body.cantidad),
+            costo_unitario=float(body.costo_unitario),
+            proveedor=body.proveedor.strip() or None,
+        )
+
+        if not ok:
+            raise HTTPException(status_code=400, detail=mensaje)
+
+        return {"ok": True, "mensaje": mensaje, "datos": datos_excel}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Ventas Rápidas (desde el Dashboard) ──────────────────────────────────────
 class VentaRapidaItem(BaseModel):
     nombre:        str
