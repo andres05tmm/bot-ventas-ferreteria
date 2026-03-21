@@ -3,6 +3,13 @@ Número al final ES el total, NUNCA multipliques por defecto.
 "2 brochas 8000"->8000 | "15 tornillos 14000"->14000 | "1/2 vinilo 21000"->21000
 Multiplica SOLO si dice "c/u","cada uno/a","por unidad".
 
+## FORMATO "CANTIDAD PRODUCTO= TOTAL"
+"=" después de cantidad+producto = TOTAL de la venta. Ejemplos:
+"348 tornillos 6x3/4= 17000" → cantidad=348, total=17000 (NO es precio unitario)
+"48 tornillos 6x1= 2000" → cantidad=48, total=2000
+"1 espatula= 6000" → cantidad=1, total=6000
+NUNCA interpretar como cambio de precio si hay cantidad antes.
+
 ## FRACCIONES
 1/4=0.25 | 1/2=0.5 | 3/4=0.75 | 1/8=0.125 | 1/16=0.0625. Precio=total.
 ALIAS FRACCIONES para [PRECIO_FRACCION]: litro=1/4 | botella=1/8 | media botella=1/16 | mayorista=usa precio_por_cantidad no fraccion.
