@@ -430,12 +430,11 @@ def sheets_borrar_consecutivo(numero_venta) -> tuple[int, list]:
         return 0, []
 
 
-def sheets_editar_consecutivo(numero_venta: int, cambios: dict) -> int:
+def sheets_editar_consecutivo(numero_venta: int, cambios: dict, producto_original: str = None) -> int:
     """
-    Actualiza en Sheets TODOS los campos indicados en `cambios` para las filas
+    Actualiza en Sheets los campos indicados en `cambios` para las filas
     cuyo CONSECUTIVO DE VENTA == numero_venta.
-    `cambios` es un dict con claves: producto, cantidad, precio_unitario, total,
-    metodo_pago, cliente, vendedor.
+    Si producto_original viene, solo actualiza la fila con ese producto (multi-producto).
     Retorna el número de filas actualizadas.
     """
     if not config.SHEETS_ID or not cambios:
@@ -463,14 +462,18 @@ def sheets_editar_consecutivo(numero_venta: int, cambios: dict) -> int:
             "vendedor":        ["VENDEDOR"],
         }
 
-        # Columna del consecutivo
+        # Columna del consecutivo y del producto
         col_consec = None
+        col_prod_sh = None
         for i, h in enumerate(headers):
             if "CONSECUTIVO" in h or h == "#":
                 col_consec = i
-                break
+            if h == "PRODUCTO":
+                col_prod_sh = i
         if col_consec is None:
             return 0
+
+        filtro_prod = producto_original.strip().lower() if producto_original else None
 
         # Resolver índices de columna para cada campo a cambiar
         col_map = {}
@@ -494,6 +497,12 @@ def sheets_editar_consecutivo(numero_venta: int, cambios: dict) -> int:
                 continue
             if consec_fila != int(numero_venta):
                 continue
+
+            # Filtrar por producto si se especificó
+            if filtro_prod and col_prod_sh is not None:
+                prod_fila = str(fila[col_prod_sh]).strip().lower()
+                if prod_fila != filtro_prod:
+                    continue
 
             for campo, col_idx in col_map.items():
                 valor = cambios[campo]
