@@ -129,15 +129,7 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await query.edit_message_text(
             "Venta actual:\n" + items + "\n\n"
-            "Dime qué quieres cambiar, por ejemplo:\n"
-            "  - el precio del sellador era 25000\n"
-            "  - quita los aerosoles\n"
-            "  - los tornillos eran 3 docenas no 5\n"
-            "  - agrega 1 brocha 5000\n\n"
-            "Para modificar sin IA usa prefijos:\n"
-            "  añade: 2 tornillo especial= 5000\n"
-            "  quita: aerosoles\n"
-            "  reemplazar sellador por 1 clavija= 3000"
+            "Dime qué cambiar (o usa prefijos: añade:/quita:/reemplazar)"
         )
         return
 
