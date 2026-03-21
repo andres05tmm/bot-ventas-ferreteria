@@ -75,6 +75,7 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/ajuste [+/-cantidad] [producto] — Ajustar stock (ej: /ajuste +10 brocha)\n"
         "/compra [cantidad] [producto] a [costo] — Registrar compra\n"
         "/precios — Ver catalogo de precios\n"
+        "/actualizar_precio — Cambiar precios de productos\n"
         "/margenes — Ver margenes de ganancia\n"
         "/actualizar_catalogo — Recargar catalogo desde Excel\n\n"
         "👥 CLIENTES Y FIADOS\n"
@@ -2118,3 +2119,180 @@ async def _guardar_producto(update, context, prod: dict):
         f"{excel_msg}\n\n"
         f"Ya puedes registrar ventas de '{nombre}'."
     )
+
+
+# ─────────────────────────────────────────────
+# /actualizar_precio
+# ─────────────────────────────────────────────
+
+async def comando_actualizar_precio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /actualizar_precio — Entra en modo actualización de precios.
+    El usuario envía líneas "producto= precio" y se actualizan.
+    Escribe "listo" o "salir" para salir del modo.
+    """
+    from ventas_state import actualizando_precios, _estado_lock
+
+    chat_id = update.effective_chat.id
+
+    # Si viene con argumentos directos: /actualizar_precio tornillo 6x1= 50
+    args_text = " ".join(context.args) if context.args else ""
+    if args_text and "=" in args_text:
+        # Procesar directamente sin entrar en modo
+        resultado = await _procesar_linea_precio(args_text, update)
+        return
+
+    with _estado_lock:
+        actualizando_precios[chat_id] = True
+
+    await update.message.reply_text(
+        "💰 Modo actualización de precios\n\n"
+        "Envía los precios así:\n"
+        "  producto= precio\n"
+        "  producto= precio / precio_mayorista\n"
+        "  producto 1/4= precio_fraccion\n\n"
+        "Ejemplo:\n"
+        "  Tornillo drywall 6x1= 42/30\n"
+        "  Vinilo T1 Blanco= 50000\n"
+        "  Thinner 1/4= 8000\n\n"
+        "Escribe 'listo' para salir."
+    )
+
+
+async def _procesar_linea_precio(linea: str, update):
+    """Procesa una línea de actualización de precio."""
+    import re as _re
+    from precio_sync import actualizar_precio as _ap
+    from memoria import buscar_producto_en_catalogo, invalidar_cache_memoria, cargar_memoria, guardar_memoria
+
+    linea = linea.strip()
+    if not linea:
+        return
+
+    _FRACCIONES = {"1/16", "1/8", "1/4", "1/3", "3/8", "1/2", "3/4"}
+
+    def _parse_precio(s):
+        return float(s.replace(".", "").replace(",", ""))
+
+    # Patrón con dos precios: nombre= p1 / p2
+    PAT_DOS = _re.compile(r"^(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)\s*/\s*\$?\s*([\d][\d.,]*)$")
+    # Patrón un precio: nombre= precio
+    PAT_UNO = _re.compile(r"^(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)$")
+
+    precio_mayorista = None
+
+    m = PAT_DOS.match(linea)
+    if m:
+        nombre_raw = m.group(1).strip()
+        try:
+            precio = _parse_precio(m.group(2))
+            precio_mayorista = _parse_precio(m.group(3))
+        except ValueError:
+            await update.message.reply_text(f"❌ No entendí el precio: {linea}")
+            return
+    else:
+        m = PAT_UNO.match(linea)
+        if not m:
+            await update.message.reply_text(f"❌ Formato: producto= precio. Ej: Vinilo T1= 50000")
+            return
+        nombre_raw = m.group(1).strip()
+        try:
+            precio = _parse_precio(m.group(2))
+        except ValueError:
+            await update.message.reply_text(f"❌ No entendí el precio: {linea}")
+            return
+
+    if precio <= 0:
+        await update.message.reply_text("❌ El precio debe ser mayor a 0.")
+        return
+
+    # Detectar fracción al final del nombre
+    fraccion = None
+    nombre_lower = nombre_raw.lower()
+    for frac in _FRACCIONES:
+        if nombre_lower.endswith(" " + frac):
+            fraccion = frac
+            nombre_raw = nombre_raw[:-(len(frac)+1)].strip()
+            break
+
+    # Buscar producto en catálogo
+    prod = buscar_producto_en_catalogo(nombre_raw)
+    if not prod:
+        await update.message.reply_text(f"⚠️ No encontré '{nombre_raw}' en el catálogo.")
+        return
+
+    nombre_display = prod["nombre"]
+
+    # Si hay precio mayorista → actualizar precio_por_cantidad (tornillos)
+    if precio_mayorista is not None:
+        mem = cargar_memoria()
+        cat = mem.get("catalogo", {})
+        clave = next((k for k, v in cat.items()
+                      if v.get("nombre_lower") == prod.get("nombre_lower", "")), None)
+        if clave:
+            cat[clave]["precio_unidad"] = round(precio)
+            pxc = cat[clave].get("precio_por_cantidad", {})
+            pxc["precio_bajo_umbral"] = round(precio)
+            pxc["precio_sobre_umbral"] = round(precio_mayorista)
+            if "umbral" not in pxc:
+                pxc["umbral"] = 50
+            cat[clave]["precio_por_cantidad"] = pxc
+            mem["catalogo"] = cat
+            guardar_memoria(mem)
+            invalidar_cache_memoria()
+
+            # Sync al Excel
+            try:
+                _ap(nombre_display, round(precio), fraccion)
+            except Exception:
+                pass
+
+            await update.message.reply_text(
+                f"✅ {nombre_display}\n"
+                f"   Unitario: ${round(precio):,} → Mayorista: ${round(precio_mayorista):,}"
+            )
+        else:
+            await update.message.reply_text(f"⚠️ No encontré '{nombre_raw}' en el catálogo.")
+        return
+
+    # Precio simple o fracción
+    ok, desc = _ap(nombre_display, round(precio), fraccion)
+    if ok:
+        frac_txt = f" ({fraccion})" if fraccion else ""
+        await update.message.reply_text(f"✅ {nombre_display}{frac_txt} → ${round(precio):,}")
+    else:
+        await update.message.reply_text(f"⚠️ {desc}")
+
+
+async def manejar_mensaje_precio(update, mensaje: str) -> bool:
+    """
+    Si el chat está en modo actualización de precios, procesa el mensaje.
+    Retorna True si fue procesado, False si no estaba en modo precios.
+    """
+    from ventas_state import actualizando_precios, _estado_lock
+
+    chat_id = update.effective_chat.id
+
+    with _estado_lock:
+        if not actualizando_precios.get(chat_id):
+            return False
+
+    msg = mensaje.strip().lower()
+
+    # Salir del modo
+    if msg in ("listo", "salir", "exit", "ok", "ya", "fin"):
+        with _estado_lock:
+            actualizando_precios.pop(chat_id, None)
+        await update.message.reply_text("✅ Modo actualización de precios finalizado.")
+        return True
+
+    # Procesar como línea(s) de precio
+    lineas = [l.strip() for l in mensaje.strip().split("\n") if l.strip()]
+    # También separar por comas si hay múltiples
+    if len(lineas) == 1 and "," in lineas[0]:
+        lineas = [l.strip() for l in lineas[0].split(",") if l.strip()]
+
+    for linea in lineas:
+        await _procesar_linea_precio(linea, update)
+
+    return True
