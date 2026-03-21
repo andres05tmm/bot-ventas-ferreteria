@@ -1981,21 +1981,22 @@ def eliminar_linea_venta(numero: int, producto: str = Query(...)):
 
 
 class EditarVentaBody(BaseModel):
-    producto:       Union[str, None]   = None
-    cantidad:       Union[float, None] = None
-    precio_unitario:Union[float, None] = None
-    total:          Union[float, None] = None
-    metodo_pago:    Union[str, None]   = None
-    cliente:        Union[str, None]   = None
-    id_cliente:     Union[str, None]   = None
-    vendedor:       Union[str, None]   = None
+    producto:          Union[str, None]   = None
+    cantidad:          Union[float, None] = None
+    precio_unitario:   Union[float, None] = None
+    total:             Union[float, None] = None
+    metodo_pago:       Union[str, None]   = None
+    cliente:           Union[str, None]   = None
+    id_cliente:        Union[str, None]   = None
+    vendedor:          Union[str, None]   = None
+    producto_original: Union[str, None]   = None  # para identificar fila en multi-producto
 
 @app.patch("/ventas/{numero}")
 def editar_venta(numero: int, body: EditarVentaBody):
     """
     Edita los campos de un consecutivo en el Excel (hoja mensual + Acumulado)
     y sincroniza los cambios a Google Sheets.
-    Solo actualiza los campos que vienen en el body.
+    Si producto_original viene, solo actualiza la fila con ese producto (multi-producto).
     """
     try:
         import openpyxl
@@ -2008,9 +2009,12 @@ def editar_venta(numero: int, body: EditarVentaBody):
         hojas       = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
         actualizadas = 0
 
-        cambios = {k: v for k, v in body.dict().items() if v is not None}
+        cambios = {k: v for k, v in body.dict().items() if v is not None and k != "producto_original"}
         if not cambios:
             raise HTTPException(status_code=400, detail="No hay campos para actualizar")
+
+        # Filtro por producto para multi-producto
+        filtro_producto = body.producto_original.strip().lower() if body.producto_original else None
 
         CAMPO_COL = {
             "producto":        ["producto"],
@@ -2029,6 +2033,7 @@ def editar_venta(numero: int, body: EditarVentaBody):
             ws     = wb[nombre_sh]
             cols   = detectar_columnas(ws)
             col_id = cols.get("consecutivo de venta") or cols.get("alias")
+            col_prod = cols.get("producto")
             if not col_id:
                 continue
 
@@ -2039,6 +2044,12 @@ def editar_venta(numero: int, body: EditarVentaBody):
                         continue
                 except (ValueError, TypeError):
                     continue
+
+                # Si hay filtro de producto, solo actualizar la fila que coincida
+                if filtro_producto and col_prod:
+                    prod_fila = str(ws.cell(row=fila, column=col_prod).value or "").strip().lower()
+                    if prod_fila != filtro_producto:
+                        continue
 
                 for campo, valor in cambios.items():
                     claves = CAMPO_COL.get(campo, [campo.replace("_", " ")])
@@ -2060,7 +2071,7 @@ def editar_venta(numero: int, body: EditarVentaBody):
             recalcular_caja_desde_excel()
             # ── Sincronizar a Google Sheets ───────────────────────────────
             try:
-                sheets_editar_consecutivo(numero, cambios)
+                sheets_editar_consecutivo(numero, cambios, producto_original=body.producto_original)
             except Exception:
                 pass   # No fallar la respuesta si Sheets falla
             return {"ok": True, "actualizadas": actualizadas, "mensaje": f"Venta #{numero} actualizada"}
