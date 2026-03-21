@@ -128,6 +128,8 @@ function ModalEditarVenta({ venta, onClose, onGuardado }) {
       if (form.cliente          !== venta.cliente)                          body.cliente         = form.cliente
       if (form.vendedor         !== venta.vendedor)                         body.vendedor        = form.vendedor
       if (!Object.keys(body).length) { onClose(); return }
+      // Enviar producto_original para identificar la fila en ventas multi-producto
+      body.producto_original = venta.producto
       const r = await fetch(`${API_BASE}/ventas/${venta.num}`, {
         method:'PATCH', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(body),
