@@ -24,7 +24,7 @@ from handlers.comandos import (
     manejar_callback_grafica, comando_sheets, comando_cerrar_dia,
     comando_reset_ventas, comando_actualizar_catalogo, comando_consistencia,
     comando_exportar_precios, comando_keepalive, comando_dashboard,
-    comando_agregar_producto,
+    comando_agregar_producto, comando_actualizar_precio,
     comando_inv, comando_stock, comando_ajuste,
     comando_compra, comando_margenes,
 )
@@ -84,6 +84,7 @@ def main():
     app.add_handler(CommandHandler("keepalive",       comando_keepalive))
     app.add_handler(CommandHandler("agregar_producto", comando_agregar_producto))
     app.add_handler(CommandHandler("nuevo_producto",   comando_agregar_producto))
+    app.add_handler(CommandHandler("actualizar_precio", comando_actualizar_precio))
     app.add_handler(CommandHandler("productos",        comando_productos))
     app.add_handler(CommandHandler("pendientes",       comando_pendientes))
 
