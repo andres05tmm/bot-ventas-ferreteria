@@ -231,6 +231,21 @@ def _parsear_actualizacion_masiva(mensaje: str):
         if precio <= 0:
             return None
 
+        # ── GUARD: si el "nombre" empieza con un número o fracción, es una VENTA
+        # con total, no una actualización de precio.
+        # Ej: "348 tornillos 6x3/4= 17000" → 348 es la cantidad
+        # Ej: "1/2 vinilo= 21000" → 1/2 es la cantidad
+        # También "venta:" al inicio
+        _nombre_check = nombre_raw.strip().lower()
+        if _re.match(r'^\d+[\s,]', _nombre_check):
+            return None  # Empieza con cantidad entera → es venta
+        if _re.match(r'^\d+/\d+\s', _nombre_check):
+            return None  # Empieza con fracción → es venta
+        if _re.match(r'^\d+-\d+/\d+\s', _nombre_check):
+            return None  # Empieza con mixto (1-1/2) → es venta
+        if _nombre_check.startswith(("venta:", "venta ")):
+            return None  # Explícitamente una venta
+
         # Detectar fracción al final del nombre
         fraccion = None
         nombre_lower = nombre_raw.lower()
@@ -312,6 +327,11 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
     # ── Flujo paso a paso de agregar producto ──
     if await manejar_flujo_agregar_producto(update, context):
+        return
+
+    # ── Modo actualización de precios (/actualizar_precio) ──
+    from handlers.comandos import manejar_mensaje_precio
+    if await manejar_mensaje_precio(update, mensaje):
         return
 
     # ── Flujo paso a paso de creación de cliente ──
@@ -708,11 +728,8 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                     await _enviar_botones_pago(update.message, chat_id, ventas_para_registrar)
                 return
 
-    # ── Actualización masiva de precios (intercepta antes de Claude) ──
-    pares_precio = _parsear_actualizacion_masiva(mensaje)
-    if pares_precio:
-        await _manejar_actualizacion_masiva(update, vendedor, pares_precio)
-        return
+    # ── Actualización de precios: ahora es SOLO via /actualizar_precio ──
+    # (Eliminada la intercepción automática que confundía ventas con precios)
 
     # ── Crear cliente sin venta: "agregar cliente: nombre" ──
     _msg_lower_cli = mensaje.strip().lower()
