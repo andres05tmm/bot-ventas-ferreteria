@@ -1,12 +1,13 @@
 /**
- * ChatWidget.jsx — Asistente IA Ferretería · v2
+ * ChatWidget.jsx — Asistente IA Ferretería · v3
+ * Incluye botones de método de pago inline en el chat.
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
-// ── Estilos inyectados como <style> ─────────────────────────────────────────
+// ── CSS inyectado ────────────────────────────────────────────────────────────
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');
 
@@ -26,8 +27,11 @@ const CSS = `
     0%,100% { box-shadow: 0 0 0 0   rgba(200,32,14,.45), 0 4px 14px rgba(200,32,14,.4); }
     60%     { box-shadow: 0 0 0 10px rgba(200,32,14,.0),  0 4px 14px rgba(200,32,14,.4); }
   }
+  @keyframes fw-btnin {
+    0%   { transform: translateY(8px) scale(0.9); opacity: 0; }
+    100% { transform: translateY(0)   scale(1);   opacity: 1; }
+  }
 
-  /* Panel principal */
   .fw-panel {
     font-family: 'DM Sans', system-ui, sans-serif;
     position: fixed;
@@ -43,7 +47,6 @@ const CSS = `
     border: 1px solid rgba(0,0,0,.07);
   }
 
-  /* Header degradado rojo */
   .fw-header {
     background: linear-gradient(130deg, #B81D0C 0%, #D42010 45%, #E83520 100%);
     padding: 15px 16px 13px;
@@ -71,7 +74,6 @@ const CSS = `
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
-
   .fw-hname {
     color: #fff; font-size: 14.5px; font-weight: 600;
     letter-spacing: -.015em; line-height: 1.2;
@@ -88,7 +90,6 @@ const CSS = `
   .fw-hstatus span {
     color: rgba(255,255,255,.75); font-size: 11.5px; font-weight: 400;
   }
-
   .fw-hbtn {
     font-family: inherit;
     background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18);
@@ -97,7 +98,6 @@ const CSS = `
     cursor: pointer; transition: background .15s;
   }
   .fw-hbtn:hover { background: rgba(255,255,255,.22); }
-
   .fw-xbtn {
     background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.2);
     border-radius: 8px; width: 28px; height: 28px;
@@ -107,7 +107,6 @@ const CSS = `
   }
   .fw-xbtn:hover { background: rgba(255,255,255,.24); }
 
-  /* Área de mensajes */
   .fw-msgs {
     flex: 1; overflow-y: auto;
     padding: 14px 13px;
@@ -118,7 +117,7 @@ const CSS = `
   .fw-msgs::-webkit-scrollbar { width: 3px; }
   .fw-msgs::-webkit-scrollbar-thumb { background: rgba(0,0,0,.1); border-radius: 4px; }
 
-  /* Pantalla de bienvenida */
+  /* Bienvenida */
   .fw-welcome {
     flex: 1; display: flex; flex-direction: column;
     align-items: center; justify-content: center;
@@ -182,6 +181,40 @@ const CSS = `
     box-shadow: 0 1px 4px rgba(0,0,0,.06);
   }
 
+  /* Botones de pago */
+  .fw-pay-group {
+    display: flex; gap: 7px;
+    margin-top: 8px; align-self: flex-start;
+    flex-wrap: wrap;
+  }
+  .fw-pay-btn {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 12.5px; font-weight: 600;
+    padding: 7px 14px; border-radius: 20px;
+    border: 2px solid;
+    cursor: pointer; transition: all .15s;
+    animation: fw-btnin .2s ease forwards;
+    animation-fill-mode: both;
+  }
+  .fw-pay-btn.efectivo {
+    background: rgba(34,197,94,.1); border-color: rgba(34,197,94,.5); color: #166534;
+  }
+  .fw-pay-btn.efectivo:hover { background: rgba(34,197,94,.18); border-color: #22c55e; transform: translateY(-1px); }
+
+  .fw-pay-btn.transferencia {
+    background: rgba(59,130,246,.1); border-color: rgba(59,130,246,.5); color: #1e40af;
+  }
+  .fw-pay-btn.transferencia:hover { background: rgba(59,130,246,.18); border-color: #3b82f6; transform: translateY(-1px); }
+
+  .fw-pay-btn.datafono {
+    background: rgba(168,85,247,.1); border-color: rgba(168,85,247,.5); color: #6b21a8;
+  }
+  .fw-pay-btn.datafono:hover { background: rgba(168,85,247,.18); border-color: #a855f7; transform: translateY(-1px); }
+
+  .fw-pay-btn:nth-child(2) { animation-delay: .05s; }
+  .fw-pay-btn:nth-child(3) { animation-delay: .10s; }
+
+  /* Badge de acción */
   .fw-badge {
     font-size: 11.5px; font-weight: 500;
     color: #166534; background: #F0FDF4;
@@ -189,7 +222,7 @@ const CSS = `
     padding: 3px 10px; margin-top: 5px;
   }
 
-  /* Indicador de escritura */
+  /* Typing */
   .fw-typing {
     display: flex; align-items: center; gap: 4px;
     padding: 11px 15px; margin-top: 7px;
@@ -215,7 +248,6 @@ const CSS = `
     display: flex; gap: 7px; align-items: flex-end;
     flex-shrink: 0;
   }
-
   .fw-iwrap {
     flex: 1; background: #F2F1EF;
     border-radius: 13px; border: 1.5px solid transparent;
@@ -225,7 +257,6 @@ const CSS = `
   .fw-iwrap:focus-within {
     border-color: rgba(180,30,12,.38); background: #FFF;
   }
-
   .fw-ta {
     width: 100%; resize: none; border: none;
     background: transparent; padding: 8px 11px;
@@ -237,6 +268,7 @@ const CSS = `
   }
   .fw-ta::placeholder { color: #B0ABA5; }
   .fw-ta::-webkit-scrollbar { display: none; }
+  .fw-ta:disabled { opacity: .5; }
 
   .fw-sbtn {
     width: 38px; height: 38px; border-radius: 11px;
@@ -249,8 +281,7 @@ const CSS = `
   .fw-sbtn:hover:not(:disabled) { opacity: .88; transform: scale(1.05); }
   .fw-sbtn:active:not(:disabled) { transform: scale(.95); }
   .fw-sbtn:disabled {
-    background: #DDDAD6; box-shadow: none; cursor: default;
-    color: #aaa;
+    background: #DDDAD6; box-shadow: none; cursor: default; color: #aaa;
   }
 
   /* FAB */
@@ -264,7 +295,6 @@ const CSS = `
     box-shadow: 0 4px 14px rgba(180,30,12,.42), 0 1px 4px rgba(0,0,0,.18);
     animation: fw-pulse 2.8s ease infinite;
     transition: transform .15s, box-shadow .15s;
-    position: fixed;
   }
   .fw-fab:hover {
     transform: scale(1.07) translateY(-1px);
@@ -296,14 +326,12 @@ const IcoWrench = ({ s = 20, c = 'white' }) => (
     <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
   </svg>
 )
-
 const IcoX = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
     <path d="M18 6L6 18M6 6l12 12"/>
   </svg>
 )
-
 const IcoSend = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -311,7 +339,6 @@ const IcoSend = () => (
     <polygon points="22 2 15 22 11 13 2 9 22 2"/>
   </svg>
 )
-
 const IcoFab = () => (
   <svg width="25" height="25" viewBox="0 0 24 24" fill="none"
     stroke="white" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
@@ -325,11 +352,13 @@ const CHIPS = ['Inventario bajo', 'Total hoy', 'Estado de caja', 'Registrar gast
 
 // ── Componente ───────────────────────────────────────────────────────────────
 export default function ChatWidget({ nombreUsuario = 'Dashboard' }) {
-  const [open, setOpen]           = useState(false)
-  const [input, setInput]         = useState('')
-  const [loading, setLoading]     = useState(false)
-  const [messages, setMessages]   = useState([])
-  const [historial, setHistorial] = useState([])
+  const [open, setOpen]             = useState(false)
+  const [input, setInput]           = useState('')
+  const [loading, setLoading]       = useState(false)
+  const [messages, setMessages]     = useState([])
+  const [historial, setHistorial]   = useState([])
+  // Botones de pago pendientes — se guardan para el último mensaje bot
+  const [opcionesPago, setOpcionesPago] = useState(null)
 
   const endRef   = useRef(null)
   const inputRef = useRef(null)
@@ -344,9 +373,13 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard' }) {
     el.style.height = Math.min(el.scrollHeight, 96) + 'px'
   }
 
+  // ── Enviar mensaje normal ────────────────────────────────────────────────
   const enviar = useCallback(async (override) => {
     const texto = (override || input).trim()
     if (!texto || loading) return
+
+    // Ocultar botones de pago anteriores al enviar un nuevo mensaje
+    setOpcionesPago(null)
 
     setMessages(p => [...p, { role: 'user', content: texto }])
     const prev = [...historial]
@@ -367,8 +400,19 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard' }) {
       }
       const data = await res.json()
       const respuesta = data.respuesta || '(Sin respuesta)'
-      setMessages(p => [...p, { role: 'assistant', content: respuesta, acciones: data.acciones }])
+
+      setMessages(p => [...p, {
+        role: 'assistant',
+        content: respuesta,
+        acciones: data.acciones,
+      }])
       setHistorial(p => [...p, { role: 'assistant', content: respuesta }])
+
+      // Si hay botones de pago pendientes, guardarlos para mostrarlos
+      if (data.pendiente && data.opciones_pago?.length) {
+        setOpcionesPago(data.opciones_pago)
+      }
+
     } catch (err) {
       setMessages(p => [...p, { role: 'assistant', content: `⚠️ ${err.message}` }])
     } finally {
@@ -377,11 +421,55 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard' }) {
     }
   }, [input, loading, historial, nombreUsuario])
 
+  // ── Confirmar método de pago desde botón ────────────────────────────────
+  const confirmarPago = useCallback(async (opcion) => {
+    setOpcionesPago(null)
+    setLoading(true)
+
+    // Mostrar en el chat qué botón pulsó el usuario
+    setMessages(p => [...p, { role: 'user', content: opcion.label }])
+
+    try {
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensaje: '',
+          nombre: nombreUsuario,
+          historial: [],
+          confirmar_pago: opcion.valor,
+        }),
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        throw new Error(e.detail || `Error ${res.status}`)
+      }
+      const data = await res.json()
+      const respuesta = data.respuesta || '(Sin respuesta)'
+
+      setMessages(p => [...p, {
+        role: 'assistant',
+        content: respuesta,
+        acciones: data.acciones,
+      }])
+      setHistorial(p => [...p, {
+        role: 'assistant',
+        content: respuesta,
+      }])
+
+    } catch (err) {
+      setMessages(p => [...p, { role: 'assistant', content: `⚠️ ${err.message}` }])
+    } finally {
+      setLoading(false)
+      setTimeout(() => inputRef.current?.focus(), 60)
+    }
+  }, [nombreUsuario])
+
   const onKey = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar() }
   }
 
-  // FAB
+  // ── FAB ──────────────────────────────────────────────────────────────────
   if (!open) return (
     <button className="fw-fab" onClick={() => setOpen(true)} title="Asistente IA">
       <IcoFab />
@@ -389,7 +477,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard' }) {
     </button>
   )
 
-  // Panel
+  // ── Panel ────────────────────────────────────────────────────────────────
   return (
     <div className="fw-panel">
 
@@ -405,7 +493,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard' }) {
         </div>
         {messages.length > 0 && (
           <button className="fw-hbtn"
-            onClick={() => { setMessages([]); setHistorial([]) }}>
+            onClick={() => { setMessages([]); setHistorial([]); setOpcionesPago(null) }}>
             Limpiar
           </button>
         )}
@@ -429,19 +517,45 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard' }) {
           </div>
         ) : (
           <>
-            {messages.map((m, i) => (
-              <div key={i} className={`fw-row ${m.role === 'user' ? 'u' : 'b'}`}>
-                <div className={`fw-bbl ${m.role === 'user' ? 'u' : 'b'}`}>{m.content}</div>
-                {m.acciones && (m.acciones.ventas > 0 || m.acciones.gastos > 0) && (
-                  <div className="fw-badge">
-                    ✓ {[
-                      m.acciones.ventas > 0 && `${m.acciones.ventas} venta(s) registrada(s)`,
-                      m.acciones.gastos > 0 && `${m.acciones.gastos} gasto(s) registrado(s)`,
-                    ].filter(Boolean).join(' · ')}
+            {messages.map((m, i) => {
+              // Mostrar botones de pago debajo del ÚLTIMO mensaje del bot
+              const esBotUltimo = m.role === 'assistant' && i === messages.length - 1
+              const mostrarBotones = esBotUltimo && opcionesPago && !loading
+
+              return (
+                <div key={i} className={`fw-row ${m.role === 'user' ? 'u' : 'b'}`}>
+                  <div className={`fw-bbl ${m.role === 'user' ? 'u' : 'b'}`}>
+                    {m.content}
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {/* Badge de confirmación */}
+                  {m.acciones && (m.acciones.ventas > 0 || m.acciones.gastos > 0) && (
+                    <div className="fw-badge">
+                      ✓ {[
+                        m.acciones.ventas > 0 && `${m.acciones.ventas} venta(s) registrada(s)`,
+                        m.acciones.gastos > 0 && `${m.acciones.gastos} gasto(s) registrado(s)`,
+                      ].filter(Boolean).join(' · ')}
+                    </div>
+                  )}
+
+                  {/* Botones de método de pago */}
+                  {mostrarBotones && (
+                    <div className="fw-pay-group">
+                      {opcionesPago.map(op => (
+                        <button
+                          key={op.valor}
+                          className={`fw-pay-btn ${op.valor}`}
+                          onClick={() => confirmarPago(op)}
+                        >
+                          {op.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
             {loading && (
               <div className="fw-typing">
                 <div className="fw-td" /><div className="fw-td" /><div className="fw-td" />
@@ -452,7 +566,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard' }) {
         <div ref={endRef} />
       </div>
 
-      {/* Input */}
+      {/* Input — deshabilitado mientras hay botones de pago esperando */}
       <div className="fw-footer">
         <div className="fw-iwrap">
           <textarea
@@ -461,13 +575,13 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard' }) {
             value={input}
             onChange={e => { setInput(e.target.value); resize(e.target) }}
             onKeyDown={onKey}
-            placeholder="Escribe un mensaje…"
+            placeholder={opcionesPago ? 'Selecciona el método de pago ↑' : 'Escribe un mensaje…'}
             rows={1}
-            disabled={loading}
+            disabled={loading || !!opcionesPago}
           />
         </div>
         <button className="fw-sbtn" onClick={() => enviar()}
-          disabled={!input.trim() || loading} title="Enviar (Enter)">
+          disabled={!input.trim() || loading || !!opcionesPago} title="Enviar (Enter)">
           <IcoSend />
         </button>
       </div>
