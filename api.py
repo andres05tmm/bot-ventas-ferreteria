@@ -2667,11 +2667,37 @@ async def chat_ia(req: ChatRequest):
     try:
         mensaje_formateado = f"{req.nombre}: {req.mensaje.strip()}"
 
-        # 1. Claude
+        # ── Contexto específico del dashboard ────────────────────────────────
+        CONTEXTO_DASHBOARD = """CANAL: Dashboard web (no Telegram).
+
+MODO DASHBOARD — reglas que SOBREESCRIBEN las del canal Telegram:
+- Responde de forma CONVERSACIONAL y COMPLETA. No aplica "silencio total".
+- Si te preguntan qué puedes hacer, explica TODAS tus capacidades con ejemplos claros.
+- Puedes responder en varios párrafos si el tema lo requiere. Sin límite de 3 líneas.
+- Para ventas: sigue emitiendo [VENTA] igual que siempre. El dashboard gestiona el método de pago con botones.
+- Para consultas, análisis, reportes, preguntas sobre el negocio: responde con todo el detalle útil.
+
+CAPACIDADES DISPONIBLES DESDE ESTE CHAT (úsalas y menciónalas si te preguntan):
+• Registrar ventas (ej: "venta 3 tornillos 6x1½", "vendí 1 galón vinilo blanco")
+• Consultar precios del catálogo (ej: "cuánto vale la lija 36", "precio del thinner")
+• Ver inventario y stock bajo
+• Registrar gastos (ej: "gasto 15000 transporte")
+• Ver resumen de ventas del día / mes
+• Consultar estado de caja
+• Registrar compras / entradas de mercancía
+• Gestionar clientes y fiados
+• Actualizar precios (ej: "actualizar precio tornillo 6x1 a 150")
+• Análisis de ventas y top productos
+• Responder cualquier pregunta sobre el negocio o los productos
+
+Sé proactivo: si el usuario menciona algo que puedes mejorar o automatizar, sugiérelo."""
+
+        # 1. Claude con contexto del dashboard
         respuesta_raw = await procesar_con_claude(
             mensaje_usuario=mensaje_formateado,
             nombre_usuario=req.nombre,
             historial_chat=req.historial,
+            contexto_extra=CONTEXTO_DASHBOARD,
         )
 
         # 2. Parsear acciones
