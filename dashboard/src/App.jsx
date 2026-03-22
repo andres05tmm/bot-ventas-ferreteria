@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { ThemeContext, THEMES, useTheme } from './components/shared.jsx'
 import TabResumen       from './tabs/TabResumen.jsx'
 import TabTopProductos  from './tabs/TabTopProductos.jsx'
@@ -425,7 +425,7 @@ function Footer() {
 }
 
 // App Shell
-function AppShell({ themeId, setThemeId }) {
+function AppShell({ themeId, setThemeId, refreshRef }) {
   const t        = useTheme()
   const isMobile = useIsMobile()
 
@@ -442,6 +442,11 @@ function AppShell({ themeId, setThemeId }) {
     setLastRefresh(stamp())
     if (refreshInterval > 0) setCountdown(refreshInterval)
   }, [refreshInterval])
+
+  // Exponer doRefresh al ChatWidget para auto-refresh post-registro
+  useEffect(() => {
+    if (refreshRef) refreshRef.current = doRefresh
+  }, [doRefresh, refreshRef])
 
   useEffect(() => { setLastRefresh(stamp()) }, [])
 
@@ -517,10 +522,14 @@ function AppShell({ themeId, setThemeId }) {
 
 export default function App() {
   const [themeId, setThemeId] = useState('caramelo')
+  const refreshRef = useRef(null)
   return (
     <ThemeContext.Provider value={THEMES[themeId]}>
-      <AppShell themeId={themeId} setThemeId={setThemeId}/>
-      <ChatWidget nombreUsuario="Dashboard" />
+      <AppShell themeId={themeId} setThemeId={setThemeId} refreshRef={refreshRef}/>
+      <ChatWidget
+        nombreUsuario="Dashboard"
+        onRefresh={() => refreshRef.current?.()}
+      />
     </ThemeContext.Provider>
   )
 }
