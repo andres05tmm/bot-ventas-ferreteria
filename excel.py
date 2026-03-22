@@ -122,6 +122,22 @@ def obtener_o_crear_hoja(wb, nombre_hoja: str):
     return ws
 
 
+
+def _ultima_fila_con_datos(ws, desde_fila: int = 1) -> int:
+    """
+    Devuelve el número de la última fila que realmente contiene datos.
+    ws.max_row en openpyxl incluye filas con formato vacío (de la plantilla),
+    lo que provoca que las ventas se escriban en filas 998+ en lugar de la 4.
+    Esta función itera desde abajo hasta encontrar una celda no vacía.
+    """
+    max_r = ws.max_row or desde_fila
+    for fila in range(max_r, desde_fila - 1, -1):
+        for cell in ws[fila]:
+            if cell.value is not None and str(cell.value).strip():
+                return fila
+    return desde_fila - 1  # Hoja completamente vacía desde desde_fila
+
+
 def inicializar_excel():
     """Crea ventas.xlsx si no existe."""
     if not os.path.exists(config.EXCEL_FILE):
@@ -545,7 +561,7 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
                 ws.cell(row=config.EXCEL_FILA_HEADERS, column=next_col).alignment = _Al(horizontal="center")
                 cols["unidad de medida"] = next_col
 
-        fila     = max(ws.max_row + 1, config.EXCEL_FILA_DATOS)
+        fila     = max(_ultima_fila_con_datos(ws, config.EXCEL_FILA_DATOS) + 1, config.EXCEL_FILA_DATOS)
 
         datos = datos_base.copy()
 
@@ -980,7 +996,7 @@ def registrar_fiado_en_excel(cliente: str, concepto: str, cargo: float, abono: f
         fila_datos = 2
     else:
         ws         = wb[nombre_hoja]
-        fila_datos = ws.max_row + 1
+        fila_datos = _ultima_fila_con_datos(ws, 2) + 1
 
     fecha  = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
     valores = [fecha, cliente, concepto, cargo if cargo > 0 else "", abono if abono > 0 else "", saldo]
@@ -1026,7 +1042,7 @@ def registrar_compra_en_excel(producto: str, cantidad: float, costo_unitario: fl
         fila_datos = 2
     else:
         ws = wb[nombre_hoja]
-        fila_datos = ws.max_row + 1
+        fila_datos = _ultima_fila_con_datos(ws, 2) + 1
     
     ahora = datetime.now(config.COLOMBIA_TZ)
     fecha = ahora.strftime("%Y-%m-%d")
