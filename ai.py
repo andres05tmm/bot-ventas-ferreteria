@@ -228,7 +228,7 @@ INFORMACION DEL NEGOCIO: {negocio_json}
 # PARTE DINÁMICA DEL SYSTEM PROMPT (por mensaje)
 # ─────────────────────────────────────────────
 
-def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria: dict) -> str:
+def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria: dict, dashboard_mode: bool = False) -> str:
     """
     Construye la parte del system prompt que SÍ cambia entre mensajes:
     candidatos del catálogo, cliente encontrado, ventas del día, inventario, caja, etc.
@@ -270,8 +270,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                           "gano","ingreso","mejor","peor","promedio",
                           "historico","registro","cuantas","cuantos"}
     _es_analisis = any(p in mensaje_usuario.lower() for p in _palabras_analisis)
-    # _dashboard_flag: se activa desde api.py inyectando en el mensaje
-    _es_dash = "##DASHBOARD##" in mensaje_usuario
+    _es_dash = dashboard_mode  # activado desde procesar_con_claude/_stream cuando viene del dashboard
     if _es_analisis or _es_dash:
         try:
             todos       = obtener_todos_los_datos()
