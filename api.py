@@ -2607,7 +2607,6 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
     """
     Construye el bloque de contexto enriquecido para el asistente del dashboard.
     Incluye: datos reales del negocio, memoria persistente, estado actual.
-    Se renueva en cada llamada para tener datos frescos.
     """
     from memoria import cargar_memoria, cargar_caja, cargar_gastos_hoy
     from datetime import datetime
@@ -2617,33 +2616,22 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
     ahora = datetime.now(config.COLOMBIA_TZ)
     fecha_hoy = ahora.strftime("%A %d de %B de %Y, %H:%M")
 
-    # ── Memoria persistente del negocio ───────────────────────────────────────
+    # ── Memoria persistente ───────────────────────────────────────────────────
     notas_raw = mem.get("notas", {})
     if isinstance(notas_raw, list):
-        # Migración: formato antiguo era lista
         notas_raw = {"observaciones": notas_raw} if notas_raw else {}
-    contexto_negocio  = notas_raw.get("contexto_negocio", "")
-    decisiones        = notas_raw.get("decisiones", [])
-    observaciones     = notas_raw.get("observaciones", [])
+    contexto_negocio = notas_raw.get("contexto_negocio", "")
+    decisiones       = notas_raw.get("decisiones", [])
+    observaciones    = notas_raw.get("observaciones", [])
 
-    memoria_texto = ""
+    memoria_partes = []
     if contexto_negocio:
-        memoria_texto += f"CONTEXTO DEL NEGOCIO:
-{contexto_negocio}
-
-"
+        memoria_partes.append("CONTEXTO DEL NEGOCIO:\n" + contexto_negocio)
     if decisiones:
-        memoria_texto += "DECISIONES GUARDADAS:
-" + "
-".join(f"- {d}" for d in decisiones[-10:]) + "
-
-"
+        memoria_partes.append("DECISIONES GUARDADAS:\n" + "\n".join("- " + d for d in decisiones[-10:]))
     if observaciones:
-        memoria_texto += "OBSERVACIONES:
-" + "
-".join(f"- {o}" for o in observaciones[-10:]) + "
-
-"
+        memoria_partes.append("OBSERVACIONES:\n" + "\n".join("- " + o for o in observaciones[-10:]))
+    memoria_texto = "\n\n".join(memoria_partes) + "\n\n" if memoria_partes else ""
 
     # ── Caja actual ──────────────────────────────────────────────────────────
     try:
@@ -2655,15 +2643,13 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
             ap  = caja.get("monto_apertura", 0)
             total_caja = ef + tr + dat
             caja_texto = (
-                f"CAJA (abierta desde {caja.get('fecha','?')}):
-"
-                f"  Apertura: ${ap:,.0f} | Efectivo: ${ef:,.0f} | "
-                f"Transferencias: ${tr:,.0f} | Datafono: ${dat:,.0f}
-"
-                f"  Total en caja: ${total_caja:,.0f}"
+                "CAJA (abierta desde " + str(caja.get("fecha", "?")) + "):\n"
+                "  Apertura: $" + f"{ap:,.0f}" + " | Efectivo: $" + f"{ef:,.0f}" +
+                " | Transferencias: $" + f"{tr:,.0f}" + " | Datafono: $" + f"{dat:,.0f}" + "\n"
+                "  Total en caja: $" + f"{total_caja:,.0f}"
             )
         else:
-            caja_texto = f"CAJA: Cerrada (última fecha: {caja.get('fecha','sin datos')})"
+            caja_texto = "CAJA: Cerrada (última fecha: " + str(caja.get("fecha", "sin datos")) + ")"
     except Exception:
         caja_texto = "CAJA: Sin datos"
 
@@ -2672,13 +2658,12 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
         gastos_hoy = cargar_gastos_hoy()
         if gastos_hoy:
             total_gastos = sum(float(g.get("monto", 0)) for g in gastos_hoy)
-            items_gasto  = "
-".join(
-                f"  {g.get('hora','?')} {g.get('concepto','?')} ${float(g.get('monto',0)):,.0f}"
+            items_gasto  = "\n".join(
+                "  " + str(g.get("hora", "?")) + " " + str(g.get("concepto", "?")) +
+                " $" + f"{float(g.get('monto', 0)):,.0f}"
                 for g in gastos_hoy
             )
-            gastos_texto = f"GASTOS HOY (total ${total_gastos:,.0f}):
-{items_gasto}"
+            gastos_texto = "GASTOS HOY (total $" + f"{total_gastos:,.0f}" + "):\n" + items_gasto
         else:
             gastos_texto = "GASTOS HOY: ninguno registrado"
     except Exception:
@@ -2693,110 +2678,110 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
         }
         if fiados_activos:
             total_fiado = sum(float(d.get("saldo", 0)) for d in fiados_activos.values())
-            items_fiado = "
-".join(
-                f"  {n}: ${float(d.get('saldo',0)):,.0f}"
+            items_fiado = "\n".join(
+                "  " + n + ": $" + f"{float(d.get('saldo', 0)):,.0f}"
                 for n, d in list(fiados_activos.items())[:15]
             )
-            fiados_texto = f"FIADOS ACTIVOS ({len(fiados_activos)} clientes, total ${total_fiado:,.0f}):
-{items_fiado}"
+            fiados_texto = (
+                "FIADOS ACTIVOS (" + str(len(fiados_activos)) +
+                " clientes, total $" + f"{total_fiado:,.0f}" + "):\n" + items_fiado
+            )
         else:
             fiados_texto = "FIADOS: Sin saldos pendientes"
     except Exception:
         fiados_texto = "FIADOS: Sin datos"
 
-    # ── Inventario (si tiene datos) ──────────────────────────────────────────
+    # ── Inventario ───────────────────────────────────────────────────────────
     try:
         inventario = mem.get("inventario", {})
         if inventario:
             criticos = [
-                f"  {k}: {v.get('cantidad',0)} {v.get('unidad','u')} (mín: {v.get('minimo',0)})"
+                "  " + k + ": " + str(v.get("cantidad", 0)) + " " + str(v.get("unidad", "u")) +
+                " (min: " + str(v.get("minimo", 0)) + ")"
                 for k, v in inventario.items()
                 if float(v.get("cantidad", 0)) <= float(v.get("minimo", 0)) * 1.2
             ]
-            inv_texto = (
-                f"INVENTARIO CRÍTICO ({len(criticos)} productos bajo mínimo):
-" +
-                "
-".join(criticos[:10])
-            ) if criticos else f"INVENTARIO: {len(inventario)} productos registrados, todos sobre mínimo"
+            if criticos:
+                inv_texto = (
+                    "INVENTARIO CRITICO (" + str(len(criticos)) + " productos bajo minimo):\n" +
+                    "\n".join(criticos[:10])
+                )
+            else:
+                inv_texto = "INVENTARIO: " + str(len(inventario)) + " productos registrados, todos sobre minimo"
         else:
-            inv_texto = "INVENTARIO: Pendiente de configurar (aún no hay stock registrado)"
+            inv_texto = "INVENTARIO: Pendiente de configurar (aun no hay stock registrado)"
     except Exception:
         inv_texto = "INVENTARIO: Sin datos"
 
-    # ── Márgenes (si hay precio_compra en el catálogo) ───────────────────────
+    # ── Márgenes ─────────────────────────────────────────────────────────────
     try:
         catalogo = mem.get("catalogo", {})
-        prods_con_costo = [
-            p for p in catalogo.values() if p.get("precio_compra") or p.get("costo")
-        ]
+        prods_con_costo = [p for p in catalogo.values() if p.get("precio_compra") or p.get("costo")]
         if prods_con_costo:
             margenes_lineas = []
             for p in prods_con_costo[:10]:
-                costo  = float(p.get("precio_compra") or p.get("costo", 0))
-                venta  = float(p.get("precio_unidad", 0))
+                costo = float(p.get("precio_compra") or p.get("costo", 0))
+                venta = float(p.get("precio_unidad", 0))
                 if costo > 0 and venta > 0:
                     margen = ((venta - costo) / venta) * 100
                     margenes_lineas.append(
-                        f"  {p['nombre']}: costo ${costo:,.0f} → venta ${venta:,.0f} (margen {margen:.0f}%)"
+                        "  " + str(p["nombre"]) + ": costo $" + f"{costo:,.0f}" +
+                        " -> venta $" + f"{venta:,.0f}" + " (margen " + f"{margen:.0f}" + "%)"
                     )
             margenes_texto = (
-                "MÁRGENES (muestra):
-" + "
-".join(margenes_lineas)
-            ) if margenes_lineas else "MÁRGENES: Pendiente (agrega precio_compra al catálogo)"
+                "MARGENES (muestra):\n" + "\n".join(margenes_lineas)
+            ) if margenes_lineas else "MARGENES: Pendiente (agrega precio_compra al catalogo)"
         else:
-            margenes_texto = "MÁRGENES: Pendiente de configurar (agrega el precio de compra de cada producto)"
+            margenes_texto = "MARGENES: Pendiente de configurar (agrega el precio de compra de cada producto)"
     except Exception:
-        margenes_texto = "MÁRGENES: Sin datos"
+        margenes_texto = "MARGENES: Sin datos"
 
     # ── Tab activo ───────────────────────────────────────────────────────────
-    tab_ctx = f"\nTAB ACTIVO EN DASHBOARD: El usuario está mirando '{tab_activo}'. Ten esto en cuenta para dar contexto relevante." if tab_activo else ""
+    tab_ctx = (
+        "\nTAB ACTIVO EN DASHBOARD: El usuario esta mirando '" + tab_activo +
+        "'. Ten esto en cuenta para dar contexto relevante."
+    ) if tab_activo else ""
 
-    return f"""CANAL: Dashboard web — modo gerente/asistente avanzado.
-FECHA Y HORA ACTUAL: {fecha_hoy}
-
-## PERSONALIDAD Y MODO DE OPERACIÓN
-Eres el asistente inteligente de Ferretería Punto Rojo. En este canal tienes un rol dual:
-1. REGISTRAR con precisión (ventas, gastos, compras, fiados) — igual que en Telegram
-2. SER GERENTE: analizar, opinar, recomendar, advertir, recordar decisiones pasadas
-
-TONO: Directo, claro, con criterio. No eres un bot genérico — conoces este negocio.
-Si ves algo raro en los datos, lo dices. Si hay una oportunidad, la señalas.
-Si te preguntan tu opinión, la das con base en los datos reales.
-
-FORMATO: Responde con la extensión que el tema requiera. Para análisis, sé detallado.
-Para registros (ventas/gastos), usa el mismo formato compacto de siempre con [VENTA]/[GASTO].
-No uses markdown (asteriscos, #). Usa texto plano limpio.
-
-## ESTADO ACTUAL DEL NEGOCIO
-{caja_texto}
-
-{gastos_texto}
-
-{fiados_texto}
-
-{inv_texto}
-
-{margenes_texto}
-
-{memoria_texto}
-
-## MEMORIA PERSISTENTE
-Puedes guardar información importante del negocio usando la acción:
-[MEMORIA]{{"tipo":"decision"|"observacion"|"contexto","contenido":"texto"}}[/MEMORIA]
-Úsala cuando el usuario mencione algo que debe recordarse: cambios de estrategia,
-observaciones sobre clientes, decisiones de precio, metas, etc.
-
-## CAPACIDADES COMPLETAS EN ESTE CANAL
-• Registrar ventas, gastos, compras, fiados, abonos
-• Analizar ventas por día, semana, mes, producto, vendedor
-• Consultar y actualizar precios del catálogo
-• Ver márgenes y rentabilidad (cuando esté configurado)
-• Gestionar inventario y alertas de stock
-• Recordar y recuperar decisiones pasadas del negocio
-• Dar opinión y recomendaciones basadas en datos reales{tab_ctx}"""
+    return (
+        "CANAL: Dashboard web — modo gerente/asistente avanzado.\n"
+        "FECHA Y HORA ACTUAL: " + fecha_hoy + "\n"
+        "\n"
+        "## PERSONALIDAD Y MODO DE OPERACION\n"
+        "Eres el asistente inteligente de Ferreteria Punto Rojo. En este canal tienes un rol dual:\n"
+        "1. REGISTRAR con precision (ventas, gastos, compras, fiados) — igual que en Telegram\n"
+        "2. SER GERENTE: analizar, opinar, recomendar, advertir, recordar decisiones pasadas\n"
+        "\n"
+        "TONO: Directo, claro, con criterio. No eres un bot generico — conoces este negocio.\n"
+        "Si ves algo raro en los datos, lo dices. Si hay una oportunidad, la señalas.\n"
+        "Si te preguntan tu opinion, la das con base en los datos reales.\n"
+        "\n"
+        "FORMATO: Responde con la extension que el tema requiera. Para analisis, se detallado.\n"
+        "Para registros (ventas/gastos), usa el mismo formato compacto con [VENTA]/[GASTO].\n"
+        "No uses markdown (asteriscos, #). Usa texto plano limpio.\n"
+        "\n"
+        "## ESTADO ACTUAL DEL NEGOCIO\n"
+        + caja_texto + "\n\n"
+        + gastos_texto + "\n\n"
+        + fiados_texto + "\n\n"
+        + inv_texto + "\n\n"
+        + margenes_texto + "\n\n"
+        + memoria_texto
+        + "## MEMORIA PERSISTENTE\n"
+        "Puedes guardar informacion importante del negocio usando la accion:\n"
+        '[MEMORIA]{"tipo":"decision"|"observacion"|"contexto","contenido":"texto"}[/MEMORIA]\n'
+        "Usala cuando el usuario mencione algo que debe recordarse: cambios de estrategia,\n"
+        "observaciones sobre clientes, decisiones de precio, metas, etc.\n"
+        "\n"
+        "## CAPACIDADES COMPLETAS EN ESTE CANAL\n"
+        "- Registrar ventas, gastos, compras, fiados, abonos\n"
+        "- Analizar ventas por dia, semana, mes, producto, vendedor\n"
+        "- Consultar y actualizar precios del catalogo\n"
+        "- Ver margenes y rentabilidad (cuando este configurado)\n"
+        "- Gestionar inventario y alertas de stock\n"
+        "- Recordar y recuperar decisiones pasadas del negocio\n"
+        "- Dar opinion y recomendaciones basadas en datos reales"
+        + tab_ctx
+    )
 
 
 # ── Endpoint para guardar memoria del negocio ─────────────────────────────────
