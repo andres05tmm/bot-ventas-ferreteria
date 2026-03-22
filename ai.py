@@ -1,5 +1,5 @@
 """
-Integración con Claude AI (modelo: claude-sonnet-4-6):
+Integración con Claude AI (modelo: claude-haiku-4-5-20251001):
 - Construcción del system prompt con contexto del negocio
 - Llamada a la API de Claude con PROMPT CACHING (ahorro ~60% en tokens de input)
 - Parseo y ejecución de acciones embebidas en la respuesta ([VENTA]...[/VENTA], etc.)
@@ -1306,7 +1306,7 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
                 loop.run_in_executor(
                     None,
                     lambda: cliente.messages.create(
-                        model="claude-sonnet-4-6",
+                        model="claude-haiku-4-5-20251001",
                         max_tokens=max_tokens,
                         system=system,
                         messages=messages,
@@ -1340,7 +1340,7 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
     raise ultimo_error or RuntimeError("Error desconocido al llamar a Claude")
 
 
-async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list) -> str:
+async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list, contexto_extra: str = "") -> str:
     # BYPASS PYTHON — ANTES de alias_ferreteria (que transforma fracciones y rompería el match)
     # Solo se aplican aliases DINÁMICOS (simples word-substitutions: tiner→thinner, etc.)
     # El mensaje llega como "{vendedor}: {texto}" — stripear prefijo antes del bypass
@@ -1434,6 +1434,10 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
             "text": parte_dinamica,
         },
     ]
+
+    # Bloque extra para el dashboard (o cualquier canal que lo necesite)
+    if contexto_extra:
+        system.append({"type": "text", "text": contexto_extra})
 
     respuesta = await _llamar_claude_con_reintentos(
         config.claude_client, max_tokens, system, messages
@@ -2004,7 +2008,7 @@ Genera SOLO el código Python necesario para modificar el archivo usando openpyx
     respuesta = await loop.run_in_executor(
         None,
         lambda: config.claude_client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
