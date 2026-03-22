@@ -2601,6 +2601,242 @@ def historico_sync_rango(dias: int = Query(default=30, ge=1, le=365)):
 _DASHBOARD_CHAT_ID = 0
 
 
+def _construir_contexto_dashboard(mensaje: str) -> str:
+    """
+    Construye el bloque de contexto enriquecido para el asistente del dashboard.
+    Incluye: datos reales del negocio, memoria persistente, estado actual.
+    Se renueva en cada llamada para tener datos frescos.
+    """
+    from memoria import cargar_memoria, cargar_caja, cargar_gastos_hoy
+    from datetime import datetime
+    import config
+
+    mem   = cargar_memoria()
+    ahora = datetime.now(config.COLOMBIA_TZ)
+    fecha_hoy = ahora.strftime("%A %d de %B de %Y, %H:%M")
+
+    # ── Memoria persistente del negocio ───────────────────────────────────────
+    notas_raw = mem.get("notas", {})
+    if isinstance(notas_raw, list):
+        # Migración: formato antiguo era lista
+        notas_raw = {"observaciones": notas_raw} if notas_raw else {}
+    contexto_negocio  = notas_raw.get("contexto_negocio", "")
+    decisiones        = notas_raw.get("decisiones", [])
+    observaciones     = notas_raw.get("observaciones", [])
+
+    memoria_texto = ""
+    if contexto_negocio:
+        memoria_texto += f"CONTEXTO DEL NEGOCIO:
+{contexto_negocio}
+
+"
+    if decisiones:
+        memoria_texto += "DECISIONES GUARDADAS:
+" + "
+".join(f"- {d}" for d in decisiones[-10:]) + "
+
+"
+    if observaciones:
+        memoria_texto += "OBSERVACIONES:
+" + "
+".join(f"- {o}" for o in observaciones[-10:]) + "
+
+"
+
+    # ── Caja actual ──────────────────────────────────────────────────────────
+    try:
+        caja = cargar_caja()
+        if caja.get("abierta"):
+            ef  = caja.get("efectivo", 0)
+            tr  = caja.get("transferencias", 0)
+            dat = caja.get("datafono", 0)
+            ap  = caja.get("monto_apertura", 0)
+            total_caja = ef + tr + dat
+            caja_texto = (
+                f"CAJA (abierta desde {caja.get('fecha','?')}):
+"
+                f"  Apertura: ${ap:,.0f} | Efectivo: ${ef:,.0f} | "
+                f"Transferencias: ${tr:,.0f} | Datafono: ${dat:,.0f}
+"
+                f"  Total en caja: ${total_caja:,.0f}"
+            )
+        else:
+            caja_texto = f"CAJA: Cerrada (última fecha: {caja.get('fecha','sin datos')})"
+    except Exception:
+        caja_texto = "CAJA: Sin datos"
+
+    # ── Gastos del día ───────────────────────────────────────────────────────
+    try:
+        gastos_hoy = cargar_gastos_hoy()
+        if gastos_hoy:
+            total_gastos = sum(float(g.get("monto", 0)) for g in gastos_hoy)
+            items_gasto  = "
+".join(
+                f"  {g.get('hora','?')} {g.get('concepto','?')} ${float(g.get('monto',0)):,.0f}"
+                for g in gastos_hoy
+            )
+            gastos_texto = f"GASTOS HOY (total ${total_gastos:,.0f}):
+{items_gasto}"
+        else:
+            gastos_texto = "GASTOS HOY: ninguno registrado"
+    except Exception:
+        gastos_texto = "GASTOS: Sin datos"
+
+    # ── Fiados activos ───────────────────────────────────────────────────────
+    try:
+        fiados = mem.get("fiados", {})
+        fiados_activos = {
+            nombre: datos for nombre, datos in fiados.items()
+            if float(datos.get("saldo", 0)) > 0
+        }
+        if fiados_activos:
+            total_fiado = sum(float(d.get("saldo", 0)) for d in fiados_activos.values())
+            items_fiado = "
+".join(
+                f"  {n}: ${float(d.get('saldo',0)):,.0f}"
+                for n, d in list(fiados_activos.items())[:15]
+            )
+            fiados_texto = f"FIADOS ACTIVOS ({len(fiados_activos)} clientes, total ${total_fiado:,.0f}):
+{items_fiado}"
+        else:
+            fiados_texto = "FIADOS: Sin saldos pendientes"
+    except Exception:
+        fiados_texto = "FIADOS: Sin datos"
+
+    # ── Inventario (si tiene datos) ──────────────────────────────────────────
+    try:
+        inventario = mem.get("inventario", {})
+        if inventario:
+            criticos = [
+                f"  {k}: {v.get('cantidad',0)} {v.get('unidad','u')} (mín: {v.get('minimo',0)})"
+                for k, v in inventario.items()
+                if float(v.get("cantidad", 0)) <= float(v.get("minimo", 0)) * 1.2
+            ]
+            inv_texto = (
+                f"INVENTARIO CRÍTICO ({len(criticos)} productos bajo mínimo):
+" +
+                "
+".join(criticos[:10])
+            ) if criticos else f"INVENTARIO: {len(inventario)} productos registrados, todos sobre mínimo"
+        else:
+            inv_texto = "INVENTARIO: Pendiente de configurar (aún no hay stock registrado)"
+    except Exception:
+        inv_texto = "INVENTARIO: Sin datos"
+
+    # ── Márgenes (si hay precio_compra en el catálogo) ───────────────────────
+    try:
+        catalogo = mem.get("catalogo", {})
+        prods_con_costo = [
+            p for p in catalogo.values() if p.get("precio_compra") or p.get("costo")
+        ]
+        if prods_con_costo:
+            margenes_lineas = []
+            for p in prods_con_costo[:10]:
+                costo  = float(p.get("precio_compra") or p.get("costo", 0))
+                venta  = float(p.get("precio_unidad", 0))
+                if costo > 0 and venta > 0:
+                    margen = ((venta - costo) / venta) * 100
+                    margenes_lineas.append(
+                        f"  {p['nombre']}: costo ${costo:,.0f} → venta ${venta:,.0f} (margen {margen:.0f}%)"
+                    )
+            margenes_texto = (
+                "MÁRGENES (muestra):
+" + "
+".join(margenes_lineas)
+            ) if margenes_lineas else "MÁRGENES: Pendiente (agrega precio_compra al catálogo)"
+        else:
+            margenes_texto = "MÁRGENES: Pendiente de configurar (agrega el precio de compra de cada producto)"
+    except Exception:
+        margenes_texto = "MÁRGENES: Sin datos"
+
+    # ── Flag para que ai.py cargue datos históricos completos ────────────────
+    # Se inyecta en el mensaje del usuario para activar la carga de Excel
+    # (ver lógica _es_dash en _construir_parte_dinamica)
+
+    return f"""CANAL: Dashboard web — modo gerente/asistente avanzado.
+FECHA Y HORA ACTUAL: {fecha_hoy}
+
+## PERSONALIDAD Y MODO DE OPERACIÓN
+Eres el asistente inteligente de Ferretería Punto Rojo. En este canal tienes un rol dual:
+1. REGISTRAR con precisión (ventas, gastos, compras, fiados) — igual que en Telegram
+2. SER GERENTE: analizar, opinar, recomendar, advertir, recordar decisiones pasadas
+
+TONO: Directo, claro, con criterio. No eres un bot genérico — conoces este negocio.
+Si ves algo raro en los datos, lo dices. Si hay una oportunidad, la señalas.
+Si te preguntan tu opinión, la das con base en los datos reales.
+
+FORMATO: Responde con la extensión que el tema requiera. Para análisis, sé detallado.
+Para registros (ventas/gastos), usa el mismo formato compacto de siempre con [VENTA]/[GASTO].
+No uses markdown (asteriscos, #). Usa texto plano limpio.
+
+## ESTADO ACTUAL DEL NEGOCIO
+{caja_texto}
+
+{gastos_texto}
+
+{fiados_texto}
+
+{inv_texto}
+
+{margenes_texto}
+
+{memoria_texto}
+
+## MEMORIA PERSISTENTE
+Puedes guardar información importante del negocio usando la acción:
+[MEMORIA]{{"tipo":"decision"|"observacion"|"contexto","contenido":"texto"}}[/MEMORIA]
+Úsala cuando el usuario mencione algo que debe recordarse: cambios de estrategia,
+observaciones sobre clientes, decisiones de precio, metas, etc.
+
+## CAPACIDADES COMPLETAS EN ESTE CANAL
+• Registrar ventas, gastos, compras, fiados, abonos
+• Analizar ventas por día, semana, mes, producto, vendedor
+• Consultar y actualizar precios del catálogo
+• Ver márgenes y rentabilidad (cuando esté configurado)
+• Gestionar inventario y alertas de stock
+• Recordar y recuperar decisiones pasadas del negocio
+• Dar opinión y recomendaciones basadas en datos reales"""
+
+
+# ── Endpoint para guardar memoria del negocio ─────────────────────────────────
+class MemoriaRequest(BaseModel):
+    tipo: str        # "decision" | "observacion" | "contexto_negocio"
+    contenido: str
+
+
+@app.post("/chat/memoria")
+def guardar_memoria_negocio(req: MemoriaRequest):
+    """Guarda una nota/decisión/observación persistente del negocio."""
+    from memoria import cargar_memoria, guardar_memoria as _guardar
+
+    if not req.contenido.strip():
+        raise HTTPException(status_code=400, detail="Contenido vacío")
+
+    mem   = cargar_memoria()
+    notas = mem.get("notas", {})
+    if isinstance(notas, list):
+        notas = {"observaciones": notas} if notas else {}
+
+    if req.tipo == "contexto_negocio":
+        notas["contexto_negocio"] = req.contenido.strip()
+    elif req.tipo == "decision":
+        from datetime import datetime
+        import config
+        fecha = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+        notas.setdefault("decisiones", []).append(f"[{fecha}] {req.contenido.strip()}")
+        notas["decisiones"] = notas["decisiones"][-30:]  # máx 30 decisiones
+    else:
+        from datetime import datetime
+        import config
+        fecha = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+        notas.setdefault("observaciones", []).append(f"[{fecha}] {req.contenido.strip()}")
+        notas["observaciones"] = notas["observaciones"][-30:]
+
+    mem["notas"] = notas
+    _guardar(mem, urgente=True)
+    return {"ok": True, "tipo": req.tipo}
+
+
 class ChatRequest(BaseModel):
     mensaje: str
     nombre: str = "Dashboard"
@@ -2667,37 +2903,19 @@ async def chat_ia(req: ChatRequest):
     try:
         mensaje_formateado = f"{req.nombre}: {req.mensaje.strip()}"
 
-        # ── Contexto específico del dashboard ────────────────────────────────
-        CONTEXTO_DASHBOARD = """CANAL: Dashboard web (no Telegram).
+        # ── Contexto dinámico del dashboard (datos reales en cada llamada) ──
+        contexto_dash = _construir_contexto_dashboard(req.mensaje)
 
-MODO DASHBOARD — reglas que SOBREESCRIBEN las del canal Telegram:
-- Responde de forma CONVERSACIONAL y COMPLETA. No aplica "silencio total".
-- Si te preguntan qué puedes hacer, explica TODAS tus capacidades con ejemplos claros.
-- Puedes responder en varios párrafos si el tema lo requiere. Sin límite de 3 líneas.
-- Para ventas: sigue emitiendo [VENTA] igual que siempre. El dashboard gestiona el método de pago con botones.
-- Para consultas, análisis, reportes, preguntas sobre el negocio: responde con todo el detalle útil.
+        # Inyectar flag ##DASHBOARD## en el mensaje para que ai.py
+        # cargue datos históricos completos independiente de las keywords
+        mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
 
-CAPACIDADES DISPONIBLES DESDE ESTE CHAT (úsalas y menciónalas si te preguntan):
-• Registrar ventas (ej: "venta 3 tornillos 6x1½", "vendí 1 galón vinilo blanco")
-• Consultar precios del catálogo (ej: "cuánto vale la lija 36", "precio del thinner")
-• Ver inventario y stock bajo
-• Registrar gastos (ej: "gasto 15000 transporte")
-• Ver resumen de ventas del día / mes
-• Consultar estado de caja
-• Registrar compras / entradas de mercancía
-• Gestionar clientes y fiados
-• Actualizar precios (ej: "actualizar precio tornillo 6x1 a 150")
-• Análisis de ventas y top productos
-• Responder cualquier pregunta sobre el negocio o los productos
-
-Sé proactivo: si el usuario menciona algo que puedes mejorar o automatizar, sugiérelo."""
-
-        # 1. Claude con contexto del dashboard
+        # 1. Claude con contexto enriquecido del dashboard
         respuesta_raw = await procesar_con_claude(
-            mensaje_usuario=mensaje_formateado,
+            mensaje_usuario=mensaje_con_flag,
             nombre_usuario=req.nombre,
             historial_chat=req.historial,
-            contexto_extra=CONTEXTO_DASHBOARD,
+            contexto_extra=contexto_dash,
         )
 
         # 2. Parsear acciones
