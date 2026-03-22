@@ -11,6 +11,7 @@ import TabKardex        from './tabs/TabKardex.jsx'
 import TabResultados    from './tabs/TabResultados.jsx'
 import TabVentasRapidas from './tabs/TabVentasRapidas.jsx'
 import TabHistoricoVentas from './tabs/TabHistoricoVentas.jsx'
+import ChatWidget        from './components/ChatWidget.jsx'
 
 // Logo SVG vectorial
 function Logo({ size = 40, themeId }) {
@@ -519,6 +520,7 @@ export default function App() {
   return (
     <ThemeContext.Provider value={THEMES[themeId]}>
       <AppShell themeId={themeId} setThemeId={setThemeId}/>
+      <ChatWidget nombreUsuario="Dashboard" />
     </ThemeContext.Provider>
   )
 }
