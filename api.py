@@ -3110,6 +3110,55 @@ async def chat_stream(req: ChatRequest):
     )
 
 
+
+# ── Venta Varia ───────────────────────────────────────────────────────────────
+
+class VentaVariaRequest(BaseModel):
+    monto: float
+    metodo_pago: str          # "efectivo" | "transferencia" | "datafono"
+    descripcion: str = "Venta Varia"
+    vendedor: str = "Dashboard"
+
+
+@app.post("/ventas/varia")
+async def registrar_venta_varia(req: VentaVariaRequest):
+    """
+    Registra una venta no especificada para cuadrar caja.
+    Usa el mismo mecanismo que el bot: guardar_venta_excel + actualizar caja.
+    """
+    from ventas_state import registrar_ventas_con_metodo_async
+
+    metodo = req.metodo_pago.strip().lower()
+    if metodo not in ("efectivo", "transferencia", "datafono"):
+        raise HTTPException(status_code=400, detail=f"Método de pago inválido: {metodo}")
+
+    if req.monto <= 0:
+        raise HTTPException(status_code=400, detail="El monto debe ser mayor a 0")
+
+    nombre_prod = req.descripcion.strip() or "Venta Varia"
+    venta = {
+        "producto":        nombre_prod,
+        "cantidad":        1,
+        "total":           round(req.monto),
+        "precio_unitario": round(req.monto),
+        "metodo_pago":     metodo,
+    }
+
+    try:
+        # chat_id=-1 reservado para ventas varias del dashboard
+        confirmaciones = await registrar_ventas_con_metodo_async(
+            [venta], metodo, req.vendedor, -1
+        )
+        return {
+            "ok": True,
+            "mensaje": "Venta varia registrada",
+            "detalle": confirmaciones,
+        }
+    except Exception as e:
+        logging.getLogger("ferrebot.api").error(f"[/ventas/varia] {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Servir dashboard React (build estático) ───────────────────────────────────
 # Los archivos del build quedan en dashboard/dist/ después de `npm run build`
 _DIST = Path(__file__).parent / "dashboard" / "dist"
