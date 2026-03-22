@@ -2597,11 +2597,13 @@ def historico_sync_rango(dias: int = Query(default=30, ge=1, le=365)):
 
 # ── Chat IA desde el Dashboard ────────────────────────────────────────────────
 
-# chat_id fijo para el dashboard — no colisiona con ningún chat_id de Telegram
-_DASHBOARD_CHAT_ID = 0
+# Convierte session_id (string) en un chat_id negativo único.
+# Los chat_id de Telegram son positivos, los del dashboard son negativos → sin colisión.
+def _session_chat_id(session_id: str) -> int:
+    return -(abs(hash(session_id)) % (10 ** 9))
 
 
-def _construir_contexto_dashboard(mensaje: str) -> str:
+def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
     """
     Construye el bloque de contexto enriquecido para el asistente del dashboard.
     Incluye: datos reales del negocio, memoria persistente, estado actual.
@@ -2749,9 +2751,8 @@ def _construir_contexto_dashboard(mensaje: str) -> str:
     except Exception:
         margenes_texto = "MÁRGENES: Sin datos"
 
-    # ── Flag para que ai.py cargue datos históricos completos ────────────────
-    # Se inyecta en el mensaje del usuario para activar la carga de Excel
-    # (ver lógica _es_dash en _construir_parte_dinamica)
+    # ── Tab activo ───────────────────────────────────────────────────────────
+    tab_ctx = f"\nTAB ACTIVO EN DASHBOARD: El usuario está mirando '{tab_activo}'. Ten esto en cuenta para dar contexto relevante." if tab_activo else ""
 
     return f"""CANAL: Dashboard web — modo gerente/asistente avanzado.
 FECHA Y HORA ACTUAL: {fecha_hoy}
@@ -2795,7 +2796,7 @@ observaciones sobre clientes, decisiones de precio, metas, etc.
 • Ver márgenes y rentabilidad (cuando esté configurado)
 • Gestionar inventario y alertas de stock
 • Recordar y recuperar decisiones pasadas del negocio
-• Dar opinión y recomendaciones basadas en datos reales"""
+• Dar opinión y recomendaciones basadas en datos reales{tab_ctx}"""
 
 
 # ── Endpoint para guardar memoria del negocio ─────────────────────────────────
@@ -2843,6 +2844,10 @@ class ChatRequest(BaseModel):
     historial: list = []
     # Si viene con confirmar_pago, se salta Claude y registra directamente
     confirmar_pago: Optional[str] = None   # "efectivo" | "transferencia" | "datafono"
+    # ID de sesión único por pestaña del navegador (evita race condition multi-usuario)
+    session_id: str = "default"
+    # Tab activo en el dashboard (contexto extra para el asistente)
+    tab_activo: str = ""
 
 
 @app.post("/chat")
@@ -2873,8 +2878,9 @@ async def chat_ia(req: ChatRequest):
         if metodo not in ("efectivo", "transferencia", "datafono"):
             raise HTTPException(status_code=400, detail=f"Método de pago inválido: {metodo}")
 
+        _chat_id = _session_chat_id(req.session_id)
         with _estado_lock:
-            ventas_pend = list(ventas_pendientes.get(_DASHBOARD_CHAT_ID, []))
+            ventas_pend = list(ventas_pendientes.get(_chat_id, []))
 
         if not ventas_pend:
             return {
@@ -2885,7 +2891,7 @@ async def chat_ia(req: ChatRequest):
             }
 
         confirmacion = await registrar_ventas_con_metodo_async(
-            ventas_pend, metodo, req.nombre, _DASHBOARD_CHAT_ID
+            ventas_pend, metodo, req.nombre, _chat_id
         )
         log.info(f"[/chat] ✅ {len(ventas_pend)} venta(s) confirmadas | método: {metodo}")
 
@@ -2903,11 +2909,12 @@ async def chat_ia(req: ChatRequest):
     try:
         mensaje_formateado = f"{req.nombre}: {req.mensaje.strip()}"
 
-        # ── Contexto dinámico del dashboard (datos reales en cada llamada) ──
-        contexto_dash = _construir_contexto_dashboard(req.mensaje)
+        _chat_id = _session_chat_id(req.session_id)
 
-        # Inyectar flag ##DASHBOARD## en el mensaje para que ai.py
-        # cargue datos históricos completos independiente de las keywords
+        # ── Contexto dinámico del dashboard (datos reales en cada llamada) ──
+        contexto_dash = _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
+
+        # Inyectar flag ##DASHBOARD## para que ai.py active modo dashboard
         mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
 
         # 1. Claude con contexto enriquecido del dashboard
@@ -2920,7 +2927,7 @@ async def chat_ia(req: ChatRequest):
 
         # 2. Parsear acciones
         texto_limpio, acciones, _ = await procesar_acciones_async(
-            respuesta_raw, req.nombre, _DASHBOARD_CHAT_ID
+            respuesta_raw, req.nombre, _chat_id
         )
 
         pedir_pago   = "PEDIR_METODO_PAGO" in acciones
@@ -2938,11 +2945,11 @@ async def chat_ia(req: ChatRequest):
                 metodo = "efectivo"
 
             with _estado_lock:
-                ventas_pend = list(ventas_pendientes.get(_DASHBOARD_CHAT_ID, []))
+                ventas_pend = list(ventas_pendientes.get(_chat_id, []))
 
             if ventas_pend:
                 conf = await registrar_ventas_con_metodo_async(
-                    ventas_pend, metodo, req.nombre, _DASHBOARD_CHAT_ID
+                    ventas_pend, metodo, req.nombre, _chat_id
                 )
                 return {
                     "ok": True,
@@ -2954,10 +2961,9 @@ async def chat_ia(req: ChatRequest):
         # 3b. Hay ventas esperando método → devolver botones al frontend
         if pedir_pago:
             with _estado_lock:
-                ventas_pend = list(ventas_pendientes.get(_DASHBOARD_CHAT_ID, []))
+                ventas_pend = list(ventas_pendientes.get(_chat_id, []))
 
             if ventas_pend:
-                # Construir resumen de lo que se va a registrar
                 resumen = "\n".join(
                     f"• {v.get('cantidad',1)} {v.get('producto','?')}  ${float(v.get('total',0)):,.0f}"
                     for v in ventas_pend
@@ -3000,6 +3006,123 @@ async def chat_ia(req: ChatRequest):
     except Exception as e:
         log.error(f"[/chat] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """
+    Endpoint SSE para el dashboard con streaming token-a-token.
+    Emite eventos:
+      data: {"type":"chunk","text":"..."}
+      data: {"type":"done","respuesta":"...","acciones":{...},"pendiente":bool}
+      data: {"type":"error","message":"..."}
+    """
+    from ai import procesar_con_claude_stream, procesar_acciones_async
+    from ventas_state import ventas_pendientes, registrar_ventas_con_metodo_async, _estado_lock
+
+    log = logging.getLogger("ferrebot.api")
+
+    if not req.mensaje or not req.mensaje.strip():
+        async def _err():
+            yield f"data: {json.dumps({'type':'error','message':'Mensaje vacío'})}\n\n"
+        return StreamingResponse(_err(), media_type="text/event-stream")
+
+    _chat_id = _session_chat_id(req.session_id)
+
+    async def generate():
+        try:
+            mensaje_formateado = f"{req.nombre}: {req.mensaje.strip()}"
+            contexto_dash = _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
+            mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
+            full_text = ""
+
+            async for kind, data in procesar_con_claude_stream(
+                mensaje_usuario=mensaje_con_flag,
+                nombre_usuario=req.nombre,
+                historial_chat=req.historial,
+                contexto_extra=contexto_dash,
+            ):
+                if kind == "chunk":
+                    full_text += data
+                    yield f"data: {json.dumps({'type':'chunk','text':data}, ensure_ascii=False)}\n\n"
+                elif kind == "done":
+                    full_text = data
+                    break
+                elif kind == "error":
+                    yield f"data: {json.dumps({'type':'error','message':data})}\n\n"
+                    return
+
+            texto_limpio, acciones, _ = await procesar_acciones_async(
+                full_text, req.nombre, _chat_id
+            )
+
+            pedir_pago          = "PEDIR_METODO_PAGO" in acciones
+            confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+            gastos_reg          = sum(1 for a in acciones if a.startswith("Gasto registrado:"))
+            ventas_reg          = 0
+            pendiente           = False
+            opciones_pago       = None
+
+            if confirmacion_accion:
+                metodo = confirmacion_accion.split(":", 1)[1].strip()
+                if metodo not in ("efectivo", "transferencia", "datafono"):
+                    metodo = "efectivo"
+                with _estado_lock:
+                    vp = list(ventas_pendientes.get(_chat_id, []))
+                if vp:
+                    conf = await registrar_ventas_con_metodo_async(vp, metodo, req.nombre, _chat_id)
+                    texto_limpio = "✅ Venta registrada\n" + "\n".join(conf)
+                    ventas_reg = len(vp)
+
+            elif pedir_pago:
+                with _estado_lock:
+                    vp = list(ventas_pendientes.get(_chat_id, []))
+                if vp:
+                    resumen = "\n".join(
+                        f"• {v.get('cantidad',1)} {v.get('producto','?')}  ${float(v.get('total',0)):,.0f}"
+                        for v in vp
+                    )
+                    tp = texto_limpio.strip() if texto_limpio and texto_limpio.strip() else ""
+                    texto_limpio = (f"{tp}\n\n" if tp else "") + f"🧾 {resumen}\n\n¿Cómo pagó?"
+                    pendiente = True
+                    opciones_pago = [
+                        {"label": "💵 Efectivo",      "valor": "efectivo"},
+                        {"label": "📲 Transferencia", "valor": "transferencia"},
+                        {"label": "💳 Datafono",      "valor": "datafono"},
+                    ]
+
+            if not texto_limpio or not texto_limpio.strip():
+                if gastos_reg:
+                    texto_limpio = "✅ " + "\n".join(a for a in acciones if a.startswith("Gasto registrado:"))
+                else:
+                    otras = [a for a in acciones if a not in (
+                        "PEDIR_METODO_PAGO","PAGO_PENDIENTE_AVISO","INICIAR_FLUJO_CLIENTE"
+                    ) and not a.startswith("PEDIR_CONFIRMACION:") and not a.startswith("CLIENTE_DESCONOCIDO:")]
+                    texto_limpio = "\n".join(otras) if otras else "(Sin respuesta)"
+
+            payload = {
+                "type": "done",
+                "respuesta": texto_limpio.strip(),
+                "acciones": {"ventas": ventas_reg, "gastos": gastos_reg},
+                "pendiente": pendiente,
+                "opciones_pago": opciones_pago,
+            }
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        except Exception as exc:
+            log.error(f"[/chat/stream] {exc}", exc_info=True)
+            yield f"data: {json.dumps({'type':'error','message':str(exc)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 # ── Servir dashboard React (build estático) ───────────────────────────────────
