@@ -81,9 +81,11 @@ COL_VENDEDOR = "vendedor"
 COL_METODO   = "metodo de pago"
 
 # Encabezados del Google Sheets del dia
+# Columnas del Google Sheets "Ventas del Dia" — mismos nombres que el Excel.
+# Orden: CONSECUTIVO primero (pizarra en tiempo real), resto igual al Excel.
 SHEETS_HEADERS = [
     "CONSECUTIVO DE VENTA", "FECHA", "HORA", "ID CLIENTE", "CLIENTE",
-    "Código del Producto", "PRODUCTO", "UNIDAD DE MEDIDA", "CANTIDAD",
+    "CODIGO DEL PRODUCTO", "PRODUCTO", "UNIDAD DE MEDIDA", "CANTIDAD",
     "VALOR UNITARIO", "TOTAL", "VENDEDOR", "METODO DE PAGO"
 ]
 
