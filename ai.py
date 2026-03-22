@@ -261,13 +261,22 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         f"(hoy: ${resumen_sheets_total:,.0f} en {resumen_sheets_cantidad} ventas)"
     ) if cantidad_mes > 0 else "Sin ventas este mes"
 
-    # ── Datos históricos (solo si piden análisis) ──
-    palabras_analisis = ["cuanto", "vendimos", "reporte", "analiz", "total",
-                         "resumen", "estadistica", "top", "mas vendido"]
-    if any(p in mensaje_usuario.lower() for p in palabras_analisis):
+    # ── Datos históricos ──────────────────────────────────────────────────────
+    # Dashboard: ampliar keywords y cargar más registros para análisis completo.
+    # Telegram: solo cuando hay palabras clave explícitas (optimización de tokens).
+    _palabras_analisis = {"cuanto","vendimos","reporte","analiz","total",
+                          "resumen","estadistica","top","mas vendido",
+                          "dia","semana","mes","ayer","hoy","vendio",
+                          "gano","ingreso","mejor","peor","promedio",
+                          "historico","registro","cuantas","cuantos"}
+    _es_analisis = any(p in mensaje_usuario.lower() for p in _palabras_analisis)
+    # _dashboard_flag: se activa desde api.py inyectando en el mensaje
+    _es_dash = "##DASHBOARD##" in mensaje_usuario
+    if _es_analisis or _es_dash:
         try:
             todos       = obtener_todos_los_datos()
-            datos_texto = json.dumps(todos[-100:], ensure_ascii=False, default=str) if todos else "Sin datos aun"
+            _limite     = 300 if _es_dash else 200
+            datos_texto = json.dumps(todos[-_limite:], ensure_ascii=False, default=str) if todos else "Sin datos aun"
         except Exception:
             datos_texto = "Sin datos aun"
     else:
@@ -1883,6 +1892,37 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             print(f"Error gasto: {e}")
         texto_limpio = texto_limpio.replace(f'[GASTO]{gasto_json}[/GASTO]', '')
+
+    # ── Memoria del negocio (dashboard) ──────────────────────────────────────
+    for mem_json in re.findall(r'\[MEMORIA\](.*?)\[/MEMORIA\]', texto_respuesta, re.DOTALL):
+        try:
+            datos     = json.loads(mem_json.strip())
+            tipo      = datos.get("tipo", "observacion")
+            contenido = datos.get("contenido", "").strip()
+            if contenido:
+                from memoria import cargar_memoria, guardar_memoria as _gm_mem
+                import time as _t_mem
+                import config as _cfg_mem
+                from datetime import datetime as _dt_mem
+                _mem = cargar_memoria()
+                _notas = _mem.get("notas", {})
+                if isinstance(_notas, list):
+                    _notas = {"observaciones": _notas} if _notas else {}
+                _fecha = _dt_mem.now(_cfg_mem.COLOMBIA_TZ).strftime("%Y-%m-%d")
+                if tipo == "contexto_negocio":
+                    _notas["contexto_negocio"] = contenido
+                elif tipo == "decision":
+                    _notas.setdefault("decisiones", []).append(f"[{_fecha}] {contenido}")
+                    _notas["decisiones"] = _notas["decisiones"][-30:]
+                else:
+                    _notas.setdefault("observaciones", []).append(f"[{_fecha}] {contenido}")
+                    _notas["observaciones"] = _notas["observaciones"][-30:]
+                _mem["notas"] = _notas
+                _gm_mem(_mem, urgente=True)
+                acciones.append(f"Memoria guardada: {contenido[:60]}")
+        except Exception as e:
+            logging.getLogger("ferrebot.ai").warning(f"Error guardando memoria: {e}")
+        texto_limpio = texto_limpio.replace(f'[MEMORIA]{mem_json}[/MEMORIA]', '')
 
     # ── Fiado ──
     for fiado_json in re.findall(r'\[FIADO\](.*?)\[/FIADO\]', texto_respuesta, re.DOTALL):
