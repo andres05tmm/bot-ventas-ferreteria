@@ -2595,6 +2595,57 @@ def historico_sync_rango(dias: int = Query(default=30, ge=1, le=365)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ── Chat IA desde el Dashboard ────────────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    mensaje: str
+    nombre: str = "Dashboard"
+    historial: list = []
+
+
+@app.post("/chat")
+async def chat_ia(req: ChatRequest):
+    """
+    Endpoint de chat IA para el dashboard.
+    Reutiliza exactamente la misma lógica que el bot de Telegram:
+    procesar_con_claude() → procesar_acciones_async() → respuesta limpia.
+    """
+    from ai import procesar_con_claude, procesar_acciones_async
+
+    if not req.mensaje or not req.mensaje.strip():
+        raise HTTPException(status_code=400, detail="Mensaje vacío")
+
+    try:
+        # El mensaje lleva el prefijo "Vendedor: texto" igual que en el bot
+        mensaje_formateado = f"{req.nombre}: {req.mensaje.strip()}"
+
+        # Llamar a Claude con el historial que manda el frontend
+        respuesta_raw = await procesar_con_claude(
+            mensaje_usuario=mensaje_formateado,
+            nombre_usuario=req.nombre,
+            historial_chat=req.historial,
+        )
+
+        # Ejecutar acciones (registrar ventas, gastos, etc.) igual que el bot
+        # chat_id=0 para dashboard — no colisiona con ningún chat_id de Telegram
+        texto_limpio, ventas, gastos = await procesar_acciones_async(
+            respuesta_raw, req.nombre, 0
+        )
+
+        return {
+            "ok": True,
+            "respuesta": texto_limpio,
+            "acciones": {
+                "ventas": len(ventas),
+                "gastos": len(gastos),
+            },
+        }
+
+    except Exception as e:
+        logging.getLogger("ferrebot.api").error(f"[/chat] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Servir dashboard React (build estático) ───────────────────────────────────
 # Los archivos del build quedan en dashboard/dist/ después de `npm run build`
 _DIST = Path(__file__).parent / "dashboard" / "dist"
