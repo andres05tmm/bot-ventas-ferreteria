@@ -1396,7 +1396,7 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
                     "precio","vale","cuesta","cuanto vale","hay","stock","quedan"}
     _es_consulta = any(p in mensaje_usuario.lower() for p in _kw_no_venta)
 
-    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta and not contexto_extra:
+    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode:
         # Extraer nombre del producto del mensaje para respuesta clara
         _msg_limpio = mensaje_usuario.strip().lower()
         # Quitar cantidades y unidades del inicio para aislar el nombre
@@ -1446,9 +1446,13 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
         },
     ]
 
-    # Bloque extra para el dashboard (o cualquier canal que lo necesite)
+    # Bloque extra para el dashboard — se cachea igual que la parte estática
     if contexto_extra:
-        system.append({"type": "text", "text": contexto_extra})
+        system.append({
+            "type": "text",
+            "text": contexto_extra,
+            "cache_control": {"type": "ephemeral"},
+        })
 
     respuesta = await _llamar_claude_con_reintentos(
         config.claude_client, max_tokens, system, messages
@@ -1478,6 +1482,152 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
         )
 
     return respuesta.content[0].text
+
+# ─────────────────────────────────────────────
+# STREAMING PARA DASHBOARD
+# ─────────────────────────────────────────────
+
+async def _stream_claude_chunks(system: list, messages: list, max_tokens: int):
+    """
+    Async generator que hace streaming de Claude usando un thread + asyncio.Queue.
+    Yields: ("chunk", text_piece) durante el stream
+            ("done",  full_text)  al finalizar
+            ("error", error_str)  en caso de fallo
+    """
+    import threading
+    loop = asyncio.get_event_loop()
+    q: asyncio.Queue = asyncio.Queue()
+
+    def _sync_worker():
+        try:
+            with config.claude_client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=max_tokens,
+                system=system,
+                messages=messages,
+            ) as stream:
+                full = ""
+                for text in stream.text_stream:
+                    full += text
+                    loop.call_soon_threadsafe(q.put_nowait, ("chunk", text))
+                loop.call_soon_threadsafe(q.put_nowait, ("done", full))
+        except Exception as exc:
+            loop.call_soon_threadsafe(q.put_nowait, ("error", str(exc)))
+
+    threading.Thread(target=_sync_worker, daemon=True).start()
+
+    while True:
+        kind, data = await q.get()
+        yield kind, data
+        if kind in ("done", "error"):
+            break
+
+
+async def procesar_con_claude_stream(
+    mensaje_usuario: str,
+    nombre_usuario: str,
+    historial_chat: list,
+    contexto_extra: str = "",
+):
+    """
+    Versión streaming de procesar_con_claude.
+    Yields: ("chunk", text)   — fragmento de texto mientras Claude responde
+            ("done",  text)   — texto completo final
+            ("error", msg)    — error
+    Si el bypass Python intercepta, devuelve ("done", respuesta) de inmediato.
+    """
+    import re as _re_s
+    import json as _json_s
+
+    # ── Detectar modo dashboard y limpiar flag ────────────────────────────────
+    _dashboard_mode = "##DASHBOARD##" in mensaje_usuario
+    if _dashboard_mode:
+        mensaje_usuario = mensaje_usuario.replace("##DASHBOARD## ", "").replace("##DASHBOARD##", "").strip()
+
+    # ── Bypass Python ─────────────────────────────────────────────────────────
+    _msg_bypass = _re_s.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
+    _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
+    memoria = cargar_memoria()
+    _bp = bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
+    if _bp:
+        _txt, _venta = _bp
+        if _venta.get("multi"):
+            _tags = ""
+            for _item in _venta.get("items", []):
+                _v = {
+                    "producto":        _item["producto"],
+                    "cantidad":        _item["cantidad"],
+                    "total":           _item["total"],
+                    "precio_unitario": _item["precio_unitario"],
+                    "metodo_pago":     "",
+                }
+                _tags += f"[VENTA]{_json_s.dumps(_v, ensure_ascii=False)}[/VENTA]"
+            yield ("done", f"{_txt}\n{_tags}")
+        else:
+            yield ("done", f"{_txt}\n[VENTA]{_json_s.dumps(_venta, ensure_ascii=False)}[/VENTA]")
+        return
+
+    # ── Construir prompt ──────────────────────────────────────────────────────
+    mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
+    parte_estatica  = _construir_parte_estatica(memoria)
+    parte_dinamica  = _construir_parte_dinamica(
+        mensaje_usuario, nombre_usuario, memoria, dashboard_mode=_dashboard_mode
+    )
+
+    # ── MATCH vacío: solo en Telegram, no en dashboard ────────────────────────
+    _MATCH_VACIO = "MATCH: (sin resultados — producto no encontrado en catalogo)"
+    _kw_consulta = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
+                    "top","mas vendido","gasto","caja","inventario","cliente",
+                    "precio","vale","cuesta","cuanto vale","hay","stock","quedan"}
+    _es_consulta = any(p in mensaje_usuario.lower() for p in _kw_consulta)
+    if _MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode:
+        _msg_lp = re.sub(r'^[\d\s/\.]+', '', mensaje_usuario.strip().lower()).strip()
+        _msg_lp = re.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_lp).strip()
+        yield ("done", f"No tengo {_msg_lp} en el catálogo.")
+        return
+
+    # ── Historial ─────────────────────────────────────────────────────────────
+    _n_hist = _calcular_historial(mensaje_usuario)
+    messages = []
+    for msg in historial_chat[-_n_hist:]:
+        if isinstance(msg, dict) and "role" in msg and "content" in msg:
+            messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
+    messages.append({"role": "user", "content": str(mensaje_usuario)})
+
+    # ── max_tokens ────────────────────────────────────────────────────────────
+    _kw_rep = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
+               "grafica","top","mas vendido","gasto","caja","inventario"}
+    _kw_edi = {"modificar","corregir","cambia","quita","agrega","error",
+               "equivoque","fiado","debe","abono","borrar","eliminar"}
+    _nl  = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
+    _ml  = mensaje_usuario.lower()
+    if _dashboard_mode:
+        max_tokens = 4000
+    elif any(p in _ml for p in _kw_rep):
+        max_tokens = 2000
+    elif any(p in _ml for p in _kw_edi):
+        max_tokens = 1200
+    elif _nl == 1 and "," not in mensaje_usuario:
+        max_tokens = 450
+    else:
+        max_tokens = min(3000, max(800, _nl * 220))
+
+    # ── System prompt ─────────────────────────────────────────────────────────
+    system = [
+        {"type": "text", "text": parte_estatica, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": parte_dinamica},
+    ]
+    if contexto_extra:
+        system.append({
+            "type": "text",
+            "text": contexto_extra,
+            "cache_control": {"type": "ephemeral"},
+        })
+
+    # ── Stream ────────────────────────────────────────────────────────────────
+    async for kind, data in _stream_claude_chunks(system, messages, max_tokens):
+        yield kind, data
+
 
 # ─────────────────────────────────────────────
 # PARSEO Y EJECUCIÓN DE ACCIONES
