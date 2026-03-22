@@ -1379,13 +1379,15 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     # BLOQUEO PYTHON: si el MATCH está vacío y el mensaje parece una venta
     # (no es consulta, no es reporte), responder directamente sin llamar a Claude.
     # Esto evita que el bot registre productos inexistentes con total:0.
+    # EXCEPCIÓN: si viene con contexto_extra (ej: dashboard), siempre pasa a Claude
+    # para permitir conversación libre sin que saludos/preguntas se traten como ventas.
     _SEÑAL_MATCH_VACIO = "MATCH: (sin resultados — producto no encontrado en catalogo)"
     _kw_no_venta = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
                     "top","mas vendido","gasto","caja","inventario","cliente",
                     "precio","vale","cuesta","cuanto vale","hay","stock","quedan"}
     _es_consulta = any(p in mensaje_usuario.lower() for p in _kw_no_venta)
 
-    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta:
+    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta and not contexto_extra:
         # Extraer nombre del producto del mensaje para respuesta clara
         _msg_limpio = mensaje_usuario.strip().lower()
         # Quitar cantidades y unidades del inicio para aislar el nombre
