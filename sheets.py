@@ -143,7 +143,7 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
             hora,                   # HORA
             str(id_cliente),        # ID CLIENTE
             str(nombre_cliente),    # CLIENTE
-            str(codigo_producto),   # Código del Producto
+            str(codigo_producto),   # CODIGO DEL PRODUCTO
             str(producto),          # PRODUCTO
             str(unidad_medida or "Unidad"),  # UNIDAD DE MEDIDA
             cantidad_legible,       # CANTIDAD
@@ -258,7 +258,7 @@ def sheets_leer_ventas_del_dia() -> list:
                 "hora":            fila.get("HORA", fila.get("Hora", "")),
                 "id_cliente":      fila.get("ID CLIENTE", "CF"),
                 "cliente":         fila.get("CLIENTE", "Consumidor Final"),
-                "codigo_producto": fila.get("Código del Producto", ""),
+                "codigo_producto": fila.get("CODIGO DEL PRODUCTO", fila.get("Código del Producto", "")),
                 "producto":        fila.get("PRODUCTO", fila.get("Producto", "")),
                 "cantidad":        fila.get("CANTIDAD", fila.get("Cantidad", "")),
                 "unidad_medida":   fila.get("UNIDAD DE MEDIDA", fila.get("Unidad de Medida", "")) or "Unidad",
