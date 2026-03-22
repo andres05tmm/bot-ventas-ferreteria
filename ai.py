@@ -1,5 +1,5 @@
 """
-Integración con Claude AI (modelo: claude-haiku-4-5-20251001):
+Integración con Claude AI (modelo: claude-sonnet-4-6):
 - Construcción del system prompt con contexto del negocio
 - Llamada a la API de Claude con PROMPT CACHING (ahorro ~60% en tokens de input)
 - Parseo y ejecución de acciones embebidas en la respuesta ([VENTA]...[/VENTA], etc.)
@@ -1306,7 +1306,7 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
                 loop.run_in_executor(
                     None,
                     lambda: cliente.messages.create(
-                        model="claude-haiku-4-5-20251001",
+                        model="claude-sonnet-4-6",
                         max_tokens=max_tokens,
                         system=system,
                         messages=messages,
@@ -2004,7 +2004,7 @@ Genera SOLO el código Python necesario para modificar el archivo usando openpyx
     respuesta = await loop.run_in_executor(
         None,
         lambda: config.claude_client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
