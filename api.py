@@ -2597,52 +2597,164 @@ def historico_sync_rango(dias: int = Query(default=30, ge=1, le=365)):
 
 # ── Chat IA desde el Dashboard ────────────────────────────────────────────────
 
+# chat_id fijo para el dashboard — no colisiona con ningún chat_id de Telegram
+_DASHBOARD_CHAT_ID = 0
+
+
 class ChatRequest(BaseModel):
     mensaje: str
     nombre: str = "Dashboard"
     historial: list = []
+    # Si viene con confirmar_pago, se salta Claude y registra directamente
+    confirmar_pago: Optional[str] = None   # "efectivo" | "transferencia" | "datafono"
 
 
 @app.post("/chat")
 async def chat_ia(req: ChatRequest):
     """
     Endpoint de chat IA para el dashboard.
-    Reutiliza exactamente la misma lógica que el bot de Telegram:
-    procesar_con_claude() → procesar_acciones_async() → respuesta limpia.
+
+    Flujo normal:
+      1. procesar_con_claude()      → respuesta con tags [VENTA]
+      2. procesar_acciones_async()  → guarda ventas en ventas_pendientes[0]
+      3. Si hay ventas pendientes   → devuelve pendiente=True + botones de pago
+      4. El frontend muestra botones; el usuario hace clic
+      5. Segunda llamada con confirmar_pago="efectivo"|"transferencia"|"datafono"
+      6. registrar_ventas_con_metodo_async() → Excel + Sheets + confirmación
+
+    Flujo con método explícito en el mensaje (ej: "venta 3 tornillos efectivo"):
+      - Si Claude detecta el método, devuelve PEDIR_CONFIRMACION:efectivo
+      - Se registra directamente sin pedir botones
     """
     from ai import procesar_con_claude, procesar_acciones_async
+    from ventas_state import ventas_pendientes, registrar_ventas_con_metodo_async, _estado_lock
 
+    log = logging.getLogger("ferrebot.api")
+
+    # ── RAMA B: Confirmación de pago desde botón ─────────────────────────────
+    if req.confirmar_pago:
+        metodo = req.confirmar_pago.strip().lower()
+        if metodo not in ("efectivo", "transferencia", "datafono"):
+            raise HTTPException(status_code=400, detail=f"Método de pago inválido: {metodo}")
+
+        with _estado_lock:
+            ventas_pend = list(ventas_pendientes.get(_DASHBOARD_CHAT_ID, []))
+
+        if not ventas_pend:
+            return {
+                "ok": True,
+                "respuesta": "⚠️ No hay ventas pendientes de confirmar.",
+                "acciones": {"ventas": 0, "gastos": 0},
+                "pendiente": False,
+            }
+
+        confirmacion = await registrar_ventas_con_metodo_async(
+            ventas_pend, metodo, req.nombre, _DASHBOARD_CHAT_ID
+        )
+        log.info(f"[/chat] ✅ {len(ventas_pend)} venta(s) confirmadas | método: {metodo}")
+
+        return {
+            "ok": True,
+            "respuesta": "✅ Venta registrada\n" + "\n".join(confirmacion),
+            "acciones": {"ventas": len(ventas_pend), "gastos": 0},
+            "pendiente": False,
+        }
+
+    # ── RAMA A: Mensaje normal ────────────────────────────────────────────────
     if not req.mensaje or not req.mensaje.strip():
         raise HTTPException(status_code=400, detail="Mensaje vacío")
 
     try:
-        # El mensaje lleva el prefijo "Vendedor: texto" igual que en el bot
         mensaje_formateado = f"{req.nombre}: {req.mensaje.strip()}"
 
-        # Llamar a Claude con el historial que manda el frontend
+        # 1. Claude
         respuesta_raw = await procesar_con_claude(
             mensaje_usuario=mensaje_formateado,
             nombre_usuario=req.nombre,
             historial_chat=req.historial,
         )
 
-        # Ejecutar acciones (registrar ventas, gastos, etc.) igual que el bot
-        # chat_id=0 para dashboard — no colisiona con ningún chat_id de Telegram
-        texto_limpio, ventas, gastos = await procesar_acciones_async(
-            respuesta_raw, req.nombre, 0
+        # 2. Parsear acciones
+        texto_limpio, acciones, _ = await procesar_acciones_async(
+            respuesta_raw, req.nombre, _DASHBOARD_CHAT_ID
         )
+
+        pedir_pago   = "PEDIR_METODO_PAGO" in acciones
+        confirmacion_accion = next(
+            (a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None
+        )
+        gastos_registrados = sum(
+            1 for a in acciones if a.startswith("Gasto registrado:")
+        )
+
+        # 3a. Método de pago ya viene en la acción (Claude lo detectó) → registrar directo
+        if confirmacion_accion:
+            metodo = confirmacion_accion.split(":", 1)[1].strip()
+            if metodo not in ("efectivo", "transferencia", "datafono"):
+                metodo = "efectivo"
+
+            with _estado_lock:
+                ventas_pend = list(ventas_pendientes.get(_DASHBOARD_CHAT_ID, []))
+
+            if ventas_pend:
+                conf = await registrar_ventas_con_metodo_async(
+                    ventas_pend, metodo, req.nombre, _DASHBOARD_CHAT_ID
+                )
+                return {
+                    "ok": True,
+                    "respuesta": "✅ Venta registrada\n" + "\n".join(conf),
+                    "acciones": {"ventas": len(ventas_pend), "gastos": gastos_registrados},
+                    "pendiente": False,
+                }
+
+        # 3b. Hay ventas esperando método → devolver botones al frontend
+        if pedir_pago:
+            with _estado_lock:
+                ventas_pend = list(ventas_pendientes.get(_DASHBOARD_CHAT_ID, []))
+
+            if ventas_pend:
+                # Construir resumen de lo que se va a registrar
+                resumen = "\n".join(
+                    f"• {v.get('cantidad',1)} {v.get('producto','?')}  ${float(v.get('total',0)):,.0f}"
+                    for v in ventas_pend
+                )
+                texto_previo = texto_limpio.strip() if texto_limpio and texto_limpio.strip() else ""
+                texto_botones = (f"{texto_previo}\n\n" if texto_previo else "") + \
+                                f"🧾 {resumen}\n\n¿Cómo pagó?"
+                return {
+                    "ok": True,
+                    "respuesta": texto_botones,
+                    "acciones": {"ventas": 0, "gastos": gastos_registrados},
+                    "pendiente": True,
+                    "opciones_pago": [
+                        {"label": "💵 Efectivo",      "valor": "efectivo"},
+                        {"label": "📲 Transferencia", "valor": "transferencia"},
+                        {"label": "💳 Datafono",      "valor": "datafono"},
+                    ],
+                }
+
+        # 4. Sin ventas pendientes → respuesta normal
+        if texto_limpio and texto_limpio.strip():
+            texto_final = texto_limpio.strip()
+        elif gastos_registrados:
+            gasto_msgs = [a for a in acciones if a.startswith("Gasto registrado:")]
+            texto_final = "✅ " + "\n".join(gasto_msgs)
+        else:
+            otras = [a for a in acciones if a not in (
+                "PEDIR_METODO_PAGO", "PAGO_PENDIENTE_AVISO", "INICIAR_FLUJO_CLIENTE",
+            ) and not a.startswith("PEDIR_CONFIRMACION:")
+              and not a.startswith("CLIENTE_DESCONOCIDO:")]
+            texto_final = "\n".join(otras) if otras else "(Sin respuesta)"
 
         return {
             "ok": True,
-            "respuesta": texto_limpio,
-            "acciones": {
-                "ventas": len(ventas),
-                "gastos": len(gastos),
-            },
+            "respuesta": texto_final,
+            "acciones": {"ventas": 0, "gastos": gastos_registrados},
+            "pendiente": False,
         }
 
     except Exception as e:
-        logging.getLogger("ferrebot.api").error(f"[/chat] Error: {e}")
+        log.error(f"[/chat] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
