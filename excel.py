@@ -45,35 +45,46 @@ def _invalidar_cache_clientes():
 # ESTRUCTURA INTERNA
 # ─────────────────────────────────────────────
 
-def inicializar_hoja(ws):
-    """Crea el formato exacto: logo fila 1, banner rojo fila 1, separador fila 2, encabezados fila 3."""
-    # Solo saltar si ya existen los encabezados en fila 3
+def inicializar_hoja(ws, nombre_mes: str = ""):
+    """
+    Crea el formato exacto del Excel de Ferretería Punto Rojo:
+      Fila 1 : banner rojo con título del mes + logo en A1:D1
+      Fila 2 : separador rojo oscuro
+      Fila 3 : encabezados con fondo negro
+      Fila 4+: datos de ventas
+
+    Columnas (orden exacto del Excel real):
+      1 FECHA | 2 HORA | 3 ID CLIENTE | 4 CLIENTE | 5 CODIGO DEL PRODUCTO |
+      6 PRODUCTO | 7 UNIDAD DE MEDIDA | 8 CANTIDAD | 9 VALOR UNITARIO |
+      10 TOTAL | 11 CONSECUTIVO DE VENTA | 12 VENDEDOR | 13 METODO DE PAGO
+    """
+    # Solo inicializar si fila 3 col 1 está vacía
     if ws.cell(row=3, column=1).value is not None:
         return
 
     from openpyxl.drawing.image import Image as XLImage
 
-    num_cols = 13
+    NUM_COLS = 13
 
-    # Fila 1: logo en A1:D1 + banner rojo en E1:M1
-    ws.row_dimensions[1].height = 73.8
+    # ── Fila 1: banner rojo ───────────────────────────────────────────────────
+    ws.row_dimensions[1].height = 72.0
+
+    # A1:D1 → logo (rojo de fondo igual que el banner)
     ws.merge_cells("A1:D1")
+    for col in range(1, 5):
+        ws.cell(row=1, column=col).fill = PatternFill("solid", fgColor="C00000")
+
+    # E1:M1 → título
     ws.merge_cells("E1:M1")
+    titulo = nombre_mes if nombre_mes else "Registro de Ventas"
+    celda_titulo = ws.cell(row=1, column=5, value=titulo)
+    celda_titulo.font      = Font(bold=True, color="FFFFFF", size=16)
+    celda_titulo.fill      = PatternFill("solid", fgColor="C00000")
+    celda_titulo.alignment = Alignment(horizontal="center", vertical="center")
+    for col in range(6, NUM_COLS + 1):
+        ws.cell(row=1, column=col).fill = PatternFill("solid", fgColor="C00000")
 
-    # Banner rojo con texto
-    celda_banner = ws.cell(row=1, column=5, value="DETALLE DE VENTAS")
-    celda_banner.font      = Font(bold=True, color="FF0000", size=18)
-    celda_banner.fill      = PatternFill("solid", fgColor="FF0000")
-    celda_banner.alignment = Alignment(horizontal="center", vertical="center")
-
-    for col in range(5, 14):
-        c = ws.cell(row=1, column=col)
-        c.fill = PatternFill("solid", fgColor="FF0000")
-
-    # Fila 2: separador delgado
-    ws.row_dimensions[2].height = 6.0
-
-    # Logo (si existe el archivo)
+    # Logo
     logo_paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png"),
         "/app/logo.png",
@@ -84,34 +95,47 @@ def inicializar_hoja(ws):
             try:
                 img        = XLImage(logo_path)
                 img.width  = 220
-                img.height = 70
+                img.height = 68
                 img.anchor = "A1"
                 ws.add_image(img)
             except Exception as e:
                 print(f"No se pudo agregar logo: {e}")
             break
 
-    # Fila 3: encabezados
-    ws.row_dimensions[3].height = 42.0
-    encabezados = [
+    # ── Fila 2: separador rojo oscuro ─────────────────────────────────────────
+    ws.row_dimensions[2].height = 9.6
+    for col in range(1, NUM_COLS + 1):
+        ws.cell(row=2, column=col).fill = PatternFill("solid", fgColor="E00000")
+
+    # ── Fila 3: encabezados ───────────────────────────────────────────────────
+    ws.row_dimensions[3].height = 30.0
+    ENCABEZADOS = [
         "FECHA", "HORA", "ID CLIENTE", "CLIENTE",
-        "Código del Producto", "PRODUCTO", "CANTIDAD",
-        "VALOR UNITARIO", "TOTAL", "CONSECUTIVO DE VENTA",
-        "ALIAS", "VENDEDOR", "METODO DE PAGO",
+        "CODIGO DEL PRODUCTO", "PRODUCTO", "UNIDAD DE MEDIDA",
+        "CANTIDAD", "VALOR UNITARIO", "TOTAL",
+        "CONSECUTIVO DE VENTA", "VENDEDOR", "METODO DE PAGO",
     ]
-    for col, titulo in enumerate(encabezados, 1):
-        celda = ws.cell(row=3, column=col, value=titulo)
-        celda.font      = Font(bold=True, color="FFFFFF", size=11)
+    for col, titulo_col in enumerate(ENCABEZADOS, 1):
+        celda = ws.cell(row=3, column=col, value=titulo_col)
+        celda.font      = Font(bold=True, color="FFFFFF", size=10)
         celda.fill      = PatternFill("solid", fgColor="1A1A1A")
         celda.alignment = Alignment(horizontal="center", vertical="center")
         celda.border    = Border(
             bottom=Side(style="thin", color="FFFFFF"),
-            right=Side(style="thin", color="444444"),
+            right=Side(style="thin",  color="444444"),
         )
 
-    anchos = [10.0, 12.0, 13.0, 13.0, 20.0, 26.0, 25.0, 20.0, 18.0, 24.0, 26.0, 28.0, 30.0]
-    for col, ancho in enumerate(anchos, 1):
-        ws.column_dimensions[get_column_letter(col)].width = ancho
+    # ── Anchos de columna (medidos del Excel real) ────────────────────────────
+    ANCHOS = {
+        "A": 16.33, "B": 12.55, "C": 14.44, "D": 24.11,
+        "E": 19.44, "F": 26.89, "G": 16.66, "H": 13.33,
+        "I": 17.55, "J": 13.0,  "K": 20.33, "L": 18.55, "M": 19.44,
+    }
+    for letra, ancho in ANCHOS.items():
+        ws.column_dimensions[letra].width = ancho
+
+    # ── Fila 4: altura por defecto para filas de datos ────────────────────────
+    ws.row_dimensions[4].height = 19.95
 
 
 def obtener_o_crear_hoja(wb, nombre_hoja: str):
@@ -517,7 +541,7 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         "hora":                 hora_ahora,
         "id cliente":           id_cliente_final,
         "cliente":              nombre_cliente_final,
-        "código del producto":  cod_producto_final,
+        "codigo del producto":  cod_producto_final,
         "producto":             str(producto),
         "cantidad":             cantidad,
         "valor unitario":       float(precio_unitario),
@@ -526,9 +550,6 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         "consecutivo de venta": consecutivo_final,
         "vendedor":             str(vendedor),
         "metodo de pago":       str(metodo_pago) if metodo_pago else str(observaciones),
-        # Campo para factura electrónica DIAN — se escribe si existe la columna
-        # o se adjunta al campo existente para compatibilidad retroactiva
-        "unidad_medida":        str(unidad_medida) if unidad_medida else "Unidad",
         "unidad de medida":     str(unidad_medida) if unidad_medida else "Unidad",
     }
 
