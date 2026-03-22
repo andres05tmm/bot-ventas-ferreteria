@@ -53,6 +53,13 @@ export default function TabCaja({ refreshKey }) {
   const [cerrando, setCerrando] = useState(false)
   const [msg, setMsg] = useState(null)
 
+  // Estado Venta Varia
+  const [variaOpen,   setVariaOpen]   = useState(false)
+  const [variaMonto,  setVariaMonto]  = useState('')
+  const [variaMetodo, setVariaMetodo] = useState('efectivo')
+  const [variaDesc,   setVariaDesc]   = useState('')
+  const [variando,    setVariando]    = useState(false)
+
   const mostrarMsg = (tipo, texto) => { setMsg({ tipo, texto }); setTimeout(() => setMsg(null), 4000) }
 
   const abrirCaja = async () => {
@@ -82,6 +89,29 @@ export default function TabCaja({ refreshKey }) {
       setLocalRefresh(r => r + 1)
     } catch (e) { mostrarMsg('err', e.message) }
     finally { setCerrando(false) }
+  }
+
+  const registrarVentaVaria = async () => {
+    const monto = parseFloat(variaMonto.replace(/[^0-9.]/g, ''))
+    if (!monto || monto <= 0) return mostrarMsg('err', 'Ingresa un monto válido')
+    setVariando(true)
+    try {
+      const r = await fetch(`${API_BASE}/ventas/varia`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          monto,
+          metodo_pago: variaMetodo,
+          descripcion: variaDesc.trim() || 'Venta Varia',
+          vendedor: 'Dashboard',
+        }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Error')
+      mostrarMsg('ok', `✓ Venta varia de $${monto.toLocaleString('es-CO')} registrada (${variaMetodo})`)
+      setVariaMonto(''); setVariaDesc(''); setVariaOpen(false)
+      setLocalRefresh(x => x + 1)
+    } catch (e) { mostrarMsg('err', e.message) }
+    finally { setVariando(false) }
   }
 
   if (loading) return <Spinner />
@@ -179,6 +209,121 @@ export default function TabCaja({ refreshKey }) {
         <KpiCard label="Total gastos"     value={cop(d.total_gastos)}    sub="Todos los egresos"      icon="💸" color="#f87171" />
         <KpiCard label="Efectivo esperado" value={cop(d.efectivo_esperado)} sub="Caja - gastos en efectivo" icon="🧮" color={t.accent} />
       </div>
+
+      {/* Venta Varia */}
+      <Card style={{ padding: '14px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13, color: t.text }}>
+              🧾 Venta Varia
+            </div>
+            <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
+              Para cuadrar ventas que no se alcanzaron a anotar
+            </div>
+          </div>
+          <button
+            onClick={() => setVariaOpen(v => !v)}
+            style={{
+              background: variaOpen ? t.accentSub : t.accent,
+              border: 'none', borderRadius: 8,
+              color: variaOpen ? t.accent : '#fff',
+              padding: '7px 16px', fontSize: 12, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'inherit',
+              transition: 'all .15s',
+            }}>
+            {variaOpen ? '✕ Cancelar' : '+ Registrar'}
+          </button>
+        </div>
+
+        {variaOpen && (
+          <div style={{
+            marginTop: 16, paddingTop: 16,
+            borderTop: `1px solid ${t.border}`,
+            display: 'flex', flexDirection: 'column', gap: 12,
+          }}>
+            {/* Monto */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: t.textSub, minWidth: 70 }}>Monto:</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+                <span style={{ color: t.textMuted, fontSize: 14, fontWeight: 600 }}>$</span>
+                <input
+                  type="number" min="0" value={variaMonto}
+                  onChange={e => setVariaMonto(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && registrarVentaVaria()}
+                  placeholder="0"
+                  style={{
+                    flex: 1, maxWidth: 160,
+                    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                    border: `1px solid ${t.border}`, borderRadius: 7,
+                    color: t.text, fontSize: 14, padding: '8px 10px',
+                    outline: 'none', fontFamily: 'monospace',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Descripción opcional */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: t.textSub, minWidth: 70 }}>Descripción:</span>
+              <input
+                type="text" value={variaDesc}
+                onChange={e => setVariaDesc(e.target.value)}
+                placeholder="Ej: Sobrante cierre, ventas no anotadas…"
+                style={{
+                  flex: 1,
+                  background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                  border: `1px solid ${t.border}`, borderRadius: 7,
+                  color: t.text, fontSize: 12, padding: '8px 10px',
+                  outline: 'none', fontFamily: 'inherit',
+                }}
+              />
+            </div>
+
+            {/* Método de pago */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: t.textSub, minWidth: 70 }}>Método:</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[
+                  { val: 'efectivo',      label: '💵 Efectivo',      color: '#22c55e' },
+                  { val: 'transferencia', label: '📲 Transferencia', color: '#3b82f6' },
+                  { val: 'datafono',      label: '💳 Datafono',      color: '#a855f7' },
+                ].map(op => (
+                  <button
+                    key={op.val}
+                    onClick={() => setVariaMetodo(op.val)}
+                    style={{
+                      fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600,
+                      padding: '6px 13px', borderRadius: 20, cursor: 'pointer',
+                      transition: 'all .15s',
+                      background: variaMetodo === op.val ? op.color + '20' : 'transparent',
+                      border: `2px solid ${variaMetodo === op.val ? op.color : t.border}`,
+                      color: variaMetodo === op.val ? op.color : t.textMuted,
+                    }}>
+                    {op.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Botón registrar */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={registrarVentaVaria}
+                disabled={variando || !variaMonto}
+                style={{
+                  background: (!variaMonto || variando) ? t.border : t.accent,
+                  border: 'none', borderRadius: 8,
+                  color: (!variaMonto || variando) ? t.textMuted : '#fff',
+                  padding: '9px 24px', fontSize: 13, fontWeight: 700,
+                  cursor: (!variaMonto || variando) ? 'default' : 'pointer',
+                  fontFamily: 'inherit', transition: 'all .15s',
+                }}>
+                {variando ? 'Registrando…' : '✓ Registrar venta varia'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* Desglose por método */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
