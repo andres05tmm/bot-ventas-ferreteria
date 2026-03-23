@@ -55,6 +55,7 @@ def _obtener_hoja_sheets():
     - Cachea el objeto ws durante 5 min para evitar múltiples reads por operación.
     - El chequeo de encabezados solo ocurre al crear la hoja por primera vez,
       no en cada llamada (evitaba 1 read extra por operación → 429 en pico).
+    - Auto-migra: si falta la columna UNIDAD DE MEDIDA, la inserta en su posición.
     - Retorna None si no hay conexión.
     """
     global _ws_cache, _ws_cache_ts
@@ -69,6 +70,7 @@ def _obtener_hoja_sheets():
         import gspread
         gc          = config.get_sheets_client()
         spreadsheet = gc.open_by_key(config.SHEETS_ID)
+        creada_nueva = False
         try:
             ws = spreadsheet.worksheet("Ventas del Dia")
         except gspread.WorksheetNotFound:
@@ -78,6 +80,27 @@ def _obtener_hoja_sheets():
             )
             ws.append_row(config.SHEETS_HEADERS)
             _formato_encabezado(ws)
+            creada_nueva = True
+
+        # ── Migración: insertar UNIDAD DE MEDIDA antes de CANTIDAD si falta ──
+        if not creada_nueva:
+            try:
+                headers_actuales = ws.row_values(1)
+                headers_upper = [h.upper().strip() for h in headers_actuales]
+                if "UNIDAD DE MEDIDA" not in headers_upper:
+                    # Buscar posición de CANTIDAD para insertar antes
+                    try:
+                        idx_cant = headers_upper.index("CANTIDAD")
+                        col_pos = idx_cant + 1  # gspread es 1-indexed
+                    except ValueError:
+                        col_pos = len(headers_actuales) + 1  # fallback: al final
+                    ws.insert_cols(col_pos, number=1)
+                    ws.update_cell(1, col_pos, "UNIDAD DE MEDIDA")
+                    _formato_encabezado(ws)
+                    _invalidar_ws_cache()
+                    print(f"✅ Migración Sheets: UNIDAD DE MEDIDA insertada en col {col_pos} (antes de CANTIDAD)")
+            except Exception as e_mig:
+                print(f"⚠️ Migración Sheets (no crítico): {e_mig}")
 
         # Guardar en caché
         _ws_cache    = ws
@@ -94,7 +117,8 @@ def _obtener_hoja_sheets():
 
 
 def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vendedor, metodo,
-                          id_cliente="CF", nombre_cliente="Consumidor Final", codigo_producto="", alias="") -> bool:
+                          id_cliente="CF", nombre_cliente="Consumidor Final", codigo_producto="",
+                          unidad_medida="") -> bool:
     """Agrega una fila de venta al Google Sheets en tiempo real."""
     if not config.SHEETS_ID:
         return False
@@ -105,22 +129,26 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
 
         fecha = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
         hora  = datetime.now(config.COLOMBIA_TZ).strftime("%H:%M")
-        cantidad_legible = (
-            decimal_a_fraccion_legible(float(cantidad))
-            if not isinstance(cantidad, str) else str(cantidad)
-        )
+
+        # Solo mostrar fracciones para galones y unidades genéricas; el resto en decimal
+        _um = (unidad_medida or "").lower().replace("ó", "o")
+        _usar_fraccion = _um in ("galon", "galón", "unidad", "")
+        if _usar_fraccion and not isinstance(cantidad, str):
+            cantidad_legible = decimal_a_fraccion_legible(float(cantidad))
+        else:
+            cantidad_legible = str(cantidad)
         fila = [
             num,                    # CONSECUTIVO DE VENTA
             fecha,                  # FECHA
             hora,                   # HORA
             str(id_cliente),        # ID CLIENTE
             str(nombre_cliente),    # CLIENTE
-            str(codigo_producto),   # Código del Producto
+            str(codigo_producto),   # CODIGO DEL PRODUCTO
             str(producto),          # PRODUCTO
+            str(unidad_medida or "Unidad"),  # UNIDAD DE MEDIDA
             cantidad_legible,       # CANTIDAD
             float(precio_unitario), # VALOR UNITARIO
             float(total),           # TOTAL
-            str(alias or num),      # ALIAS
             str(vendedor),          # VENDEDOR
             str(metodo),            # METODO DE PAGO
         ]
@@ -128,19 +156,38 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
 
         # Alternar color de fila usando row_count (sin read extra)
         # append_row agrega al final → la nueva fila es la última
-        num_filas = ws.row_count
-        num_cols  = len(config.SHEETS_HEADERS)
-        col_letra = _col_a_letra(num_cols)
-        if num_filas % 2 == 0:
-            ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
-                "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0},
-                "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
-            })
-        else:
-            ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
-                "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
-                "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
-            })
+        try:
+            num_filas = ws.row_count
+            num_cols  = len(config.SHEETS_HEADERS)
+            col_letra = _col_a_letra(num_cols)
+
+            # Si append_row creció más allá del grid, redimensionar
+            try:
+                if num_filas % 2 == 0:
+                    ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
+                        "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0},
+                        "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
+                    })
+                else:
+                    ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
+                        "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+                        "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
+                    })
+            except Exception as e_fmt:
+                # Grid limit exceeded — resize and retry
+                if "exceeds grid limits" in str(e_fmt):
+                    try:
+                        ws.resize(rows=num_filas + 100, cols=num_cols)
+                        ws.format(f"A{num_filas}:{col_letra}{num_filas}", {
+                            "backgroundColor": {"red": 0.937, "green": 0.961, "blue": 1.0} if num_filas % 2 == 0 else {"red": 1.0, "green": 1.0, "blue": 1.0},
+                            "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}}
+                        })
+                    except Exception:
+                        pass  # Formato no es crítico
+                else:
+                    print(f"⚠️ Error formato fila: {e_fmt}")
+        except Exception:
+            pass  # Formato no es crítico — la venta ya se guardó
 
         config._set_sheets_disponible(True)
         return True
@@ -153,7 +200,7 @@ def sheets_agregar_venta(num, producto, cantidad, precio_unitario, total, vended
 
 
 def sheets_borrar_fila(numero_venta) -> bool:
-    """Borra del Sheets la fila cuyo primer campo sea numero_venta."""
+    """Borra del Sheets TODAS las filas cuyo consecutivo sea numero_venta."""
     if not config.SHEETS_ID:
         return False
     try:
@@ -161,18 +208,30 @@ def sheets_borrar_fila(numero_venta) -> bool:
         if not ws:
             return False
         celdas = ws.get_all_values()
+
+        # Recoger índices de todas las filas que coinciden (en orden inverso para no desplazar)
+        filas_a_borrar = []
         for idx, fila in enumerate(celdas):
             if idx == 0:
                 continue
             try:
                 if int(fila[0]) == int(numero_venta):
-                    ws.delete_rows(idx + 1)
-                    return True
+                    filas_a_borrar.append(idx + 1)  # +1 porque Sheets es 1-indexed
             except (ValueError, IndexError):
                 pass
-        return False
+
+        if not filas_a_borrar:
+            return False
+
+        # Borrar de abajo hacia arriba para no desplazar índices
+        for fila_idx in reversed(filas_a_borrar):
+            ws.delete_rows(fila_idx)
+
+        _invalidar_ws_cache()
+        return True
+
     except Exception as e:
-        print(f"⚠️ Error borrando fila del Sheets: {e}")
+        print(f"⚠️ Error borrando filas del Sheets: {e}")
         _invalidar_ws_cache()
         return False
 
@@ -199,9 +258,10 @@ def sheets_leer_ventas_del_dia() -> list:
                 "hora":            fila.get("HORA", fila.get("Hora", "")),
                 "id_cliente":      fila.get("ID CLIENTE", "CF"),
                 "cliente":         fila.get("CLIENTE", "Consumidor Final"),
-                "codigo_producto": fila.get("Código del Producto", ""),
+                "codigo_producto": fila.get("CODIGO DEL PRODUCTO", fila.get("Código del Producto", "")),
                 "producto":        fila.get("PRODUCTO", fila.get("Producto", "")),
                 "cantidad":        fila.get("CANTIDAD", fila.get("Cantidad", "")),
+                "unidad_medida":   fila.get("UNIDAD DE MEDIDA", fila.get("Unidad de Medida", "")) or "Unidad",
                 "precio_unitario": fila.get("VALOR UNITARIO", fila.get("Precio Unitario", 0)),
                 "total":           fila.get("TOTAL", fila.get("Total", 0)),
                 "alias":           fila.get("ALIAS", ""),
@@ -368,6 +428,94 @@ def sheets_borrar_consecutivo(numero_venta) -> tuple[int, list]:
         print(f"⚠️ Error borrando consecutivo del Sheets: {e}")
         _invalidar_ws_cache()
         return 0, []
+
+
+def sheets_editar_consecutivo(numero_venta: int, cambios: dict, producto_original: str = None) -> int:
+    """
+    Actualiza en Sheets los campos indicados en `cambios` para las filas
+    cuyo CONSECUTIVO DE VENTA == numero_venta.
+    Si producto_original viene, solo actualiza la fila con ese producto (multi-producto).
+    Retorna el número de filas actualizadas.
+    """
+    if not config.SHEETS_ID or not cambios:
+        return 0
+    try:
+        ws = _obtener_hoja_sheets()
+        if not ws:
+            return 0
+
+        todas = ws.get_all_values()
+        if not todas:
+            return 0
+
+        # Fila 0 = encabezados
+        headers = [h.upper().strip() for h in todas[0]]
+
+        # Mapeo campo → nombre de columna en Sheets
+        CAMPO_HEADER = {
+            "producto":        ["PRODUCTO"],
+            "cantidad":        ["CANTIDAD"],
+            "precio_unitario": ["VALOR UNITARIO", "PRECIO UNITARIO"],
+            "total":           ["TOTAL"],
+            "metodo_pago":     ["METODO DE PAGO", "MÉTODO PAGO"],
+            "cliente":         ["CLIENTE"],
+            "vendedor":        ["VENDEDOR"],
+        }
+
+        # Columna del consecutivo y del producto
+        col_consec = None
+        col_prod_sh = None
+        for i, h in enumerate(headers):
+            if "CONSECUTIVO" in h or h == "#":
+                col_consec = i
+            if h == "PRODUCTO":
+                col_prod_sh = i
+        if col_consec is None:
+            return 0
+
+        filtro_prod = producto_original.strip().lower() if producto_original else None
+
+        # Resolver índices de columna para cada campo a cambiar
+        col_map = {}
+        for campo, valor in cambios.items():
+            posibles = CAMPO_HEADER.get(campo, [campo.upper().replace("_", " ")])
+            for nombre in posibles:
+                for i, h in enumerate(headers):
+                    if h == nombre:
+                        col_map[campo] = i
+                        break
+                if campo in col_map:
+                    break
+
+        actualizadas = 0
+        for idx, fila in enumerate(todas[1:], start=2):   # start=2 → fila real en Sheets
+            if not fila:
+                continue
+            try:
+                consec_fila = int(float(str(fila[col_consec]).strip()))
+            except (ValueError, IndexError):
+                continue
+            if consec_fila != int(numero_venta):
+                continue
+
+            # Filtrar por producto si se especificó
+            if filtro_prod and col_prod_sh is not None:
+                prod_fila = str(fila[col_prod_sh]).strip().lower()
+                if prod_fila != filtro_prod:
+                    continue
+
+            for campo, col_idx in col_map.items():
+                valor = cambios[campo]
+                # Sheets usa notación fila/col 1-indexed
+                ws.update_cell(idx, col_idx + 1, valor)
+                actualizadas += 1
+
+        _invalidar_ws_cache()
+        return actualizadas
+    except Exception as e:
+        print(f"⚠️ Error editando Sheets consecutivo #{numero_venta}: {e}")
+        _invalidar_ws_cache()
+        return 0
 
 
 def sheets_sincronizar_clientes() -> tuple[bool, str]:

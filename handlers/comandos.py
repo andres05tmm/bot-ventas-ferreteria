@@ -75,6 +75,7 @@ async def comando_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/ajuste [+/-cantidad] [producto] — Ajustar stock (ej: /ajuste +10 brocha)\n"
         "/compra [cantidad] [producto] a [costo] — Registrar compra\n"
         "/precios — Ver catalogo de precios\n"
+        "/actualizar_precio — Cambiar precios de productos\n"
         "/margenes — Ver margenes de ganancia\n"
         "/actualizar_catalogo — Recargar catalogo desde Excel\n\n"
         "👥 CLIENTES Y FIADOS\n"
@@ -319,10 +320,40 @@ async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caja["datafono"] = 0
         guardar_caja(caja)
         await update.message.reply_text(f"💰 Caja abierta con ${monto:,} de base.")
+
+    elif args and args[0].lower() == "reset":
+        # /caja reset — limpia los montos guardados de la última caja cerrada
+        from memoria import cargar_caja, guardar_caja
+        caja = cargar_caja()
+        if caja.get("abierta"):
+            await update.message.reply_text("⚠️ La caja está abierta. Ciérrala primero con /cerrar antes de resetear.")
+            return
+        guardar_caja({
+            "abierta": False,
+            "fecha": None,
+            "monto_apertura": 0,
+            "efectivo": 0,
+            "transferencias": 0,
+            "datafono": 0,
+        })
+        await update.message.reply_text(
+            "🗑️ Caja reseteada. Los montos anteriores fueron borrados.\n"
+            "El dashboard ya no mostrará valores de la última sesión.\n\n"
+            "Usa /caja abrir [monto] para comenzar un nuevo día."
+        )
+
     else:
         # /caja → ver estado
         resumen = obtener_resumen_caja()
         await update.message.reply_text(f"💰 {resumen}")
+
+
+async def comando_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📊 *Dashboard Ferretería Punto Rojo*\n\n"
+        "🔗 https://bot-ventas-ferreteria-production.up.railway.app/",
+        parse_mode="Markdown"
+    )
 
 
 async def comando_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -348,6 +379,28 @@ async def comando_inventario(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # /inv - Registrar conteo de inventario
 # ─────────────────────────────────────────────
 
+
+
+def _resolver_grm(nombre_producto: str, cantidad: float, es_cajas: bool = False) -> tuple[str, float, str]:
+    """
+    Para productos GRM (puntillas): convierte cajas a gramos y devuelve
+    (nombre_oficial, cantidad_en_gramos, label_para_mostrar).
+    Si no es GRM, devuelve los valores originales.
+    """
+    from memoria import buscar_producto_en_catalogo as _bpc
+    _PESO_CAJA_GR = 500
+    prod = _bpc(nombre_producto)
+    if prod and prod.get("unidad_medida", "").upper() == "GRM":
+        if es_cajas:
+            gr = cantidad * _PESO_CAJA_GR
+            label = f"{int(cantidad)} caja{'s' if cantidad > 1 else ''} ({int(gr)} gr)"
+        else:
+            gr = cantidad
+            cajas = gr / _PESO_CAJA_GR
+            label = f"{int(gr)} gr ({cajas:.1f} caja{'s' if cajas != 1 else ''})" if gr >= _PESO_CAJA_GR else f"{int(gr)} gr"
+        return prod["nombre"], gr, label
+    return nombre_producto, cantidad, str(int(cantidad) if cantidad == int(cantidad) else cantidad)
+
 async def comando_inv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Registra conteo de inventario.
@@ -371,29 +424,52 @@ async def comando_inv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Primer argumento es la cantidad
-    try:
-        cantidad = float(args[0].replace(",", "."))
-    except ValueError:
-        await update.message.reply_text(
-            f"❌ '{args[0]}' no es una cantidad válida.\n"
-            "Usa números: `/inv 25 brocha 2\"`",
-            parse_mode="Markdown"
-        )
-        return
-    
-    # Resto es el nombre del producto
-    nombre_producto = " ".join(args[1:])
-    
+    # Detectar si viene "N cajas puntilla X" o "N gramos puntilla X"
+    import re as _re_inv
+    texto_inv = " ".join(args)
+    _m_cajas = _re_inv.match(r'^(\d+(?:[.,]\d+)?)\s+cajas?\s+(.+)$', texto_inv, _re_inv.IGNORECASE)
+    _m_gramos = _re_inv.match(r'^(\d+(?:[.,]\d+)?)\s+gr(?:amos?)?\s+(.+)$', texto_inv, _re_inv.IGNORECASE)
+
+    if _m_cajas:
+        try:
+            _n_cajas = float(_m_cajas.group(1).replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Cantidad inválida.")
+            return
+        nombre_producto = _m_cajas.group(2).strip()
+        nombre_producto, cantidad, _lbl = _resolver_grm(nombre_producto, _n_cajas, es_cajas=True)
+    elif _m_gramos:
+        try:
+            _gr = float(_m_gramos.group(1).replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Cantidad inválida.")
+            return
+        nombre_producto = _m_gramos.group(2).strip()
+        nombre_producto, cantidad, _lbl = _resolver_grm(nombre_producto, _gr, es_cajas=False)
+    else:
+        # Formato normal: N producto
+        try:
+            cantidad = float(args[0].replace(",", "."))
+        except ValueError:
+            await update.message.reply_text(
+                f"❌ '{args[0]}' no es una cantidad válida.\n"
+                "Usa números: `/inv 25 brocha 2\"`",
+                parse_mode="Markdown"
+            )
+            return
+        nombre_producto = " ".join(args[1:])
+        _lbl = None
+
     if len(nombre_producto) < 3:
         await update.message.reply_text("❌ Nombre del producto muy corto.")
         return
-    
-    # Registrar en inventario
+
     exito, mensaje = await asyncio.to_thread(
         registrar_conteo_inventario, nombre_producto, cantidad
     )
-    
+    # Si fue en cajas, añadir aclaración
+    if exito and _lbl:
+        mensaje = mensaje.replace(str(cantidad), _lbl)
     await update.message.reply_text(mensaje)
 
 
@@ -444,7 +520,18 @@ async def comando_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             emoji = "✅"
         
-        texto += f"{emoji} *{p['nombre']}*: {cantidad} {unidad}\n"
+        # Para puntillas GRM: mostrar en cajas en lugar de gramos crudos
+        from memoria import buscar_producto_en_catalogo as _bpc_s
+        _prod_s = _bpc_s(p['nombre'])
+        if _prod_s and _prod_s.get("unidad_medida", "").upper() == "GRM" and cantidad >= 500:
+            _cajas = cantidad / 500
+            _cajas_txt = f"{int(_cajas)}" if _cajas == int(_cajas) else f"{_cajas:.1f}"
+            _gr_txt = int(cantidad)
+            texto += f"{emoji} *{p['nombre']}*: {_cajas_txt} caja(s) ({_gr_txt} gr)\n"
+        elif _prod_s and _prod_s.get("unidad_medida", "").upper() == "GRM":
+            texto += f"{emoji} *{p['nombre']}*: {int(cantidad)} gr\n"
+        else:
+            texto += f"{emoji} *{p['nombre']}*: {cantidad} {unidad}\n"
     
     if alertas > 0:
         texto += f"\n⚠️ {alertas} producto(s) con stock bajo"
@@ -561,19 +648,61 @@ async def comando_compra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         parte_costo = resto
     
-    # Extraer cantidad (primer número del producto)
+    # Extraer cantidad — soporta "N cajas puntilla X" o "N producto"
+    import re as _re_compra
     palabras_producto = parte_producto.split()
-    try:
-        cantidad = float(palabras_producto[0].replace(",", "."))
-    except ValueError:
-        await update.message.reply_text(
-            f"❌ '{palabras_producto[0]}' no es una cantidad válida.",
-            parse_mode="Markdown"
-        )
-        return
-    
-    # Resto es el nombre del producto
-    nombre_producto = " ".join(palabras_producto[1:])
+
+    _m_cajas_c = _re_compra.match(r'^(\d+(?:[.,]\d+)?)\s+cajas?\s+(.+)$',
+                                    parte_producto, _re_compra.IGNORECASE)
+    _m_gramos_c = _re_compra.match(r'^(\d+(?:[.,]\d+)?)\s+gr(?:amos?)?\s+(.+)$',
+                                    parte_producto, _re_compra.IGNORECASE)
+
+    if _m_cajas_c:
+        try:
+            _n_cajas_c = float(_m_cajas_c.group(1).replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Cantidad inválida.", parse_mode="Markdown")
+            return
+        nombre_producto = _m_cajas_c.group(2).strip()
+        _prod_c_check = None
+        try:
+            from memoria import buscar_producto_en_catalogo as _bpc_c
+            _prod_c_check = _bpc_c(nombre_producto)
+        except Exception:
+            pass
+        if _prod_c_check and _prod_c_check.get("unidad_medida", "").upper() == "GRM":
+            # Convertir cajas → gramos; el costo ya viene "por caja" → dividir a por gramo
+            cantidad = float(500 * _n_cajas_c)
+            nombre_producto = _prod_c_check["nombre"]
+            _label_compra = f"{int(_n_cajas_c)} caja(s) = {int(cantidad)} gr"
+            _dividir_costo = True  # costo viene por caja, hay que dividir entre 500
+        else:
+            # No es GRM, tratar normal
+            cantidad = _n_cajas_c
+            _label_compra = None
+            _dividir_costo = False
+    elif _m_gramos_c:
+        try:
+            cantidad = float(_m_gramos_c.group(1).replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Cantidad inválida.", parse_mode="Markdown")
+            return
+        nombre_producto = _m_gramos_c.group(2).strip()
+        _label_compra = None
+        _dividir_costo = False
+    else:
+        try:
+            cantidad = float(palabras_producto[0].replace(",", "."))
+        except ValueError:
+            await update.message.reply_text(
+                f"❌ '{palabras_producto[0]}' no es una cantidad válida.",
+                parse_mode="Markdown"
+            )
+            return
+        nombre_producto = " ".join(palabras_producto[1:])
+        _label_compra = None
+        _dividir_costo = False
+
     if len(nombre_producto) < 2:
         await update.message.reply_text("❌ Nombre del producto muy corto.")
         return
@@ -593,8 +722,14 @@ async def comando_compra(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Registrar compra en memoria
+    # Si fue "N cajas puntilla a X la caja", costo viene por caja → convertir a por gramo
+    if _dividir_costo and costo >= 500:
+        costo_gramo = costo / 500
+    else:
+        costo_gramo = costo
+
     exito, mensaje, datos_excel = await asyncio.to_thread(
-        registrar_compra, nombre_producto, cantidad, costo, proveedor
+        registrar_compra, nombre_producto, cantidad, costo_gramo, proveedor
     )
     
     # Guardar en Excel
@@ -992,6 +1127,16 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
     hoy       = datetime.now(config.COLOMBIA_TZ)
     fecha_str = hoy.strftime("%Y-%m-%d")
 
+    # Detectar las fechas reales de las ventas en Sheets (puede ser ayer si /cerrar
+    # se ejecuta después de medianoche)
+    fechas_en_sheets = set()
+    for v in ventas_sheets:
+        f = str(v.get("fecha", ""))[:10]
+        if f:
+            fechas_en_sheets.add(f)
+    if not fechas_en_sheets:
+        fechas_en_sheets.add(fecha_str)
+
     try:
         await asyncio.to_thread(inicializar_excel)
         wb = await asyncio.to_thread(openpyxl.load_workbook, config.EXCEL_FILE)
@@ -1003,12 +1148,13 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
             cols = detectar_columnas(ws)
             col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
 
+            # Borrar filas de TODAS las fechas que vienen en Sheets (evita duplicados)
             if col_fecha:
-                filas_hoy = [
+                filas_borrar = [
                     fila for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1)
-                    if str(ws.cell(row=fila, column=col_fecha).value or "")[:10] == fecha_str
+                    if str(ws.cell(row=fila, column=col_fecha).value or "")[:10] in fechas_en_sheets
                 ]
-                for fila in reversed(filas_hoy):
+                for fila in reversed(filas_borrar):
                     ws.delete_rows(fila)
 
             for v in ventas_sheets:
@@ -1021,10 +1167,11 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     "código del producto":  v.get("codigo_producto", ""),
                     "producto":             v.get("producto", ""),
                     "cantidad":             v.get("cantidad", ""),
+                    "unidad de medida":     v.get("unidad_medida", "Unidad"),
+                    "unidad_medida":        v.get("unidad_medida", "Unidad"),
                     "valor unitario":       v.get("precio_unitario", 0),
                     "total":                v.get("total", 0),
                     "consecutivo de venta": v.get("num", fila_nueva - 1),
-                    "alias":                v.get("alias", str(v.get("num", ""))),
                     "vendedor":             v.get("vendedor", ""),
                     "metodo de pago":       v.get("metodo", ""),
                 }
@@ -1046,6 +1193,29 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"✅ Sincronizado: {len(ventas_sheets)} ventas — Total: ${total_general:,.0f}")
         with open(config.EXCEL_FILE, "rb") as f:
             await update.message.reply_document(document=f, filename="ventas.xlsx")
+
+        # ── Guardar total del día en histórico de ventas ─────────────────
+        try:
+            from api import _leer_historico, _guardar_historico
+            historico = _leer_historico()
+            # Agrupar totales por fecha real (puede ser ayer si /cerrar es post-medianoche)
+            totales_por_fecha = {}
+            for v in ventas_sheets:
+                f = str(v.get("fecha", fecha_str))[:10]
+                totales_por_fecha[f] = totales_por_fecha.get(f, 0) + float(v.get("total", 0) or 0)
+            guardados = []
+            for f, t_dia in totales_por_fecha.items():
+                if t_dia > 0:
+                    historico[f] = int(t_dia)
+                    guardados.append(f"  {f} → ${t_dia:,.0f}")
+            if guardados:
+                _guardar_historico(historico)
+                await update.message.reply_text(
+                    f"📊 Histórico actualizado:\n" + "\n".join(guardados)
+                )
+        except Exception as e_hist:
+            print(f"⚠️ Error guardando histórico: {e_hist}")
+            # No bloquear el cierre por un error en el histórico
 
     except Exception:
         print(traceback.format_exc())
@@ -1072,6 +1242,77 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(msg)
     else:
         await update.message.reply_text("⚠️ Excel actualizado, pero Sheets no se pudo limpiar.")
+
+    # ── Análisis del día con Claude ───────────────────────────────────────────
+    try:
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+        # Construir datos del día para Claude
+        total_dia     = sum(float(v.get("total", 0) or 0) for v in ventas_sheets)
+        num_ventas    = len(ventas_sheets)
+        por_metodo    = {}
+        por_vendedor  = {}
+        por_producto  = {}
+        for v in ventas_sheets:
+            m_pago = str(v.get("metodo", "efectivo")).lower()
+            por_metodo[m_pago]  = por_metodo.get(m_pago, 0)  + float(v.get("total", 0) or 0)
+            vend = str(v.get("vendedor", "?"))
+            por_vendedor[vend]  = por_vendedor.get(vend, 0)   + float(v.get("total", 0) or 0)
+            prod = str(v.get("producto", "?"))
+            por_producto[prod]  = por_producto.get(prod, 0)   + float(v.get("total", 0) or 0)
+
+        # Top 3 productos
+        top_prod = sorted(por_producto.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_txt  = ", ".join(f"{p} (${t:,.0f})" for p, t in top_prod)
+
+        # Histórico para comparar
+        try:
+            from api import _leer_historico
+            historico = _leer_historico()
+            # Últimos 7 días (excluyendo hoy)
+            from datetime import timedelta
+            ultimos = sorted(historico.keys(), reverse=True)[:8]
+            ultimos = [d for d in ultimos if d != fecha_str][:7]
+            if ultimos:
+                promedio_semana = sum(historico[d] for d in ultimos) / len(ultimos)
+                mejor_dia       = max(ultimos, key=lambda d: historico[d])
+                hist_txt = (
+                    f"Promedio últimos {len(ultimos)} días: ${promedio_semana:,.0f}\n"
+                    f"Mejor día reciente: {mejor_dia} con ${historico[mejor_dia]:,.0f}"
+                )
+            else:
+                hist_txt = "Sin histórico previo disponible"
+        except Exception:
+            hist_txt = "Sin histórico previo disponible"
+
+        prompt_analisis = (
+            f"Eres el asistente de Ferretería Punto Rojo. Hoy fue {fecha_str}.\n"
+            f"\nDATOS DEL DÍA:\n"
+            f"- Total vendido: ${total_dia:,.0f}\n"
+            f"- Número de ventas: {num_ventas}\n"
+            f"- Por método: {', '.join(f'{k}: ${v:,.0f}' for k,v in por_metodo.items())}\n"
+            f"- Por vendedor: {', '.join(f'{k}: ${v:,.0f}' for k,v in por_vendedor.items())}\n"
+            f"- Top 3 productos: {top_txt}\n"
+            f"\nHISTÓRICO RECIENTE:\n{hist_txt}\n"
+            f"\nEscribe un análisis breve del día (máximo 5 líneas). "
+            f"Compara con el promedio, destaca lo notable, menciona si fue buen o mal día y por qué. "
+            f"Sé directo y concreto. Sin markdown, sin asteriscos. "
+            f"Si fue un día excepcional o muy flojo, dilo claramente."
+        )
+
+        respuesta_analisis = await asyncio.to_thread(
+            lambda: config.claude_client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=400,
+                messages=[{"role": "user", "content": prompt_analisis}],
+            )
+        )
+        analisis_txt = respuesta_analisis.content[0].text.strip()
+        await update.message.reply_text(f"🧠 Análisis del día:\n\n{analisis_txt}")
+
+    except Exception as e_an:
+        # El análisis es opcional — no bloquear el cierre por esto
+        print(f"[cerrar] Error en análisis Claude: {e_an}")
 
 
 # ─────────────────────────────────────────────
@@ -1516,12 +1757,24 @@ async def comando_keepalive(update, context):
 # ─────────────────────────────────────────────
 
 CATEGORIAS_DISPONIBLES = {
-    "1": "2 Pinturas y Disolventes",
-    "2": "1 Artículos de Ferreteria",
+    "1": "1 Artículos de Ferreteria",
+    "2": "2 Pinturas y Disolventes",
     "3": "3 Tornilleria",
     "4": "4 Impermeabilizantes y Materiales de construcción",
     "5": "5 Materiales Electricos",
 }
+
+# Nombres limpios para mostrar al usuario (sin el prefijo numérico)
+CATEGORIAS_DISPLAY = {
+    "1": "Artículos de Ferreteria",
+    "2": "Pinturas y Disolventes",
+    "3": "Tornilleria",
+    "4": "Impermeabilizantes y Materiales de construcción",
+    "5": "Materiales Eléctricos",
+}
+
+# Orden de pasos para poder retroceder
+_PASOS_ORDEN = ["nombre", "categoria", "precio"]
 
 CATEGORIAS_CON_FRACCIONES = {"2 pinturas y disolventes"}
 CATEGORIAS_TORNILLERIA    = {"3 tornilleria"}
@@ -1536,7 +1789,19 @@ async def comando_agregar_producto(update: Update, context: ContextTypes.DEFAULT
 
     await update.message.reply_text(
         "➕ Agregar producto nuevo\n\n"
-        "Escribe el nombre del producto:"
+        "Escribe el nombre del producto:\n\n"
+        "_(Escribe 'cancelar' en cualquier momento para salir)_",
+        parse_mode="Markdown"
+    )
+
+
+def _texto_categoria_prompt(nombre_prod: str) -> str:
+    cats = "\n".join(f"  {k}. {v}" for k, v in CATEGORIAS_DISPLAY.items())
+    return (
+        f"Producto: *{nombre_prod}*\n\n"
+        f"Elige la categoría:\n{cats}\n\n"
+        f"Responde con el número (1-5):\n\n"
+        f"_(Escribe 'volver' para cambiar el nombre o 'cancelar' para salir)_"
     )
 
 
@@ -1555,10 +1820,86 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
     if texto.lower() in {"cancelar", "/cancelar"}:
         context.user_data.pop("nuevo_producto", None)
         context.user_data.pop("paso_producto", None)
-        await update.message.reply_text("❌ Cancelado.")
+        await update.message.reply_text("❌ Registro cancelado.")
         return True
 
     prod = context.user_data.get("nuevo_producto", {})
+
+    # ── Volver al paso anterior ──
+    if texto.lower() in {"volver", "atras", "atrás"}:
+        if paso == "categoria":
+            context.user_data["paso_producto"] = "codigo"
+            await update.message.reply_text(
+                f"↩️ Volvemos al código.\n\n"
+                f"¿Cuál es el código del producto?\n_(Escribe 'omitir' si no tiene código)_",
+                parse_mode="Markdown"
+            )
+            return True
+        elif paso == "precio":
+            context.user_data["paso_producto"] = "categoria"
+            await update.message.reply_text(
+                _texto_categoria_prompt(prod.get("nombre", "")),
+                parse_mode="Markdown"
+            )
+            return True
+        elif paso in {"fracciones_3_4", "mayorista"}:
+            context.user_data["paso_producto"] = "precio"
+            await update.message.reply_text(
+                f"↩️ Volvemos al precio.\n\n"
+                f"¿Cuál es el precio de la unidad completa?\n(solo el número, ej: 50000)\n\n"
+                f"_(Escribe 'volver' para cambiar la categoría)_",
+                parse_mode="Markdown"
+            )
+            return True
+        elif paso.startswith("fracciones_"):
+            # Dentro de fracciones, volver a la fracción anterior
+            orden_fracs = ["fracciones_3_4", "fracciones_1_2", "fracciones_1_4", "fracciones_1_8", "fracciones_1_16"]
+            idx = orden_fracs.index(paso) if paso in orden_fracs else -1
+            if idx > 0:
+                paso_ant = orden_fracs[idx - 1]
+                context.user_data["paso_producto"] = paso_ant
+                fracs_labels = {"fracciones_3_4": "3/4", "fracciones_1_2": "1/2",
+                                "fracciones_1_4": "1/4", "fracciones_1_8": "1/8", "fracciones_1_16": "1/16"}
+                frac_ant = fracs_labels.get(paso_ant, "")
+                # Limpiar la fracción anterior para re-ingresarla
+                prod.get("fracciones", {}).pop(frac_ant, None)
+                context.user_data["nuevo_producto"] = prod
+                await update.message.reply_text(
+                    f"↩️ Volvemos a la fracción {frac_ant}.\n\n"
+                    f"¿Precio unitario para vender {frac_ant}?\n(Escribe 0 si no aplica)"
+                )
+            else:
+                context.user_data["paso_producto"] = "precio"
+                await update.message.reply_text(
+                    f"↩️ Volvemos al precio.\n\n"
+                    f"¿Cuál es el precio de la unidad completa?\n(solo el número, ej: 50000)"
+                )
+            return True
+        elif paso == "confirmar":
+            # Volver al último paso de datos
+            cat_lower = prod.get("categoria", "").lower()
+            if cat_lower in CATEGORIAS_CON_FRACCIONES:
+                context.user_data["paso_producto"] = "fracciones_1_16"
+                await update.message.reply_text(
+                    "↩️ Volvemos a la última fracción.\n\n"
+                    "¿Precio unitario para vender 1/16?\n(Escribe 0 si no aplica)"
+                )
+            elif cat_lower in CATEGORIAS_TORNILLERIA:
+                context.user_data["paso_producto"] = "mayorista"
+                await update.message.reply_text(
+                    "↩️ Volvemos al precio mayorista.\n\n"
+                    "¿Cuál es el precio unitario para compras de 50 o más unidades?\n(Escribe 0 si no aplica)"
+                )
+            else:
+                context.user_data["paso_producto"] = "precio"
+                await update.message.reply_text(
+                    "↩️ Volvemos al precio.\n\n"
+                    "¿Cuál es el precio de la unidad completa?\n(solo el número, ej: 50000)"
+                )
+            return True
+        else:
+            await update.message.reply_text("Ya estás en el primer paso. Escribe 'cancelar' para salir.")
+            return True
 
     # ── Paso 1: nombre ──
     if paso == "nombre":
@@ -1567,13 +1908,29 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
             return True
         prod["nombre"] = texto
         context.user_data["nuevo_producto"] = prod
+        context.user_data["paso_producto"]  = "codigo"
+
+        await update.message.reply_text(
+            f"Nombre: *{texto}*\n\n"
+            f"¿Cuál es el código del producto?\n"
+            f"(ej: `1cepilloacero`, `2viniloT1blanco`)\n\n"
+            f"_Escribe 'omitir' si no tiene código_",
+            parse_mode="Markdown"
+        )
+        return True
+
+    # ── Paso 1b: código ──
+    if paso == "codigo":
+        if texto.lower() in {"omitir", "no", "ninguno", "-"}:
+            prod["codigo"] = ""
+        else:
+            prod["codigo"] = texto.strip()
+        context.user_data["nuevo_producto"] = prod
         context.user_data["paso_producto"]  = "categoria"
 
-        cats = "\n".join(f"  {k}. {v}" for k, v in CATEGORIAS_DISPONIBLES.items())
         await update.message.reply_text(
-            f"Producto: {texto}\n\n"
-            f"Elige la categoría:\n{cats}\n\n"
-            f"Responde con el número (1-5):"
+            _texto_categoria_prompt(prod["nombre"]),
+            parse_mode="Markdown"
         )
         return True
 
@@ -1586,11 +1943,14 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
         prod["categoria"] = categoria
         context.user_data["nuevo_producto"] = prod
         context.user_data["paso_producto"]  = "precio"
+        nombre_display = CATEGORIAS_DISPLAY[texto]
 
         await update.message.reply_text(
-            f"Categoría: {categoria}\n\n"
+            f"Categoría: *{nombre_display}*\n\n"
             f"¿Cuál es el precio de la unidad completa?\n"
-            f"(solo el número, ej: 50000)"
+            f"(solo el número, ej: 50000)\n\n"
+            f"_(Escribe 'volver' para cambiar la categoría)_",
+            parse_mode="Markdown"
         )
         return True
 
@@ -1616,14 +1976,17 @@ async def manejar_flujo_agregar_producto(update: Update, context: ContextTypes.D
                 f"Es de Pinturas/Disolventes — necesito los precios por fracción.\n"
                 f"(Escribe 0 si no aplica esa fracción)\n\n"
                 f"¿Precio unitario para vender 3/4?\n"
-                f"(precio que multiplicado × 0.75 da el total)"
+                f"_(Escribe 'volver' para corregir el precio base)_",
+                parse_mode="Markdown"
             )
         elif cat_lower in CATEGORIAS_TORNILLERIA:
             context.user_data["paso_producto"] = "mayorista"
             await update.message.reply_text(
                 f"Precio base: ${precio:,.0f}\n\n"
                 f"Es Tornillería — ¿cuál es el precio unitario para compras de 50 o más unidades?\n"
-                f"(Escribe 0 si no aplica precio mayorista)"
+                f"(Escribe 0 si no aplica precio mayorista)\n\n"
+                f"_(Escribe 'volver' para corregir el precio base)_",
+                parse_mode="Markdown"
             )
         else:
             context.user_data["paso_producto"] = "confirmar"
@@ -1704,8 +2067,8 @@ async def _mostrar_confirmacion(update, prod: dict):
     if prod.get("precio_mayorista"):
         lineas.append(f"Mayorista: ${prod['precio_mayorista']:,.0f} (x50+)")
 
-    lineas.append("\n¿Confirmas? (si / no)")
-    await update.message.reply_text("\n".join(lineas))
+    lineas.append("\n¿Confirmas? (si / no)\n_(Escribe 'volver' para corregir el último dato)_")
+    await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
 
 
 async def _guardar_producto(update, context, prod: dict):
@@ -1733,6 +2096,9 @@ async def _guardar_producto(update, context, prod: dict):
         "categoria":    categoria,
         "precio_unidad": round(precio_unidad),
     }
+    codigo_prod = prod.get("codigo", "").strip()
+    if codigo_prod:
+        entrada["codigo"] = codigo_prod
 
     if _es_tornillo_drywall(nombre) and p_mayorista:
         entrada["precio_por_cantidad"] = {
@@ -1750,7 +2116,7 @@ async def _guardar_producto(update, context, prod: dict):
 
     catalogo[clave] = entrada
     mem["catalogo"] = catalogo
-    guardar_memoria(mem)
+    guardar_memoria(mem, urgente=True)   # urgente=True: sube a Drive sin debounce
     invalidar_cache_memoria()
 
     # Agregar al Excel BASE_DE_DATOS_PRODUCTOS.xlsx
@@ -1768,9 +2134,18 @@ async def _guardar_producto(update, context, prod: dict):
 
             # Construir fila con el mismo formato de columnas del importador
             fila = [""] * 22  # columnas A-V
-            fila[1]  = nombre        # col B — nombre
-            fila[3]  = categoria     # col D — categoría
-            fila[16] = round(precio_unidad)  # col Q — precio unidad
+            codigo_prod = prod.get("codigo", "").strip()
+            fila[0]  = codigo_prod if codigo_prod else nombre.lower().replace(" ", "")[:20]  # col A — código
+            fila[1]  = nombre                 # col B — nombre
+            fila[2]  = "P-Producto"           # col C — tipo
+            fila[3]  = categoria              # col D — categoría
+            fila[4]  = "SI"                   # col E — inventariable
+            fila[5]  = "SI"                   # col F — visible facturas
+            fila[6]  = 0                      # col G — stock mínimo
+            fila[7]  = "94"                   # col H — código DIAN
+            fila[13] = "22-IVA 0%"            # col N — código impuesto
+            fila[15] = "SI"                   # col P — incluye IVA
+            fila[16] = round(precio_unidad)   # col Q — precio unidad
 
             mult_map = {"3/4":17,"1/2":18,"1/4":19,"1/8":20,"1/16":21}
             for frac, col_idx in mult_map.items():
@@ -1780,7 +2155,15 @@ async def _guardar_producto(update, context, prod: dict):
             if p_mayorista:
                 fila[17] = round(p_mayorista)  # col R — precio mayorista (3/4 slot)
 
-            ws.append(fila)
+            # Buscar primera fila vacía en col B (igual que dashboard)
+            fila_nueva_prod = ws.max_row + 1
+            for r in range(2, ws.max_row + 2):
+                if not ws.cell(row=r, column=2).value:
+                    fila_nueva_prod = r
+                    break
+            for col_idx, valor in enumerate(fila, 0):
+                if valor != "":
+                    ws.cell(row=fila_nueva_prod, column=col_idx + 1, value=valor)
             wb.save(ruta)
 
             # Renombrar archivo temporal al nombre original antes de subir
@@ -1806,4 +2189,228 @@ async def _guardar_producto(update, context, prod: dict):
         f"✅ Producto guardado en el catálogo.\n"
         f"{excel_msg}\n\n"
         f"Ya puedes registrar ventas de '{nombre}'."
+    )
+
+
+# ─────────────────────────────────────────────
+# /actualizar_precio
+# ─────────────────────────────────────────────
+
+async def comando_actualizar_precio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /actualizar_precio — Entra en modo actualización de precios.
+    El usuario envía líneas "producto= precio" y se actualizan.
+    Escribe "listo" o "salir" para salir del modo.
+    """
+    from ventas_state import actualizando_precios, _estado_lock
+
+    chat_id = update.effective_chat.id
+
+    # Si viene con argumentos directos: /actualizar_precio tornillo 6x1= 50
+    args_text = " ".join(context.args) if context.args else ""
+    if args_text and "=" in args_text:
+        # Procesar directamente sin entrar en modo
+        resultado = await _procesar_linea_precio(args_text, update)
+        return
+
+    with _estado_lock:
+        actualizando_precios[chat_id] = True
+
+    await update.message.reply_text(
+        "💰 Modo actualización de precios\n\n"
+        "Envía los precios así:\n"
+        "  producto= precio\n"
+        "  producto= precio / precio_mayorista\n"
+        "  producto 1/4= precio_fraccion\n\n"
+        "Ejemplo:\n"
+        "  Tornillo drywall 6x1= 42/30\n"
+        "  Vinilo T1 Blanco= 50000\n"
+        "  Thinner 1/4= 8000\n\n"
+        "Escribe 'listo' para salir."
+    )
+
+
+async def _procesar_linea_precio(linea: str, update):
+    """Procesa una línea de actualización de precio."""
+    import re as _re
+    from precio_sync import actualizar_precio as _ap
+    from memoria import buscar_producto_en_catalogo, invalidar_cache_memoria, cargar_memoria, guardar_memoria
+
+    linea = linea.strip()
+    if not linea:
+        return
+
+    _FRACCIONES = {"1/16", "1/8", "1/4", "1/3", "3/8", "1/2", "3/4"}
+
+    def _parse_precio(s):
+        return float(s.replace(".", "").replace(",", ""))
+
+    # Patrón con dos precios: nombre= p1 / p2
+    PAT_DOS = _re.compile(r"^(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)\s*/\s*\$?\s*([\d][\d.,]*)$")
+    # Patrón un precio: nombre= precio
+    PAT_UNO = _re.compile(r"^(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)$")
+
+    precio_mayorista = None
+
+    m = PAT_DOS.match(linea)
+    if m:
+        nombre_raw = m.group(1).strip()
+        try:
+            precio = _parse_precio(m.group(2))
+            precio_mayorista = _parse_precio(m.group(3))
+        except ValueError:
+            await update.message.reply_text(f"❌ No entendí el precio: {linea}")
+            return
+    else:
+        m = PAT_UNO.match(linea)
+        if not m:
+            await update.message.reply_text(f"❌ Formato: producto= precio. Ej: Vinilo T1= 50000")
+            return
+        nombre_raw = m.group(1).strip()
+        try:
+            precio = _parse_precio(m.group(2))
+        except ValueError:
+            await update.message.reply_text(f"❌ No entendí el precio: {linea}")
+            return
+
+    if precio <= 0:
+        await update.message.reply_text("❌ El precio debe ser mayor a 0.")
+        return
+
+    # Detectar fracción al final del nombre
+    fraccion = None
+    nombre_lower = nombre_raw.lower()
+    for frac in _FRACCIONES:
+        if nombre_lower.endswith(" " + frac):
+            fraccion = frac
+            nombre_raw = nombre_raw[:-(len(frac)+1)].strip()
+            break
+
+    # Buscar producto en catálogo
+    prod = buscar_producto_en_catalogo(nombre_raw)
+    if not prod:
+        await update.message.reply_text(f"⚠️ No encontré '{nombre_raw}' en el catálogo.")
+        return
+
+    nombre_display = prod["nombre"]
+
+    # Si hay precio mayorista → actualizar precio_por_cantidad (tornillos)
+    if precio_mayorista is not None:
+        mem = cargar_memoria()
+        cat = mem.get("catalogo", {})
+        clave = next((k for k, v in cat.items()
+                      if v.get("nombre_lower") == prod.get("nombre_lower", "")), None)
+        if clave:
+            cat[clave]["precio_unidad"] = round(precio)
+            pxc = cat[clave].get("precio_por_cantidad", {})
+            pxc["precio_bajo_umbral"] = round(precio)
+            pxc["precio_sobre_umbral"] = round(precio_mayorista)
+            if "umbral" not in pxc:
+                pxc["umbral"] = 50
+            cat[clave]["precio_por_cantidad"] = pxc
+            mem["catalogo"] = cat
+            guardar_memoria(mem)
+            invalidar_cache_memoria()
+
+            # Sync al Excel
+            try:
+                _ap(nombre_display, round(precio), fraccion)
+            except Exception:
+                pass
+
+            await update.message.reply_text(
+                f"✅ {nombre_display}\n"
+                f"   Unitario: ${round(precio):,} → Mayorista: ${round(precio_mayorista):,}"
+            )
+        else:
+            await update.message.reply_text(f"⚠️ No encontré '{nombre_raw}' en el catálogo.")
+        return
+
+    # Precio simple o fracción
+    ok, desc = _ap(nombre_display, round(precio), fraccion)
+    if ok:
+        frac_txt = f" ({fraccion})" if fraccion else ""
+        await update.message.reply_text(f"✅ {nombre_display}{frac_txt} → ${round(precio):,}")
+    else:
+        await update.message.reply_text(f"⚠️ {desc}")
+
+
+async def manejar_mensaje_precio(update, mensaje: str) -> bool:
+    """
+    Si el chat está en modo actualización de precios, procesa el mensaje.
+    Retorna True si fue procesado, False si no estaba en modo precios.
+    """
+    from ventas_state import actualizando_precios, _estado_lock
+
+    chat_id = update.effective_chat.id
+
+    with _estado_lock:
+        if not actualizando_precios.get(chat_id):
+            return False
+
+    msg = mensaje.strip().lower()
+
+    # Salir del modo
+    if msg in ("listo", "salir", "exit", "ok", "ya", "fin"):
+        with _estado_lock:
+            actualizando_precios.pop(chat_id, None)
+        await update.message.reply_text("✅ Modo actualización de precios finalizado.")
+        return True
+
+    # Procesar como línea(s) de precio
+    lineas = [l.strip() for l in mensaje.strip().split("\n") if l.strip()]
+    # También separar por comas si hay múltiples
+    if len(lineas) == 1 and "," in lineas[0]:
+        lineas = [l.strip() for l in lineas[0].split(",") if l.strip()]
+
+    for linea in lineas:
+        await _procesar_linea_precio(linea, update)
+
+    return True
+
+
+async def comando_modelo(update, context):
+    """
+    /modelo           → muestra el modelo actual
+    /modelo auto      → selección automática (default)
+    /modelo haiku     → fuerza Haiku (más rápido y barato)
+    /modelo sonnet    → fuerza Sonnet (más inteligente)
+    """
+    chat_id = update.effective_chat.id
+    args = context.args
+
+    opciones_validas = ("auto", "haiku", "sonnet")
+
+    if not args:
+        actual = context.user_data.get("modelo_preferido", "auto")
+        await update.message.reply_text(
+            f"🤖 *Modelo actual:* `{actual}`\n\n"
+            f"Cambia con:\n"
+            f"  `/modelo auto` — selección automática\n"
+            f"  `/modelo haiku` — ⚡ rápido y eficiente\n"
+            f"  `/modelo sonnet` — 🧠 más inteligente",
+            parse_mode="Markdown"
+        )
+        return
+
+    seleccion = args[0].lower()
+    if seleccion not in opciones_validas:
+        await update.message.reply_text(
+            f"❌ Opción inválida. Usa: `auto`, `haiku` o `sonnet`",
+            parse_mode="Markdown"
+        )
+        return
+
+    context.user_data["modelo_preferido"] = seleccion
+
+    emojis = {"auto": "⚙️", "haiku": "⚡", "sonnet": "🧠"}
+    descripciones = {
+        "auto":   "selección automática según el mensaje",
+        "haiku":  "rápido y eficiente para ventas simples",
+        "sonnet": "más inteligente para consultas complejas",
+    }
+    await update.message.reply_text(
+        f"{emojis[seleccion]} *Modelo cambiado a `{seleccion}`*\n"
+        f"_{descripciones[seleccion]}_",
+        parse_mode="Markdown"
     )

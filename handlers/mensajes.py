@@ -6,39 +6,55 @@ CORRECCIONES v2:
     evitar NameError si download_to_drive falla antes de asignar la variable
   - mensajes_standby: se usa agregar_a_standby() de ventas_state que tiene cap MAX_STANDBY
   - Docstring ANTES del import logging
+
+CORRECCIONES v3:
+  - Todos los imports de stdlib (re, json, base64, datetime) movidos al nivel de módulo.
+  - Imports de callbacks hoistados (no hay ciclo: callbacks no importa mensajes).
+  - Imports que SÍ crean ciclo (handlers.comandos → mensajes) siguen siendo lazy.
 """
 
+# ── stdlib ────────────────────────────────────────────────────────────────────
+import json
 import logging
 import asyncio
-import os
-import tempfile
+import re
 import traceback
+from datetime import datetime
 
+# ── terceros ──────────────────────────────────────────────────────────────────
 import openpyxl
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
+# ── propios ───────────────────────────────────────────────────────────────────
 import config
 from ai import procesar_con_claude, procesar_acciones, procesar_acciones_async, editar_excel_con_claude
 from ventas_state import (
     agregar_al_historial, get_historial,
     ventas_pendientes, clientes_en_proceso, _estado_lock,
     get_chat_lock, registrar_ventas_con_metodo, mensajes_standby,
+    limpiar_pendientes_expirados,
     esperando_correccion, ventas_esperando_cliente,
-    agregar_a_standby,   # ← nueva función con cap de MAX_STANDBY
-    mensaje_contexto_pendiente,  # ← contexto previo cuando Claude solo preguntó
+    agregar_a_standby,
+    mensaje_contexto_pendiente,
 )
 from excel import guardar_cliente_nuevo
 from handlers.comandos import manejar_flujo_agregar_producto
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
-from memoria import cargar_memoria, guardar_memoria
+from memoria import cargar_memoria, guardar_memoria, importar_catalogo_desde_excel
+from precio_sync import actualizar_precio as _actualizar_precio_sync
+# Callbacks: no crean ciclo (callbacks.py no importa mensajes.py en nivel de módulo)
+from handlers.callbacks import (
+    _enviar_botones_pago as _botones_central,
+    _enviar_confirmacion_con_metodo,
+    _procesar_siguiente_standby,
+)
 
 logger = logging.getLogger("ferrebot.mensajes")
 
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
-    """Delega a callbacks._enviar_botones_pago para mantener un solo teclado centralizado."""
-    from handlers.callbacks import _enviar_botones_pago as _botones_central
+    """Delega a callbacks._enviar_botones_pago (importado al nivel de módulo)."""
     await _botones_central(message, chat_id, ventas)
 
 
@@ -88,8 +104,6 @@ async def _enviar_pregunta_cliente(message, chat_id: int):
 # ACTUALIZACIÓN MASIVA DE PRECIOS (sin llamar a Claude)
 # ─────────────────────────────────────────────────────────────────
 
-import re as _re
-
 def _parsear_actualizacion_masiva(mensaje: str):
     """
     Detecta un mensaje con múltiples líneas "producto = precio" o
@@ -112,7 +126,7 @@ def _parsear_actualizacion_masiva(mensaje: str):
     # FIX: mensaje llegó como 1 sola línea con espacios en vez de \n
     # (ocurre cuando Telegram colapsa saltos de línea al pegar texto)
     if len(lineas) == 1 and "  " in lineas[0]:
-        candidatos = [s.strip() for s in _re.split(r"  +", lineas[0]) if s.strip()]
+        candidatos = [s.strip() for s in re.split(r"  +", lineas[0]) if s.strip()]
         if len(candidatos) >= 2:
             lineas = candidatos
 
@@ -121,16 +135,16 @@ def _parsear_actualizacion_masiva(mensaje: str):
     # El regex PAT_UNO ancla al final ($) y captura el ÚLTIMO =precio como precio,
     # perdiendo todas las entradas anteriores.
     # Solución: para cada línea, detectar si hay múltiples pares y separarlos.
-    _PAT_MULTI = _re.compile(
+    _PAT_MULTI = re.compile(
         r"([^=\n]+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)\s*(?=\S)",
-        _re.UNICODE
+        re.UNICODE
     )
     def _expandir_linea(linea):
         """Si la línea tiene múltiples pares nombre=precio, los separa en sublíneas."""
         # Busca todos los matches de nombre=precio dentro de la línea
-        matches = list(_re.finditer(
+        matches = list(re.finditer(
             r"(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)(?=\s+\S|\s*$)",
-            linea, _re.UNICODE
+            linea, re.UNICODE
         ))
         if len(matches) <= 1:
             return [linea]
@@ -165,9 +179,9 @@ def _parsear_actualizacion_masiva(mensaje: str):
             _idx_dos_puntos = primera.index(":")
             _resto_original = lineas[0][_idx_dos_puntos + 1:].strip()
             # Si lo que queda del ':' parece un producto con precio, insertarlo
-            if _resto_original and _re.search(r"[=:→\->].*\d", _resto_original):
+            if _resto_original and re.search(r"[=:→\->].*\d", _resto_original):
                 lineas = [_resto_original] + lineas[1:]
-            elif _resto_original and _re.search(r"\d", _resto_original):
+            elif _resto_original and re.search(r"\d", _resto_original):
                 lineas = [_resto_original] + lineas[1:]
             else:
                 lineas = lineas[1:]  # solo header, sin producto
@@ -176,8 +190,8 @@ def _parsear_actualizacion_masiva(mensaje: str):
             # y no tiene número (no es una línea de precio disfrazada de encabezado)
             es_encabezado = (
                 primera_norm in _ENCABEZADOS
-                or (primera.endswith(":") and not _re.search(r"\d", primera))
-                or (primera.endswith(":") and not _re.search(r"[=:→\->/].*\d", primera))
+                or (primera.endswith(":") and not re.search(r"\d", primera))
+                or (primera.endswith(":") and not re.search(r"[=:→\->/].*\d", primera))
             )
             if es_encabezado:
                 lineas = lineas[1:]
@@ -190,17 +204,17 @@ def _parsear_actualizacion_masiva(mensaje: str):
         return float(s.replace(".", "").replace(",", ""))
 
     # Patrón con dos precios: <nombre> [=|:] <p1> / <p2>
-    PAT_DOS = _re.compile(
+    PAT_DOS = re.compile(
         r"^(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)\s*/\s*\$?\s*([\d][\d.,]*)$",
-        _re.UNICODE
+        re.UNICODE
     )
     # Patrón un precio: <nombre> [=|:] <precio>
-    PAT_UNO = _re.compile(
+    PAT_UNO = re.compile(
         r"^(.+?)\s*(?:=|:|→|->)\s*\$?\s*([\d][\d.,]*)$",
-        _re.UNICODE
+        re.UNICODE
     )
     # Sin separador: <nombre> <precio>
-    PAT_ESP = _re.compile(r"^(.+?)\s+\$?([\d][\d.,]*)$", _re.UNICODE)
+    PAT_ESP = re.compile(r"^(.+?)\s+\$?([\d][\d.,]*)$", re.UNICODE)
 
     resultados = []
     for linea in lineas:
@@ -230,6 +244,21 @@ def _parsear_actualizacion_masiva(mensaje: str):
         if precio <= 0:
             return None
 
+        # ── GUARD: si el "nombre" empieza con un número o fracción, es una VENTA
+        # con total, no una actualización de precio.
+        # Ej: "348 tornillos 6x3/4= 17000" → 348 es la cantidad
+        # Ej: "1/2 vinilo= 21000" → 1/2 es la cantidad
+        # También "venta:" al inicio
+        _nombre_check = nombre_raw.strip().lower()
+        if re.match(r'^\d+[\s,]', _nombre_check):
+            return None  # Empieza con cantidad entera → es venta
+        if re.match(r'^\d+/\d+\s', _nombre_check):
+            return None  # Empieza con fracción → es venta
+        if re.match(r'^\d+-\d+/\d+\s', _nombre_check):
+            return None  # Empieza con mixto (1-1/2) → es venta
+        if _nombre_check.startswith(("venta:", "venta ")):
+            return None  # Explícitamente una venta
+
         # Detectar fracción al final del nombre
         fraccion = None
         nombre_lower = nombre_raw.lower()
@@ -246,9 +275,7 @@ def _parsear_actualizacion_masiva(mensaje: str):
 
 async def _manejar_actualizacion_masiva(update, vendedor: str, pares: list):
     """Actualiza todos los precios y responde con resumen."""
-    from precio_sync import actualizar_precio as _ap
-    from memoria import (buscar_producto_en_catalogo, invalidar_cache_memoria,
-                         cargar_memoria, guardar_memoria)
+    from memoria import buscar_producto_en_catalogo, invalidar_cache_memoria
 
     exitos, errores = [], []
     for item in pares:
@@ -272,12 +299,12 @@ async def _manejar_actualizacion_masiva(update, vendedor: str, pares: list):
                     cat[clave]["precio_por_cantidad"] = pxc
                     mem["catalogo"] = cat
                     guardar_memoria(mem, urgente=True)
-                    _ap(nombre, precio, None)  # actualizar col Q en Excel
+                    _actualizar_precio_sync(nombre, precio, None)  # actualizar col Q en Excel
                     linea = f"✅ {nombre_display}: ${int(precio):,} / ${int(precio_mayorista):,} ×50".replace(",", ".")
                 else:
                     linea = f"❌ {nombre}: no encontrado"
             else:
-                ok, msg = _ap(nombre, precio, fraccion)
+                ok, msg = _actualizar_precio_sync(nombre, precio, fraccion)
                 if fraccion:
                     linea = f"✅ {nombre_display} {fraccion} → ${int(precio):,}".replace(",", ".")
                 else:
@@ -311,6 +338,11 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
     # ── Flujo paso a paso de agregar producto ──
     if await manejar_flujo_agregar_producto(update, context):
+        return
+
+    # ── Modo actualización de precios (/actualizar_precio) ──
+    from handlers.comandos import manejar_mensaje_precio
+    if await manejar_mensaje_precio(update, mensaje):
         return
 
     # ── Flujo paso a paso de creación de cliente ──
@@ -377,7 +409,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 if ventas_pend:
                     metodo = ventas_pend[0].get("metodo_pago", "").lower()
                     if metodo in ("efectivo", "transferencia", "datafono"):
-                        from handlers.callbacks import _enviar_confirmacion_con_metodo
                         await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_pend, metodo)
                     else:
                         await _enviar_botones_pago(update.message, chat_id, ventas_pend)
@@ -397,9 +428,8 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 await update.message.reply_text("No pude hacer eso con el Excel. Intenta con otra instrucción.")
                 return
 
-            import re as _re
-            rutas_sospechosas  = _re.findall(r'''load_workbook\s*\(\s*['"]([^'"]+)['"]''', codigo)
-            rutas_sospechosas += _re.findall(r'''\.save\s*\(\s*['"]([^'"]+)['"]''', codigo)
+            rutas_sospechosas  = re.findall(r'''load_workbook\s*\(\s*['"]([^'"]+)['"]''', codigo)
+            rutas_sospechosas += re.findall(r'''\.save\s*\(\s*['"]([^'"]+)['"]''', codigo)
             for ruta_en_codigo in rutas_sospechosas:
                 if ruta_en_codigo != excel_temp and ruta_en_codigo not in (excel_nombre, f"modificado_{excel_nombre}"):
                     await update.message.reply_text("No puedo ejecutar esa operación por seguridad.")
@@ -452,7 +482,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             # CORRECCIÓN punto 7: usar _procesar_siguiente_standby en lugar del loop directo
             # para garantizar la cadena correcta uno por uno
             if standby_pendiente:
-                from handlers.callbacks import _procesar_siguiente_standby
                 await _procesar_siguiente_standby(
                     context.bot, update.message, chat_id, standby_pendiente, vendedor
                 )
@@ -481,7 +510,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
             # CORRECCIÓN punto 7: usar _procesar_siguiente_standby en lugar del loop directo
             if standby_list:
-                from handlers.callbacks import _procesar_siguiente_standby
                 await _procesar_siguiente_standby(
                     context.bot, update.message, chat_id, standby_list, vendedor
                 )
@@ -499,8 +527,125 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         if ventas_actuales and ventas_actuales[0].get("metodo_pago"):
             metodo_original = ventas_actuales[0]["metodo_pago"]
 
-        import json as _json
-        resumen_venta = _json.dumps(ventas_actuales, ensure_ascii=False)
+        # ── PARSER RÁPIDO: agregar productos no encontrados sin Claude ──────
+        # Formato: "modificar = 2---Tornillo especial=5000, 1---Clavija=3000"
+        # o línea por línea:
+        #   2---Tornillo especial=5000
+        #   1---Clavija=3000
+
+        # ── Parser de acciones explícitas ─────────────────────────────────
+        # Prefijo obligatorio para evitar confusión con correcciones normales:
+        #   añadir/agregar N nombre = total  → agrega producto a la venta
+        #   quitar/eliminar/borrar nombre    → elimina de la venta
+        #   reemplazar nombre [por N nuevo=total] → quita y opcionalmente agrega
+        # Sin prefijo → va a Claude (correcciones de precio, cantidad, etc.)
+
+        # Patrón con cantidad obligatoria: "2 nombre = 5000"
+        _PATRON_ITEM_MOD = _re_mod.compile(
+            r'(\d+(?:[.,]\d+)?)\s+([a-zA-Z\xe1\xe9\xed\xf3\xfa\xf1\xc1\xc9\xcd\xd3\xda\xd1][^=]+?)\s*=\s*(\d+)',
+            _re_mod.IGNORECASE
+        )
+        # Patrón sin cantidad (default=1): "nombre = 5000"
+        _PATRON_ITEM_MOD_SIN_CANT = _re_mod.compile(
+            r'([a-zA-Z\xe1\xe9\xed\xf3\xfa\xf1\xc1\xc9\xcd\xd3\xda\xd1][^=]+?)\s*=\s*(\d+)',
+            _re_mod.IGNORECASE
+        )
+
+        def _parse_accion_mod(msg):
+            ml = msg.strip().lower()
+            _PREFIJOS_ANADIR = ('añadir ', 'anadir ', 'agregar ', 'añade ', 'añade:', 'anadir:', 'agrega ', 'agrega:')
+            if ml.startswith(_PREFIJOS_ANADIR):
+                resto = _re_mod.sub(r'^(a[nñ]ad[ei][r]?|agreg[ao][r]?)[:\s]+', '', msg.strip(), flags=_re_mod.IGNORECASE).strip()
+                m = _PATRON_ITEM_MOD.match(resto)
+                if m:
+                    return {'accion': 'anadir',
+                            'cantidad': float(m.group(1).replace(',', '.')),
+                            'producto': m.group(2).strip(),
+                            'total': int(m.group(3))}
+                # Sin cantidad explícita → default 1
+                m2 = _PATRON_ITEM_MOD_SIN_CANT.match(resto)
+                if m2:
+                    return {'accion': 'anadir',
+                            'cantidad': 1,
+                            'producto': m2.group(1).strip(),
+                            'total': int(m2.group(2))}
+            if ml.startswith(('quitar ', 'eliminar ', 'borrar ', 'sacar ', 'quita ', 'quita:', 'elimina ', 'borra ')):
+                resto = _re_mod.sub(r'^(quitar|eliminar|borrar|sacar)\s+(los?\s+|las?\s+)?',
+                                    '', msg.strip(), flags=_re_mod.IGNORECASE)
+                return {'accion': 'quitar', 'termino': resto.strip()}
+            if ml.startswith(('reemplazar ', 'cambiar ')):
+                resto = _re_mod.sub(r'^(reemplazar|cambiar)\s+', '', msg.strip(), flags=_re_mod.IGNORECASE)
+                if _re_mod.search(r'\s+por\s+', resto, flags=_re_mod.IGNORECASE):
+                    partes = _re_mod.split(r'\s+por\s+', resto, maxsplit=1, flags=_re_mod.IGNORECASE)
+                    m = _PATRON_ITEM_MOD.match(partes[1].strip())
+                    if m:
+                        return {'accion': 'reemplazar',
+                                'termino': partes[0].strip(),
+                                'cantidad': float(m.group(1).replace(',', '.')),
+                                'producto': m.group(2).strip(),
+                                'total': int(m.group(3))}
+                return {'accion': 'quitar', 'termino': resto.strip()}
+            return None
+
+        _acciones_parsed = []
+        for _linea in mensaje.strip().splitlines():
+            _linea = _linea.strip()
+            if not _linea:
+                continue
+            _a = _parse_accion_mod(_linea)
+            if _a:
+                _acciones_parsed.append(_a)
+            else:
+                _acciones_parsed = []
+                break
+
+        if _acciones_parsed:
+            with _estado_lock:
+                _venta_actual = list(ventas_pendientes.get(chat_id, []))
+            _resumen_cambios = []
+            for _ac in _acciones_parsed:
+                if _ac['accion'] == 'anadir':
+                    _venta_actual.append({
+                        "producto":    _ac['producto'],
+                        "cantidad":    _ac['cantidad'],
+                        "total":       _ac['total'],
+                        "metodo_pago": metodo_original or "",
+                    })
+                    _resumen_cambios.append(f"\u2795 {_ac['cantidad']:g} {_ac['producto']} ${_ac['total']:,}")
+                elif _ac['accion'] == 'quitar':
+                    _t = _ac['termino'].lower()
+                    _antes = len(_venta_actual)
+                    _venta_actual = [v for v in _venta_actual if _t not in v.get('producto','').lower()]
+                    if len(_venta_actual) < _antes:
+                        _resumen_cambios.append(f"\u2796 {_ac['termino']} (eliminado)")
+                    else:
+                        _resumen_cambios.append(f"\u26a0\ufe0f No encontr\xe9 '{_ac['termino']}' en la venta")
+                elif _ac['accion'] == 'reemplazar':
+                    _t = _ac['termino'].lower()
+                    _venta_actual = [v for v in _venta_actual if _t not in v.get('producto','').lower()]
+                    _venta_actual.append({
+                        "producto":    _ac['producto'],
+                        "cantidad":    _ac['cantidad'],
+                        "total":       _ac['total'],
+                        "metodo_pago": metodo_original or "",
+                    })
+                    _resumen_cambios.append(
+                        f"\U0001f501 {_ac['termino']} \u2192 {_ac['cantidad']:g} {_ac['producto']} ${_ac['total']:,}"
+                    )
+            with _estado_lock:
+                ventas_pendientes[chat_id] = _venta_actual
+            _total_general = sum(v.get("total", 0) for v in _venta_actual)
+            await update.message.reply_text(
+                "\n".join(_resumen_cambios) + f"\nTotal venta: ${_total_general:,.0f}"
+            )
+            if metodo_original:
+                await _enviar_confirmacion_con_metodo(update.message, chat_id, _venta_actual, metodo_original)
+            else:
+                await _enviar_botones_pago(update.message, chat_id, _venta_actual)
+            return
+        # ── Fin parser — sin prefijo reconocido, va a Claude normal ──────────
+
+        resumen_venta = json.dumps(ventas_actuales, ensure_ascii=False)
 
         prompt_modificacion = (
             "El vendedor tiene esta venta pendiente de confirmar:\n"
@@ -532,13 +677,11 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             nota = texto_respuesta.split("\n")[0] if texto_respuesta else ""
             if confirmacion_accion:
                 metodo_conocido = confirmacion_accion.split(":", 1)[1]
-                from handlers.callbacks import _enviar_confirmacion_con_metodo
                 await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido, nota=nota)
             elif metodo_original:
                 with _estado_lock:
                     for v in ventas_pendientes.get(chat_id, []):
                         v["metodo_pago"] = metodo_original
-                from handlers.callbacks import _enviar_confirmacion_con_metodo
                 await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_original, nota=nota)
             else:
                 if nota:
@@ -561,7 +704,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             ventas = ventas_pendientes.get(chat_id, [])
         if confirmacion_accion:
             metodo_conocido = confirmacion_accion.split(":", 1)[1]
-            from handlers.callbacks import _enviar_confirmacion_con_metodo
             await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
         elif "PEDIR_METODO_PAGO" in acciones:
             await _enviar_botones_pago(update.message, chat_id, ventas)
@@ -581,17 +723,13 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 await update.message.reply_text("👍 Registrando la venta sin crear el cliente...")
                 metodo_conocido = ventas_para_registrar[0].get("metodo_pago", "").lower()
                 if metodo_conocido:
-                    from handlers.callbacks import _enviar_confirmacion_con_metodo
                     await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_para_registrar, metodo_conocido)
                 else:
                     await _enviar_botones_pago(update.message, chat_id, ventas_para_registrar)
                 return
 
-    # ── Actualización masiva de precios (intercepta antes de Claude) ──
-    pares_precio = _parsear_actualizacion_masiva(mensaje)
-    if pares_precio:
-        await _manejar_actualizacion_masiva(update, vendedor, pares_precio)
-        return
+    # ── Actualización de precios: ahora es SOLO via /actualizar_precio ──
+    # (Eliminada la intercepción automática que confundía ventas con precios)
 
     # ── Crear cliente sin venta: "agregar cliente: nombre" ──
     _msg_lower_cli = mensaje.strip().lower()
@@ -611,6 +749,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
     # ── Flujo normal con Claude ──
     try:
+        limpiar_pendientes_expirados()
         # ── Reinyectar contexto pendiente si Claude solo hizo una pregunta antes ──
         _ctx_previo = None
         with _estado_lock:
@@ -626,7 +765,8 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
         historial     = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
-        respuesta_raw = await procesar_con_claude(f"{vendedor}: {_mensaje_para_claude}", vendedor, historial)
+        _modelo_pref = context.user_data.get("modelo_preferido", None)
+        respuesta_raw = await procesar_con_claude(f"{vendedor}: {_mensaje_para_claude}", vendedor, historial, modelo_preferido=_modelo_pref)
         texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
@@ -654,7 +794,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         # ── Separar aviso "no encontré en catálogo" del resto del texto ──
         _aviso_no_encontrado = ""
         if texto_respuesta:
-            import re as _re_msg
             _lineas = texto_respuesta.splitlines()
             def _es_aviso_catalogo(l):
                 ls = l.strip()
@@ -690,20 +829,11 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
             # ── Guardar productos no encontrados en memoria ────────────────
             try:
-                import re as _re_pend
-                from datetime import datetime as _dt
-<<<<<<< Updated upstream
                 # Regex flexible: acepta con/sin tilde, aplanar multilinea
                 _aviso_flat = " ".join(_aviso_no_encontrado.splitlines())
                 _match_pend = _re_pend.search(
                     r'no encontr[eé] en cat[aá]logo[:\s]+(.+)',
                     _aviso_flat,
-=======
-                # Extraer nombres después de "⚠️ No encontré en catálogo: X, Y, Z"
-                _match_pend = _re_pend.search(
-                    r'no encontré en catálogo[:\s]+(.+)', 
-                    _aviso_no_encontrado, 
->>>>>>> Stashed changes
                     _re_pend.IGNORECASE
                 )
                 if _match_pend:
@@ -714,16 +844,12 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                         for n in _re_pend.split(r',| y ', _nombres_raw)
                         if n.strip()
                     ]
-<<<<<<< Updated upstream
                     from memoria import cargar_memoria as _cm_pend, guardar_memoria as _gm_pend
                     _mem_pend = _cm_pend()
-=======
-                    _mem_pend = cargar_memoria()
->>>>>>> Stashed changes
                     if "productos_pendientes" not in _mem_pend:
                         _mem_pend["productos_pendientes"] = []
-                    _hoy = _dt.now().strftime("%Y-%m-%d")
-                    _hora = _dt.now().strftime("%H:%M")
+                    _hoy = datetime.now().strftime("%Y-%m-%d")
+                    _hora = datetime.now().strftime("%H:%M")
                     _nombres_existentes = {
                         p["nombre"].lower() 
                         for p in _mem_pend["productos_pendientes"]
@@ -740,11 +866,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                             _nombres_existentes.add(_np)
                             _nuevos += 1
                     if _nuevos:
-<<<<<<< Updated upstream
                         _gm_pend(_mem_pend, urgente=True)
-=======
-                        guardar_memoria(_mem_pend)
->>>>>>> Stashed changes
                         logger.info(f"[PENDIENTES] +{_nuevos} productos guardados: {_nombres_lista}")
             except Exception as _e_pend:
                 logger.warning(f"[PENDIENTES] Error guardando pendientes: {_e_pend}")
@@ -789,7 +911,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 metodo_conocido = confirmacion_accion.split(":", 1)[1]
                 with _estado_lock:
                     ventas = ventas_pendientes.get(chat_id, [])
-                from handlers.callbacks import _enviar_confirmacion_con_metodo
                 await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
             elif pedir_metodo:
                 with _estado_lock:
@@ -807,9 +928,127 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 os.remove(archivo)
 
     except Exception:
-        logger.error("Error en mensaje: %s", traceback.format_exc())
+        _tb = traceback.format_exc()
+        logger.error("Error en mensaje: %s", _tb)
+        print(f"[ERROR _procesar_mensaje]\n{_tb}")  # visible en Railway
         await update.message.reply_text("Tuve un problema. Intenta de nuevo.")
 
+
+
+
+async def manejar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler de fotos: transcribe ventas anotadas a mano usando visión de Claude.
+    Descarga la foto, la convierte a base64 y la manda a procesar_con_claude
+    con el system prompt completo (catálogo incluido).
+    """
+    vendedor = update.message.from_user.first_name or "Desconocido"
+    chat_id  = update.message.chat_id
+
+    async with get_chat_lock(chat_id):
+        await _procesar_foto(update, context, vendedor, chat_id)
+
+
+async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, vendedor: str, chat_id: int):
+
+    ruta_foto = None
+
+    try:
+        # Chequeo de pago pendiente: si hay venta esperando, la foto va al standby
+        with _estado_lock:
+            _ventas_pend = list(ventas_pendientes.get(chat_id, []))
+
+        if _ventas_pend:
+            await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
+            await _enviar_botones_pago(update.message, chat_id, _ventas_pend)
+            return
+
+        await update.message.reply_text("📸 Leyendo la foto...")
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+        # Descargar la foto en la resolución más alta disponible
+        foto = update.message.photo[-1]  # última = máxima resolución
+        _archivo = None
+        for _intento in range(3):
+            try:
+                _archivo = await foto.get_file()
+                break
+            except Exception as _e:
+                if _intento < 2:
+                    await asyncio.sleep(1.5 * (_intento + 1))
+                else:
+                    raise _e
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            ruta_foto = tmp.name
+
+        for _intento in range(3):
+            try:
+                await _archivo.download_to_drive(ruta_foto)
+                break
+            except Exception as _e:
+                if _intento < 2:
+                    await asyncio.sleep(1.5 * (_intento + 1))
+                else:
+                    raise _e
+
+        # Convertir a base64
+        with open(ruta_foto, "rb") as f:
+            imagen_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        # Detectar tipo de imagen (siempre jpeg en Telegram)
+        media_type = "image/jpeg"
+
+        # Caption de la foto como contexto adicional (si el vendedor escribió algo)
+        caption = update.message.caption or ""
+        mensaje_usuario = f"{vendedor}: {caption}" if caption else f"{vendedor}: foto de ventas"
+
+        # Procesar con Claude (visión activa)
+        historial = get_historial(chat_id)
+        agregar_al_historial(chat_id, "user", mensaje_usuario)
+
+        respuesta_raw = await procesar_con_claude(
+            mensaje_usuario,
+            vendedor,
+            historial,
+            imagen_b64=imagen_b64,
+            imagen_media_type=media_type,
+        )
+
+        texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(
+            respuesta_raw, vendedor, chat_id
+        )
+        agregar_al_historial(chat_id, "assistant", texto_respuesta)
+
+        # Flujo de pago — igual que en mensajes de texto
+        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+        pedir_metodo        = "PEDIR_METODO_PAGO" in acciones
+
+        with _estado_lock:
+            ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
+
+        if confirmacion_accion and ventas_nuevas:
+            metodo_conocido = confirmacion_accion.split(":", 1)[1]
+            nota = texto_respuesta.split("\n")[0] if texto_respuesta else ""
+            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido, nota=nota)
+        elif pedir_metodo and ventas_nuevas:
+            if texto_respuesta:
+                await update.message.reply_text(texto_respuesta)
+            await _enviar_botones_pago(update.message, chat_id, ventas_nuevas)
+        elif texto_respuesta:
+            await update.message.reply_text(texto_respuesta)
+        else:
+            await update.message.reply_text("No pude leer productos en la foto. Intenta con mejor iluminación.")
+
+    except Exception as e:
+        logger.error(f"[foto] Error procesando imagen: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Error procesando la foto: {e}")
+    finally:
+        if ruta_foto and os.path.exists(ruta_foto):
+            try:
+                os.unlink(ruta_foto)
+            except Exception:
+                pass
 
 async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vendedor = update.message.from_user.first_name or "Desconocido"
@@ -879,8 +1118,7 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
             if ventas_actuales and ventas_actuales[0].get("metodo_pago"):
                 metodo_original = ventas_actuales[0]["metodo_pago"]
 
-            import json as _json
-            resumen_venta = _json.dumps(ventas_actuales, ensure_ascii=False)
+            resumen_venta = json.dumps(ventas_actuales, ensure_ascii=False)
 
             prompt_modificacion = (
                 "El vendedor tiene esta venta pendiente de confirmar:\n"
@@ -911,13 +1149,11 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                 nota = texto_respuesta.split("\n")[0] if texto_respuesta else ""
                 if confirmacion_accion:
                     metodo_conocido = confirmacion_accion.split(":", 1)[1]
-                    from handlers.callbacks import _enviar_confirmacion_con_metodo
                     await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido, nota=nota)
                 elif metodo_original:
                     with _estado_lock:
                         for v in ventas_pendientes.get(chat_id, []):
                             v["metodo_pago"] = metodo_original
-                    from handlers.callbacks import _enviar_confirmacion_con_metodo
                     await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_original, nota=nota)
                 else:
                     if nota:
@@ -981,7 +1217,6 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                 metodo_conocido = confirmacion_accion.split(":", 1)[1]
                 with _estado_lock:
                     ventas = ventas_pendientes.get(chat_id, [])
-                from handlers.callbacks import _enviar_confirmacion_con_metodo
                 await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
             elif pedir_metodo:
                 with _estado_lock:
@@ -1030,7 +1265,6 @@ async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
             archivo   = await doc.get_file()
             await archivo.download_to_drive(ruta_temp)
 
-            from memoria import importar_catalogo_desde_excel
             resultado  = await asyncio.to_thread(importar_catalogo_desde_excel, ruta_temp)
             importados = resultado["importados"]
             omitidos   = resultado["omitidos"]
@@ -1045,7 +1279,6 @@ async def manejar_documento(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 texto += f"\n⚠️ {len(errores)} errores:\n" + "\n".join(f"  • {e}" for e in errores[:5])
             await update.message.reply_text(texto)
 
-            import os
             if os.path.exists(ruta_temp):
                 os.remove(ruta_temp)
         except Exception as e:

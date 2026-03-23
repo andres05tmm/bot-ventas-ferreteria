@@ -11,6 +11,7 @@ CORRECCIONES v2:
 import logging
 import asyncio
 import os
+import time
 from datetime import datetime
 
 import openpyxl
@@ -25,40 +26,65 @@ from utils import (
     _normalizar,          # ← importada de utils, ya no duplicada aquí
 )
 
+# ─────────────────────────────────────────────
+# CACHÉ DE CLIENTES (TTL 5 minutos)
+# Evita abrir el Excel completo en cada búsqueda de autocompletado
+# ─────────────────────────────────────────────
+_clientes_cache: list = []
+_clientes_cache_ts: float = 0.0
+_CLIENTES_CACHE_TTL: float = 300.0  # segundos
+
+
+def _invalidar_cache_clientes():
+    """Fuerza recarga en la próxima llamada a cargar_clientes()."""
+    global _clientes_cache_ts
+    _clientes_cache_ts = 0.0
+
 
 # ─────────────────────────────────────────────
 # ESTRUCTURA INTERNA
 # ─────────────────────────────────────────────
 
-def inicializar_hoja(ws):
-    """Crea el formato exacto: logo fila 1, banner rojo fila 1, separador fila 2, encabezados fila 3."""
-    # Solo saltar si ya existen los encabezados en fila 3
+def inicializar_hoja(ws, nombre_mes: str = ""):
+    """
+    Crea el formato exacto del Excel de Ferretería Punto Rojo:
+      Fila 1 : banner rojo con título del mes + logo en A1:D1
+      Fila 2 : separador rojo oscuro
+      Fila 3 : encabezados con fondo negro
+      Fila 4+: datos de ventas
+
+    Columnas (orden exacto del Excel real):
+      1 FECHA | 2 HORA | 3 ID CLIENTE | 4 CLIENTE | 5 CODIGO DEL PRODUCTO |
+      6 PRODUCTO | 7 UNIDAD DE MEDIDA | 8 CANTIDAD | 9 VALOR UNITARIO |
+      10 TOTAL | 11 CONSECUTIVO DE VENTA | 12 VENDEDOR | 13 METODO DE PAGO
+    """
+    # Solo inicializar si fila 3 col 1 está vacía
     if ws.cell(row=3, column=1).value is not None:
         return
 
     from openpyxl.drawing.image import Image as XLImage
 
-    num_cols = 13
+    NUM_COLS = 13
 
-    # Fila 1: logo en A1:D1 + banner rojo en E1:M1
-    ws.row_dimensions[1].height = 73.8
+    # ── Fila 1: banner rojo ───────────────────────────────────────────────────
+    ws.row_dimensions[1].height = 72.0
+
+    # A1:D1 → logo (rojo de fondo igual que el banner)
     ws.merge_cells("A1:D1")
+    for col in range(1, 5):
+        ws.cell(row=1, column=col).fill = PatternFill("solid", fgColor="C00000")
+
+    # E1:M1 → título
     ws.merge_cells("E1:M1")
+    titulo = nombre_mes if nombre_mes else "Registro de Ventas"
+    celda_titulo = ws.cell(row=1, column=5, value=titulo)
+    celda_titulo.font      = Font(bold=True, color="FFFFFF", size=16)
+    celda_titulo.fill      = PatternFill("solid", fgColor="C00000")
+    celda_titulo.alignment = Alignment(horizontal="center", vertical="center")
+    for col in range(6, NUM_COLS + 1):
+        ws.cell(row=1, column=col).fill = PatternFill("solid", fgColor="C00000")
 
-    # Banner rojo con texto
-    celda_banner = ws.cell(row=1, column=5, value="DETALLE DE VENTAS")
-    celda_banner.font      = Font(bold=True, color="FF0000", size=18)
-    celda_banner.fill      = PatternFill("solid", fgColor="FF0000")
-    celda_banner.alignment = Alignment(horizontal="center", vertical="center")
-
-    for col in range(5, 14):
-        c = ws.cell(row=1, column=col)
-        c.fill = PatternFill("solid", fgColor="FF0000")
-
-    # Fila 2: separador delgado
-    ws.row_dimensions[2].height = 6.0
-
-    # Logo (si existe el archivo)
+    # Logo
     logo_paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png"),
         "/app/logo.png",
@@ -69,34 +95,47 @@ def inicializar_hoja(ws):
             try:
                 img        = XLImage(logo_path)
                 img.width  = 220
-                img.height = 70
+                img.height = 68
                 img.anchor = "A1"
                 ws.add_image(img)
             except Exception as e:
                 print(f"No se pudo agregar logo: {e}")
             break
 
-    # Fila 3: encabezados
-    ws.row_dimensions[3].height = 42.0
-    encabezados = [
+    # ── Fila 2: separador rojo oscuro ─────────────────────────────────────────
+    ws.row_dimensions[2].height = 9.6
+    for col in range(1, NUM_COLS + 1):
+        ws.cell(row=2, column=col).fill = PatternFill("solid", fgColor="E00000")
+
+    # ── Fila 3: encabezados ───────────────────────────────────────────────────
+    ws.row_dimensions[3].height = 30.0
+    ENCABEZADOS = [
         "FECHA", "HORA", "ID CLIENTE", "CLIENTE",
-        "Código del Producto", "PRODUCTO", "CANTIDAD",
-        "VALOR UNITARIO", "TOTAL", "CONSECUTIVO DE VENTA",
-        "ALIAS", "VENDEDOR", "METODO DE PAGO",
+        "CODIGO DEL PRODUCTO", "PRODUCTO", "UNIDAD DE MEDIDA",
+        "CANTIDAD", "VALOR UNITARIO", "TOTAL",
+        "CONSECUTIVO DE VENTA", "VENDEDOR", "METODO DE PAGO",
     ]
-    for col, titulo in enumerate(encabezados, 1):
-        celda = ws.cell(row=3, column=col, value=titulo)
-        celda.font      = Font(bold=True, color="FFFFFF", size=11)
+    for col, titulo_col in enumerate(ENCABEZADOS, 1):
+        celda = ws.cell(row=3, column=col, value=titulo_col)
+        celda.font      = Font(bold=True, color="FFFFFF", size=10)
         celda.fill      = PatternFill("solid", fgColor="1A1A1A")
         celda.alignment = Alignment(horizontal="center", vertical="center")
         celda.border    = Border(
             bottom=Side(style="thin", color="FFFFFF"),
-            right=Side(style="thin", color="444444"),
+            right=Side(style="thin",  color="444444"),
         )
 
-    anchos = [10.0, 12.0, 13.0, 13.0, 20.0, 26.0, 25.0, 20.0, 18.0, 24.0, 26.0, 28.0, 30.0]
-    for col, ancho in enumerate(anchos, 1):
-        ws.column_dimensions[get_column_letter(col)].width = ancho
+    # ── Anchos de columna (medidos del Excel real) ────────────────────────────
+    ANCHOS = {
+        "A": 16.33, "B": 12.55, "C": 14.44, "D": 24.11,
+        "E": 19.44, "F": 26.89, "G": 16.66, "H": 13.33,
+        "I": 17.55, "J": 13.0,  "K": 20.33, "L": 18.55, "M": 19.44,
+    }
+    for letra, ancho in ANCHOS.items():
+        ws.column_dimensions[letra].width = ancho
+
+    # ── Fila 4: altura por defecto para filas de datos ────────────────────────
+    ws.row_dimensions[4].height = 19.95
 
 
 def obtener_o_crear_hoja(wb, nombre_hoja: str):
@@ -105,6 +144,22 @@ def obtener_o_crear_hoja(wb, nombre_hoja: str):
     ws = wb.create_sheet(title=nombre_hoja)
     inicializar_hoja(ws)
     return ws
+
+
+
+def _ultima_fila_con_datos(ws, desde_fila: int = 1) -> int:
+    """
+    Devuelve el número de la última fila que realmente contiene datos.
+    ws.max_row en openpyxl incluye filas con formato vacío (de la plantilla),
+    lo que provoca que las ventas se escriban en filas 998+ en lugar de la 4.
+    Esta función itera desde abajo hasta encontrar una celda no vacía.
+    """
+    max_r = ws.max_row or desde_fila
+    for fila in range(max_r, desde_fila - 1, -1):
+        for cell in ws[fila]:
+            if cell.value is not None and str(cell.value).strip():
+                return fila
+    return desde_fila - 1  # Hoja completamente vacía desde desde_fila
 
 
 def inicializar_excel():
@@ -124,12 +179,20 @@ def detectar_columnas(ws) -> dict:
     """
     Lee los encabezados desde EXCEL_FILA_HEADERS.
     Retorna {nombre_lower: numero_columna}.
+    Usa iter_rows para ser compatible con modo read_only (max_column puede ser None).
     """
     encabezados = {}
-    for col in range(1, ws.max_column + 1):
-        valor = ws.cell(row=config.EXCEL_FILA_HEADERS, column=col).value
-        if valor:
-            encabezados[str(valor).lower().strip()] = col
+    try:
+        for fila_hdr in ws.iter_rows(
+            min_row=config.EXCEL_FILA_HEADERS,
+            max_row=config.EXCEL_FILA_HEADERS,
+        ):
+            for cell in fila_hdr:
+                if cell.value:
+                    encabezados[str(cell.value).lower().strip()] = cell.column
+            break
+    except Exception:
+        pass
     return encabezados
 
 
@@ -187,10 +250,11 @@ def obtener_siguiente_consecutivo() -> int:
         if nombre_hoja in wb.sheetnames:
             ws   = wb[nombre_hoja]
             cols = {}
-            for col in range(1, ws.max_column + 1):
-                valor = ws.cell(row=config.EXCEL_FILA_HEADERS, column=col).value
-                if valor:
-                    cols[str(valor).lower().strip()] = col
+            for fila_hdr in ws.iter_rows(min_row=config.EXCEL_FILA_HEADERS, max_row=config.EXCEL_FILA_HEADERS):
+                for cell in fila_hdr:
+                    if cell.value:
+                        cols[str(cell.value).lower().strip()] = cell.column
+                break
 
             col_fecha  = next((v for k, v in cols.items() if "fecha"       in k), None)
             col_consec = next((v for k, v in cols.items() if "consecutivo" in k), None)
@@ -233,16 +297,28 @@ def obtener_consecutivo_actual() -> int:
 # ─────────────────────────────────────────────
 
 def cargar_clientes() -> list:
+    global _clientes_cache, _clientes_cache_ts
+    # Retornar caché si aún es válida (TTL 5 min)
+    if _clientes_cache and (time.time() - _clientes_cache_ts) < _CLIENTES_CACHE_TTL:
+        return _clientes_cache
+
     if not os.path.exists(config.EXCEL_FILE):
         return []
     try:
-        # CORRECCIÓN: read_only=True — solo lectura
         wb = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)
         if "Clientes" not in wb.sheetnames:
             wb.close()
             return []
-        ws      = wb["Clientes"]
-        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        ws = wb["Clientes"]
+        # En read_only ws.max_column puede ser None — usar iter_rows para headers
+        headers = []
+        try:
+            for fila_hdr in ws.iter_rows(min_row=1, max_row=1):
+                headers = [str(cell.value).strip() if cell.value else "" for cell in fila_hdr]
+                break
+        except Exception:
+            wb.close()
+            return []
         clientes = []
         for row in ws.iter_rows(min_row=2, values_only=True):
             if not any(row):
@@ -250,9 +326,13 @@ def cargar_clientes() -> list:
             cliente = {}
             for i, h in enumerate(headers):
                 if h:
-                    cliente[str(h).strip()] = row[i] if i < len(row) else None
-            clientes.append(cliente)
+                    cliente[h] = row[i] if i < len(row) else None
+            if cliente:
+                clientes.append(cliente)
         wb.close()
+        # Guardar en caché con timestamp
+        _clientes_cache    = clientes
+        _clientes_cache_ts = time.time()
         return clientes
     except Exception as e:
         print(f"Error cargando clientes: {e}")
@@ -379,6 +459,7 @@ def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural
         wb.save(config.EXCEL_FILE)
         from drive import subir_a_drive
         subir_a_drive(config.EXCEL_FILE)
+        _invalidar_cache_clientes()
         return True
     except Exception as e:
         print(f"Error guardando cliente: {e}")
@@ -414,6 +495,7 @@ def borrar_cliente(termino: str) -> tuple[bool, str]:
         wb.save(config.EXCEL_FILE)
         from drive import subir_a_drive
         subir_a_drive(config.EXCEL_FILE)
+        _invalidar_cache_clientes()
         return True, f"✅ Cliente '{nombre_borrado}' borrado del sistema."
     except Exception as e:
         print(f"Error borrando cliente: {e}")
@@ -426,7 +508,8 @@ def borrar_cliente(termino: str) -> tuple[bool, str]:
 
 def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
                         observaciones="", cliente_nombre=None, cliente_id=None,
-                        codigo_producto=None, consecutivo=None) -> int:
+                        codigo_producto=None, consecutivo=None, metodo_pago=None,
+                        unidad_medida=None) -> int:
     from drive import subir_a_drive
     from sheets import sheets_agregar_venta
     from memoria import cargar_memoria
@@ -458,7 +541,7 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         "hora":                 hora_ahora,
         "id cliente":           id_cliente_final,
         "cliente":              nombre_cliente_final,
-        "código del producto":  cod_producto_final,
+        "codigo del producto":  cod_producto_final,
         "producto":             str(producto),
         "cantidad":             cantidad,
         "valor unitario":       float(precio_unitario),
@@ -466,7 +549,8 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         "subtotal":             float(total),
         "consecutivo de venta": consecutivo_final,
         "vendedor":             str(vendedor),
-        "metodo de pago":       str(observaciones),
+        "metodo de pago":       str(metodo_pago) if metodo_pago else str(observaciones),
+        "unidad de medida":     str(unidad_medida) if unidad_medida else "Unidad",
     }
 
     # Hojas donde guardar simultáneamente
@@ -476,14 +560,31 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
         ws   = obtener_o_crear_hoja(wb, nombre_sh)
         cols = detectar_columnas(ws)
 
-        fila     = max(ws.max_row + 1, config.EXCEL_FILA_DATOS)
-        # CORRECCIÓN: el alias es el número de fila de datos de ESTA hoja específica,
-        # no un contador global. Antes ambas hojas recibían el mismo alias calculado
-        # desde la primera hoja, dejando alias=1 siempre en la hoja Acumulado.
-        num_fila = fila - config.EXCEL_FILA_DATOS + 1
+        # ── Auto-crear columna UNIDAD DE MEDIDA antes de CANTIDAD ─────────
+        if "unidad de medida" not in cols and "unidad_medida" not in cols:
+            col_cantidad = cols.get("cantidad")
+            if col_cantidad:
+                # Insertar columna nueva antes de CANTIDAD
+                ws.insert_cols(col_cantidad)
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=col_cantidad, value="UNIDAD DE MEDIDA")
+                from openpyxl.styles import Font as _Font, PatternFill as _PF, Alignment as _Al
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=col_cantidad).font = _Font(bold=True, color="FFFFFF")
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=col_cantidad).fill = _PF("solid", fgColor="1B56E1")
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=col_cantidad).alignment = _Al(horizontal="center")
+                # Re-detectar columnas después de la inserción
+                cols = detectar_columnas(ws)
+            else:
+                next_col = max(cols.values(), default=0) + 1
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=next_col, value="UNIDAD DE MEDIDA")
+                from openpyxl.styles import Font as _Font, PatternFill as _PF, Alignment as _Al
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=next_col).font = _Font(bold=True, color="FFFFFF")
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=next_col).fill = _PF("solid", fgColor="1B56E1")
+                ws.cell(row=config.EXCEL_FILA_HEADERS, column=next_col).alignment = _Al(horizontal="center")
+                cols["unidad de medida"] = next_col
 
-        datos         = datos_base.copy()
-        datos["alias"] = str(num_fila)
+        fila     = max(_ultima_fila_con_datos(ws, config.EXCEL_FILA_DATOS) + 1, config.EXCEL_FILA_DATOS)
+
+        datos = datos_base.copy()
 
         for nombre_col, num_col in cols.items():
             clave = nombre_col.lower().strip()
@@ -502,22 +603,20 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
     wb.save(config.EXCEL_FILE)
     subir_a_drive(config.EXCEL_FILE)
 
-    # Para el Sheets, el alias es el de la hoja mensual (primera hoja)
-    alias_mensual = str(
-        max(wb[obtener_nombre_hoja()].max_row - config.EXCEL_FILA_DATOS + 1, 1)
-        if obtener_nombre_hoja() in wb.sheetnames else consecutivo_final
-    )
-
     sheets_agregar_venta(
-        consecutivo_final, producto, cantidad, precio_unitario, total, vendedor, observaciones,
+        consecutivo_final, producto, cantidad, precio_unitario, total, vendedor,
+        metodo_pago if metodo_pago else observaciones,
         id_cliente=id_cliente_final, nombre_cliente=nombre_cliente_final,
-        codigo_producto=cod_producto_final, alias=alias_mensual,
+        codigo_producto=cod_producto_final,
+        unidad_medida=datos_base.get("unidad_medida", "Unidad"),
     )
 
     return consecutivo_final
 
 
 def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
+    import logging
+    log = logging.getLogger("ferrebot.excel")
     from drive import subir_a_drive
     from sheets import sheets_borrar_fila
     from memoria import cargar_caja, guardar_caja
@@ -525,29 +624,30 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
     inicializar_excel()
     wb = openpyxl.load_workbook(config.EXCEL_FILE)
 
-    total_borradas = 0
-    hojas_buscar   = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
-
-    # Recoger totales y métodos de la hoja mensual ANTES de borrar
-    # para poder descontar de la caja correctamente
-    totales_por_metodo = {}  # {"efectivo": 50000, "transferencia": 0, ...}
+    total_borradas  = 0
+    hojas_buscar    = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+    totales_por_metodo = {}
     hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
 
     nombre_hoja_mes = obtener_nombre_hoja()
+    log.info("[borrar] buscando consecutivo=%s hoja_mes=%s sheets=%s",
+             numero_venta, nombre_hoja_mes, wb.sheetnames)
+
     if nombre_hoja_mes in wb.sheetnames:
         ws_mes = wb[nombre_hoja_mes]
         cols   = detectar_columnas(ws_mes)
-        col_id     = cols.get("consecutivo de venta")
+        log.info("[borrar] cols detectadas: %s", list(cols.keys())[:10])
+        col_id     = cols.get("consecutivo de venta") or cols.get("consecutivo") or cols.get("alias")
         col_total  = next((v for k, v in cols.items() if k == "total"), None)
         col_metodo = next((v for k, v in cols.items() if "metodo" in k), None)
         col_fecha  = next((v for k, v in cols.items() if "fecha" in k), None)
+        log.info("[borrar] col_id=%s col_total=%s col_fecha=%s", col_id, col_total, col_fecha)
 
         if col_id and col_total:
             for fila in range(config.EXCEL_FILA_DATOS, ws_mes.max_row + 1):
                 val = ws_mes.cell(row=fila, column=col_id).value
                 try:
-                    if val is not None and int(float(str(val))) == int(numero_venta):
-                        # Solo descontar si la venta es de hoy (caja es del día)
+                    if val is not None and int(float(str(val).strip())) == int(numero_venta):
                         fecha_fila = str(ws_mes.cell(row=fila, column=col_fecha).value or "")[:10] if col_fecha else ""
                         if fecha_fila == hoy:
                             t = float(ws_mes.cell(row=fila, column=col_total).value or 0)
@@ -557,30 +657,48 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
                     pass
 
     for nombre_sh in hojas_buscar:
-        if nombre_sh in wb.sheetnames:
-            ws     = wb[nombre_sh]
-            cols   = detectar_columnas(ws)
-            col_id = cols.get("consecutivo de venta") or cols.get("alias")
-            if not col_id:
+        if nombre_sh not in wb.sheetnames:
+            log.info("[borrar] hoja '%s' no existe", nombre_sh)
+            continue
+        ws   = wb[nombre_sh]
+        cols = detectar_columnas(ws)
+        col_id = (
+            cols.get("consecutivo de venta") or
+            cols.get("consecutivo") or
+            cols.get("alias") or
+            cols.get("#") or
+            cols.get("num")
+        )
+        log.info("[borrar] hoja='%s' col_id=%s max_row=%s", nombre_sh, col_id, ws.max_row)
+        if not col_id:
+            log.warning("[borrar] sin col_id en '%s', cols=%s", nombre_sh, list(cols.keys()))
+            continue
+
+        filas_a_borrar = []
+        for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
+            val = ws.cell(row=fila, column=col_id).value
+            if val is None:
                 continue
-            filas_a_borrar = []
-            for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
-                val = ws.cell(row=fila, column=col_id).value
-                try:
-                    if val is not None and int(float(str(val))) == int(numero_venta):
-                        filas_a_borrar.append(fila)
-                except (ValueError, TypeError):
-                    pass
-            for fila in reversed(filas_a_borrar):
-                ws.delete_rows(fila)
-            total_borradas += len(filas_a_borrar)
+            try:
+                val_str = str(val).strip()
+                if val_str and int(float(val_str)) == int(numero_venta):
+                    filas_a_borrar.append(fila)
+                    log.info("[borrar] fila %s coincide (val=%r)", fila, val)
+            except (ValueError, TypeError):
+                pass
+
+        log.info("[borrar] filas_a_borrar=%s en '%s'", filas_a_borrar, nombre_sh)
+        for fila in reversed(filas_a_borrar):
+            ws.delete_rows(fila)
+        total_borradas += len(filas_a_borrar)
+
+    log.info("[borrar] total_borradas=%s", total_borradas)
 
     if total_borradas:
         wb.save(config.EXCEL_FILE)
         subir_a_drive(config.EXCEL_FILE)
         sheets_borrar_fila(numero_venta)
 
-        # Descontar de la caja si la venta era de hoy
         if totales_por_metodo:
             caja = cargar_caja()
             if caja.get("abierta"):
@@ -593,7 +711,7 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
 
         return True, f"✅ Consecutivo #{numero_venta} borrado — {total_borradas} fila(s) eliminadas del Excel y del Sheets."
 
-    return False, f"No encontré el consecutivo #{numero_venta}."
+    return False, f"No encontré el consecutivo #{numero_venta}. Hojas revisadas: {hojas_buscar}"
 
 
 def recalcular_caja_desde_excel():
@@ -899,7 +1017,7 @@ def registrar_fiado_en_excel(cliente: str, concepto: str, cargo: float, abono: f
         fila_datos = 2
     else:
         ws         = wb[nombre_hoja]
-        fila_datos = ws.max_row + 1
+        fila_datos = _ultima_fila_con_datos(ws, 2) + 1
 
     fecha  = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
     valores = [fecha, cliente, concepto, cargo if cargo > 0 else "", abono if abono > 0 else "", saldo]
@@ -945,7 +1063,7 @@ def registrar_compra_en_excel(producto: str, cantidad: float, costo_unitario: fl
         fila_datos = 2
     else:
         ws = wb[nombre_hoja]
-        fila_datos = ws.max_row + 1
+        fila_datos = _ultima_fila_con_datos(ws, 2) + 1
     
     ahora = datetime.now(config.COLOMBIA_TZ)
     fecha = ahora.strftime("%Y-%m-%d")

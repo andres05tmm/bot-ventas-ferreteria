@@ -89,6 +89,10 @@ _ALIAS_FERRETERIA = [
     # Evita que "3 rodillos" matchee "Rodillo de 1"", "Rodillo de 2"", etc.
     # Solo aplica cuando NO va seguido de una medida explícita (número o pulgadas)
     (r'\b(\d+)\s+rodillos?\b(?!\s*(?:de\s+)?\d)', lambda m: f"{m.group(1)} rodillo convencional"),
+    # Pita sin color especificado → pita para carpa azul (la más vendida)
+    # Solo aplica cuando NO va seguido de un color
+    (r'\b(\d+)\s+(?:metros?\s+(?:de\s+)?)?pitas?\b(?!\s*(?:para\s+)?(?:carpa\s+)?(?:azul|rojo|negro|blanco|amarillo))',
+        lambda m: f"{m.group(1)} pita para carpa azul"),
     # Pegaternit: normalizar variantes de escritura
     (r'\bpagaternit\b', r'pegaternit'),
     (r'\bpega\s*ternit\b', r'pegaternit'),
@@ -96,13 +100,16 @@ _ALIAS_FERRETERIA = [
     # Esmalte 3en1: normalizar variantes sin espacios
     (r'\b3en1\b', r'3 en 1'),
     (r'\b3-en-1\b', r'3 en 1'),
-    # Thinner/Varsol: litro=1/4 galón (8000), botella=1/8 galón (5000).
+    # Thinner/Varsol: litro=1/4 galón (8000), botella/botellita=1/10 galón (4000).
     # Convertimos directo a precio total antes de llegar a Claude.
-    # NOTA: (?:una?\s+)? consume artículo "una"/"un"
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellitas?\s+(?:de\s+)?thinner\b',
+        lambda m: f"{int(m.group(1) or 1) * 4000} thinner" if int(m.group(1) or 1) > 1 else "thinner 4000"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellitas?\s+(?:de\s+)?varsol\b',
+        lambda m: f"{int(m.group(1) or 1) * 4000} varsol" if int(m.group(1) or 1) > 1 else "varsol 4000"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?thinner\b',
-        lambda m: f"{int(m.group(1) or 1) * 5000} thinner" if int(m.group(1) or 1) > 1 else "thinner 5000"),
+        lambda m: f"{int(m.group(1) or 1) * 4000} thinner" if int(m.group(1) or 1) > 1 else "thinner 4000"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?varsol\b',
-        lambda m: f"{int(m.group(1) or 1) * 5000} varsol" if int(m.group(1) or 1) > 1 else "varsol 5000"),
+        lambda m: f"{int(m.group(1) or 1) * 4000} varsol" if int(m.group(1) or 1) > 1 else "varsol 4000"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?thinner\b',
         lambda m: f"{int(m.group(1) or 1) * 8000} thinner" if int(m.group(1) or 1) > 1 else "thinner 8000"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?varsol\b',
@@ -119,29 +126,15 @@ _ALIAS_FERRETERIA = [
 ]
 
 def aplicar_alias_ferreteria(mensaje: str) -> str:
-    """Transforma alias comunes antes de enviar a Claude."""
+    r"""
+    Transforma alias comunes antes de enviar a Claude.
+
+    re.sub maneja nativamente tanto callables (lambdas) como strings con
+    backreferences \g<1>/\g<2>, por lo que no se necesita lógica especial.
+    """
     resultado = alias_manager.aplicar_aliases_dinamicos(mensaje)
     for patron, reemplazo in _ALIAS_FERRETERIA:
-        if callable(reemplazo):
-            # Lambda/función: re.sub la llama directamente con el match
-            resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
-        elif r'\g<1>' in reemplazo or r'\g<2>' in reemplazo:
-            def _hacer_reemplazo(m, repl=reemplazo):
-                resultado_repl = repl
-                try:
-                    g1 = m.group(1) if m.lastindex and m.lastindex >= 1 and m.group(1) else "1"
-                    resultado_repl = resultado_repl.replace(r'\g<1>', g1)
-                except IndexError:
-                    resultado_repl = resultado_repl.replace(r'\g<1>', "1")
-                try:
-                    if m.lastindex and m.lastindex >= 2 and m.group(2):
-                        resultado_repl = resultado_repl.replace(r'\g<2>', m.group(2))
-                except IndexError:
-                    pass
-                return resultado_repl.strip()
-            resultado = re.sub(patron, _hacer_reemplazo, resultado, flags=re.IGNORECASE)
-        else:
-            resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
+        resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
     return resultado
   
 # ─────────────────────────────────────────────
@@ -221,7 +214,7 @@ INFORMACION DEL NEGOCIO: {negocio_json}
 # PARTE DINÁMICA DEL SYSTEM PROMPT (por mensaje)
 # ─────────────────────────────────────────────
 
-def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria: dict) -> str:
+def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria: dict, dashboard_mode: bool = False) -> str:
     """
     Construye la parte del system prompt que SÍ cambia entre mensajes:
     candidatos del catálogo, cliente encontrado, ventas del día, inventario, caja, etc.
@@ -254,13 +247,21 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         f"(hoy: ${resumen_sheets_total:,.0f} en {resumen_sheets_cantidad} ventas)"
     ) if cantidad_mes > 0 else "Sin ventas este mes"
 
-    # ── Datos históricos (solo si piden análisis) ──
-    palabras_analisis = ["cuanto", "vendimos", "reporte", "analiz", "total",
-                         "resumen", "estadistica", "top", "mas vendido"]
-    if any(p in mensaje_usuario.lower() for p in palabras_analisis):
+    # ── Datos históricos ──────────────────────────────────────────────────────
+    # Dashboard: ampliar keywords y cargar más registros para análisis completo.
+    # Telegram: solo cuando hay palabras clave explícitas (optimización de tokens).
+    _palabras_analisis = {"cuanto","vendimos","reporte","analiz","total",
+                          "resumen","estadistica","top","mas vendido",
+                          "dia","semana","mes","ayer","hoy","vendio",
+                          "gano","ingreso","mejor","peor","promedio",
+                          "historico","registro","cuantas","cuantos"}
+    _es_analisis = any(p in mensaje_usuario.lower() for p in _palabras_analisis)
+    _es_dash = dashboard_mode  # activado desde procesar_con_claude/_stream cuando viene del dashboard
+    if _es_analisis or _es_dash:
         try:
             todos       = obtener_todos_los_datos()
-            datos_texto = json.dumps(todos[-100:], ensure_ascii=False, default=str) if todos else "Sin datos aun"
+            _limite     = 300 if _es_dash else 200
+            datos_texto = json.dumps(todos[-_limite:], ensure_ascii=False, default=str) if todos else "Sin datos aun"
         except Exception:
             datos_texto = "Sin datos aun"
     else:
@@ -459,7 +460,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         else:
             print("[PRECALCULADO DEBUG] No se generó precalculado para este mensaje")
 
-    # ── Precalcular tornillos mayorista y unidad_suelta ──────────────────────
+    # ── Precalcular tornillos mayorista ──────────────────────────────────────
     # Estos casos no los cubre el bloque mixto de arriba.
     # Construimos totales determinísticos antes de que Claude los vea.
     _lineas_pre_extra = []
@@ -475,19 +476,45 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         _cant = int(_m_cant.group(1))
 
         # Buscar producto en el segmento
+        # IMPORTANTE: solo aceptar productos con precio_por_cantidad (tornillos/chazos/mayorista)
+        # Evita que "1/4" matchee "Formón de 1/4" antes de que el fallback encuentre "Chazo 1/4"
         _palabras = _seg.split()
+
+        # Palabras que indican que el segmento NO es un tornillo/arandela mayorista
+        _palabras_no_tornillo = {
+            "broca", "broca_para", "lija", "esmeril", "disco", "sierra",
+            "metro", "metros", "pita", "cable", "manguera", "varilla",
+            "pintura", "vinilo", "esmalte", "thinner", "laca", "aerosol",
+            "brocha", "rodillo", "martillo", "taladro",
+        }
+        _seg_words = set(_seg.split())
+        _es_no_tornillo = any(w in _seg_words for w in _palabras_no_tornillo)
+
         _prod_encontrado = None
-        for _largo in [4, 3, 2, 1]:
+        if not _es_no_tornillo:
+          for _largo in [4, 3, 2, 1]:
             for _i in range(len(_palabras) - _largo + 1):
                 _frag = " ".join(_palabras[_i:_i+_largo])
                 if len(_frag) < 3:
                     continue
                 _p = buscar_producto_en_catalogo(_frag)
-                if _p:
+                if _p and _p.get("precio_por_cantidad"):  # solo productos con precio mayorista
                     _prod_encontrado = _p
                     break
             if _prod_encontrado:
                 break
+
+        # Fallback: strip leading number + normalize plurals
+        # "49 chazos 1/4" → "chazos 1/4" → "chazo 1/4" → Chazo Plastico 1/4
+        if not _prod_encontrado:
+            _sin_numero = re.sub(r'^\d+\s*', '', _seg).strip()
+            # Normalize common plurals
+            _sin_numero_s = re.sub(r'\b(\w+)s\b', r'\1', _sin_numero)
+            for _intento in [_sin_numero, _sin_numero_s]:
+                if len(_intento) >= 3:
+                    _prod_encontrado = buscar_producto_en_catalogo(_intento)
+                    if _prod_encontrado:
+                        break
 
         if not _prod_encontrado:
             continue
@@ -509,17 +536,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     f"{_nombre}: cantidad={_cant}, precio_unit={_precio_u}({_tier}), total={_total}"
                 )
 
-        # unidad_suelta: si tiene unidad_suelta y el segmento NO menciona kilo/kg
-        elif _fracs and "unidad_suelta" in _fracs:
-            _kilo_mencionado = any(k in _seg for k in ("kilo", "kg", "medio kilo"))
-            if not _kilo_mencionado:
-                _p_suelta = _fracs["unidad_suelta"]
-                _precio_suelta = _p_suelta["precio"] if isinstance(_p_suelta, dict) else _p_suelta
-                _total = _cant * _precio_suelta
-                _lineas_pre_extra.append(
-                    f"{_nombre}: cantidad={_cant}, precio_unit={_precio_suelta}(unidad_suelta), total={_total}"
-                )
-
     if _lineas_pre_extra:
         _bloque_pre = (
             "TOTALES PRECALCULADOS (USA EXACTAMENTE, NO recalcules):\n"
@@ -530,6 +546,99 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         else:
             info_fracciones_extra = _bloque_pre
         print(f"[PRECALCULADO EXTRA]\n{_bloque_pre}")
+
+    # ── Precalcular puntillas por gramos / por pesos ────────────────────────
+    # Puntillas tienen unidad_medida=GRM. Caja = 500 gr.
+    # Formas: "300 gramos puntilla X", "$2000 de puntilla X", "media caja puntilla X"
+    _PESO_CAJA_GR = 500
+    _grm_lines = []
+    _msg_lower = mensaje_usuario.lower()
+
+    # Detectar si el mensaje menciona puntillas
+    if "puntilla" in _msg_lower:
+        for _seg in re.split(r'[,\n]+', _msg_lower):
+            _seg = _seg.strip()
+            if "puntilla" not in _seg:
+                continue
+
+            # Buscar el producto puntilla en este segmento
+            _pprod = None
+            _palabras_seg = _seg.split()
+            for _largo in [5, 4, 3, 2]:
+                for _ii in range(len(_palabras_seg) - _largo + 1):
+                    _frag = " ".join(_palabras_seg[_ii:_ii+_largo])
+                    if "puntilla" in _frag:
+                        _pp = buscar_producto_en_catalogo(_frag)
+                        if _pp and _pp.get("unidad_medida", "").upper() == "GRM":
+                            _pprod = _pp
+                            break
+                if _pprod:
+                    break
+
+            if not _pprod:
+                continue
+
+            _precio_caja = _pprod.get("precio_unidad", 0)
+            if not _precio_caja:
+                continue
+            _precio_gr = _precio_caja / _PESO_CAJA_GR  # pesos por gramo
+
+            # Caso 1: venta por pesos ("2000 pesos", "$2000", "de a 2000")
+            _m_pesos = re.search(r'(?:\$|de\s+a\s+|de\s+)?\s*(\d{3,})\s*(?:pesos?|peso|\$)?', _seg)
+            _m_gramos = re.search(r'(\d+(?:\.\d+)?)\s*(?:gr(?:amos?)?|g\b)', _seg)
+            _m_media = re.search(r'media\s+caja|1/2\s+caja|medio', _seg)
+            _m_cuarto = re.search(r'cuarto\s+caja|1/4\s+caja', _seg)
+            _m_caja_n = re.search(r'(\d+)\s+cajas?\b', _seg)
+            _m_caja   = re.search(r'\bcaja\b', _seg) and not _m_media and not _m_cuarto
+
+            if _m_gramos:
+                _gr = float(_m_gramos.group(1))
+                _total = round(_gr * _precio_gr)
+                _grm_lines.append(
+                    f"{_pprod['nombre']}: cantidad={_gr}gr, total=${_total} "
+                    f"(usa cantidad={_gr}, NO otro número)"
+                )
+            elif _m_media:
+                _gr = _PESO_CAJA_GR / 2
+                _total = round(_precio_caja / 2)
+                _grm_lines.append(
+                    f"{_pprod['nombre']}: media caja={_gr}gr, total=${_total} "
+                    f"(usa cantidad={_gr}, NO 0.5 ni 1)"
+                )
+            elif _m_cuarto:
+                _gr = _PESO_CAJA_GR / 4
+                _total = round(_precio_caja / 4)
+                _grm_lines.append(
+                    f"{_pprod['nombre']}: 1/4 caja={_gr}gr, total=${_total} "
+                    f"(usa cantidad={_gr}, NO 0.25 ni 1)"
+                )
+            elif _m_pesos:
+                _pesos = int(_m_pesos.group(1))
+                if 500 <= _pesos <= 200000:  # rango razonable de venta
+                    _gr = round(_pesos / _precio_gr, 1)
+                    _grm_lines.append(
+                        f"{_pprod['nombre']}: ${_pesos} → {_gr}gr (${_precio_gr:.1f}/gr), total=${_pesos} "
+                        f"(usa cantidad={_gr})"
+                    )
+            elif _m_caja:
+                _n_cajas = int(_m_caja_n.group(1)) if _m_caja_n else 1
+                _gr_total = _PESO_CAJA_GR * _n_cajas
+                _total = _precio_caja * _n_cajas
+                _grm_lines.append(
+                    f"{_pprod['nombre']}: {_n_cajas} caja(s)={_gr_total}gr, total=${_total} "
+                    f"(IMPORTANTE: usa cantidad={_gr_total}, NO {_n_cajas})"
+                )
+
+    if _grm_lines:
+        _bloque_grm = (
+            "TOTALES PRECALCULADOS PUNTILLAS (USA EXACTAMENTE, NO recalcules):\n"
+            + "\n".join(_grm_lines)
+        )
+        if info_fracciones_extra:
+            info_fracciones_extra += "\n" + _bloque_grm
+        else:
+            info_fracciones_extra = _bloque_grm
+        print(f"[PRECALCULADO PUNTILLAS GRM]\n{_bloque_grm}")
 
     # ── Candidatos del catálogo para este mensaje específico ──
     info_candidatos_extra = ""
@@ -687,6 +796,12 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                                 "economica", "simple", "corriente", "basico", "normal",
                                 "plastico", "plastica", "metalico", "metalica", "acero",
                                 "madera", "hierro", "metal", "comun", "especial"}
+            # Patrón de fracción compuesta: 1-1/2, 2-1/4, 3-3/4, etc.
+            # Estas son SIEMPRE cantidades, nunca nombres de producto por sí solas
+            _ES_FRACCION_COMPUESTA = re.compile(r'^\d+[-]\d+/\d+$')
+            # Fracciones simples como 1/2, 1/4 también pueden ser cantidades
+            _ES_FRACCION_SIMPLE = re.compile(r'^\d+/\d+$')
+
             for largo in [4, 3, 2, 1]:
                 encontrado_seg = False
                 for i in range(len(palabras_seg) - largo + 1):
@@ -696,6 +811,17 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                     # En largo=1, no buscar con palabras que son solo adjetivos/materiales
                     if largo == 1 and fragmento in _SOLO_ADJETIVOS:
                         continue
+                    # En largo=1, saltar fracciones compuestas (1-1/2, 2-1/4) si hay más
+                    # palabras disponibles — son cantidades, no nombres de producto
+                    if largo == 1 and _ES_FRACCION_COMPUESTA.match(fragmento) and len(palabras_seg) > 1:
+                        continue
+                    # En largo=1, saltar fracciones simples (1/2, 1/4) si hay más palabras
+                    # Y el segmento original tiene palabras no-numéricas después
+                    if largo == 1 and _ES_FRACCION_SIMPLE.match(fragmento) and len(palabras_seg) > 1:
+                        # Solo saltar si las otras palabras del segmento no son puramente numéricas
+                        otras = [p for p in palabras_seg if p != fragmento]
+                        if any(not re.match(r'^[\d/\.\-]+$', p) for p in otras):
+                            continue
                     resultados = buscar_multiples_con_alias(fragmento, limite=_limite_seg)
                     primer = True
                     for prod in resultados:
@@ -1158,23 +1284,26 @@ def _calcular_historial(mensaje: str) -> int:
 # LLAMADA A CLAUDE CON PROMPT CACHING
 # ─────────────────────────────────────────────
 
-async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, max_reintentos=5):
+async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, max_reintentos=5, model: str = None):
     """
     Wrapper para llamar a Claude con reintentos adicionales para error 529 (overloaded).
     El SDK ya hace 3 reintentos internos, pero agregamos una capa extra con backoff.
     """
     import random
     from anthropic import APIError
-    
+
+    _model = model or MODELO_HAIKU   # default haiku si no se especifica
+
     ultimo_error = None
     for intento in range(max_reintentos):
         try:
             loop = asyncio.get_event_loop()
+            _m = _model   # capturar en closure
             respuesta = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
                     lambda: cliente.messages.create(
-                        model="claude-haiku-4-5-20251001",
+                        model=_m,
                         max_tokens=max_tokens,
                         system=system,
                         messages=messages,
@@ -1208,15 +1337,30 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
     raise ultimo_error or RuntimeError("Error desconocido al llamar a Claude")
 
 
-async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list) -> str:
+async def procesar_con_claude(
+    mensaje_usuario: str,
+    nombre_usuario: str,
+    historial_chat: list,
+    contexto_extra: str = "",
+    modelo_preferido: str = None,
+    imagen_b64: str = None,
+    imagen_media_type: str = None,
+) -> str:
+    """
+    Procesa un mensaje con Claude.  Si se pasa imagen_b64, se incluye la imagen
+    en el mensaje (visión) y se omite el bypass Python (que no puede procesar imágenes).
+    """
     # BYPASS PYTHON — ANTES de alias_ferreteria (que transforma fracciones y rompería el match)
     # Solo se aplican aliases DINÁMICOS (simples word-substitutions: tiner→thinner, etc.)
     # El mensaje llega como "{vendedor}: {texto}" — stripear prefijo antes del bypass
-    import re as _re
-    _msg_bypass = _re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
+    _dashboard_mode = "##DASHBOARD##" in mensaje_usuario
+    _tiene_imagen   = imagen_b64 is not None  # True cuando viene una foto del cuaderno
+    _msg_bypass = re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
     _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
     memoria = cargar_memoria()
-    _bypass = bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
+    # Las fotos con imagen no pueden pasar por el bypass Python (no hay texto estructurado).
+    # Solo intentar bypass cuando NO hay imagen.
+    _bypass = None if _tiene_imagen else bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
     if _bypass:
         import json as _jbp
         _txt, _venta = _bypass
@@ -1247,13 +1391,16 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     # BLOQUEO PYTHON: si el MATCH está vacío y el mensaje parece una venta
     # (no es consulta, no es reporte), responder directamente sin llamar a Claude.
     # Esto evita que el bot registre productos inexistentes con total:0.
+    # EXCEPCIÓN: si viene con contexto_extra (ej: dashboard), siempre pasa a Claude
+    # para permitir conversación libre sin que saludos/preguntas se traten como ventas.
     _SEÑAL_MATCH_VACIO = "MATCH: (sin resultados — producto no encontrado en catalogo)"
     _kw_no_venta = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
                     "top","mas vendido","gasto","caja","inventario","cliente",
                     "precio","vale","cuesta","cuanto vale","hay","stock","quedan"}
     _es_consulta = any(p in mensaje_usuario.lower() for p in _kw_no_venta)
 
-    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta:
+    # BLOQUEO MATCH-VACÍO: omitir cuando hay imagen (el texto puede venir vacío/genérico)
+    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode and not _tiene_imagen:
         # Extraer nombre del producto del mensaje para respuesta clara
         _msg_limpio = mensaje_usuario.strip().lower()
         # Quitar cantidades y unidades del inicio para aislar el nombre
@@ -1270,7 +1417,29 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     for msg in historial_chat[-_n_hist:]:
         if isinstance(msg, dict) and "role" in msg and "content" in msg:
             messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
-    messages.append({"role": "user", "content": str(mensaje_usuario)})
+
+    # Construir contenido del mensaje de usuario.
+    # Con imagen: lista [image_block, text_block] — visión de Claude activa.
+    # Sin imagen: string simple (comportamiento original).
+    if _tiene_imagen:
+        _user_content = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": imagen_media_type or "image/jpeg",
+                    "data": imagen_b64,
+                },
+            },
+            {
+                "type": "text",
+                "text": mensaje_usuario or "Transcribe las ventas anotadas en esta foto.",
+            },
+        ]
+    else:
+        _user_content = str(mensaje_usuario)
+
+    messages.append({"role": "user", "content": _user_content})
 
     # max_tokens adaptativo por tipo de mensaje:
     # - Venta simple (1 producto, sin comas ni saltos): solo JSON → 400 tok
@@ -1282,7 +1451,9 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
                    "equivoque","fiado","debe","abono","borrar","eliminar"}
     num_lineas = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
     _msg_low   = mensaje_usuario.lower()
-    if any(p in _msg_low for p in _kw_reporte):
+    if _tiene_imagen:
+        max_tokens = 3000          # imagen: puede tener varios productos
+    elif any(p in _msg_low for p in _kw_reporte):
         max_tokens = 2000          # reportes necesitan espacio
     elif any(p in _msg_low for p in _kw_edicion):
         max_tokens = 1200          # ediciones: algo de texto + JSON
@@ -1303,8 +1474,23 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
         },
     ]
 
+    # Bloque extra para el dashboard — se cachea igual que la parte estática
+    if contexto_extra:
+        system.append({
+            "type": "text",
+            "text": contexto_extra,
+            "cache_control": {"type": "ephemeral"},
+        })
+
+    # Elegir modelo según preferencia o auto-selección
+    if modelo_preferido == "sonnet":
+        _modelo_no_stream = MODELO_SONNET
+    elif modelo_preferido == "haiku":
+        _modelo_no_stream = MODELO_HAIKU
+    else:
+        _modelo_no_stream = _elegir_modelo(mensaje_usuario)
     respuesta = await _llamar_claude_con_reintentos(
-        config.claude_client, max_tokens, system, messages
+        config.claude_client, max_tokens, system, messages, model=_modelo_no_stream
     )
 
     # ── Log de uso de tokens y cache ──
@@ -1333,11 +1519,223 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     return respuesta.content[0].text
 
 # ─────────────────────────────────────────────
+# STREAMING PARA DASHBOARD
+# ─────────────────────────────────────────────
+
+# Modelo híbrido: Haiku para tareas rápidas, Sonnet para complejas
+MODELO_HAIKU  = "claude-haiku-4-5-20251001"
+MODELO_SONNET = "claude-sonnet-4-6"
+
+def _elegir_modelo(mensaje: str) -> str:
+    """
+    Clasifica el mensaje del usuario para elegir Haiku (rápido/barato)
+    o Sonnet (inteligente/caro).
+
+    Sonnet: análisis, reportes, comparaciones, explicaciones, ediciones
+            complejas, fiados, correcciones, mensajes multi-línea largos.
+    Haiku:  ventas simples, precios, stock, saludos, gastos simples.
+    """
+    ml = mensaje.lower()
+
+    # ── Siempre Sonnet ──
+    _kw_sonnet = {
+        # Análisis y reportes
+        "analiz", "analís", "compara", "explica", "por qué", "porqué",
+        "reporte", "resumen", "estadistic", "rendimiento", "tendencia",
+        "recomienda", "suger", "opina", "evalua", "evalúa",
+        # Consultas complejas
+        "cuánto vendimos", "cuanto vendimos", "qué se vendió", "que se vendio",
+        "cuánto me", "cuanto me", "cuánto va", "cuanto va", "cuánto lleva", "cuanto lleva",
+        "top producto", "más vendido", "mas vendido", "menos vendido",
+        "ganancias", "utilidad", "margen", "rentabil",
+        "histórico", "historico", "semana pasada", "mes pasado",
+        "promedio", "proyección", "proyeccion",
+        # Ediciones complejas
+        "modifica", "corrig", "cambia el precio", "actualiza precio",
+        "elimina", "borrar consecutivo",
+        # Fiados / clientes
+        "fiado", "debe", "abono", "deuda", "saldo",
+        "cliente nuevo", "registrar cliente",
+    }
+    if any(kw in ml for kw in _kw_sonnet):
+        return MODELO_SONNET
+
+    # Multi-línea o mensajes largos con complejidad
+    n_lineas = mensaje.count("\n") + 1
+    n_comas  = mensaje.count(",")
+    if n_lineas >= 3 or (len(mensaje) > 150 and n_comas >= 2):
+        return MODELO_SONNET
+
+    # Múltiples preguntas
+    if mensaje.count("?") >= 2 or mensaje.count("¿") >= 2:
+        return MODELO_SONNET
+
+    # ── Todo lo demás → Haiku ──
+    return MODELO_HAIKU
+
+
+async def _stream_claude_chunks(system: list, messages: list, max_tokens: int, model: str = MODELO_SONNET):
+    """
+    Async generator que hace streaming de Claude usando un thread + asyncio.Queue.
+    Yields: ("chunk", text_piece) durante el stream
+            ("done",  full_text)  al finalizar
+            ("error", error_str)  en caso de fallo
+    """
+    import threading
+    loop = asyncio.get_event_loop()
+    q: asyncio.Queue = asyncio.Queue()
+
+    def _sync_worker():
+        try:
+            with config.claude_client.messages.stream(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=messages,
+            ) as stream:
+                full = ""
+                for text in stream.text_stream:
+                    full += text
+                    loop.call_soon_threadsafe(q.put_nowait, ("chunk", text))
+                loop.call_soon_threadsafe(q.put_nowait, ("done", full))
+        except Exception as exc:
+            loop.call_soon_threadsafe(q.put_nowait, ("error", str(exc)))
+
+    threading.Thread(target=_sync_worker, daemon=True).start()
+
+    while True:
+        kind, data = await q.get()
+        yield kind, data
+        if kind in ("done", "error"):
+            break
+
+
+async def procesar_con_claude_stream(
+    mensaje_usuario: str,
+    nombre_usuario: str,
+    historial_chat: list,
+    contexto_extra: str = "",
+    modelo_preferido: str = None,
+):
+    """
+    Versión streaming de procesar_con_claude.
+    Yields: ("chunk", text)   — fragmento de texto mientras Claude responde
+            ("done",  text)   — texto completo final
+            ("error", msg)    — error
+    Si el bypass Python intercepta, devuelve ("done", respuesta) de inmediato.
+    """
+    import re as _re_s
+    import json as _json_s
+
+    # ── Detectar modo dashboard y limpiar flag ────────────────────────────────
+    _dashboard_mode = "##DASHBOARD##" in mensaje_usuario
+    if _dashboard_mode:
+        mensaje_usuario = mensaje_usuario.replace("##DASHBOARD## ", "").replace("##DASHBOARD##", "").strip()
+
+    # ── Bypass Python ─────────────────────────────────────────────────────────
+    _msg_bypass = _re_s.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
+    _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
+    memoria = cargar_memoria()
+    _bp = bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
+    if _bp:
+        _txt, _venta = _bp
+        if _venta.get("multi"):
+            _tags = ""
+            for _item in _venta.get("items", []):
+                _v = {
+                    "producto":        _item["producto"],
+                    "cantidad":        _item["cantidad"],
+                    "total":           _item["total"],
+                    "precio_unitario": _item["precio_unitario"],
+                    "metodo_pago":     "",
+                }
+                _tags += f"[VENTA]{_json_s.dumps(_v, ensure_ascii=False)}[/VENTA]"
+            yield ("done", f"{_txt}\n{_tags}")
+        else:
+            yield ("done", f"{_txt}\n[VENTA]{_json_s.dumps(_venta, ensure_ascii=False)}[/VENTA]")
+        return
+
+    # ── Construir prompt ──────────────────────────────────────────────────────
+    mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
+    parte_estatica  = _construir_parte_estatica(memoria)
+    parte_dinamica  = _construir_parte_dinamica(
+        mensaje_usuario, nombre_usuario, memoria, dashboard_mode=_dashboard_mode
+    )
+
+    # ── MATCH vacío: solo en Telegram, no en dashboard ────────────────────────
+    _MATCH_VACIO = "MATCH: (sin resultados — producto no encontrado en catalogo)"
+    _kw_consulta = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
+                    "top","mas vendido","gasto","caja","inventario","cliente",
+                    "precio","vale","cuesta","cuanto vale","hay","stock","quedan"}
+    _es_consulta = any(p in mensaje_usuario.lower() for p in _kw_consulta)
+    if _MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode:
+        _msg_lp = re.sub(r'^[\d\s/\.]+', '', mensaje_usuario.strip().lower()).strip()
+        _msg_lp = re.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_lp).strip()
+        yield ("done", f"No tengo {_msg_lp} en el catálogo.")
+        return
+
+    # ── Historial ─────────────────────────────────────────────────────────────
+    _n_hist = _calcular_historial(mensaje_usuario)
+    messages = []
+    for msg in historial_chat[-_n_hist:]:
+        if isinstance(msg, dict) and "role" in msg and "content" in msg:
+            messages.append({"role": str(msg["role"]), "content": str(msg["content"])})
+    messages.append({"role": "user", "content": str(mensaje_usuario)})
+
+    # ── max_tokens ────────────────────────────────────────────────────────────
+    _kw_rep = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
+               "grafica","top","mas vendido","gasto","caja","inventario"}
+    _kw_edi = {"modificar","corregir","cambia","quita","agrega","error",
+               "equivoque","fiado","debe","abono","borrar","eliminar"}
+    _nl  = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
+    _ml  = mensaje_usuario.lower()
+    if _dashboard_mode:
+        max_tokens = 4000
+    elif any(p in _ml for p in _kw_rep):
+        max_tokens = 2000
+    elif any(p in _ml for p in _kw_edi):
+        max_tokens = 1200
+    elif _nl == 1 and "," not in mensaje_usuario:
+        max_tokens = 450
+    else:
+        max_tokens = min(3000, max(800, _nl * 220))
+
+    # ── System prompt ─────────────────────────────────────────────────────────
+    system = [
+        {"type": "text", "text": parte_estatica, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": parte_dinamica},
+    ]
+    if contexto_extra:
+        system.append({
+            "type": "text",
+            "text": contexto_extra,
+            "cache_control": {"type": "ephemeral"},
+        })
+
+    # ── Elegir modelo (híbrido o forzado por usuario) ───────────────────────
+    if modelo_preferido == "sonnet":
+        _modelo = MODELO_SONNET
+    elif modelo_preferido == "haiku":
+        _modelo = MODELO_HAIKU
+    else:
+        _modelo = _elegir_modelo(mensaje_usuario)
+    _tag = "sonnet" if "sonnet" in _modelo else "haiku"
+    _forced = " (forzado)" if modelo_preferido in ("sonnet", "haiku") else ""
+    logging.getLogger("ferrebot.ai").info(f"[MODELO] {_tag.upper()}{_forced} para: {mensaje_usuario[:60]}...")
+    yield ("model", _modelo)
+
+    # ── Stream ────────────────────────────────────────────────────────────────
+    async for kind, data in _stream_claude_chunks(system, messages, max_tokens, model=_modelo):
+        yield kind, data
+
+
+# ─────────────────────────────────────────────
 # PARSEO Y EJECUCIÓN DE ACCIONES
 # ─────────────────────────────────────────────
 
 def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
-    from ventas_state import ventas_pendientes, registrar_ventas_con_metodo, _estado_lock, mensajes_standby
+    from ventas_state import (ventas_pendientes, registrar_ventas_con_metodo,
+        _estado_lock, mensajes_standby, limpiar_pendientes_expirados, _guardar_pendiente)
 
     acciones:       list[str] = []
     archivos_excel: list[str] = []
@@ -1350,6 +1748,91 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     with _estado_lock:
         esperando_pago = bool(ventas_pendientes.get(chat_id))
 
+    # ── Helper: conversión para productos vendidos por mililitro (MLT) ──────
+    def _convertir_venta_mlt(venta: dict) -> dict:
+        """
+        Para productos con unidad_medida='MLT' (tintes):
+          precio_unidad en catálogo = precio del TARRO COMPLETO (1000 ml)
+          precio_por_ml = precio_unidad / 1000
+          Ej: Tinte Caoba precio_unidad=26000 → precio_por_ml=26
+
+        CASO 1 — cliente pide tarro(s) completo(s):
+          Claude envía cantidad=1 (o N) y total=26000 (o N×26000)
+          Detectado: total ≈ cantidad × precio_unidad → convertir a ml
+          Ej: {cantidad:1, total:26000} → cantidad=1000 ml
+
+        CASO 2 — cliente pide por pesos (menudeo):
+          Claude envía cantidad=pesos y total=pesos (mismo número)
+          Ej: {cantidad:2000, total:2000} → ml = 2000/26 = 76.9
+          → cantidad=76.9, total=2000 (total NO se toca)
+
+        CASO 3 — cliente pide ml explícitamente:
+          Claude ya envía cantidad en ml correctamente → no tocar
+          Ej: {cantidad:500, total:13000} → 500×26=13000 ✅
+        """
+        try:
+            prod = buscar_producto_en_catalogo(venta.get("producto", ""))
+            if not prod:
+                return venta
+            if prod.get("unidad_medida") != "MLT":
+                return venta
+
+            precio_tarro = prod.get("precio_unidad", 0)  # precio de 1000 ml
+            if not precio_tarro:
+                return venta
+
+            # precio_por_ml REAL: tarro / 1000
+            precio_por_ml = precio_tarro / 1000.0
+
+            cantidad = float(venta.get("cantidad", 1))
+            total    = float(venta.get("total", 0))
+
+            if total <= 0:
+                return venta
+
+            # ── CASO 1: cantidad en tarros (entero pequeño, total ≈ N × precio_tarro) ──
+            if (cantidad <= 20
+                    and cantidad == int(cantidad)
+                    and abs(total - cantidad * precio_tarro) / max(total, 1) < 0.05):
+                ml = int(cantidad * 1000)
+                venta = dict(venta)
+                venta["cantidad"] = ml
+                logging.getLogger("ferrebot.ai").info(
+                    "[MLT] Tarros→ml: %s | %d tarro(s) → %d ml | $%.0f",
+                    prod.get("nombre"), int(cantidad), ml, total
+                )
+                return venta
+
+            # ── CASO 2: cantidad == total → cliente pidió por pesos ──
+            # También aplica si cantidad es un múltiplo redondo de 500/1000 mucho mayor que precio_por_ml
+            cantidad_parece_pesos = (
+                abs(cantidad - total) < 1          # cantidad y total son iguales
+                or (cantidad >= 500
+                    and cantidad % 500 == 0
+                    and abs(total - cantidad) < 1)  # doble chequeo
+            )
+            if cantidad_parece_pesos:
+                ml = round(total / precio_por_ml, 1)
+                venta = dict(venta)
+                venta["cantidad"] = ml
+                # total NO se modifica — es lo que el cliente pagó
+                logging.getLogger("ferrebot.ai").info(
+                    "[MLT] Pesos→ml: %s | $%.0f ÷ $%.4f/ml = %.1f ml",
+                    prod.get("nombre"), total, precio_por_ml, ml
+                )
+                return venta
+
+            # ── CASO 3: cantidad ya en ml → verificar coherencia y no tocar ──
+            # Si total ≈ cantidad × precio_por_ml ya está bien
+            logging.getLogger("ferrebot.ai").debug(
+                "[MLT] Sin conversión (ya en ml): %s | %.1f ml | $%.0f",
+                prod.get("nombre"), cantidad, total
+            )
+
+        except Exception as e:
+            logging.getLogger("ferrebot.ai").warning("[MLT] Error conversión: %s", e)
+        return venta
+
     for venta_json in re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL):
         try:
             if esperando_pago:
@@ -1357,6 +1840,8 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             else:
                 venta = json.loads(venta_json.strip())
                 logging.getLogger("ferrebot.ai").debug(f"[VENTA] JSON recibido: {venta}")
+                # Aplicar conversión ml si aplica
+                venta = _convertir_venta_mlt(venta)
                 if venta.get("metodo_pago"):
                     ventas_con_metodo.append(venta)
                 else:
@@ -1398,7 +1883,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
 
     if cliente_desconocido and not esperando_pago:
         with _estado_lock:
-            ventas_pendientes[chat_id] = todas_las_ventas_nuevas
+            _guardar_pendiente(chat_id, todas_las_ventas_nuevas)
         acciones.append(f"CLIENTE_DESCONOCIDO:{cliente_desconocido}")
         ventas_con_metodo.clear()
         ventas_sin_metodo.clear()
@@ -1406,7 +1891,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     if ventas_con_metodo:
         metodo_conocido = ventas_con_metodo[0].get("metodo_pago", "efectivo").lower()
         with _estado_lock:
-            ventas_pendientes[chat_id] = ventas_con_metodo
+            _guardar_pendiente(chat_id, ventas_con_metodo)
         acciones.append(f"PEDIR_CONFIRMACION:{metodo_conocido}")
 
     ventas_ignoradas = esperando_pago and bool(
@@ -1416,7 +1901,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         acciones.append("PAGO_PENDIENTE_AVISO")
     elif ventas_sin_metodo:
         with _estado_lock:
-            ventas_pendientes[chat_id] = ventas_sin_metodo
+            _guardar_pendiente(chat_id, ventas_sin_metodo)
         acciones.append("PEDIR_METODO_PAGO")
 
     # ── Cliente nuevo (datos completos) ──
@@ -1657,6 +2142,37 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             print(f"Error gasto: {e}")
         texto_limpio = texto_limpio.replace(f'[GASTO]{gasto_json}[/GASTO]', '')
+
+    # ── Memoria del negocio (dashboard) ──────────────────────────────────────
+    for mem_json in re.findall(r'\[MEMORIA\](.*?)\[/MEMORIA\]', texto_respuesta, re.DOTALL):
+        try:
+            datos     = json.loads(mem_json.strip())
+            tipo      = datos.get("tipo", "observacion")
+            contenido = datos.get("contenido", "").strip()
+            if contenido:
+                from memoria import cargar_memoria, guardar_memoria as _gm_mem
+                import time as _t_mem
+                import config as _cfg_mem
+                from datetime import datetime as _dt_mem
+                _mem = cargar_memoria()
+                _notas = _mem.get("notas", {})
+                if isinstance(_notas, list):
+                    _notas = {"observaciones": _notas} if _notas else {}
+                _fecha = _dt_mem.now(_cfg_mem.COLOMBIA_TZ).strftime("%Y-%m-%d")
+                if tipo == "contexto_negocio":
+                    _notas["contexto_negocio"] = contenido
+                elif tipo == "decision":
+                    _notas.setdefault("decisiones", []).append(f"[{_fecha}] {contenido}")
+                    _notas["decisiones"] = _notas["decisiones"][-30:]
+                else:
+                    _notas.setdefault("observaciones", []).append(f"[{_fecha}] {contenido}")
+                    _notas["observaciones"] = _notas["observaciones"][-30:]
+                _mem["notas"] = _notas
+                _gm_mem(_mem, urgente=True)
+                acciones.append(f"Memoria guardada: {contenido[:60]}")
+        except Exception as e:
+            logging.getLogger("ferrebot.ai").warning(f"Error guardando memoria: {e}")
+        texto_limpio = texto_limpio.replace(f'[MEMORIA]{mem_json}[/MEMORIA]', '')
 
     # ── Fiado ──
     for fiado_json in re.findall(r'\[FIADO\](.*?)\[/FIADO\]', texto_respuesta, re.DOTALL):
