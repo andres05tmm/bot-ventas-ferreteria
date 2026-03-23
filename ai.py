@@ -1298,23 +1298,26 @@ def _calcular_historial(mensaje: str) -> int:
 # LLAMADA A CLAUDE CON PROMPT CACHING
 # ─────────────────────────────────────────────
 
-async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, max_reintentos=5):
+async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, max_reintentos=5, model: str = None):
     """
     Wrapper para llamar a Claude con reintentos adicionales para error 529 (overloaded).
     El SDK ya hace 3 reintentos internos, pero agregamos una capa extra con backoff.
     """
     import random
     from anthropic import APIError
-    
+
+    _model = model or MODELO_HAIKU   # default haiku si no se especifica
+
     ultimo_error = None
     for intento in range(max_reintentos):
         try:
             loop = asyncio.get_event_loop()
+            _m = _model   # capturar en closure
             respuesta = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
                     lambda: cliente.messages.create(
-                        model="claude-haiku-4-5-20251001",
+                        model=_m,
                         max_tokens=max_tokens,
                         system=system,
                         messages=messages,
@@ -1348,7 +1351,7 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
     raise ultimo_error or RuntimeError("Error desconocido al llamar a Claude")
 
 
-async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list, contexto_extra: str = "") -> str:
+async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, historial_chat: list, contexto_extra: str = "", modelo_preferido: str = None) -> str:
     # BYPASS PYTHON — ANTES de alias_ferreteria (que transforma fracciones y rompería el match)
     # Solo se aplican aliases DINÁMICOS (simples word-substitutions: tiner→thinner, etc.)
     # El mensaje llega como "{vendedor}: {texto}" — stripear prefijo antes del bypass
@@ -1457,8 +1460,15 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
             "cache_control": {"type": "ephemeral"},
         })
 
+    # Elegir modelo según preferencia o auto-selección
+    if modelo_preferido == "sonnet":
+        _modelo_no_stream = MODELO_SONNET
+    elif modelo_preferido == "haiku":
+        _modelo_no_stream = MODELO_HAIKU
+    else:
+        _modelo_no_stream = _elegir_modelo(mensaje_usuario)
     respuesta = await _llamar_claude_con_reintentos(
-        config.claude_client, max_tokens, system, messages
+        config.claude_client, max_tokens, system, messages, model=_modelo_no_stream
     )
 
     # ── Log de uso de tokens y cache ──
@@ -1513,6 +1523,7 @@ def _elegir_modelo(mensaje: str) -> str:
         "recomienda", "suger", "opina", "evalua", "evalúa",
         # Consultas complejas
         "cuánto vendimos", "cuanto vendimos", "qué se vendió", "que se vendio",
+        "cuánto me", "cuanto me", "cuánto va", "cuanto va", "cuánto lleva", "cuanto lleva",
         "top producto", "más vendido", "mas vendido", "menos vendido",
         "ganancias", "utilidad", "margen", "rentabil",
         "histórico", "historico", "semana pasada", "mes pasado",
