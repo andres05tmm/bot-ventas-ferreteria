@@ -453,8 +453,8 @@ const CSS = `
       width: 100%;
       max-width: 100%;
       border-radius: 20px 20px 0 0;
-      height: calc(100dvh - 58px - 62px - env(safe-area-inset-bottom, 0px));
-      max-height: calc(100dvh - 58px - 62px - env(safe-area-inset-bottom, 0px));
+      height: 62vh;
+      max-height: 62vh;
     }
   }
 `
