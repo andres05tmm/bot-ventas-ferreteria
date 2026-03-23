@@ -937,6 +937,126 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         await update.message.reply_text("Tuve un problema. Intenta de nuevo.")
 
 
+
+
+async def manejar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler de fotos: transcribe ventas anotadas a mano usando visión de Claude.
+    Descarga la foto, la convierte a base64 y la manda a procesar_con_claude
+    con el system prompt completo (catálogo incluido).
+    """
+    vendedor = update.message.from_user.first_name or "Desconocido"
+    chat_id  = update.message.chat_id
+
+    async with get_chat_lock(chat_id):
+        await _procesar_foto(update, context, vendedor, chat_id)
+
+
+async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, vendedor: str, chat_id: int):
+    import base64
+    import tempfile
+    import os
+
+    ruta_foto = None
+
+    try:
+        # Chequeo de pago pendiente: si hay venta esperando, la foto va al standby
+        with _estado_lock:
+            _ventas_pend = list(ventas_pendientes.get(chat_id, []))
+
+        if _ventas_pend:
+            await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
+            await _enviar_botones_pago(update.message, chat_id, _ventas_pend)
+            return
+
+        await update.message.reply_text("📸 Leyendo la foto...")
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+        # Descargar la foto en la resolución más alta disponible
+        foto = update.message.photo[-1]  # última = máxima resolución
+        _archivo = None
+        for _intento in range(3):
+            try:
+                _archivo = await foto.get_file()
+                break
+            except Exception as _e:
+                if _intento < 2:
+                    await asyncio.sleep(1.5 * (_intento + 1))
+                else:
+                    raise _e
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            ruta_foto = tmp.name
+
+        for _intento in range(3):
+            try:
+                await _archivo.download_to_drive(ruta_foto)
+                break
+            except Exception as _e:
+                if _intento < 2:
+                    await asyncio.sleep(1.5 * (_intento + 1))
+                else:
+                    raise _e
+
+        # Convertir a base64
+        with open(ruta_foto, "rb") as f:
+            imagen_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        # Detectar tipo de imagen (siempre jpeg en Telegram)
+        media_type = "image/jpeg"
+
+        # Caption de la foto como contexto adicional (si el vendedor escribió algo)
+        caption = update.message.caption or ""
+        mensaje_usuario = f"{vendedor}: {caption}" if caption else f"{vendedor}: foto de ventas"
+
+        # Procesar con Claude (visión activa)
+        historial = get_historial(chat_id)
+        agregar_al_historial(chat_id, "user", mensaje_usuario)
+
+        respuesta_raw = await procesar_con_claude(
+            mensaje_usuario,
+            vendedor,
+            historial,
+            imagen_b64=imagen_b64,
+            imagen_media_type=media_type,
+        )
+
+        texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(
+            respuesta_raw, vendedor, chat_id
+        )
+        agregar_al_historial(chat_id, "assistant", texto_respuesta)
+
+        # Flujo de pago — igual que en mensajes de texto
+        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+        pedir_metodo        = "PEDIR_METODO_PAGO" in acciones
+
+        with _estado_lock:
+            ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
+
+        if confirmacion_accion and ventas_nuevas:
+            metodo_conocido = confirmacion_accion.split(":", 1)[1]
+            from handlers.callbacks import _enviar_confirmacion_con_metodo
+            nota = texto_respuesta.split("\n")[0] if texto_respuesta else ""
+            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido, nota=nota)
+        elif pedir_metodo and ventas_nuevas:
+            if texto_respuesta:
+                await update.message.reply_text(texto_respuesta)
+            await _enviar_botones_pago(update.message, chat_id, ventas_nuevas)
+        elif texto_respuesta:
+            await update.message.reply_text(texto_respuesta)
+        else:
+            await update.message.reply_text("No pude leer productos en la foto. Intenta con mejor iluminación.")
+
+    except Exception as e:
+        logger.error(f"[foto] Error procesando imagen: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Error procesando la foto: {e}")
+    finally:
+        if ruta_foto and os.path.exists(ruta_foto):
+            try:
+                os.unlink(ruta_foto)
+            except Exception:
+                pass
+
 async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vendedor = update.message.from_user.first_name or "Desconocido"
     chat_id  = update.message.chat_id
