@@ -1488,7 +1488,58 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
 # STREAMING PARA DASHBOARD
 # ─────────────────────────────────────────────
 
-async def _stream_claude_chunks(system: list, messages: list, max_tokens: int):
+# Modelo híbrido: Haiku para tareas rápidas, Sonnet para complejas
+MODELO_HAIKU  = "claude-haiku-4-5-20251001"
+MODELO_SONNET = "claude-sonnet-4-6"
+
+def _elegir_modelo(mensaje: str) -> str:
+    """
+    Clasifica el mensaje del usuario para elegir Haiku (rápido/barato)
+    o Sonnet (inteligente/caro).
+
+    Sonnet: análisis, reportes, comparaciones, explicaciones, ediciones
+            complejas, fiados, correcciones, mensajes multi-línea largos.
+    Haiku:  ventas simples, precios, stock, saludos, gastos simples.
+    """
+    ml = mensaje.lower()
+
+    # ── Siempre Sonnet ──
+    _kw_sonnet = {
+        # Análisis y reportes
+        "analiz", "analís", "compara", "explica", "por qué", "porqué",
+        "reporte", "resumen", "estadistic", "rendimiento", "tendencia",
+        "recomienda", "suger", "opina", "evalua", "evalúa",
+        # Consultas complejas
+        "cuánto vendimos", "cuanto vendimos", "qué se vendió", "que se vendio",
+        "top producto", "más vendido", "mas vendido", "menos vendido",
+        "ganancias", "utilidad", "margen", "rentabil",
+        "histórico", "historico", "semana pasada", "mes pasado",
+        "promedio", "proyección", "proyeccion",
+        # Ediciones complejas
+        "modifica", "corrig", "cambia el precio", "actualiza precio",
+        "elimina", "borrar consecutivo",
+        # Fiados / clientes
+        "fiado", "debe", "abono", "deuda", "saldo",
+        "cliente nuevo", "registrar cliente",
+    }
+    if any(kw in ml for kw in _kw_sonnet):
+        return MODELO_SONNET
+
+    # Multi-línea o mensajes largos con complejidad
+    n_lineas = mensaje.count("\n") + 1
+    n_comas  = mensaje.count(",")
+    if n_lineas >= 3 or (len(mensaje) > 150 and n_comas >= 2):
+        return MODELO_SONNET
+
+    # Múltiples preguntas
+    if mensaje.count("?") >= 2 or mensaje.count("¿") >= 2:
+        return MODELO_SONNET
+
+    # ── Todo lo demás → Haiku ──
+    return MODELO_HAIKU
+
+
+async def _stream_claude_chunks(system: list, messages: list, max_tokens: int, model: str = MODELO_SONNET):
     """
     Async generator que hace streaming de Claude usando un thread + asyncio.Queue.
     Yields: ("chunk", text_piece) durante el stream
@@ -1502,7 +1553,7 @@ async def _stream_claude_chunks(system: list, messages: list, max_tokens: int):
     def _sync_worker():
         try:
             with config.claude_client.messages.stream(
-                model="claude-sonnet-4-6",
+                model=model,
                 max_tokens=max_tokens,
                 system=system,
                 messages=messages,
@@ -1625,8 +1676,13 @@ async def procesar_con_claude_stream(
             "cache_control": {"type": "ephemeral"},
         })
 
+    # ── Elegir modelo (híbrido) ───────────────────────────────────────────────
+    _modelo = _elegir_modelo(mensaje_usuario)
+    logging.getLogger("ferrebot.ai").info(f"[MODELO] {_modelo.split('-')[1].upper()} para: {mensaje_usuario[:60]}...")
+    yield ("model", _modelo)
+
     # ── Stream ────────────────────────────────────────────────────────────────
-    async for kind, data in _stream_claude_chunks(system, messages, max_tokens):
+    async for kind, data in _stream_claude_chunks(system, messages, max_tokens, model=_modelo):
         yield kind, data
 
 
