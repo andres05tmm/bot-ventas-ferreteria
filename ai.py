@@ -1424,7 +1424,9 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
                    "equivoque","fiado","debe","abono","borrar","eliminar"}
     num_lineas = mensaje_usuario.count("\n") + mensaje_usuario.count(",") + 1
     _msg_low   = mensaje_usuario.lower()
-    if any(p in _msg_low for p in _kw_reporte):
+    if _tiene_imagen:
+        max_tokens = 3000          # imagen: puede tener varios productos
+    elif any(p in _msg_low for p in _kw_reporte):
         max_tokens = 2000          # reportes necesitan espacio
     elif any(p in _msg_low for p in _kw_edicion):
         max_tokens = 1200          # ediciones: algo de texto + JSON
