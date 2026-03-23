@@ -477,6 +477,23 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
     return () => clearInterval(tick)
   }, [refreshInterval])
 
+  // ── Bloquear orientación portrait en mobile ──────────────────────────────
+  useEffect(() => {
+    if (!isMobile) return
+    const lock = async () => {
+      try {
+        await screen.orientation.lock('portrait')
+      } catch {
+        // Si el navegador no soporta el lock (ej: iOS Safari) o el usuario
+        // tiene el bloqueo del sistema activo, simplemente ignoramos el error
+      }
+    }
+    lock()
+    return () => {
+      try { screen.orientation.unlock() } catch {}
+    }
+  }, [isMobile])
+
   return (
     <div style={{
       fontFamily: "'Sora', system-ui, sans-serif",
@@ -495,6 +512,11 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
         ::-webkit-scrollbar-track { background:transparent }
         ::-webkit-scrollbar-thumb { background:${t.accent}55; border-radius:99px }
         .tab-content { animation:fadeIn .2s ease forwards }
+        @media (orientation: landscape) and (max-height: 500px) {
+          .landscape-block {
+            display: flex !important;
+          }
+        }
       `}</style>
 
       {isMobile ? (
@@ -532,6 +554,30 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
 
       {!isMobile && <Footer/>}
       {isMobile  && <BottomNav activeTab={tab} setTab={setTab}/>}
+
+      {/* Bloqueo visual landscape — se muestra si el orientation lock falla */}
+      {isMobile && (
+        <div className="landscape-block" style={{
+          display: 'none',
+          position: 'fixed', inset: 0, zIndex: 99999,
+          background: '#0A0A0A',
+          flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 16,
+          color: '#fff', textAlign: 'center', padding: 32,
+        }}>
+          <span style={{ fontSize: 52 }}>🔄</span>
+          <span style={{ fontSize: 17, fontWeight: 700 }}>Girá el celular</span>
+          <span style={{ fontSize: 13, opacity: .6, maxWidth: 240 }}>
+            Esta app está diseñada para usarse en vertical
+          </span>
+        </div>
+      )}
+
+      <ChatWidget
+        nombreUsuario="Dashboard"
+        activeTab={tab}
+        onRefresh={doRefresh}
+      />
     </div>
   )
 }
@@ -542,10 +588,6 @@ export default function App() {
   return (
     <ThemeContext.Provider value={THEMES[themeId]}>
       <AppShell themeId={themeId} setThemeId={setThemeId} refreshRef={refreshRef}/>
-      <ChatWidget
-        nombreUsuario="Dashboard"
-        onRefresh={() => refreshRef.current?.()}
-      />
     </ThemeContext.Provider>
   )
 }
