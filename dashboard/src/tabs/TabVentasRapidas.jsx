@@ -1414,6 +1414,8 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // PANEL CARRITO (compartido desktop + drawer móvil)
 // ══════════════════════════════════════════════════════════════════════════════
+const VENDEDORES_VR = ['Andres', 'Farid M', 'Farid D', 'Karolay']
+
 function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo, setMetodo,
                         clienteSeleccionado, setClienteSeleccionado,
                         removeItem, qtyChange, registrar, enviando, sticky, mobile }) {
@@ -1474,15 +1476,19 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
       {/* Vendedor */}
       <div style={{ padding: '8px 14px', borderTop: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.08em', minWidth: 54 }}>Vendedor</span>
-        <input
+        <select
           value={vendedor} onChange={e => setVendedor(e.target.value)}
           style={{
             flex: 1, background: t.id === 'caramelo' ? '#f8fafc' : '#111',
             border: `1px solid ${t.border}`, borderRadius: 5, color: t.text,
             fontSize: mobile ? 14 : 11, padding: mobile ? '7px 10px' : '4px 7px',
-            fontFamily: 'inherit', outline: 'none',
+            fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
           }}
-        />
+        >
+          {VENDEDORES_VR.map(v => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
       </div>
 
       {/* Método de pago */}
@@ -1542,7 +1548,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [columnas,  setColumnas]  = useState(() => window.innerWidth < 768 ? 2 : 6)
   const [carrito,   setCarrito]   = useState([])
   const [metodo,    setMetodo]    = useState('efectivo')
-  const [vendedor,  setVendedor]  = useState('Dashboard')
+  const [vendedor,  setVendedor]  = useState(VENDEDORES_VR[0])
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null) // {nombre, id} | null
   const [modalFrac, setModalFrac] = useState(null)
   const [modalCm,   setModalCm]   = useState(null)
