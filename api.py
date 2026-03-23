@@ -3021,6 +3021,7 @@ async def chat_stream(req: ChatRequest):
             contexto_dash = _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
             mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
             full_text = ""
+            modelo_usado = None  # capturar qué modelo se usó
 
             async for kind, data in procesar_con_claude_stream(
                 mensaje_usuario=mensaje_con_flag,
@@ -3028,7 +3029,9 @@ async def chat_stream(req: ChatRequest):
                 historial_chat=req.historial,
                 contexto_extra=contexto_dash,
             ):
-                if kind == "chunk":
+                if kind == "model":
+                    modelo_usado = "sonnet" if "sonnet" in data else "haiku"
+                elif kind == "chunk":
                     full_text += data
                     yield f"data: {json.dumps({'type':'chunk','text':data}, ensure_ascii=False)}\n\n"
                 elif kind == "done":
@@ -3092,6 +3095,7 @@ async def chat_stream(req: ChatRequest):
                 "acciones": {"ventas": ventas_reg, "gastos": gastos_reg},
                 "pendiente": pendiente,
                 "opciones_pago": opciones_pago,
+                "modelo": modelo_usado,
             }
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -3178,8 +3182,14 @@ async def transcribir_audio(audio: UploadFile = File(...)):
     if not (content_type.startswith("audio/") or audio.filename.endswith((".ogg", ".webm", ".mp3", ".wav", ".m4a"))):
         raise HTTPException(status_code=400, detail="Formato de audio no soportado")
 
-    # Leer y guardar temporalmente
+    # Leer y validar tamaño (~90s de audio webm/opus ≈ 1.5-2 MB, margen hasta 3 MB)
+    MAX_AUDIO_BYTES = 3 * 1024 * 1024  # 3 MB
     audio_bytes = await audio.read()
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio demasiado largo (máx ~90 segundos). Tamaño: {len(audio_bytes) / 1024 / 1024:.1f} MB"
+        )
     suffix = "." + (audio.filename.rsplit(".", 1)[-1] if "." in audio.filename else "webm")
 
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
