@@ -97,11 +97,25 @@ const TAB_ICONS = {
 const BOTTOM_TABS = ['Ventas Rápidas','Resumen','Historial','Caja']
 
 function useIsMobile() {
-  const [v, setV] = useState(() => window.innerWidth < 768)
+  const mq = typeof window !== 'undefined'
+    ? window.matchMedia('(max-width: 767px)')
+    : null
+  const [v, setV] = useState(() => mq ? mq.matches : false)
   useEffect(() => {
-    const fn = () => setV(window.innerWidth < 768)
-    window.addEventListener('resize', fn)
-    return () => window.removeEventListener('resize', fn)
+    if (!mq) return
+    const fn = (e) => setV(e.matches)
+    if (mq.addEventListener) { mq.addEventListener('change', fn) }
+    else { mq.addListener(fn) }
+    const onResize = () => setV(window.matchMedia('(max-width: 767px)').matches)
+    window.addEventListener('orientationchange', onResize)
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize)
+    setV(window.matchMedia('(max-width: 767px)').matches)
+    return () => {
+      if (mq.removeEventListener) { mq.removeEventListener('change', fn) }
+      else { mq.removeListener(fn) }
+      window.removeEventListener('orientationchange', onResize)
+      if (window.visualViewport) window.visualViewport.removeEventListener('resize', onResize)
+    }
   }, [])
   return v
 }
