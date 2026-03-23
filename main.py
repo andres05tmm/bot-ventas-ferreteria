@@ -28,7 +28,7 @@ from handlers.comandos import (
     comando_inv, comando_stock, comando_ajuste,
     comando_compra, comando_margenes,
 )
-from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento
+from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento, manejar_foto
 from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente
 from handlers.productos import comando_productos, manejar_callback_productos
 from keepalive import loop_keepalive
@@ -91,6 +91,7 @@ def main():
     # Mensajes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))
     app.add_handler(MessageHandler(filters.VOICE,       manejar_audio))
+    app.add_handler(MessageHandler(filters.PHOTO,       manejar_foto))
     app.add_handler(MessageHandler(filters.Document.ALL, manejar_documento))
 
     # Callbacks (botones inline)
