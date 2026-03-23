@@ -3220,9 +3220,32 @@ if _DIST.exists():
     # Archivos estáticos (JS, CSS, assets)
     app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
 
+    # PWA: iconos, manifest y service worker (Vite copia public/ → dist/)
+    if (_DIST / "icons").exists():
+        app.mount("/icons", StaticFiles(directory=_DIST / "icons"), name="icons")
+
+    # Archivos PWA individuales en la raíz
+    @app.get("/manifest.json")
+    def serve_manifest():
+        f = _DIST / "manifest.json"
+        if f.exists():
+            return FileResponse(f, media_type="application/manifest+json")
+        return {"error": "manifest.json no encontrado"}
+
+    @app.get("/sw.js")
+    def serve_sw():
+        f = _DIST / "sw.js"
+        if f.exists():
+            return FileResponse(f, media_type="application/javascript")
+        return {"error": "sw.js no encontrado"}
+
     # Cualquier ruta que no sea /api/* → devolver index.html (SPA routing)
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
+        # Intentar servir el archivo estático si existe
+        static_file = _DIST / full_path
+        if static_file.exists() and static_file.is_file():
+            return FileResponse(static_file)
         index = _DIST / "index.html"
         if index.exists():
             return FileResponse(index)
