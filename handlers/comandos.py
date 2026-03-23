@@ -1243,6 +1243,77 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await update.message.reply_text("⚠️ Excel actualizado, pero Sheets no se pudo limpiar.")
 
+    # ── Análisis del día con Claude ───────────────────────────────────────────
+    try:
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+        # Construir datos del día para Claude
+        total_dia     = sum(float(v.get("total", 0) or 0) for v in ventas_sheets)
+        num_ventas    = len(ventas_sheets)
+        por_metodo    = {}
+        por_vendedor  = {}
+        por_producto  = {}
+        for v in ventas_sheets:
+            m_pago = str(v.get("metodo", "efectivo")).lower()
+            por_metodo[m_pago]  = por_metodo.get(m_pago, 0)  + float(v.get("total", 0) or 0)
+            vend = str(v.get("vendedor", "?"))
+            por_vendedor[vend]  = por_vendedor.get(vend, 0)   + float(v.get("total", 0) or 0)
+            prod = str(v.get("producto", "?"))
+            por_producto[prod]  = por_producto.get(prod, 0)   + float(v.get("total", 0) or 0)
+
+        # Top 3 productos
+        top_prod = sorted(por_producto.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_txt  = ", ".join(f"{p} (${t:,.0f})" for p, t in top_prod)
+
+        # Histórico para comparar
+        try:
+            from api import _leer_historico
+            historico = _leer_historico()
+            # Últimos 7 días (excluyendo hoy)
+            from datetime import timedelta
+            ultimos = sorted(historico.keys(), reverse=True)[:8]
+            ultimos = [d for d in ultimos if d != fecha_str][:7]
+            if ultimos:
+                promedio_semana = sum(historico[d] for d in ultimos) / len(ultimos)
+                mejor_dia       = max(ultimos, key=lambda d: historico[d])
+                hist_txt = (
+                    f"Promedio últimos {len(ultimos)} días: ${promedio_semana:,.0f}\n"
+                    f"Mejor día reciente: {mejor_dia} con ${historico[mejor_dia]:,.0f}"
+                )
+            else:
+                hist_txt = "Sin histórico previo disponible"
+        except Exception:
+            hist_txt = "Sin histórico previo disponible"
+
+        prompt_analisis = (
+            f"Eres el asistente de Ferretería Punto Rojo. Hoy fue {fecha_str}.\n"
+            f"\nDATOS DEL DÍA:\n"
+            f"- Total vendido: ${total_dia:,.0f}\n"
+            f"- Número de ventas: {num_ventas}\n"
+            f"- Por método: {', '.join(f'{k}: ${v:,.0f}' for k,v in por_metodo.items())}\n"
+            f"- Por vendedor: {', '.join(f'{k}: ${v:,.0f}' for k,v in por_vendedor.items())}\n"
+            f"- Top 3 productos: {top_txt}\n"
+            f"\nHISTÓRICO RECIENTE:\n{hist_txt}\n"
+            f"\nEscribe un análisis breve del día (máximo 5 líneas). "
+            f"Compara con el promedio, destaca lo notable, menciona si fue buen o mal día y por qué. "
+            f"Sé directo y concreto. Sin markdown, sin asteriscos. "
+            f"Si fue un día excepcional o muy flojo, dilo claramente."
+        )
+
+        respuesta_analisis = await asyncio.to_thread(
+            lambda: config.claude_client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=400,
+                messages=[{"role": "user", "content": prompt_analisis}],
+            )
+        )
+        analisis_txt = respuesta_analisis.content[0].text.strip()
+        await update.message.reply_text(f"🧠 Análisis del día:\n\n{analisis_txt}")
+
+    except Exception as e_an:
+        # El análisis es opcional — no bloquear el cierre por esto
+        print(f"[cerrar] Error en análisis Claude: {e_an}")
+
 
 # ─────────────────────────────────────────────
 # /resetventas
