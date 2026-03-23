@@ -340,6 +340,24 @@ const CSS = `
     width: 11px; height: 11px; border-radius: 50%;
     background: #22C55E; border: 2px solid #fff;
   }
+
+  /* ── Mobile: posicionar sobre la bottom nav (62px) ── */
+  @media (max-width: 767px) {
+    .fw-fab {
+      bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+      right: 14px;
+    }
+    .fw-panel {
+      bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+      right: 0;
+      left: 0;
+      width: 100%;
+      max-width: 100%;
+      border-radius: 20px 20px 0 0;
+      height: calc(100dvh - 58px - 62px - env(safe-area-inset-bottom, 0px));
+      max-height: calc(100dvh - 58px - 62px - env(safe-area-inset-bottom, 0px));
+    }
+  }
 `
 
 let _cssInjected = false
