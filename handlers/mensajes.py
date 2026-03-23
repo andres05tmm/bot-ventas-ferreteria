@@ -1010,12 +1010,14 @@ async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, ven
         historial = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", mensaje_usuario)
 
+        # Fix 1: Forzar Sonnet — Haiku no tiene buena vision de manuscritos
         respuesta_raw = await procesar_con_claude(
             mensaje_usuario,
             vendedor,
             historial,
             imagen_b64=imagen_b64,
             imagen_media_type=media_type,
+            modelo_preferido="sonnet",
         )
 
         texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(
@@ -1023,25 +1025,25 @@ async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, ven
         )
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
-        # Flujo de pago — igual que en mensajes de texto
+        # Fix 4: Mostrar resumen de transcripcion PRIMERO, luego botones de pago
         confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
         pedir_metodo        = "PEDIR_METODO_PAGO" in acciones
 
         with _estado_lock:
             ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
 
+        # Siempre mostrar el resumen primero si hay texto
+        if texto_respuesta:
+            await update.message.reply_text(texto_respuesta)
+
+        # Luego el flujo de pago
         if confirmacion_accion and ventas_nuevas:
             metodo_conocido = confirmacion_accion.split(":", 1)[1]
-            nota = texto_respuesta.split("\n")[0] if texto_respuesta else ""
-            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido, nota=nota)
+            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido)
         elif pedir_metodo and ventas_nuevas:
-            if texto_respuesta:
-                await update.message.reply_text(texto_respuesta)
             await _enviar_botones_pago(update.message, chat_id, ventas_nuevas)
-        elif texto_respuesta:
-            await update.message.reply_text(texto_respuesta)
-        else:
-            await update.message.reply_text("No pude leer productos en la foto. Intenta con mejor iluminación.")
+        elif not texto_respuesta:
+            await update.message.reply_text("No pude leer productos en la foto. Intenta con mejor iluminacion o envia las ventas por texto.")
 
     except Exception as e:
         logger.error(f"[foto] Error procesando imagen: {e}", exc_info=True)

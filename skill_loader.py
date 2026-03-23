@@ -49,7 +49,8 @@ def precargar_todos():
     """Precarga todos los skills al inicio del bot para evitar I/O en runtime."""
     skills_disponibles = ["core", "precios_base", "clientes",
                           "tornillos", "thinner_varsol", "lija_esmeril",
-                          "pinturas", "granel", "pele", "tintes", "wayper"]
+                          "pinturas", "granel", "pele", "tintes", "wayper",
+                          "foto_cuaderno"]  # instrucciones para fotos manuscritas
     for nombre in skills_disponibles:
         _cargar_skill(nombre)
     _logger.info(f"[SKILLS] {len(_skills_cache)} skills precargados en RAM")

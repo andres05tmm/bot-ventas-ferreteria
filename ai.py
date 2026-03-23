@@ -211,6 +211,48 @@ INFORMACION DEL NEGOCIO: {negocio_json}
 {catalogo_seccion}"""
 
 # ─────────────────────────────────────────────
+# CATÁLOGO COMPLETO PARA FOTOS (Fix 2)
+# ─────────────────────────────────────────────
+
+def _construir_catalogo_imagen(memoria: dict) -> str:
+    """
+    Cuando hay una imagen del cuaderno de ventas, el MATCH dinámico no puede extraer
+    candidatos del texto (que solo dice 'foto de ventas'). Este helper inyecta el
+    catálogo COMPLETO con TODAS las fracciones para que Claude pueda identificar
+    productos y calcular cantidades desde el precio anotado.
+    Solo se llama cuando imagen_b64 is not None.
+    """
+    catalogo = memoria.get("catalogo", {})
+    if not catalogo:
+        return ""
+    lineas = []
+    for prod in sorted(catalogo.values(), key=lambda p: p.get("nombre", "")):
+        nombre   = prod["nombre"]
+        precio_u = prod.get("precio_unidad", 0)
+        pxc      = prod.get("precio_por_cantidad")
+        fracs    = prod.get("precios_fraccion", {})
+        if pxc:
+            umbral  = pxc.get("umbral", 50)
+            p_bajo  = pxc.get("precio_bajo_umbral", precio_u)
+            p_sobre = pxc.get("precio_sobre_umbral", precio_u)
+            lineas.append(f"{nombre}: normal={p_bajo}/u | x{umbral}+={p_sobre}/u")
+        elif fracs:
+            partes_frac = []
+            for fk, fd in fracs.items():
+                if isinstance(fd, dict) and "precio" in fd:
+                    partes_frac.append(f"{fk}=${fd['precio']:,}")
+                elif isinstance(fd, (int, float)):
+                    partes_frac.append(f"{fk}=${int(fd):,}")
+            if partes_frac:
+                lineas.append(f"{nombre}: " + " | ".join(partes_frac))
+            else:
+                lineas.append(f"{nombre}: unidad=${precio_u:,}")
+        else:
+            lineas.append(f"{nombre}: unidad=${precio_u:,}")
+    return "CATÁLOGO COMPLETO CON FRACCIONES (para foto — usa esto para identificar productos y cantidades):\n" + "\n".join(lineas)
+
+
+# ─────────────────────────────────────────────
 # PARTE DINÁMICA DEL SYSTEM PROMPT (por mensaje)
 # ─────────────────────────────────────────────
 
@@ -1387,6 +1429,17 @@ async def procesar_con_claude(
 
     parte_estatica = _construir_parte_estatica(memoria)
     parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
+
+    # Fix 2+3: cuando hay imagen, inyectar catalogo completo con fracciones
+    # + skill foto_cuaderno al frente de la parte dinamica.
+    # El MATCH normal llega vacio porque el texto es 'foto de ventas',
+    # asi Claude tiene todo el catalogo disponible para identificar productos.
+    if _tiene_imagen:
+        _cat_img    = _construir_catalogo_imagen(memoria)
+        _skill_foto = skill_loader.obtener_skill("foto_cuaderno")
+        _extra      = "\n\n".join(p for p in [_skill_foto, _cat_img] if p)
+        if _extra:
+            parte_dinamica = _extra + "\n\n" + parte_dinamica
 
     # BLOQUEO PYTHON: si el MATCH está vacío y el mensaje parece una venta
     # (no es consulta, no es reporte), responder directamente sin llamar a Claude.
