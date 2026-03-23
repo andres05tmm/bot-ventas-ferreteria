@@ -851,7 +851,7 @@ const FRACS_CP = [
   { k: '1/16',  label: '1/16',   mult: 0.0625},
 ]
 
-function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
+function ModalColorPreparado({ show, precioBase, nombreProducto, onClose, onConfirm }) {
   const t = useTheme()
   const [desc,    setDesc]    = useState('')
   const [precio,  setPrecio]  = useState(precioBase || 0)
@@ -887,6 +887,11 @@ function ModalColorPreparado({ show, precioBase, onClose, onConfirm }) {
         animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)',
       }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 4 }}>🎨 Color Preparado</div>
+        {nombreProducto && (
+          <div style={{ fontSize: 12, color: t.accent, fontWeight: 600, marginBottom: 4 }}>
+            {nombreProducto}
+          </div>
+        )}
         <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 18 }}>
           El cliente trae la muestra y se prepara en tienda
         </div>
@@ -1113,7 +1118,7 @@ function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
         {/* Botón color preparado */}
         {onColorPrep && !grupo.sinColorPrep && !grupo.sinPrecio && (
           <button
-            onClick={() => onColorPrep(precioBase)}
+            onClick={() => onColorPrep(precioBase, grupo.titulo)}
             style={{
               padding: '5px 12px', borderRadius: 99, cursor: 'pointer',
               background: 'transparent',
@@ -1414,8 +1419,6 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // PANEL CARRITO (compartido desktop + drawer móvil)
 // ══════════════════════════════════════════════════════════════════════════════
-const VENDEDORES_VR = ['Andres', 'Farid M', 'Farid D', 'Karolay']
-
 function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo, setMetodo,
                         clienteSeleccionado, setClienteSeleccionado,
                         removeItem, qtyChange, registrar, enviando, sticky, mobile }) {
@@ -1476,19 +1479,15 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
       {/* Vendedor */}
       <div style={{ padding: '8px 14px', borderTop: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.08em', minWidth: 54 }}>Vendedor</span>
-        <select
+        <input
           value={vendedor} onChange={e => setVendedor(e.target.value)}
           style={{
             flex: 1, background: t.id === 'caramelo' ? '#f8fafc' : '#111',
             border: `1px solid ${t.border}`, borderRadius: 5, color: t.text,
             fontSize: mobile ? 14 : 11, padding: mobile ? '7px 10px' : '4px 7px',
-            fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
+            fontFamily: 'inherit', outline: 'none',
           }}
-        >
-          {VENDEDORES_VR.map(v => (
-            <option key={v} value={v}>{v}</option>
-          ))}
-        </select>
+        />
       </div>
 
       {/* Método de pago */}
@@ -1548,7 +1547,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [columnas,  setColumnas]  = useState(() => window.innerWidth < 768 ? 2 : 6)
   const [carrito,   setCarrito]   = useState([])
   const [metodo,    setMetodo]    = useState('efectivo')
-  const [vendedor,  setVendedor]  = useState(VENDEDORES_VR[0])
+  const [vendedor,  setVendedor]  = useState('Dashboard')
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null) // {nombre, id} | null
   const [modalFrac, setModalFrac] = useState(null)
   const [modalCm,   setModalCm]   = useState(null)
@@ -1686,14 +1685,16 @@ export default function TabVentasRapidas({ refreshKey }) {
   }
 
   // ── Color preparado ───────────────────────────────────────────────────────
-  const abrirColorPrep = useCallback((precioBase) => {
+  const [nombreProductoColor, setNombreProductoColor] = useState('')
+  const abrirColorPrep = useCallback((precioBase, nombreProducto) => {
     setPrecioBaseColor(precioBase)
+    setNombreProductoColor(nombreProducto || '')
     setModalColorPrep(true)
   }, [])
   const confirmarColorPrep = useCallback(({ desc, descCompleta, precio }) => {
     setCarrito(prev => [...prev, {
       id: Date.now(), key: `color_prep_${Date.now()}`,
-      nombre: `🎨 Color Preparado: ${desc}`,
+      nombre: nombreProductoColor ? `🎨 ${nombreProductoColor} — ${desc}` : `🎨 Color Preparado: ${desc}`,
       precio, qty: 1, total: precio,
       desc: descCompleta || '1 galón', tipo: 'simple',
       unidad: 'Galón',
@@ -2092,6 +2093,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       {/* Modal color preparado */}
       <ModalColorPreparado
         show={modalColorPrep}
+        nombreProducto={nombreProductoColor}
         precioBase={precioBaseColor}
         onClose={() => setModalColorPrep(false)}
         onConfirm={confirmarColorPrep}
