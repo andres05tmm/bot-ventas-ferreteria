@@ -2833,6 +2833,8 @@ class ChatRequest(BaseModel):
     session_id: str = "default"
     # Tab activo en el dashboard (contexto extra para el asistente)
     tab_activo: str = ""
+    # Forzar modelo: null=auto, "haiku", "sonnet"
+    modelo_preferido: Optional[str] = None
 
 
 @app.post("/chat")
@@ -3028,6 +3030,7 @@ async def chat_stream(req: ChatRequest):
                 nombre_usuario=req.nombre,
                 historial_chat=req.historial,
                 contexto_extra=contexto_dash,
+                modelo_preferido=req.modelo_preferido,
             ):
                 if kind == "model":
                     modelo_usado = "sonnet" if "sonnet" in data else "haiku"
