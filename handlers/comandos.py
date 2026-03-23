@@ -2367,3 +2367,50 @@ async def manejar_mensaje_precio(update, mensaje: str) -> bool:
         await _procesar_linea_precio(linea, update)
 
     return True
+
+
+async def comando_modelo(update, context):
+    """
+    /modelo           → muestra el modelo actual
+    /modelo auto      → selección automática (default)
+    /modelo haiku     → fuerza Haiku (más rápido y barato)
+    /modelo sonnet    → fuerza Sonnet (más inteligente)
+    """
+    chat_id = update.effective_chat.id
+    args = context.args
+
+    opciones_validas = ("auto", "haiku", "sonnet")
+
+    if not args:
+        actual = context.user_data.get("modelo_preferido", "auto")
+        await update.message.reply_text(
+            f"🤖 *Modelo actual:* `{actual}`\n\n"
+            f"Cambia con:\n"
+            f"  `/modelo auto` — selección automática\n"
+            f"  `/modelo haiku` — ⚡ rápido y eficiente\n"
+            f"  `/modelo sonnet` — 🧠 más inteligente",
+            parse_mode="Markdown"
+        )
+        return
+
+    seleccion = args[0].lower()
+    if seleccion not in opciones_validas:
+        await update.message.reply_text(
+            f"❌ Opción inválida. Usa: `auto`, `haiku` o `sonnet`",
+            parse_mode="Markdown"
+        )
+        return
+
+    context.user_data["modelo_preferido"] = seleccion
+
+    emojis = {"auto": "⚙️", "haiku": "⚡", "sonnet": "🧠"}
+    descripciones = {
+        "auto":   "selección automática según el mensaje",
+        "haiku":  "rápido y eficiente para ventas simples",
+        "sonnet": "más inteligente para consultas complejas",
+    }
+    await update.message.reply_text(
+        f"{emojis[seleccion]} *Modelo cambiado a `{seleccion}`*\n"
+        f"_{descripciones[seleccion]}_",
+        parse_mode="Markdown"
+    )
