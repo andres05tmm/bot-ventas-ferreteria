@@ -1352,6 +1352,8 @@ async def procesar_con_claude(mensaje_usuario: str, nombre_usuario: str, histori
     # BYPASS PYTHON — ANTES de alias_ferreteria (que transforma fracciones y rompería el match)
     # Solo se aplican aliases DINÁMICOS (simples word-substitutions: tiner→thinner, etc.)
     # El mensaje llega como "{vendedor}: {texto}" — stripear prefijo antes del bypass
+    _dashboard_mode = "##DASHBOARD##" in mensaje_usuario   # FIX: definir antes de usar
+    _tiene_imagen   = False                                 # FIX: esta función no recibe imágenes
     import re as _re
     _msg_bypass = _re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
     _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
