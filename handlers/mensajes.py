@@ -14,10 +14,13 @@ CORRECCIONES v3:
 """
 
 # ── stdlib ────────────────────────────────────────────────────────────────────
+import base64
 import json
 import logging
 import asyncio
+import os
 import re
+import tempfile
 import traceback
 from datetime import datetime
 
