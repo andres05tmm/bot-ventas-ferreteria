@@ -97,24 +97,23 @@ const TAB_ICONS = {
 const BOTTOM_TABS = ['Ventas Rápidas','Resumen','Historial','Caja']
 
 function useIsMobile() {
-  const mq = typeof window !== 'undefined'
-    ? window.matchMedia('(max-width: 767px)')
-    : null
-  const [v, setV] = useState(() => mq ? mq.matches : false)
+  // Usa Math.min(screen.width, screen.height) = el lado corto del dispositivo físico.
+  // Esto NO cambia con la orientación (portrait ↔ landscape), así que el layout
+  // nunca flippea a "desktop" cuando el celular se inclina levemente.
+  const getIsMobile = () => {
+    if (typeof window === 'undefined') return false
+    return Math.min(window.screen.width, window.screen.height) < 768
+  }
+  const [v, setV] = useState(getIsMobile)
   useEffect(() => {
-    if (!mq) return
-    const fn = (e) => setV(e.matches)
-    if (mq.addEventListener) { mq.addEventListener('change', fn) }
-    else { mq.addListener(fn) }
-    const onResize = () => setV(window.matchMedia('(max-width: 767px)').matches)
-    window.addEventListener('orientationchange', onResize)
-    if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize)
-    setV(window.matchMedia('(max-width: 767px)').matches)
+    // setTimeout de 50ms para que el browser actualice screen dims
+    // antes de que re-evaluemos
+    const handler = () => setTimeout(() => setV(getIsMobile()), 50)
+    window.addEventListener('resize', handler)
+    window.addEventListener('orientationchange', handler)
     return () => {
-      if (mq.removeEventListener) { mq.removeEventListener('change', fn) }
-      else { mq.removeListener(fn) }
-      window.removeEventListener('orientationchange', onResize)
-      if (window.visualViewport) window.visualViewport.removeEventListener('resize', onResize)
+      window.removeEventListener('resize', handler)
+      window.removeEventListener('orientationchange', handler)
     }
   }, [])
   return v
@@ -338,7 +337,8 @@ function BottomNav({ activeTab, setTab }) {
       <div style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
         background: t.header, borderTop: `1px solid ${t.border}`,
-        display: 'flex', height: 62,
+        display: 'flex', height: 'calc(62px + env(safe-area-inset-bottom, 0px))',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         boxShadow: '0 -8px 32px rgba(0,0,0,.2)',
       }}>
         {BOTTOM_TABS.map(tab => {
@@ -382,7 +382,8 @@ function BottomNav({ activeTab, setTab }) {
         }}>
           <div onClick={e => e.stopPropagation()} style={{
             background: t.card, borderRadius: '20px 20px 0 0',
-            padding: '16px 0 72px',
+            padding: '16px 0',
+            paddingBottom: 'calc(72px + env(safe-area-inset-bottom, 0px))',
             animation: 'drawerUp .22s cubic-bezier(.22,1,.36,1)',
           }}>
             <style>{`@keyframes drawerUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
@@ -511,7 +512,8 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
       <main style={{
         maxWidth: isMobile ? '100%' : 1400, margin: '0 auto',
         padding: isMobile ? '14px 12px' : '24px 28px',
-        paddingBottom: isMobile ? 120 : 24,
+        // 62px nav + env(safe-area-inset-bottom) para iPhones con notch + 16px extra
+        paddingBottom: isMobile ? 'calc(62px + env(safe-area-inset-bottom, 0px) + 16px)' : 24,
       }}>
         <div className="tab-content" key={tab}>
           {tab==='Resumen'        && <TabResumen       refreshKey={refreshKey}/>}
