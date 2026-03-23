@@ -1,17 +1,31 @@
 /**
- * ChatWidget.jsx — Asistente IA Ferretería · v4
+ * ChatWidget.jsx — Asistente IA Ferretería · v5
  *
- * Mejoras:
- * - Streaming SSE token-a-token (respuestas instantáneas)
- * - session_id único por pestaña (fix race condition multi-usuario)
- * - tab_activo enviado en cada mensaje (Claude sabe dónde estás)
- * - onRefresh: refresca el dashboard automáticamente al registrar una venta
- * - Historial persistido en sessionStorage (sobrevive recarga de página)
+ * Mejoras v5:
+ * - AbortController: cancela stream al cerrar panel o desmontar componente
+ * - Timestamps discretos en cada mensaje
+ * - Nombre del vendedor visible en burbujas del usuario
+ * - Grabación de voz con timer visual (máx 90s, auto-stop)
+ * - Botón "Reintentar" en mensajes de error
+ * - Historial enviado al backend limitado a 8 mensajes (ahorro de tokens)
+ * - Indicador de modelo usado (Haiku/Sonnet) en respuestas
+ *
+ * Mantiene v4:
+ * - Streaming SSE token-a-token
+ * - session_id único por pestaña
+ * - tab_activo en cada mensaje
+ * - onRefresh post-registro
+ * - Historial UI persistido en sessionStorage
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
+
+// Máximo de mensajes de historial que se envían al backend (ahorro de tokens)
+const MAX_HIST_BACKEND = 8
+// Máximo de segundos de grabación de audio
+const MAX_REC_SECONDS  = 90
 
 // ── Session ID único por pestaña ────────────────────────────────────────────
 function getSessionId() {
@@ -27,7 +41,6 @@ const SESSION_ID = getSessionId()
 // Vendedores disponibles
 const VENDEDORES = ['Andres', 'Farid M', 'Farid D', 'Karolay']
 
-// Guardar último vendedor seleccionado
 function loadVendedor() {
   return sessionStorage.getItem('fw_vendedor') || VENDEDORES[0]
 }
@@ -50,6 +63,16 @@ function loadMessages() {
 }
 function saveMessages(m) {
   try { sessionStorage.setItem(MSGS_KEY, JSON.stringify(m.slice(-60))) } catch {}
+}
+
+// ── Formatear hora ──────────────────────────────────────────────────────────
+function fmtTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const h = d.getHours()
+  const m = String(d.getMinutes()).padStart(2, '0')
+  const ampm = h >= 12 ? 'pm' : 'am'
+  return `${h % 12 || 12}:${m} ${ampm}`
 }
 
 // ── CSS ──────────────────────────────────────────────────────────────────────
@@ -194,7 +217,6 @@ const CSS = `
     border: 1px solid rgba(0,0,0,.07);
     box-shadow: 0 1px 4px rgba(0,0,0,.06);
   }
-  /* Cursor parpadeante durante streaming */
   .fw-bbl.b.streaming::after {
     content: '▋';
     display: inline-block;
@@ -203,6 +225,21 @@ const CSS = `
     animation: fw-cursor .7s step-end infinite;
     color: #C8200E;
   }
+
+  /* Metadata bajo la burbuja: hora, vendedor, modelo */
+  .fw-meta {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 2px; padding: 0 4px;
+    font-size: 10.5px; color: #A8A29E; font-weight: 400;
+    user-select: none;
+  }
+  .fw-meta .fw-model-tag {
+    font-size: 9.5px; font-weight: 600;
+    padding: 1px 5px; border-radius: 4px;
+    letter-spacing: .02em; text-transform: uppercase;
+  }
+  .fw-meta .fw-model-tag.haiku   { background: #E0F2FE; color: #0369A1; }
+  .fw-meta .fw-model-tag.sonnet  { background: #F3E8FF; color: #7C3AED; }
 
   .fw-pay-group { display: flex; gap: 7px; margin-top: 8px; align-self: flex-start; flex-wrap: wrap; }
   .fw-pay-btn {
@@ -227,6 +264,18 @@ const CSS = `
     border: 1px solid #BBF7D0; border-radius: 20px;
     padding: 3px 10px; margin-top: 5px;
   }
+
+  /* Botón de reintentar en mensajes de error */
+  .fw-retry-btn {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 11.5px; font-weight: 500;
+    padding: 4px 12px; border-radius: 14px;
+    border: 1.5px solid rgba(239,68,68,.4);
+    background: rgba(239,68,68,.06); color: #DC2626;
+    cursor: pointer; transition: all .15s;
+    margin-top: 5px;
+  }
+  .fw-retry-btn:hover { background: rgba(239,68,68,.14); border-color: #EF4444; }
 
   .fw-typing {
     display: flex; align-items: center; gap: 4px;
@@ -319,6 +368,16 @@ const CSS = `
   }
   .fw-mic-btn:disabled { opacity: .4; cursor: default; }
 
+  /* Timer de grabación */
+  .fw-rec-timer {
+    position: absolute; top: -22px; left: 50%; transform: translateX(-50%);
+    background: #EF4444; color: #fff;
+    font-size: 10px; font-weight: 600; font-family: 'DM Sans', monospace;
+    padding: 2px 8px; border-radius: 8px;
+    white-space: nowrap; pointer-events: none;
+    box-shadow: 0 2px 6px rgba(239,68,68,.4);
+  }
+
   .fw-fab {
     position: fixed; bottom: 24px; right: 24px; z-index: 9999;
     width: 56px; height: 56px; border-radius: 17px;
@@ -341,7 +400,7 @@ const CSS = `
     background: #22C55E; border: 2px solid #fff;
   }
 
-  /* ── Mobile: posicionar sobre la bottom nav (62px) ── */
+  /* ── Mobile ── */
   @media (max-width: 767px) {
     .fw-fab {
       bottom: calc(78px + env(safe-area-inset-bottom, 0px));
@@ -398,11 +457,18 @@ const IcoFab = () => (
     <line x1="8" y1="14" x2="13" y2="14"/>
   </svg>
 )
+const IcoRetry = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="23 4 23 10 17 10"/>
+    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+  </svg>
+)
 
 const CHIPS = ['Inventario bajo', 'Total hoy', 'Estado de caja', 'Registrar gasto']
 
 // ── Componente ───────────────────────────────────────────────────────────────
-export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, activeTab = '' }) {
+export default function ChatWidget({ onRefresh, activeTab = '' }) {
   const [open, setOpen]             = useState(false)
   const [vendedor, setVendedor]     = useState(() => loadVendedor())
   const [menuOpen, setMenuOpen]     = useState(false)
@@ -412,21 +478,24 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
   const [messages, setMessages]     = useState(() => loadMessages())
   const [historial, setHistorial]   = useState(() => loadHistorial())
   const [opcionesPago, setOpcionesPago] = useState(null)
-  // Texto en streaming del mensaje actual del bot
   const [streamText, setStreamText] = useState('')
 
-  const [grabando, setGrabando] = useState(false)
+  const [grabando, setGrabando]         = useState(false)
   const [transcribiendo, setTranscribiendo] = useState(false)
-  const mediaRecRef = useRef(null)   // MediaRecorder activo
-  const chunksRef   = useRef([])     // chunks de audio
+  const [recSeconds, setRecSeconds]     = useState(0) // timer de grabación
 
-  const endRef   = useRef(null)
-  const inputRef = useRef(null)
-  const esRef    = useRef(null) // EventSource activo
+  const mediaRecRef  = useRef(null)
+  const chunksRef    = useRef([])
+  const recTimerRef  = useRef(null)  // interval del timer
+
+  const endRef       = useRef(null)
+  const inputRef     = useRef(null)
+  const abortRef     = useRef(null)  // AbortController del stream activo
+  const lastMsgRef   = useRef(null)  // último mensaje fallido (para reintentar)
 
   useEffect(() => { injectCSS() }, [])
 
-  // Persistir en sessionStorage cuando cambian
+  // Persistir
   useEffect(() => { saveMessages(messages) }, [messages])
   useEffect(() => { saveHistorial(historial) }, [historial])
 
@@ -438,26 +507,42 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
     if (open) setTimeout(() => inputRef.current?.focus(), 280)
   }, [open])
 
+  // ── Cleanup: abortar stream al desmontar o cerrar panel ────────────────────
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+      if (recTimerRef.current) clearInterval(recTimerRef.current)
+    }
+  }, [])
+
+  // Si se cierra el panel, abortar stream en curso
+  useEffect(() => {
+    if (!open && abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+      setStreaming(false)
+      setStreamText('')
+    }
+  }, [open])
+
   const resize = (el) => {
     if (!el) return
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 96) + 'px'
   }
 
-  // ── Enviar mensaje con streaming ────────────────────────────────────────────
+  // ── Grabación de voz con timer de 90s ─────────────────────────────────────
   const toggleGrabacion = useCallback(async () => {
-    // ── Detener grabación ─────────────────────────────────────────────────
     if (grabando && mediaRecRef.current) {
       mediaRecRef.current.stop()
+      if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null }
       return
     }
 
-    // ── Iniciar grabación ─────────────────────────────────────────────────
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       chunksRef.current = []
 
-      // Preferir webm/opus si está disponible, sino ogg
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : 'audio/webm'
@@ -470,6 +555,8 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
       rec.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
         setGrabando(false)
+        setRecSeconds(0)
+        if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null }
         setTranscribiendo(true)
 
         try {
@@ -505,6 +592,17 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
 
       rec.start()
       setGrabando(true)
+      setRecSeconds(0)
+
+      // Timer visual + auto-stop a los 90 segundos
+      let secs = 0
+      recTimerRef.current = setInterval(() => {
+        secs++
+        setRecSeconds(secs)
+        if (secs >= MAX_REC_SECONDS) {
+          rec.stop()
+        }
+      }, 1000)
 
     } catch (err) {
       console.error('Micrófono no disponible:', err)
@@ -512,12 +610,14 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
     }
   }, [grabando])
 
+  // ── Enviar mensaje con streaming + AbortController ────────────────────────
   const enviar = useCallback(async (override) => {
     const texto = (override || input).trim()
     if (!texto || loading || streaming) return
 
     setOpcionesPago(null)
-    setMessages(p => [...p, { role: 'user', content: texto }])
+    const ts = Date.now()
+    setMessages(p => [...p, { role: 'user', content: texto, vendedor, ts }])
     const prev = [...historial]
     const nuevoHist = [...prev, { role: 'user', content: `${vendedor}: ${texto}` }]
     setHistorial(nuevoHist)
@@ -525,15 +625,18 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
     if (inputRef.current) inputRef.current.style.height = '36px'
     setStreaming(true)
     setStreamText('')
+    lastMsgRef.current = texto
 
-    // Cancelar stream anterior si existe
-    if (esRef.current) { esRef.current.abort?.(); esRef.current = null }
+    // Cancelar stream anterior
+    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null }
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
       const body = {
         mensaje:    texto,
         nombre:     vendedor,
-        historial:  prev,
+        historial:  prev.slice(-MAX_HIST_BACKEND),  // ← limitar historial
         session_id: SESSION_ID,
         tab_activo: activeTab,
       }
@@ -542,6 +645,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(body),
+        signal:  controller.signal,  // ← AbortController
       })
 
       if (!response.ok) {
@@ -560,7 +664,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
-        buffer = lines.pop() // last incomplete line
+        buffer = lines.pop()
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
@@ -581,15 +685,15 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
               role:     'assistant',
               content:  respuesta,
               acciones: evt.acciones,
+              modelo:   evt.modelo || null,
+              ts:       Date.now(),
             }])
             setHistorial(p => [...p, { role: 'assistant', content: respuesta }])
 
-            // Botones de pago
             if (evt.pendiente && evt.opciones_pago?.length) {
               setOpcionesPago(evt.opciones_pago)
             }
 
-            // Auto-refresh del dashboard si se registró algo
             if (evt.acciones?.ventas > 0 || evt.acciones?.gastos > 0) {
               setTimeout(() => onRefresh?.(), 800)
             }
@@ -600,22 +704,48 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
           }
         }
       }
+
+      // Si el stream terminó sin evento "done" (respuesta incompleta)
+      if (accText && !streaming) {
+        setMessages(p => [...p, {
+          role: 'assistant', content: accText, ts: Date.now(),
+        }])
+        setHistorial(p => [...p, { role: 'assistant', content: accText }])
+      }
+
     } catch (err) {
+      if (err.name === 'AbortError') return  // cancelado intencionalmente
       setStreamText('')
       setStreaming(false)
-      setMessages(p => [...p, { role: 'assistant', content: `⚠️ ${err.message}` }])
+      setMessages(p => [...p, {
+        role: 'assistant', content: `⚠️ ${err.message}`, ts: Date.now(), isError: true,
+      }])
     } finally {
       setLoading(false)
       setStreaming(false)
+      abortRef.current = null
       setTimeout(() => inputRef.current?.focus(), 60)
     }
-  }, [input, loading, streaming, historial, nombreUsuario, activeTab, onRefresh])
+  }, [input, loading, streaming, historial, vendedor, activeTab, onRefresh])
 
-  // ── Confirmar método de pago ────────────────────────────────────────────────
+  // ── Reintentar último mensaje fallido ─────────────────────────────────────
+  const reintentar = useCallback(() => {
+    if (!lastMsgRef.current) return
+    // Quitar el último mensaje de error
+    setMessages(p => {
+      const copy = [...p]
+      if (copy.length > 0 && copy[copy.length - 1].isError) copy.pop()
+      return copy
+    })
+    enviar(lastMsgRef.current)
+  }, [enviar])
+
+  // ── Confirmar método de pago ──────────────────────────────────────────────
   const confirmarPago = useCallback(async (opcion) => {
     setOpcionesPago(null)
     setLoading(true)
-    setMessages(p => [...p, { role: 'user', content: opcion.label }])
+    const ts = Date.now()
+    setMessages(p => [...p, { role: 'user', content: opcion.label, vendedor, ts }])
 
     try {
       const res = await fetch(`${API_BASE}/chat`, {
@@ -637,21 +767,22 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
       const data = await res.json()
       const respuesta = data.respuesta || '(Sin respuesta)'
 
-      setMessages(p => [...p, { role: 'assistant', content: respuesta, acciones: data.acciones }])
+      setMessages(p => [...p, { role: 'assistant', content: respuesta, acciones: data.acciones, ts: Date.now() }])
       setHistorial(p => [...p, { role: 'assistant', content: respuesta }])
 
       if (data.acciones?.ventas > 0 || data.acciones?.gastos > 0) {
         setTimeout(() => onRefresh?.(), 800)
       }
     } catch (err) {
-      setMessages(p => [...p, { role: 'assistant', content: `⚠️ ${err.message}` }])
+      setMessages(p => [...p, { role: 'assistant', content: `⚠️ ${err.message}`, ts: Date.now(), isError: true }])
     } finally {
       setLoading(false)
       setTimeout(() => inputRef.current?.focus(), 60)
     }
-  }, [nombreUsuario, activeTab, onRefresh])
+  }, [vendedor, activeTab, onRefresh])
 
   const limpiar = () => {
+    abortRef.current?.abort()
     setMessages([])
     setHistorial([])
     setOpcionesPago(null)
@@ -693,7 +824,6 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
         {messages.length > 0 && (
           <button className="fw-hbtn" onClick={limpiar}>Limpiar</button>
         )}
-        {/* Selector de vendedor */}
         <div className="fw-vendedor-wrap">
           <button className="fw-vendedor-btn"
             onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}>
@@ -739,10 +869,19 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
             {messages.map((m, i) => {
               const esBotUltimo = m.role === 'assistant' && i === messages.length - 1
               const mostrarBotones = esBotUltimo && opcionesPago && !isWorking
+              const esError = m.isError && esBotUltimo
               return (
                 <div key={i} className={`fw-row ${m.role === 'user' ? 'u' : 'b'}`}>
                   <div className={`fw-bbl ${m.role === 'user' ? 'u' : 'b'}`}>
                     {m.content}
+                  </div>
+                  {/* Meta: hora + vendedor (user) o hora + modelo (bot) */}
+                  <div className="fw-meta">
+                    {m.ts && <span>{fmtTime(m.ts)}</span>}
+                    {m.role === 'user' && m.vendedor && <span>· {m.vendedor}</span>}
+                    {m.role === 'assistant' && m.modelo && (
+                      <span className={`fw-model-tag ${m.modelo}`}>{m.modelo}</span>
+                    )}
                   </div>
                   {m.acciones && (m.acciones.ventas > 0 || m.acciones.gastos > 0) && (
                     <div className="fw-badge">
@@ -751,6 +890,13 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
                         m.acciones.gastos > 0 && `${m.acciones.gastos} gasto(s) registrado(s)`,
                       ].filter(Boolean).join(' · ')}
                     </div>
+                  )}
+                  {esError && (
+                    <button className="fw-retry-btn" onClick={reintentar}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <IcoRetry /> Reintentar
+                      </span>
+                    </button>
                   )}
                   {mostrarBotones && (
                     <div className="fw-pay-group">
@@ -766,7 +912,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
               )
             })}
 
-            {/* Burbuja de streaming en tiempo real */}
+            {/* Burbuja de streaming */}
             {streaming && (
               <div className="fw-row b">
                 <div className={`fw-bbl b${streamText ? ' streaming' : ''}`}>
@@ -795,7 +941,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
             onKeyDown={onKey}
             placeholder={
               opcionesPago    ? 'Selecciona el método de pago ↑' :
-              grabando        ? '🔴 Grabando… toca el botón para detener' :
+              grabando        ? `🔴 Grabando (${MAX_REC_SECONDS - recSeconds}s)…` :
               transcribiendo  ? 'Transcribiendo audio...' :
               streaming       ? 'Respondiendo...' :
                                 'Escribe un mensaje…'
@@ -804,34 +950,41 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
             disabled={isWorking || !!opcionesPago || grabando || transcribiendo}
           />
         </div>
-        <button
-          className={`fw-mic-btn${grabando ? ' recording' : ''}`}
-          onClick={toggleGrabacion}
-          disabled={isWorking || !!opcionesPago || transcribiendo}
-          title={grabando ? 'Detener grabación' : 'Grabar voz'}
-        >
-          {grabando ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="4" y="4" width="16" height="16" rx="2"/>
-            </svg>
-          ) : transcribiendo ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-              <line x1="12" y1="19" x2="12" y2="23"/>
-              <line x1="8" y1="23" x2="16" y2="23"/>
-            </svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-              <line x1="12" y1="19" x2="12" y2="23"/>
-              <line x1="8" y1="23" x2="16" y2="23"/>
-            </svg>
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          {grabando && (
+            <div className="fw-rec-timer">
+              {Math.floor(recSeconds / 60)}:{String(recSeconds % 60).padStart(2, '0')} / 1:30
+            </div>
           )}
-        </button>
+          <button
+            className={`fw-mic-btn${grabando ? ' recording' : ''}`}
+            onClick={toggleGrabacion}
+            disabled={isWorking || !!opcionesPago || transcribiendo}
+            title={grabando ? 'Detener grabación' : 'Grabar voz'}
+          >
+            {grabando ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="4" y="4" width="16" height="16" rx="2"/>
+              </svg>
+            ) : transcribiendo ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+                <line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+                <line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            )}
+          </button>
+        </div>
         <button className="fw-sbtn" onClick={() => enviar()}
           disabled={!input.trim() || isWorking || !!opcionesPago}>
           <IcoSend />
