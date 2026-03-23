@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import openpyxl
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -3157,6 +3157,59 @@ async def registrar_venta_varia(req: VentaVariaRequest):
     except Exception as e:
         logging.getLogger("ferrebot.api").error(f"[/ventas/varia] {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+# ── Transcripción de audio desde el Dashboard ─────────────────────────────────
+
+@app.post("/chat/transcribir")
+async def transcribir_audio(audio: UploadFile = File(...)):
+    """
+    Recibe un archivo de audio desde el dashboard, lo transcribe con Whisper
+    y devuelve el texto. El frontend luego envía ese texto al /chat/stream.
+    """
+    import tempfile, os
+
+    if not config.OPENAI_API_KEY:
+        raise HTTPException(status_code=503, detail="Transcripción no disponible (sin clave OpenAI)")
+
+    # Validar que sea audio
+    content_type = audio.content_type or ""
+    if not (content_type.startswith("audio/") or audio.filename.endswith((".ogg", ".webm", ".mp3", ".wav", ".m4a"))):
+        raise HTTPException(status_code=400, detail="Formato de audio no soportado")
+
+    # Leer y guardar temporalmente
+    audio_bytes = await audio.read()
+    suffix = "." + (audio.filename.rsplit(".", 1)[-1] if "." in audio.filename else "webm")
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(audio_bytes)
+        ruta_tmp = tmp.name
+
+    try:
+        def _transcribir():
+            with open(ruta_tmp, "rb") as f:
+                return config.openai_client.audio.transcriptions.create(
+                    model="whisper-1", file=f, language="es"
+                )
+
+        import asyncio
+        resultado = await asyncio.to_thread(_transcribir)
+        texto = resultado.text.strip()
+
+        if not texto:
+            return {"ok": False, "texto": ""}
+
+        return {"ok": True, "texto": texto}
+
+    except Exception as e:
+        logging.getLogger("ferrebot.api").error(f"[/chat/transcribir] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            os.unlink(ruta_tmp)
+        except Exception:
+            pass
 
 
 # ── Servir dashboard React (build estático) ───────────────────────────────────
