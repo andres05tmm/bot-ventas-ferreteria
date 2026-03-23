@@ -48,6 +48,17 @@ function saveVendedor(v) {
   try { sessionStorage.setItem('fw_vendedor', v) } catch {}
 }
 
+// Modo de modelo: auto | haiku | sonnet
+const MODOS_MODELO = ['auto', 'haiku', 'sonnet']
+const MODO_LABELS  = { auto: '⚡ Auto', haiku: '⚡ Haiku', sonnet: '🧠 Sonnet' }
+function loadModoModelo() {
+  const m = sessionStorage.getItem('fw_modo_modelo')
+  return MODOS_MODELO.includes(m) ? m : 'auto'
+}
+function saveModoModelo(m) {
+  try { sessionStorage.setItem('fw_modo_modelo', m) } catch {}
+}
+
 // ── Historial persistente en sessionStorage ──────────────────────────────────
 const HIST_KEY = 'fw_historial_chat'
 function loadHistorial() {
@@ -277,6 +288,35 @@ const CSS = `
   }
   .fw-retry-btn:hover { background: rgba(239,68,68,.14); border-color: #EF4444; }
 
+  /* Toggle de modelo (Auto / Haiku / Sonnet) */
+  .fw-model-bar {
+    display: flex; align-items: center; justify-content: center; gap: 3px;
+    padding: 4px 0 2px;
+    flex-shrink: 0;
+  }
+  .fw-model-pill {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 10.5px; font-weight: 500;
+    padding: 3px 10px; border-radius: 12px;
+    border: 1.5px solid rgba(0,0,0,.08);
+    background: transparent; color: #999;
+    cursor: pointer; transition: all .15s;
+    white-space: nowrap;
+  }
+  .fw-model-pill:hover { background: rgba(0,0,0,.04); color: #666; }
+  .fw-model-pill.active-auto {
+    background: rgba(200,32,14,.08); border-color: rgba(200,32,14,.3);
+    color: #B81D0C; font-weight: 600;
+  }
+  .fw-model-pill.active-haiku {
+    background: #E0F2FE; border-color: #7DD3FC;
+    color: #0369A1; font-weight: 600;
+  }
+  .fw-model-pill.active-sonnet {
+    background: #F3E8FF; border-color: #C4B5FD;
+    color: #7C3AED; font-weight: 600;
+  }
+
   .fw-typing {
     display: flex; align-items: center; gap: 4px;
     padding: 11px 15px; margin-top: 7px;
@@ -471,6 +511,7 @@ const CHIPS = ['Inventario bajo', 'Total hoy', 'Estado de caja', 'Registrar gast
 export default function ChatWidget({ onRefresh, activeTab = '' }) {
   const [open, setOpen]             = useState(false)
   const [vendedor, setVendedor]     = useState(() => loadVendedor())
+  const [modoModelo, setModoModelo] = useState(() => loadModoModelo())
   const [menuOpen, setMenuOpen]     = useState(false)
   const [input, setInput]           = useState('')
   const [loading, setLoading]       = useState(false)
@@ -639,6 +680,7 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
         historial:  prev.slice(-MAX_HIST_BACKEND),  // ← limitar historial
         session_id: SESSION_ID,
         tab_activo: activeTab,
+        modelo_preferido: modoModelo === 'auto' ? null : modoModelo,
       }
 
       const response = await fetch(`${API_BASE}/chat/stream`, {
@@ -726,7 +768,7 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
       abortRef.current = null
       setTimeout(() => inputRef.current?.focus(), 60)
     }
-  }, [input, loading, streaming, historial, vendedor, activeTab, onRefresh])
+  }, [input, loading, streaming, historial, vendedor, modoModelo, activeTab, onRefresh])
 
   // ── Reintentar último mensaje fallido ─────────────────────────────────────
   const reintentar = useCallback(() => {
@@ -928,6 +970,19 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
           </>
         )}
         <div ref={endRef} />
+      </div>
+
+      {/* Model toggle */}
+      <div className="fw-model-bar">
+        {MODOS_MODELO.map(m => (
+          <button
+            key={m}
+            className={`fw-model-pill${modoModelo === m ? ` active-${m}` : ''}`}
+            onClick={() => { setModoModelo(m); saveModoModelo(m) }}
+          >
+            {MODO_LABELS[m]}
+          </button>
+        ))}
       </div>
 
       {/* Footer */}
