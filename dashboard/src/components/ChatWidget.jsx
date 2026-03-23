@@ -91,7 +91,7 @@ const CSS = `
     background: #FFFFFF;
     box-shadow: 0 4px 6px rgba(0,0,0,.04), 0 12px 28px rgba(0,0,0,.14), 0 32px 56px rgba(0,0,0,.1);
     display: flex; flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
     animation: fw-pop .24s cubic-bezier(.34,1.56,.64,1) forwards;
     border: 1px solid rgba(0,0,0,.07);
   }
@@ -101,7 +101,9 @@ const CSS = `
     padding: 15px 16px 13px;
     display: flex; align-items: center; gap: 11px;
     flex-shrink: 0;
-    position: relative; overflow: hidden;
+    position: relative;
+    border-radius: 22px 22px 0 0;
+    overflow: visible;
   }
   .fw-header::before {
     content: ''; position: absolute; top: -28px; right: -16px;
@@ -142,7 +144,7 @@ const CSS = `
   .fw-xbtn:hover { background: rgba(255,255,255,.24); }
 
   .fw-msgs {
-    flex: 1; overflow-y: auto; padding: 14px 13px;
+    flex: 1; overflow-y: auto; overflow-x: hidden; padding: 14px 13px;
     display: flex; flex-direction: column; gap: 3px;
     background: #F7F6F4; scroll-behavior: smooth;
   }
@@ -243,6 +245,7 @@ const CSS = `
     padding: 9px 11px 11px; background: #FFFFFF;
     border-top: 1px solid rgba(0,0,0,.07);
     display: flex; gap: 7px; align-items: flex-end; flex-shrink: 0;
+    border-radius: 0 0 22px 22px;
   }
   .fw-iwrap {
     flex: 1; background: #F2F1EF; border-radius: 13px;
@@ -283,17 +286,18 @@ const CSS = `
   }
   .fw-vendedor-btn:hover { background: rgba(255,255,255,.22); }
   .fw-vendedor-menu {
-    position: absolute; bottom: calc(100% + 6px); right: 0;
+    position: absolute; top: calc(100% + 6px); right: 0;
     background: #fff; border: 1px solid rgba(0,0,0,.1);
     border-radius: 10px; overflow: hidden;
-    box-shadow: 0 4px 16px rgba(0,0,0,.15);
-    min-width: 130px; z-index: 10000;
+    box-shadow: 0 4px 16px rgba(0,0,0,.18);
+    min-width: 130px; z-index: 10001;
   }
   .fw-vendedor-item {
     display: block; width: 100%; text-align: left;
     padding: 9px 14px; font-size: 13px; font-family: inherit;
-    background: none; border: none; cursor: pointer;
+    background: #fff; border: none; cursor: pointer;
     color: #1A1A1A; transition: background .1s;
+    white-space: nowrap;
   }
   .fw-vendedor-item:hover { background: #F5F5F5; }
   .fw-vendedor-item.active { font-weight: 600; color: #B81D0C; background: rgba(184,29,12,.05); }
