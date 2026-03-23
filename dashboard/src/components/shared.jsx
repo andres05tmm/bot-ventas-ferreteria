@@ -359,11 +359,48 @@ export function Th({ children, center, right }) {
 
 // ── Hook detección móvil — exportado para todos los tabs ─────────────────────
 export function useIsMobile() {
-  const [v, setV] = useState(() => window.innerWidth < 768)
+  // matchMedia es más confiable que innerWidth en PWA Android —
+  // innerWidth puede reportar el valor pre-viewport en el primer render.
+  const mq = typeof window !== 'undefined'
+    ? window.matchMedia('(max-width: 767px)')
+    : null
+
+  const [v, setV] = useState(() => mq ? mq.matches : false)
+
   useEffect(() => {
-    const fn = () => setV(window.innerWidth < 768)
-    window.addEventListener('resize', fn)
-    return () => window.removeEventListener('resize', fn)
+    if (!mq) return
+    const fn = (e) => setV(e.matches)
+
+    // API moderna (Chrome 79+, Safari 14+)
+    if (mq.addEventListener) {
+      mq.addEventListener('change', fn)
+    } else {
+      mq.addListener(fn)   // fallback legacy
+    }
+
+    // También escuchar orientationchange y visualViewport
+    // por si el PWA reporta el viewport tarde al arrancar
+    const onResize = () => setV(window.matchMedia('(max-width: 767px)').matches)
+    window.addEventListener('orientationchange', onResize)
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', onResize)
+    }
+
+    // Re-check al montar (por si el valor inicial fue incorrecto)
+    setV(window.matchMedia('(max-width: 767px)').matches)
+
+    return () => {
+      if (mq.removeEventListener) {
+        mq.removeEventListener('change', fn)
+      } else {
+        mq.removeListener(fn)
+      }
+      window.removeEventListener('orientationchange', onResize)
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', onResize)
+      }
+    }
   }, [])
+
   return v
 }
