@@ -574,7 +574,6 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
       )}
 
       <ChatWidget
-        nombreUsuario="Dashboard"
         activeTab={tab}
         onRefresh={doRefresh}
       />
