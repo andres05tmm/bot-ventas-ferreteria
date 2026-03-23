@@ -1020,30 +1020,43 @@ async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, ven
             modelo_preferido="sonnet",
         )
 
-        texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(
-            respuesta_raw, vendedor, chat_id
-        )
-        agregar_al_historial(chat_id, "assistant", texto_respuesta)
+        # Fix 4/5: Extraer resumen del texto de Claude y mostrar confirmacion
+        # ANTES de ejecutar las ventas. El vendedor aprueba o cancela la lectura.
+        import re as _re
+        import json as _json
 
-        # Fix 4: Mostrar resumen de transcripcion PRIMERO, luego botones de pago
-        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
-        pedir_metodo        = "PEDIR_METODO_PAGO" in acciones
+        # Extraer el texto visible (sin los tags [VENTA])
+        _texto_preview = re.sub(r'\[VENTA\].*?\[/VENTA\]', '', respuesta_raw, flags=re.DOTALL).strip()
 
+        # Contar ventas detectadas para el boton
+        _ventas_raw = re.findall(r'\[VENTA\](.*?)\[/VENTA\]', respuesta_raw, re.DOTALL)
+        _n_ventas = len(_ventas_raw)
+
+        if _n_ventas == 0:
+            # Nada registrable — solo mostrar lo que Claude dijo
+            texto_limpio = _texto_preview or "No pude leer productos en la foto. Intenta con mejor iluminacion."
+            await update.message.reply_text(texto_limpio)
+            agregar_al_historial(chat_id, "assistant", texto_limpio)
+            return
+
+        # Guardar respuesta_raw en estado pendiente de confirmacion
+        from ventas_state import fotos_pendientes_confirmacion
         with _estado_lock:
-            ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
+            fotos_pendientes_confirmacion[chat_id] = respuesta_raw
 
-        # Siempre mostrar el resumen primero si hay texto
-        if texto_respuesta:
-            await update.message.reply_text(texto_respuesta)
+        agregar_al_historial(chat_id, "assistant", _texto_preview)
 
-        # Luego el flujo de pago
-        if confirmacion_accion and ventas_nuevas:
-            metodo_conocido = confirmacion_accion.split(":", 1)[1]
-            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido)
-        elif pedir_metodo and ventas_nuevas:
-            await _enviar_botones_pago(update.message, chat_id, ventas_nuevas)
-        elif not texto_respuesta:
-            await update.message.reply_text("No pude leer productos en la foto. Intenta con mejor iluminacion o envia las ventas por texto.")
+        # Mostrar resumen + botones de confirmar/cancelar
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        _msg_confirm = (
+            (_texto_preview + "\n\n" if _texto_preview else "") +
+            f"¿Registro estas {_n_ventas} {'venta' if _n_ventas == 1 else 'ventas'}?"
+        )
+        _kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(f"✅ Sí, registrar", callback_data=f"foto_confirmar_{chat_id}"),
+            InlineKeyboardButton("❌ Cancelar",        callback_data=f"foto_cancelar_{chat_id}"),
+        ]])
+        await update.message.reply_text(_msg_confirm, reply_markup=_kb)
 
     except Exception as e:
         logger.error(f"[foto] Error procesando imagen: {e}", exc_info=True)

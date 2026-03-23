@@ -549,6 +549,68 @@ def _formato_cantidad(cantidad_dec: float, producto: str) -> str:
     return decimal_a_fraccion_legible(cantidad_dec)
 
 
+# ─────────────────────────────────────────────
+# HANDLER: confirmación de foto de cuaderno
+# ─────────────────────────────────────────────
+
+async def manejar_callback_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Maneja los botones foto_confirmar_ y foto_cancelar_.
+    Cuando el vendedor confirma la lectura del cuaderno, ejecuta las ventas.
+    Cuando cancela, limpia el estado pendiente.
+    """
+    from ai import procesar_acciones_async
+    from ventas_state import fotos_pendientes_confirmacion, agregar_al_historial
+
+    query   = update.callback_query
+    data    = query.data
+    chat_id = query.message.chat_id
+    vendedor = update.effective_user.first_name or "Vendedor"
+    await query.answer()
+
+    # ── Cancelar ──
+    if data.startswith("foto_cancelar_"):
+        with _estado_lock:
+            fotos_pendientes_confirmacion.pop(chat_id, None)
+        await query.edit_message_text("❌ Lectura cancelada. Puedes reenviar la foto o dictar las ventas manualmente.")
+        return
+
+    # ── Confirmar ──
+    if data.startswith("foto_confirmar_"):
+        with _estado_lock:
+            respuesta_raw = fotos_pendientes_confirmacion.pop(chat_id, None)
+
+        if not respuesta_raw:
+            await query.edit_message_text("⚠️ Sesión expirada. Por favor reenvía la foto.")
+            return
+
+        await query.edit_message_text("⏳ Procesando ventas del cuaderno...")
+
+        try:
+            texto_resp, acciones, _ = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
+            agregar_al_historial(chat_id, "assistant", texto_resp or "")
+
+            confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+            pedir_metodo        = "PEDIR_METODO_PAGO" in acciones
+
+            with _estado_lock:
+                ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
+
+            if confirmacion_accion and ventas_nuevas:
+                metodo_conocido = confirmacion_accion.split(":", 1)[1]
+                await _enviar_confirmacion_con_metodo(query.message, chat_id, ventas_nuevas, metodo_conocido)
+            elif pedir_metodo and ventas_nuevas:
+                await _enviar_botones_pago(query.message, chat_id, ventas_nuevas)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=texto_resp or "✅ Ventas registradas.")
+
+        except Exception as e:
+            import logging
+            logging.getLogger("ferrebot.callbacks").error(f"[FOTO CONFIRMAR] Error: {e}", exc_info=True)
+            await context.bot.send_message(chat_id=chat_id, text=f"❌ Error procesando las ventas: {e}")
+        return
+
+
 async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
     """
     Versión de _enviar_botones_pago que usa bot.send_message directamente.

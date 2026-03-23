@@ -60,6 +60,10 @@ mensaje_contexto_pendiente: dict[int, str] = {}
 # {chat_id: True} — el usuario está en modo actualización de precios via /actualizar_precio
 actualizando_precios: dict[int, bool] = {}
 
+# {chat_id: str} — respuesta_raw de Claude de una foto, esperando confirmación del vendedor
+# ANTES de ejecutar las ventas, el usuario debe aprobar la lista leída
+fotos_pendientes_confirmacion: dict[int, str] = {}
+
 _chat_locks: dict[int, asyncio.Lock] = {}
 _chat_locks_meta = threading.Lock()
 

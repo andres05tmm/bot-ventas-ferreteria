@@ -30,7 +30,7 @@ from handlers.comandos import (
 
     comando_modelo)
 from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento, manejar_foto
-from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente
+from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente, manejar_callback_foto
 from handlers.productos import comando_productos, manejar_callback_productos
 from keepalive import loop_keepalive
 
@@ -102,6 +102,7 @@ def main():
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_crear_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_tipoid_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_persona_"))
+    app.add_handler(CallbackQueryHandler(manejar_callback_foto,    pattern="^foto_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_grafica,  pattern="^grafica_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_productos, pattern="^prod_"))
 
