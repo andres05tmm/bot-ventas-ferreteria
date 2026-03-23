@@ -162,6 +162,22 @@ def subir_a_drive_urgente(nombre_archivo: str) -> None:
     t.start()
 
 
+def subir_archivo_a_drive(ruta_local: str, nombre_drive: str) -> bool:
+    """
+    Sube un archivo desde ruta_local a Drive con el nombre nombre_drive.
+    Útil cuando la ruta local difiere del nombre en Drive (ej: archivos temporales).
+    """
+    import shutil, tempfile
+    # Copiar al directorio de trabajo con el nombre correcto y usar subir_a_drive normal
+    ruta_estable = nombre_drive
+    try:
+        shutil.copy2(ruta_local, ruta_estable)
+        return subir_a_drive(ruta_estable)
+    except Exception as e:
+        logging.getLogger("ferrebot.drive").warning(f"⚠️ subir_archivo_a_drive falló: {e}")
+        return False
+
+
 def subir_a_drive(nombre_archivo: str) -> bool:
     """
     Sube o actualiza un archivo en Drive con debounce:

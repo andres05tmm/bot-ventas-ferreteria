@@ -53,7 +53,7 @@ _PATRON_PARA_CLIENTE = _re_para.compile(r'\bpara\s+[a-záéíóúñ]{3,}', _re_p
 _PALABRAS_CONSULTA = {
     "cuanto", "cuánto", "vale", "precio", "cuesta",
     "hay", "stock", "queda", "quedan", "inventario",
-    "vendimos", "reporte", "total", "gasto", "caja",
+    "vendimos", "reporte", "total", "gasto",
     "ultimo", "últimos", "reciente",
 }
 
@@ -122,20 +122,22 @@ def _get_precio_fraccion(prod: dict, clave: str) -> int | None:
 def _slug(s: str) -> str:
     """Normaliza para comparación: quita especiales, normaliza plurales y fracciones."""
     s = _norm(s)
+    # Preservar fracciones ANTES de limpiar especiales: "1/4"→"1_4", "3/8"→"3_8"
+    # Sin esto, _slug("chazos 1/4") → "chazo 14" que no matchea "chazo plastico 14"
+    s = re.sub(r'\b(\d+)/(\d+)\b', r'\1_\2', s)
     # Plurales
     s = re.sub(r'\btornillos\b', 'tornillo', s)
     s = re.sub(r'\bpuntillas\b', 'puntilla', s)
     s = re.sub(r'\bchazos\b',    'chazo',    s)
     s = re.sub(r'\bplasticos\b', 'plastico', s)
     # Plurales genéricos: quitar 's' o 'es' final si el producto existe sin él
-    s = re.sub(r'\b(\w{4,})es\b', r'\1', s)   # martilles→martill (no aplica bien)
-    s = re.sub(r'\b(\w{4,})s\b',  r'\1', s)   # martillos→martillo, brochas→brocha
+    s = re.sub(r'\b(\w{4,})es\b', r'\1', s)
+    s = re.sub(r'\b(\w{4,})s\b',  r'\1', s)
     # Quitar 'de' suelto: "chazo de 3/8" → "chazo 3/8"
     s = re.sub(r'\s+de\s+', ' ', s)
-    # Normalizar fracción con espacio: "8x2 1/2" → "8x2-1/2"
+    # Normalizar fracción con espacio: "8x2 1/2" → "8x2-1_2"
     s = re.sub(r'(\d+x\d+)\s+(1/2|1/4|3/4|1/8)', r'\1-\2', s)
     return re.sub(r'[^\w\s]', '', s).strip()
-
 def _buscar_producto_exacto(nombre_msg: str, catalogo: dict) -> dict | None:
     """
     Busca producto por match exacto normalizado (slug).
@@ -147,15 +149,24 @@ def _buscar_producto_exacto(nombre_msg: str, catalogo: dict) -> dict | None:
         slug_prod = _slug(prod.get("nombre_lower", prod.get("nombre", "")))
         if slug_prod == slug_msg:
             return prod
-    # 2. El slug del mensaje contiene el slug del catálogo (o viceversa)
-    #    → elegir el producto con nombre MÁS LARGO (más específico)
+    # 2. Coincidencia por palabras — todas las palabras del mensaje están en el producto
+    # Ej: msg="chazo 1_4" → words={"chazo","1_4"} ⊆ "chazo plastico 1_4" → ✅
+    # Ej: msg="lija 80" → words={"lija","80"} ⊆ "Lija N°80" → ✅
+    words_msg = set(slug_msg.split())
+    if not words_msg:
+        return None
     candidatos = []
     for prod in catalogo.values():
         slug_prod = _slug(prod.get("nombre_lower", prod.get("nombre", "")))
-        if slug_prod and (slug_msg.endswith(slug_prod) or slug_prod == slug_msg):
+        if not slug_prod:
+            continue
+        words_prod = set(slug_prod.split())
+        # Todas las palabras del mensaje deben estar en el producto
+        if words_msg.issubset(words_prod):
             candidatos.append((len(slug_prod), prod))
     if candidatos:
-        candidatos.sort(key=lambda x: -x[0])
+        # Preferir el producto más específico (más palabras) que aún contenga todas las del msg
+        candidatos.sort(key=lambda x: x[0])
         return candidatos[0][1]
     return None
 
@@ -192,11 +203,135 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
         return None
 
     # ── Sin palabras problemáticas ──
+    # "caja" se bloquea solo si NO va con puntilla (evita bloquear "caja puntilla X")
     for palabra in _PALABRAS_CLIENTE | _PALABRAS_CONSULTA | _PALABRAS_MODIFICACION:
         if palabra in msg_norm:
+            if palabra == "caja" and "puntilla" in msg_norm:
+                continue  # "caja puntilla X" es venta, no consulta
             return None
     # Nota: "para" se verifica más abajo, después de intentar encontrar el producto
     # (para no bloquear "bandeja para rodillo", "rieles para gaveta", etc.)
+
+    # ════════════════════════════════════════════
+    # CASO 0B: PUNTILLAS POR GRAMOS / PESOS / CAJA
+    # Patrones: "2000 de puntilla 1 sc" | "300 gramos puntilla 2"
+    #           "caja puntilla 1 sc"    | "media caja puntilla 2"
+    #           "1/4 caja puntilla 2"
+    # ════════════════════════════════════════════
+    _PESO_CAJA_GR = 500
+
+    # Solo actuar si el mensaje menciona puntilla
+    if "puntilla" in msg_norm:
+
+        # Helper local: buscar puntilla en fragmento de texto
+        def _buscar_puntilla(texto: str):
+            frag = re.sub(r'^(caja|cajas|gramos?|gr|de|media|medio|cuarto|mitad)\s+', '', texto.strip())
+            # Expandir abreviaciones comunes de puntillas
+            frag = re.sub(r'\bsc\b', 'sin cabeza', frag)
+            frag = re.sub(r'\bcc\b', 'con cabeza', frag)
+            frag = re.sub(r'\bsin\s*cab\.?\b', 'sin cabeza', frag)
+            frag = re.sub(r'\bcon\s*cab\.?\b', 'con cabeza', frag)
+            # Intentar búsqueda exacta primero
+            prod = _buscar_producto_exacto(frag, catalogo)
+            if prod and "puntilla" in prod.get("nombre", "").lower():
+                return prod
+            # Fallback: buscar entre puntillas del catálogo por palabras clave
+            palabras = set(_norm(frag).split())
+            mejores = []
+            for p in catalogo.values():
+                if "puntilla" not in p.get("nombre", "").lower():
+                    continue
+                nombre_n = set(_norm(p.get("nombre_lower", p.get("nombre", ""))).replace('"', '').split())
+                coincide = palabras & nombre_n
+                if coincide:
+                    mejores.append((len(coincide), len(nombre_n), p))
+            if mejores:
+                mejores.sort(key=lambda x: (-x[0], x[1]))
+                return mejores[0][2]
+            return None
+
+        # ── Caso A: por pesos "$2000 de puntilla X" o "2000 de puntilla X" ──
+        m_pesos = re.match(
+            r'^\$?(\d{3,})\s+(?:pesos?\s+)?de\s+(?:la\s+|las\s+)?(puntilla.+)$',
+            msg_norm
+        )
+        if not m_pesos:
+            # también: "de a 2000 puntilla X"
+            m_pesos = re.match(r'^de\s+a\s+(\d{3,})\s+(puntilla.+)$', msg_norm)
+
+        if m_pesos:
+            pesos = int(m_pesos.group(1))
+            nombre_frag = m_pesos.group(2)
+            prod = _buscar_puntilla(nombre_frag)
+            if prod and prod.get("unidad_medida", "").upper() == "GRM":
+                precio_caja = prod.get("precio_unidad", 0)
+                precio_gr   = precio_caja / _PESO_CAJA_GR
+                gramos      = round(pesos / precio_gr, 1)
+                nombre_oficial = prod["nombre"]
+                venta = {"producto": nombre_oficial, "cantidad": gramos, "total": pesos, "metodo_pago": ""}
+                texto = f"{gramos:g} gr {nombre_oficial} — ${pesos:,.0f}"
+                logger.info(f"[BYPASS PUNTILLA $] '{msg}' → {gramos}gr = ${pesos:,}")
+                return texto, venta
+
+        # ── Caso B: por gramos "300 gramos puntilla X" / "300gr puntilla X" ──
+        m_gramos = re.match(r'^(\d+(?:\.\d+)?)\s*gr(?:amos?)?\s+(puntilla.+)$', msg_norm)
+        if m_gramos:
+            gramos = float(m_gramos.group(1))
+            nombre_frag = m_gramos.group(2)
+            prod = _buscar_puntilla(nombre_frag)
+            if prod and prod.get("unidad_medida", "").upper() == "GRM":
+                precio_caja = prod.get("precio_unidad", 0)
+                precio_gr   = precio_caja / _PESO_CAJA_GR
+                total       = round(gramos * precio_gr)
+                nombre_oficial = prod["nombre"]
+                venta = {"producto": nombre_oficial, "cantidad": gramos, "total": total, "metodo_pago": ""}
+                texto = f"{gramos:g} gr {nombre_oficial} — ${total:,.0f}"
+                logger.info(f"[BYPASS PUNTILLA GR] '{msg}' → {gramos}gr = ${total:,}")
+                return texto, venta
+
+        # ── Caso C: N cajas "caja puntilla X" / "2 cajas puntilla X" / "1 caja de puntillas X" ──
+        # Patrón: (N cajas? | caja) [de] puntilla(s) X
+        m_caja = re.match(
+            r'^(?:(\d+)\s+)?(?:una?\s+)?cajas?\s+(?:de\s+)?(?:las?\s+|los?\s+)?(puntillas?.+)$',
+            msg_norm
+        )
+        if m_caja:
+            n_cajas     = int(m_caja.group(1)) if m_caja.group(1) else 1
+            nombre_frag = m_caja.group(2)
+            prod = _buscar_puntilla(nombre_frag)
+            if prod and prod.get("unidad_medida", "").upper() == "GRM":
+                precio_caja    = prod.get("precio_unidad", 0)
+                nombre_oficial = prod["nombre"]
+                gramos_total   = float(_PESO_CAJA_GR * n_cajas)
+                total          = precio_caja * n_cajas
+                label          = f"{n_cajas} caja{'s' if n_cajas > 1 else ''}" if n_cajas > 1 else "Caja"
+                venta = {"producto": nombre_oficial, "cantidad": gramos_total, "total": total, "metodo_pago": ""}
+                texto = f"{label} {nombre_oficial} ({int(gramos_total)} gr) — ${total:,.0f}"
+                logger.info(f"[BYPASS PUNTILLA CAJA] '{msg}' → {n_cajas} cajas={gramos_total}gr = ${total:,}")
+                return texto, venta
+
+        # ── Caso D: fracciones "media caja puntilla X" / "1/4 caja puntilla X" ──
+        _FRAC_CAJA = [
+            (r'^(?:media|medio|1/2)\s+(?:caja\s+)?(puntilla.+)$', 0.5),
+            (r'^(?:un?\s+)?cuarto\s+(?:de\s+)?(?:caja\s+)?(puntilla.+)$', 0.25),
+            (r'^1/4\s+(?:de\s+)?(?:caja\s+)?(puntilla.+)$', 0.25),
+            (r'^3/4\s+(?:de\s+)?(?:caja\s+)?(puntilla.+)$', 0.75),
+        ]
+        for patron_fc, fraccion in _FRAC_CAJA:
+            m_fc = re.match(patron_fc, msg_norm)
+            if m_fc:
+                nombre_frag = m_fc.group(1)
+                prod = _buscar_puntilla(nombre_frag)
+                if prod and prod.get("unidad_medida", "").upper() == "GRM":
+                    precio_caja    = prod.get("precio_unidad", 0)
+                    gramos         = round(_PESO_CAJA_GR * fraccion, 1)
+                    total          = round(precio_caja * fraccion)
+                    nombre_oficial = prod["nombre"]
+                    frac_label     = {0.5: "Media caja", 0.25: "1/4 caja", 0.75: "3/4 caja"}.get(fraccion, f"{fraccion} caja")
+                    venta = {"producto": nombre_oficial, "cantidad": gramos, "total": total, "metodo_pago": ""}
+                    texto = f"{frac_label} {nombre_oficial} ({gramos:g} gr) — ${total:,.0f}"
+                    logger.info(f"[BYPASS PUNTILLA FRAC] '{msg}' → {gramos}gr = ${total:,}")
+                    return texto, venta
 
     # ════════════════════════════════════════════
     # CASO 1: FRACCIÓN MIXTA  "1-1/2 vinilo azul"
@@ -424,6 +559,13 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
         cantidad_raw = int(m.group(1))
         nombre_txt   = _norm(m.group(2).strip())
 
+        # Aplicar aliases dinámicos (corrige typos: drwayll→drywall, tiner→thinner, etc.)
+        try:
+            import alias_manager as _am
+            nombre_txt = _norm(_am.aplicar_aliases_dinamicos(nombre_txt))
+        except Exception:
+            pass
+
         # Conversión docenas/gruesas
         cantidad = cantidad_raw
         for unidad, factor in [("docenas", 12), ("docena", 12),
@@ -443,6 +585,28 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
                 prod = buscar_producto_en_catalogo(nombre_txt)
             except Exception:
                 prod = None
+
+        # ── Caso especial: "N caja puntilla X" → convertir cantidad a gramos ──
+        _PESO_CAJA_GR_MULTI = 500
+        _m_caja_multi = re.match(
+            r'^(?:una?\s+)?cajas?\s+(?:de\s+)?(puntilla.+)$',
+            nombre_txt, re.IGNORECASE
+        )
+        _total_grm_override = None  # precio total precalculado para GRM por cajas
+        if _m_caja_multi:
+            nombre_sin_caja = _m_caja_multi.group(1).strip()
+            try:
+                from memoria import buscar_producto_en_catalogo as _bpc
+                _prod_grm = _bpc(nombre_sin_caja)
+            except Exception:
+                _prod_grm = None
+            if _prod_grm and _prod_grm.get("unidad_medida", "").upper() == "GRM":
+                prod = _prod_grm
+                # N cajas → N × 500 gramos
+                cantidad = float(_PESO_CAJA_GR_MULTI * cantidad_raw)
+                # Total = precio_caja × N_cajas (NO precio_caja × gramos)
+                _total_grm_override = _prod_grm.get("precio_unidad", 0) * cantidad_raw
+
         if not prod:
             return None  # no encontrado ni exacto ni fuzzy → Claude
 
@@ -450,7 +614,12 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
         if not precio or precio <= 0:
             return None
 
-        total = cantidad * precio
+        # Para GRM por cajas: usar total precalculado para evitar precio_unidad × gramos
+        if _total_grm_override is not None:
+            total = _total_grm_override
+            precio = int(_total_grm_override / cantidad) if cantidad > 0 else precio  # precio por gramo
+        else:
+            total = cantidad * precio
         es_mayorista = (
             prod.get("precio_por_cantidad")
             and cantidad >= prod["precio_por_cantidad"].get("umbral", 50)
@@ -461,6 +630,7 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
             "precio_unitario": precio,
             "total":           total,
             "es_mayorista":    es_mayorista,
+            "es_grm":          prod.get("unidad_medida", "").upper() == "GRM",
         })
 
     if not items_resueltos:
@@ -471,8 +641,12 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
     lineas_texto = []
     for i in items_resueltos:
         sufijo = " 🏭" if i["es_mayorista"] else ""
+        if i.get("es_grm"):
+            cant_label = f"{int(i['cantidad'])} gr"
+        else:
+            cant_label = str(int(i["cantidad"])) if float(i["cantidad"]).is_integer() else str(i["cantidad"])
         lineas_texto.append(
-            f"• {i['cantidad']} {i['producto']} — ${i['total']:,.0f} "
+            f"• {cant_label} {i['producto']} — ${i['total']:,.0f} "
             f"(${i['precio_unitario']:,.0f} c/u{sufijo})"
         )
     lineas_texto.append(f"\n💰 Total: ${total_general:,.0f}")

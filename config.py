@@ -17,14 +17,10 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 # ─────────────────────────────────────────────
-# LOGGING ESTRUCTURADO
+# LOGGING
+# NOTA: basicConfig lo llama start.py antes de importar config.
+# Aquí solo obtenemos el logger del módulo.
 # ─────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    stream=sys.stdout,   # stdout → logs azules en Railway (no rojo)
-)
 logger = logging.getLogger("ferrebot")
 
 # ─────────────────────────────────────────────
@@ -35,22 +31,22 @@ COLOMBIA_TZ = timezone(timedelta(hours=-5))
 # ─────────────────────────────────────────────
 # VARIABLES DE ENTORNO
 # ─────────────────────────────────────────────
-TELEGRAM_TOKEN         = os.getenv("TELEGRAM_TOKEN")
-ANTHROPIC_API_KEY      = os.getenv("ANTHROPIC_API_KEY")
-OPENAI_API_KEY         = os.getenv("OPENAI_API_KEY")
+TELEGRAM_TOKEN          = os.getenv("TELEGRAM_TOKEN")
+ANTHROPIC_API_KEY       = os.getenv("ANTHROPIC_API_KEY")
+OPENAI_API_KEY          = os.getenv("OPENAI_API_KEY")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
-GOOGLE_FOLDER_ID       = os.getenv("GOOGLE_FOLDER_ID")
-SHEETS_ID              = os.getenv("SHEETS_ID", "")
-WEBHOOK_URL            = os.getenv("WEBHOOK_URL", "")
-WEBHOOK_PORT           = int(os.getenv("PORT", "8443"))
+GOOGLE_FOLDER_ID        = os.getenv("GOOGLE_FOLDER_ID")
+SHEETS_ID               = os.getenv("SHEETS_ID", "")
+WEBHOOK_URL             = os.getenv("WEBHOOK_URL", "")
+WEBHOOK_PORT            = int(os.getenv("PORT", "8443"))
 
 # Validar claves obligatorias al importar
 _CLAVES_REQUERIDAS = {
-    "TELEGRAM_TOKEN": TELEGRAM_TOKEN,
-    "ANTHROPIC_API_KEY": ANTHROPIC_API_KEY,
-    "OPENAI_API_KEY": OPENAI_API_KEY,
+    "TELEGRAM_TOKEN":          TELEGRAM_TOKEN,
+    "ANTHROPIC_API_KEY":       ANTHROPIC_API_KEY,
+    "OPENAI_API_KEY":          OPENAI_API_KEY,
     "GOOGLE_CREDENTIALS_JSON": GOOGLE_CREDENTIALS_JSON,
-    "GOOGLE_FOLDER_ID": GOOGLE_FOLDER_ID,
+    "GOOGLE_FOLDER_ID":        GOOGLE_FOLDER_ID,
 }
 _faltantes = [k for k, v in _CLAVES_REQUERIDAS.items() if not v]
 if _faltantes:
@@ -62,9 +58,9 @@ if _faltantes:
 # ─────────────────────────────────────────────
 # ARCHIVOS Y VERSION
 # ─────────────────────────────────────────────
-EXCEL_FILE    = "ventas.xlsx"
-MEMORIA_FILE  = "memoria.json"
-VERSION       = "v8.0-refactor"
+EXCEL_FILE   = "ventas.xlsx"
+MEMORIA_FILE = "memoria.json"
+VERSION      = "v8.0-refactor"
 
 # ─────────────────────────────────────────────
 # ESTRUCTURA DEL EXCEL
@@ -85,27 +81,29 @@ COL_VENDEDOR = "vendedor"
 COL_METODO   = "metodo de pago"
 
 # Encabezados del Google Sheets del dia
+# Columnas del Google Sheets "Ventas del Dia" — mismos nombres que el Excel.
+# Orden: CONSECUTIVO primero (pizarra en tiempo real), resto igual al Excel.
 SHEETS_HEADERS = [
     "CONSECUTIVO DE VENTA", "FECHA", "HORA", "ID CLIENTE", "CLIENTE",
-    "Código del Producto", "PRODUCTO", "CANTIDAD", "VALOR UNITARIO",
-    "TOTAL", "ALIAS", "VENDEDOR", "METODO DE PAGO"
+    "CODIGO DEL PRODUCTO", "PRODUCTO", "UNIDAD DE MEDIDA", "CANTIDAD",
+    "VALOR UNITARIO", "TOTAL", "VENDEDOR", "METODO DE PAGO"
 ]
 
 # Nombres de meses en español (constante global, no repetir en cada funcion)
 MESES = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
-    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    5: "Mayo",  6: "Junio",   7: "Julio", 8: "Agosto",
     9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
 }
 
 # ─────────────────────────────────────────────
 # CLIENTES DE API (creados una sola vez)
 # ─────────────────────────────────────────────
-claude_client  = anthropic.Anthropic(
+claude_client = anthropic.Anthropic(
     api_key=ANTHROPIC_API_KEY,
     default_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
 )
-openai_client  = openai.OpenAI(api_key=OPENAI_API_KEY)
+openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # ─────────────────────────────────────────────
 # CLIENTES DE GOOGLE (cached — se crean una vez)
@@ -160,8 +158,8 @@ def reset_google_clients():
 # ─────────────────────────────────────────────
 import threading as _threading
 
-_flags_lock        = _threading.Lock()
-_google_init_lock  = _threading.Lock()
+_flags_lock       = _threading.Lock()
+_google_init_lock = _threading.Lock()
 _DRIVE_DISPONIBLE  = True
 _SHEETS_DISPONIBLE = bool(SHEETS_ID)
 
@@ -194,5 +192,5 @@ def _set_sheets_disponible(valor: bool):
 # config.SHEETS_DISPONIBLE directamente. Los setters anteriores actualizan AMBOS
 # (la variable privada y este atributo público) para que los lectores directos
 # siempre vean el estado real, no el valor congelado del import inicial.
-DRIVE_DISPONIBLE   = _DRIVE_DISPONIBLE
-SHEETS_DISPONIBLE  = _SHEETS_DISPONIBLE
+DRIVE_DISPONIBLE  = _DRIVE_DISPONIBLE
+SHEETS_DISPONIBLE = _SHEETS_DISPONIBLE
