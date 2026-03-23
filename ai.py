@@ -1580,6 +1580,7 @@ async def procesar_con_claude_stream(
     nombre_usuario: str,
     historial_chat: list,
     contexto_extra: str = "",
+    modelo_preferido: str = None,
 ):
     """
     Versión streaming de procesar_con_claude.
@@ -1676,9 +1677,16 @@ async def procesar_con_claude_stream(
             "cache_control": {"type": "ephemeral"},
         })
 
-    # ── Elegir modelo (híbrido) ───────────────────────────────────────────────
-    _modelo = _elegir_modelo(mensaje_usuario)
-    logging.getLogger("ferrebot.ai").info(f"[MODELO] {_modelo.split('-')[1].upper()} para: {mensaje_usuario[:60]}...")
+    # ── Elegir modelo (híbrido o forzado por usuario) ───────────────────────
+    if modelo_preferido == "sonnet":
+        _modelo = MODELO_SONNET
+    elif modelo_preferido == "haiku":
+        _modelo = MODELO_HAIKU
+    else:
+        _modelo = _elegir_modelo(mensaje_usuario)
+    _tag = "sonnet" if "sonnet" in _modelo else "haiku"
+    _forced = " (forzado)" if modelo_preferido in ("sonnet", "haiku") else ""
+    logging.getLogger("ferrebot.ai").info(f"[MODELO] {_tag.upper()}{_forced} para: {mensaje_usuario[:60]}...")
     yield ("model", _modelo)
 
     # ── Stream ────────────────────────────────────────────────────────────────
