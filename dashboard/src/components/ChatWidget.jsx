@@ -24,6 +24,17 @@ function getSessionId() {
 }
 const SESSION_ID = getSessionId()
 
+// Vendedores disponibles
+const VENDEDORES = ['Andres', 'Farid M', 'Farid D', 'Karolay']
+
+// Guardar último vendedor seleccionado
+function loadVendedor() {
+  return sessionStorage.getItem('fw_vendedor') || VENDEDORES[0]
+}
+function saveVendedor(v) {
+  try { sessionStorage.setItem('fw_vendedor', v) } catch {}
+}
+
 // ── Historial persistente en sessionStorage ──────────────────────────────────
 const HIST_KEY = 'fw_historial_chat'
 function loadHistorial() {
@@ -261,6 +272,32 @@ const CSS = `
   .fw-sbtn:active:not(:disabled) { transform: scale(.95); }
   .fw-sbtn:disabled { background: #DDDAD6; box-shadow: none; cursor: default; color: #aaa; }
 
+  .fw-vendedor-wrap { position: relative; }
+  .fw-vendedor-btn {
+    background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.22);
+    border-radius: 7px; padding: 3px 8px 3px 9px;
+    color: #fff; font-size: 11px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+    display: flex; align-items: center; gap: 5px;
+    transition: background .15s;
+  }
+  .fw-vendedor-btn:hover { background: rgba(255,255,255,.22); }
+  .fw-vendedor-menu {
+    position: absolute; bottom: calc(100% + 6px); right: 0;
+    background: #fff; border: 1px solid rgba(0,0,0,.1);
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,.15);
+    min-width: 130px; z-index: 10000;
+  }
+  .fw-vendedor-item {
+    display: block; width: 100%; text-align: left;
+    padding: 9px 14px; font-size: 13px; font-family: inherit;
+    background: none; border: none; cursor: pointer;
+    color: #1A1A1A; transition: background .1s;
+  }
+  .fw-vendedor-item:hover { background: #F5F5F5; }
+  .fw-vendedor-item.active { font-weight: 600; color: #B81D0C; background: rgba(184,29,12,.05); }
+
   .fw-fab {
     position: fixed; bottom: 24px; right: 24px; z-index: 9999;
     width: 56px; height: 56px; border-radius: 17px;
@@ -328,6 +365,8 @@ const CHIPS = ['Inventario bajo', 'Total hoy', 'Estado de caja', 'Registrar gast
 // ── Componente ───────────────────────────────────────────────────────────────
 export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, activeTab = '' }) {
   const [open, setOpen]             = useState(false)
+  const [vendedor, setVendedor]     = useState(() => loadVendedor())
+  const [menuOpen, setMenuOpen]     = useState(false)
   const [input, setInput]           = useState('')
   const [loading, setLoading]       = useState(false)
   const [streaming, setStreaming]   = useState(false)
@@ -369,7 +408,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
     setOpcionesPago(null)
     setMessages(p => [...p, { role: 'user', content: texto }])
     const prev = [...historial]
-    const nuevoHist = [...prev, { role: 'user', content: `${nombreUsuario}: ${texto}` }]
+    const nuevoHist = [...prev, { role: 'user', content: `${vendedor}: ${texto}` }]
     setHistorial(nuevoHist)
     setInput('')
     if (inputRef.current) inputRef.current.style.height = '36px'
@@ -382,7 +421,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
     try {
       const body = {
         mensaje:    texto,
-        nombre:     nombreUsuario,
+        nombre:     vendedor,
         historial:  prev,
         session_id: SESSION_ID,
         tab_activo: activeTab,
@@ -473,7 +512,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           mensaje:        '',
-          nombre:         nombreUsuario,
+          nombre:         vendedor,
           historial:      [],
           confirmar_pago: opcion.valor,
           session_id:     SESSION_ID,
@@ -529,7 +568,7 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
     <div className="fw-panel">
 
       {/* Header */}
-      <div className="fw-header">
+      <div className="fw-header" onClick={() => menuOpen && setMenuOpen(false)}>
         <div className="fw-avatar"><IcoWrench s={20} /></div>
         <div style={{ flex: 1 }}>
           <div className="fw-hname">Asistente Ferretería</div>
@@ -543,6 +582,29 @@ export default function ChatWidget({ nombreUsuario = 'Dashboard', onRefresh, act
         {messages.length > 0 && (
           <button className="fw-hbtn" onClick={limpiar}>Limpiar</button>
         )}
+        {/* Selector de vendedor */}
+        <div className="fw-vendedor-wrap">
+          <button className="fw-vendedor-btn"
+            onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}>
+            {vendedor}
+            <span style={{ fontSize: 9, opacity: .7 }}>▾</span>
+          </button>
+          {menuOpen && (
+            <div className="fw-vendedor-menu">
+              {VENDEDORES.map(v => (
+                <button key={v} className={`fw-vendedor-item${v === vendedor ? ' active' : ''}`}
+                  onClick={e => {
+                    e.stopPropagation()
+                    setVendedor(v)
+                    saveVendedor(v)
+                    setMenuOpen(false)
+                  }}>
+                  {v === vendedor ? '✓ ' : ''}{v}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button className="fw-xbtn" onClick={() => setOpen(false)}><IcoX /></button>
       </div>
 
