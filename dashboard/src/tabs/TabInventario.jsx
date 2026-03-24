@@ -935,8 +935,15 @@ function ModalCrearProducto({ onClose, onCreado }) {
       })
       const data = await r.json()
       if (!r.ok) throw new Error(data.detail || 'Error desconocido')
+      // Si Drive falló, advertir pero no bloquear — el producto quedó en disco
+      if (data.drive_guardado === false) {
+        setErrMsg('⚠️ Producto creado localmente pero no se pudo sincronizar con Drive. Se guardará en el próximo reinicio.')
+      }
+      if (!data.excel_guardado) {
+        console.warn('Excel no actualizado:', data.excel_detalle)
+      }
       setEstado('ok')
-      setTimeout(() => { onCreado(data); onClose() }, 800)
+      setTimeout(() => { onCreado(data); onClose() }, data.drive_guardado === false ? 2500 : 800)
     } catch(e) {
       setErrMsg(e.message || 'Error al crear el producto')
       setEstado('err')
