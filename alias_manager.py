@@ -36,6 +36,8 @@ _ALIASES_DEFAULT: dict[str, str] = {
     "sellador":     "sellante",
     "pagaternit":   "pegaternit",
     "pega ternit":  "pegaternit",
+    # ── Carbonato ─────────────────────────────────────────────
+    "cal":          "carbonato x kg",
     # ── Cemento ───────────────────────────────────────────────
     "cemente gris": "cemento gris",
     # "cemento" solo (sin color) → gris por defecto, pero NO si dice "blanco"
