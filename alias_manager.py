@@ -38,6 +38,19 @@ _ALIASES_DEFAULT: dict[str, str] = {
     "pega ternit":  "pegaternit",
     # ── Carbonato ─────────────────────────────────────────────
     "cal":          "carbonato x kg",
+    # ── Enchufes ──────────────────────────────────────────────
+    "cofelca":         "enchufe cofelca",
+    "enchufe cofelca": "enchufe cofelca",
+    # ── Vinilo ICO ────────────────────────────────────────────
+    "vinilo ico":      "vinilo ico blanco",
+    "ico blanco":      "vinilo ico blanco",
+    "ico":             "vinilo ico blanco",
+    # ── Abreviaciones de puntillas ────────────────────────────
+    "cc":   "con cabeza",
+    "sc":   "sin cabeza",
+    # ── Tirafondo ─────────────────────────────────────────────
+    "tirafondo":       "tornillo tirafondo",
+    "tira fondo":      "tornillo tirafondo",
     # ── Cemento ───────────────────────────────────────────────
     "cemente gris": "cemento gris",
     # "cemento" solo (sin color) → gris por defecto, pero NO si dice "blanco"
