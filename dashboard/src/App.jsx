@@ -497,7 +497,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
   return (
     <div style={{
       fontFamily: "'Sora', system-ui, sans-serif",
-      background: t.bg, minHeight: '100vh', color: t.text, fontSize: 13,
+      background: t.bg, minHeight: '100dvh', color: t.text, fontSize: 13,
       transition: 'background .25s, color .25s',
     }}>
       <style>{`
