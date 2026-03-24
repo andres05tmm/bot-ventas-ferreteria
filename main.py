@@ -40,6 +40,16 @@ def main():
     sincronizar_archivos()
     inicializar_excel()
 
+    # Construir índice fuzzy al arrancar para que las búsquedas funcionen
+    try:
+        from fuzzy_match import construir_indice
+        from memoria import cargar_memoria as _cm_init
+        _mem_init = _cm_init()
+        construir_indice(_mem_init.get("catalogo", {}))
+        print(f"🔍 Índice fuzzy construido: {len(_mem_init.get('catalogo', {}))} productos")
+    except Exception as e:
+        print(f"⚠️ No se pudo construir índice fuzzy: {e}")
+
     if config.SHEETS_ID:
         print(f"📊 Google Sheets configurado: {config.SHEETS_ID}")
         ws_test = _obtener_hoja_sheets()
