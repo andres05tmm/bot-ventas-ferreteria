@@ -515,28 +515,29 @@ def buscar_clave_inventario(termino: str) -> str | None:
 
 
 # ── Wayper: conversión kg ↔ unidades ────────────────────────────────────────
-# 1 kg = 12 unidades. El inventario siempre se lleva en UNIDADES.
-# Cuando se vende por kg (WAYPER BLANCO / WAYPER DE COLOR), se convierte a unidades.
-_WAYPER_KG_A_UNIDADES = 12  # unidades por kg
-
-_WAYPER_KG_A_UNIDAD_KEY = {
-    # producto vendido por kg → clave de inventario en unidades
-    "wayper blanco":   "wayper_blanco_unidad",
-    "wayper de color": "wayper_de_color_unidad",
+# Tabla de redirección de inventario para productos "vendidos diferente a como se almacenan".
+# Formato: nombre_producto_lower → (clave_inventario, factor)
+#   factor = multiplicador sobre la cantidad vendida para obtener la cantidad a descontar.
+#   Waypers: 1 kg vendido = 12 unidades descontadas  (factor 12)
+#   Carbonato: 1 kg vendido = 1 kg descontado de la bolsa (factor 1)
+_KG_INVENTARIO_LINKS: dict[str, tuple[str, float]] = {
+    "wayper blanco":   ("wayper_blanco_unidad",  12.0),
+    "wayper de color": ("wayper_de_color_unidad", 12.0),
+    # Carbonato x Kg descuenta de la bolsa de 25 kg (inventario en kg)
+    "carbonato x kg":  ("carbonato_x_25_kg",       1.0),
 }
 
 def _resolver_wayper_inventario(nombre_producto: str, cantidad: float) -> tuple[str | None, float]:
     """
-    Para waypers vendidos por kg: convierte a unidades y retorna la clave de inventario correcta.
-    Retorna (clave_inventario, cantidad_en_unidades) o (None, cantidad) si no es wayper por kg.
+    Para productos vendidos de forma distinta a como se almacenan, redirige
+    al inventario real y aplica el factor de conversión correspondiente.
+    Retorna (clave_inventario, cantidad_a_descontar) o (None, cantidad) si no aplica.
     """
     nombre_lower = nombre_producto.lower().strip()
-    for nombre_kg, clave_und in _WAYPER_KG_A_UNIDAD_KEY.items():
-        if nombre_lower == nombre_kg or nombre_lower.startswith(nombre_kg):
-            # Verificar que NO sea la variante "unidad" (esa ya está en unidades)
+    for nombre_ref, (clave_inv, factor) in _KG_INVENTARIO_LINKS.items():
+        if nombre_lower == nombre_ref or nombre_lower.startswith(nombre_ref):
             if "unidad" not in nombre_lower:
-                unidades = round(cantidad * _WAYPER_KG_A_UNIDADES, 2)
-                return clave_und, unidades
+                return clave_inv, round(cantidad * factor, 4)
     return None, cantidad
 
 
