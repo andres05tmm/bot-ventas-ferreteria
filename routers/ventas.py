@@ -22,6 +22,7 @@ from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
     _to_float, _cantidad_a_float, _stock_wayper,
 )
+from routers.caja import VentaRapidaPayload, VentaRapidaItem
 
 logger = logging.getLogger("ferrebot.api")
 
