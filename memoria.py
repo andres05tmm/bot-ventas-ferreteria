@@ -67,6 +67,13 @@ def invalidar_cache_memoria():
     global _cache
     with _cache_lock:
         _cache = None
+    # Reconstruir índice fuzzy para que productos nuevos sean encontrables
+    try:
+        from fuzzy_match import construir_indice
+        mem = cargar_memoria()
+        construir_indice(mem.get("catalogo", {}))
+    except Exception:
+        pass
 
 
 # ─────────────────────────────────────────────
