@@ -2118,6 +2118,12 @@ async def _guardar_producto(update, context, prod: dict):
     mem["catalogo"] = catalogo
     guardar_memoria(mem, urgente=True)   # urgente=True: sube a Drive sin debounce
     invalidar_cache_memoria()
+    # Reconstruir índice fuzzy para que el producto nuevo sea encontrable de inmediato
+    try:
+        from fuzzy_match import construir_indice
+        construir_indice(catalogo)
+    except Exception:
+        pass
 
     # Agregar al Excel BASE_DE_DATOS_PRODUCTOS.xlsx
     excel_ok  = False
