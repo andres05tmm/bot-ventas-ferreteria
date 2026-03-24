@@ -274,15 +274,29 @@ def crear_producto(body: NuevoProducto):
         mem["catalogo"]   = catalogo
         mem["inventario"] = inventario
 
-        # guardar_memoria sube a Drive automáticamente (urgente=True evita pérdida en reinicios)
+        # Guardar en disco primero (nunca falla)
+        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        # Subida a Drive SINCRÓNICA para confirmar que no se pierde en reinicios
+        drive_ok = False
+        try:
+            from drive import _subir_con_service
+            import config as _cfg
+            service = _cfg.get_drive_service()
+            drive_ok = _subir_con_service(service, config.MEMORIA_FILE)
+        except Exception as e_drive:
+            logging.getLogger("ferrebot.api").warning(
+                f"[crear_producto] Drive upload falló para '{body.nombre}': {e_drive}"
+            )
+
+        # Actualizar caché RAM e índice fuzzy
         try:
             from memoria import guardar_memoria, invalidar_cache_memoria
-            guardar_memoria(mem, urgente=True)
+            guardar_memoria(mem, urgente=False)  # disco ya escrito, solo actualiza cache RAM
             invalidar_cache_memoria()
         except Exception:
-            # Fallback: escritura directa si el módulo no está disponible
-            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-                json.dump(mem, f, ensure_ascii=False, indent=2)
+            pass
 
         # Intentar escribir en el Excel de productos (no bloquea si falla)
         excel_resultado = {"ok": False, "error": "no intentado"}
@@ -309,6 +323,7 @@ def crear_producto(body: NuevoProducto):
             "precio_unidad":  nuevo["precio_unidad"],
             "unidad_medida":  unidad_norm,
             "stock_inicial":  body.stock_inicial,
+            "drive_guardado": drive_ok,
             "excel_guardado": excel_resultado.get("ok", False),
             "excel_detalle":  excel_resultado,
         }
@@ -493,10 +508,25 @@ def agregar_producto_a_excel_endpoint():
         catalogo = mem.get("catalogo", {})
 
         # Leer nombres actuales del Excel para no duplicar
-        from precio_sync import _leer_nombres_excel
         nombres_excel = set()
         try:
-            nombres_excel = _leer_nombres_excel()
+            from precio_sync import importar_catalogo_desde_excel as _imp
+            import tempfile as _tmp
+            from drive import descargar_de_drive as _ddl
+            with _tmp.NamedTemporaryFile(suffix=".xlsx", delete=False) as _t:
+                _ruta = _t.name
+            if _ddl("BASE_DE_DATOS_PRODUCTOS.xlsx", _ruta):
+                _res = _imp(_ruta)
+                # importar_catalogo_desde_excel devuelve los nombres de lo que importó
+                # Leer directamente del Excel para tener lista real de nombres
+                import openpyxl as _oxl
+                _wb = _oxl.load_workbook(_ruta, read_only=True, data_only=True)
+                _ws = _wb.active
+                for _r in _ws.iter_rows(min_row=2, values_only=True):
+                    if _r[1]:  # col B = Nombre
+                        nombres_excel.add(str(_r[1]).strip().lower())
+                _wb.close()
+            import os as _os; _os.unlink(_ruta)
         except Exception:
             pass
 
