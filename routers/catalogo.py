@@ -476,6 +476,109 @@ def sync_catalogo_desde_excel():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/catalogo/agregar-a-excel")
+def agregar_producto_a_excel_endpoint():
+    """
+    Escribe en BASE_DE_DATOS_PRODUCTOS.xlsx los productos de memoria.json
+    que todavía no existen en el Excel.
+    Útil para agregar productos creados directamente en memoria.json.
+    """
+    try:
+        from precio_sync import agregar_producto_a_excel, _normalizar_unidad
+        import json
+
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+
+        # Leer nombres actuales del Excel para no duplicar
+        from precio_sync import _leer_nombres_excel
+        nombres_excel = set()
+        try:
+            nombres_excel = _leer_nombres_excel()
+        except Exception:
+            pass
+
+        agregados  = []
+        omitidos   = []
+        errores    = []
+
+        for key, prod in catalogo.items():
+            nombre = prod.get("nombre", "").strip()
+            if not nombre:
+                continue
+            if nombre.lower() in {n.lower() for n in nombres_excel}:
+                omitidos.append(nombre)
+                continue
+            resultado = agregar_producto_a_excel({
+                "codigo":          prod.get("codigo", key),
+                "nombre":          nombre,
+                "categoria":       prod.get("categoria", ""),
+                "precio_unidad":   int(prod.get("precio_unidad", 0)),
+                "unidad_medida":   prod.get("unidad_medida", "Unidad"),
+                "inventariable":   True,
+                "visible_facturas": True,
+                "stock_minimo":    0,
+                "codigo_dian":     "94",
+            })
+            if resultado.get("ok"):
+                agregados.append(nombre)
+            else:
+                errores.append({"nombre": nombre, "error": resultado.get("error", "desconocido")})
+
+        return {
+            "ok":       True,
+            "agregados": agregados,
+            "omitidos":  len(omitidos),
+            "errores":   errores,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/catalogo/{key:path}/agregar-a-excel")
+def agregar_producto_especifico_a_excel(key: str):
+    """
+    Escribe UN producto específico (por su key) en BASE_DE_DATOS_PRODUCTOS.xlsx.
+    Útil para sincronizar un producto puntual creado directamente en memoria.json.
+    """
+    try:
+        from precio_sync import agregar_producto_a_excel
+        import json
+
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado en catálogo")
+
+        prod   = catalogo[key]
+        nombre = prod.get("nombre", "").strip()
+
+        resultado = agregar_producto_a_excel({
+            "codigo":          prod.get("codigo", key),
+            "nombre":          nombre,
+            "categoria":       prod.get("categoria", ""),
+            "precio_unidad":   int(prod.get("precio_unidad", 0)),
+            "unidad_medida":   prod.get("unidad_medida", "Unidad"),
+            "inventariable":   True,
+            "visible_facturas": True,
+            "stock_minimo":    0,
+            "codigo_dian":     "94",
+        })
+
+        if not resultado.get("ok"):
+            raise HTTPException(status_code=500, detail=resultado.get("error", "Error al escribir en Excel"))
+
+        return {"ok": True, "nombre": nombre, "fila": resultado.get("fila"), "excel_subido": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ── Estado de Resultados ──────────────────────────────────────────────────────
 @router.patch("/catalogo/{key:path}/mayorista")
 def actualizar_mayorista(key: str, body: MayoristaUpdate):
