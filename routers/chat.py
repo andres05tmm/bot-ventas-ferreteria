@@ -38,7 +38,8 @@ def _session_chat_id(session_id: str) -> int:
 def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
     """
     Construye el bloque de contexto enriquecido para el asistente del dashboard.
-    Incluye: datos reales del negocio, memoria persistente, estado actual.
+    Incluye: ventas del día, catálogo completo, top productos, histórico, compras,
+    caja, gastos, fiados, inventario crítico, márgenes y memoria persistente.
     """
     from memoria import cargar_memoria, cargar_caja, cargar_gastos_hoy
     from datetime import datetime
@@ -47,6 +48,7 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
     mem   = cargar_memoria()
     ahora = datetime.now(config.COLOMBIA_TZ)
     fecha_hoy = ahora.strftime("%A %d de %B de %Y, %H:%M")
+    hoy_str   = ahora.strftime("%Y-%m-%d")
 
     # ── Memoria persistente ───────────────────────────────────────────────────
     notas_raw = mem.get("notas", {})
@@ -101,6 +103,115 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
     except Exception:
         gastos_texto = "GASTOS: Sin datos"
 
+    # ── Ventas del día (detalle completo) ────────────────────────────────────
+    try:
+        from sheets import sheets_leer_ventas_del_dia
+        ventas_hoy_list = []
+        try:
+            ventas_hoy_list = [v for v in sheets_leer_ventas_del_dia()
+                               if str(v.get("fecha", ""))[:10] == hoy_str]
+        except Exception:
+            pass
+        if not ventas_hoy_list:
+            ventas_hoy_list = [v for v in _leer_excel_rango(dias=1)
+                               if str(v.get("fecha", ""))[:10] == hoy_str]
+
+        if ventas_hoy_list:
+            total_ventas_hoy = sum(_to_float(v.get("total", 0)) for v in ventas_hoy_list)
+            por_prod: dict = {}
+            for v in ventas_hoy_list:
+                prod = str(v.get("producto", "")).strip()
+                if not prod:
+                    continue
+                if prod not in por_prod:
+                    por_prod[prod] = {"uds": 0.0, "total": 0.0}
+                por_prod[prod]["uds"]   += _cantidad_a_float(v.get("cantidad", 1))
+                por_prod[prod]["total"] += _to_float(v.get("total", 0))
+            lineas_ventas = "\n".join(
+                f"  {p}: {d['uds']:.2g} uds — ${d['total']:,.0f}"
+                for p, d in sorted(por_prod.items(), key=lambda x: -x[1]["total"])
+            )
+            ef_hoy  = sum(_to_float(v.get("total", 0)) for v in ventas_hoy_list if "efect"  in str(v.get("metodo_pago", "")).lower())
+            tr_hoy  = sum(_to_float(v.get("total", 0)) for v in ventas_hoy_list if "transf" in str(v.get("metodo_pago", "")).lower())
+            dat_hoy = sum(_to_float(v.get("total", 0)) for v in ventas_hoy_list if "data"   in str(v.get("metodo_pago", "")).lower())
+            ventas_texto = (
+                f"VENTAS HOY ({len(ventas_hoy_list)} transacciones, total ${total_ventas_hoy:,.0f}):\n"
+                + lineas_ventas
+                + f"\n  Pago — Efectivo: ${ef_hoy:,.0f} | Transferencia: ${tr_hoy:,.0f} | Datáfono: ${dat_hoy:,.0f}"
+            )
+        else:
+            ventas_texto = "VENTAS HOY: ninguna registrada aún"
+    except Exception:
+        ventas_texto = "VENTAS HOY: Sin datos"
+
+    # ── Resumen semanal y mensual ─────────────────────────────────────────────
+    try:
+        ventas_sem = _leer_excel_rango(dias=7)
+        total_sem  = sum(_to_float(v.get("total", 0)) for v in ventas_sem)
+        dias_con_ventas = len({str(v.get("fecha", ""))[:10] for v in ventas_sem if _to_float(v.get("total", 0)) > 0})
+        promedio_dia = total_sem / max(dias_con_ventas, 1)
+
+        ventas_mes = _leer_excel_rango(mes_actual=True)
+        total_mes  = sum(_to_float(v.get("total", 0)) for v in ventas_mes)
+
+        por_dia: dict = {}
+        for v in ventas_sem:
+            dia = str(v.get("fecha", ""))[:10]
+            if dia:
+                por_dia[dia] = por_dia.get(dia, 0) + _to_float(v.get("total", 0))
+        historico_sem = "\n".join(
+            f"  {dia}: ${monto:,.0f}" for dia, monto in sorted(por_dia.items())
+        )
+        resumen_texto = (
+            f"RESUMEN SEMANAL (últimos 7 días):\n"
+            f"  Total: ${total_sem:,.0f} | Promedio/día: ${promedio_dia:,.0f} | Días activos: {dias_con_ventas}/7\n"
+            + historico_sem + "\n"
+            f"RESUMEN MENSUAL (mes actual): ${total_mes:,.0f}"
+        )
+    except Exception:
+        resumen_texto = "RESUMEN SEMANAL/MENSUAL: Sin datos"
+
+    # ── Top 10 productos de la semana ─────────────────────────────────────────
+    try:
+        por_producto: dict = {}
+        for v in ventas_sem:
+            prod = str(v.get("producto", "")).strip()
+            if not prod:
+                continue
+            if prod not in por_producto:
+                por_producto[prod] = {"uds": 0.0, "total": 0.0}
+            por_producto[prod]["uds"]   += _cantidad_a_float(v.get("cantidad", 1))
+            por_producto[prod]["total"] += _to_float(v.get("total", 0))
+        top10 = sorted(por_producto.items(), key=lambda x: -x[1]["total"])[:10]
+        if top10:
+            top_lineas = "\n".join(
+                f"  {i+1}. {p}: {d['uds']:.2g} uds — ${d['total']:,.0f}"
+                for i, (p, d) in enumerate(top10)
+            )
+            top_texto = "TOP 10 PRODUCTOS (semana):\n" + top_lineas
+        else:
+            top_texto = "TOP PRODUCTOS: Sin ventas esta semana"
+    except Exception:
+        top_texto = "TOP PRODUCTOS: Sin datos"
+
+    # ── Compras recientes (últimos 30 días) ───────────────────────────────────
+    try:
+        compras_rec = _leer_excel_compras(dias=30)
+        if compras_rec:
+            total_compras = sum(_to_float(c.get("total", 0)) for c in compras_rec)
+            items_compras = "\n".join(
+                "  " + str(c.get("fecha", "?"))[:10] + " " + str(c.get("proveedor", "?")) +
+                " — " + str(c.get("producto", "?")) + " $" + f"{_to_float(c.get('total', 0)):,.0f}"
+                for c in compras_rec[-10:]
+            )
+            compras_texto = (
+                f"COMPRAS RECIENTES (30 días, total ${total_compras:,.0f}):\n" + items_compras
+            )
+        else:
+            compras_texto = "COMPRAS: Ninguna registrada en los últimos 30 días"
+    except Exception:
+        compras_texto = "COMPRAS: Sin datos"
+
     # ── Fiados activos ───────────────────────────────────────────────────────
     try:
         fiados = mem.get("fiados", {})
@@ -112,7 +223,7 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
             total_fiado = sum(float(d.get("saldo", 0)) for d in fiados_activos.values())
             items_fiado = "\n".join(
                 "  " + n + ": $" + f"{float(d.get('saldo', 0)):,.0f}"
-                for n, d in list(fiados_activos.items())[:15]
+                for n, d in sorted(fiados_activos.items(), key=lambda x: -float(x[1].get("saldo", 0)))[:15]
             )
             fiados_texto = (
                 "FIADOS ACTIVOS (" + str(len(fiados_activos)) +
@@ -123,7 +234,36 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
     except Exception:
         fiados_texto = "FIADOS: Sin datos"
 
-    # ── Inventario ───────────────────────────────────────────────────────────
+    # ── Catálogo completo (precios, stock, fracciones) ───────────────────────
+    try:
+        catalogo  = mem.get("catalogo", {})
+        inv_mem   = mem.get("inventario", {})
+        lineas_cat = []
+        for k, p in catalogo.items():
+            precio  = p.get("precio_unidad", 0)
+            nombre  = p.get("nombre", k)
+            cat     = p.get("categoria", "")
+            unidad  = p.get("unidad_medida", "Unidad")
+            st_raw  = inv_mem.get(k)
+            st_val  = st_raw.get("cantidad") if isinstance(st_raw, dict) else st_raw
+            st_str  = f" [stock: {st_val}]" if st_val is not None else ""
+            fracs   = p.get("precios_fraccion", {})
+            fracs_str = ""
+            if fracs:
+                partes = []
+                for fk, fv in fracs.items():
+                    fp = fv.get("precio", fv) if isinstance(fv, dict) else fv
+                    partes.append(f"{fk}=${fp:,}")
+                fracs_str = " [fracs: " + " | ".join(partes) + "]"
+            lineas_cat.append(f"  {nombre} ({cat}) — ${precio:,}/{unidad}{st_str}{fracs_str}")
+        catalogo_texto = (
+            f"CATALOGO COMPLETO ({len(lineas_cat)} productos):\n" +
+            "\n".join(lineas_cat)
+        )
+    except Exception:
+        catalogo_texto = "CATALOGO: Sin datos"
+
+    # ── Inventario crítico ───────────────────────────────────────────────────
     try:
         inventario = mem.get("inventario", {})
         if inventario:
@@ -132,26 +272,27 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
                 " (min: " + str(v.get("minimo", 0)) + ")"
                 for k, v in inventario.items()
                 if float(v.get("cantidad", 0)) <= float(v.get("minimo", 0)) * 1.2
+                and float(v.get("minimo", 0)) > 0
             ]
             if criticos:
                 inv_texto = (
-                    "INVENTARIO CRITICO (" + str(len(criticos)) + " productos bajo minimo):\n" +
-                    "\n".join(criticos[:10])
+                    "INVENTARIO CRITICO (" + str(len(criticos)) + " productos bajo mínimo):\n" +
+                    "\n".join(criticos[:15])
                 )
             else:
-                inv_texto = "INVENTARIO: " + str(len(inventario)) + " productos registrados, todos sobre minimo"
+                inv_texto = "INVENTARIO: " + str(len(inventario)) + " productos registrados, todos sobre mínimo"
         else:
-            inv_texto = "INVENTARIO: Pendiente de configurar (aun no hay stock registrado)"
+            inv_texto = "INVENTARIO: Pendiente de configurar (aún no hay stock registrado)"
     except Exception:
         inv_texto = "INVENTARIO: Sin datos"
 
     # ── Márgenes ─────────────────────────────────────────────────────────────
     try:
-        catalogo = mem.get("catalogo", {})
-        prods_con_costo = [p for p in catalogo.values() if p.get("precio_compra") or p.get("costo")]
+        catalogo_m = mem.get("catalogo", {})
+        prods_con_costo = [p for p in catalogo_m.values() if p.get("precio_compra") or p.get("costo")]
         if prods_con_costo:
             margenes_lineas = []
-            for p in prods_con_costo[:10]:
+            for p in prods_con_costo[:15]:
                 costo = float(p.get("precio_compra") or p.get("costo", 0))
                 venta = float(p.get("precio_unidad", 0))
                 if costo > 0 and venta > 0:
@@ -162,7 +303,7 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
                     )
             margenes_texto = (
                 "MARGENES (muestra):\n" + "\n".join(margenes_lineas)
-            ) if margenes_lineas else "MARGENES: Pendiente (agrega precio_compra al catalogo)"
+            ) if margenes_lineas else "MARGENES: Pendiente (agrega precio_compra al catálogo)"
         else:
             margenes_texto = "MARGENES: Pendiente de configurar (agrega el precio de compra de cada producto)"
     except Exception:
@@ -170,7 +311,7 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
 
     # ── Tab activo ───────────────────────────────────────────────────────────
     tab_ctx = (
-        "\nTAB ACTIVO EN DASHBOARD: El usuario esta mirando '" + tab_activo +
+        "\nTAB ACTIVO EN DASHBOARD: El usuario está mirando '" + tab_activo +
         "'. Ten esto en cuenta para dar contexto relevante."
     ) if tab_activo else ""
 
@@ -179,39 +320,46 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
         "FECHA Y HORA ACTUAL: " + fecha_hoy + "\n"
         "\n"
         "## PERSONALIDAD Y MODO DE OPERACION\n"
-        "Eres el asistente inteligente de Ferreteria Punto Rojo. En este canal tienes un rol dual:\n"
-        "1. REGISTRAR con precision (ventas, gastos, compras, fiados) — igual que en Telegram\n"
+        "Eres el asistente inteligente de Ferretería Punto Rojo. En este canal tienes un rol dual:\n"
+        "1. REGISTRAR con precisión (ventas, gastos, compras, fiados) — igual que en Telegram\n"
         "2. SER GERENTE: analizar, opinar, recomendar, advertir, recordar decisiones pasadas\n"
         "\n"
-        "TONO: Directo, claro, con criterio. No eres un bot generico — conoces este negocio.\n"
+        "TONO: Directo, claro, con criterio. No eres un bot genérico — conoces este negocio.\n"
         "Si ves algo raro en los datos, lo dices. Si hay una oportunidad, la señalas.\n"
-        "Si te preguntan tu opinion, la das con base en los datos reales.\n"
+        "Si te preguntan tu opinión, la das con base en los datos reales.\n"
         "\n"
-        "FORMATO: Responde con la extension que el tema requiera. Para analisis, se detallado.\n"
+        "FORMATO: Responde con la extensión que el tema requiera. Para análisis, sé detallado.\n"
         "Para registros (ventas/gastos), usa el mismo formato compacto con [VENTA]/[GASTO].\n"
         "No uses markdown (asteriscos, #). Usa texto plano limpio.\n"
         "\n"
         "## ESTADO ACTUAL DEL NEGOCIO\n"
         + caja_texto + "\n\n"
+        + ventas_texto + "\n\n"
         + gastos_texto + "\n\n"
+        + resumen_texto + "\n\n"
+        + top_texto + "\n\n"
+        + compras_texto + "\n\n"
         + fiados_texto + "\n\n"
         + inv_texto + "\n\n"
         + margenes_texto + "\n\n"
+        + catalogo_texto + "\n\n"
         + memoria_texto
         + "## MEMORIA PERSISTENTE\n"
-        "Puedes guardar informacion importante del negocio usando la accion:\n"
+        "Puedes guardar información importante del negocio usando la acción:\n"
         '[MEMORIA]{"tipo":"decision"|"observacion"|"contexto","contenido":"texto"}[/MEMORIA]\n'
-        "Usala cuando el usuario mencione algo que debe recordarse: cambios de estrategia,\n"
+        "Úsala cuando el usuario mencione algo que debe recordarse: cambios de estrategia,\n"
         "observaciones sobre clientes, decisiones de precio, metas, etc.\n"
         "\n"
         "## CAPACIDADES COMPLETAS EN ESTE CANAL\n"
         "- Registrar ventas, gastos, compras, fiados, abonos\n"
-        "- Analizar ventas por dia, semana, mes, producto, vendedor\n"
-        "- Consultar y actualizar precios del catalogo\n"
-        "- Ver margenes y rentabilidad (cuando este configurado)\n"
+        "- Consultar precio de cualquier producto del catálogo (los tienes todos arriba)\n"
+        "- Analizar ventas por día, semana, mes, producto, vendedor\n"
+        "- Identificar tendencias: qué vende más, qué días son mejores, ticket promedio\n"
+        "- Ver márgenes y rentabilidad (cuando estén configurados los costos)\n"
         "- Gestionar inventario y alertas de stock\n"
+        "- Revisar compras recientes y proveedores\n"
         "- Recordar y recuperar decisiones pasadas del negocio\n"
-        "- Dar opinion y recomendaciones basadas en datos reales"
+        "- Dar opinión y recomendaciones basadas en datos reales"
         + tab_ctx
     )
 
@@ -612,5 +760,3 @@ async def transcribir_audio(audio: UploadFile = File(...)):
             os.unlink(ruta_tmp)
         except Exception:
             pass
-
-
