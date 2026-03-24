@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Ferretería Punto Rojo — Dashboard</title>
 
     <!-- PWA -->
@@ -18,14 +18,11 @@
 
     <!-- Favicon -->
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
-
-    <!-- Splash screen color en iOS -->
     <meta name="msapplication-TileColor" content="#C8200E" />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
-    <!-- Registrar Service Worker -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
