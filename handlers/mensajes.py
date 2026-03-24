@@ -544,21 +544,21 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         # Sin prefijo → va a Claude (correcciones de precio, cantidad, etc.)
 
         # Patrón con cantidad obligatoria: "2 nombre = 5000"
-        _PATRON_ITEM_MOD = _re_mod.compile(
+        _PATRON_ITEM_MOD = re.compile(
             r'(\d+(?:[.,]\d+)?)\s+([a-zA-Z\xe1\xe9\xed\xf3\xfa\xf1\xc1\xc9\xcd\xd3\xda\xd1][^=]+?)\s*=\s*(\d+)',
-            _re_mod.IGNORECASE
+            re.IGNORECASE
         )
         # Patrón sin cantidad (default=1): "nombre = 5000"
-        _PATRON_ITEM_MOD_SIN_CANT = _re_mod.compile(
+        _PATRON_ITEM_MOD_SIN_CANT = re.compile(
             r'([a-zA-Z\xe1\xe9\xed\xf3\xfa\xf1\xc1\xc9\xcd\xd3\xda\xd1][^=]+?)\s*=\s*(\d+)',
-            _re_mod.IGNORECASE
+            re.IGNORECASE
         )
 
         def _parse_accion_mod(msg):
             ml = msg.strip().lower()
             _PREFIJOS_ANADIR = ('añadir ', 'anadir ', 'agregar ', 'añade ', 'añade:', 'anadir:', 'agrega ', 'agrega:')
             if ml.startswith(_PREFIJOS_ANADIR):
-                resto = _re_mod.sub(r'^(a[nñ]ad[ei][r]?|agreg[ao][r]?)[:\s]+', '', msg.strip(), flags=_re_mod.IGNORECASE).strip()
+                resto = re.sub(r'^(a[nñ]ad[ei][r]?|agreg[ao][r]?)[:\s]+', '', msg.strip(), flags=re.IGNORECASE).strip()
                 m = _PATRON_ITEM_MOD.match(resto)
                 if m:
                     return {'accion': 'anadir',
@@ -573,13 +573,13 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                             'producto': m2.group(1).strip(),
                             'total': int(m2.group(2))}
             if ml.startswith(('quitar ', 'eliminar ', 'borrar ', 'sacar ', 'quita ', 'quita:', 'elimina ', 'borra ')):
-                resto = _re_mod.sub(r'^(quitar|eliminar|borrar|sacar)\s+(los?\s+|las?\s+)?',
-                                    '', msg.strip(), flags=_re_mod.IGNORECASE)
+                resto = re.sub(r'^(quitar|eliminar|borrar|sacar)\s+(los?\s+|las?\s+)?',
+                                    '', msg.strip(), flags=re.IGNORECASE)
                 return {'accion': 'quitar', 'termino': resto.strip()}
             if ml.startswith(('reemplazar ', 'cambiar ')):
-                resto = _re_mod.sub(r'^(reemplazar|cambiar)\s+', '', msg.strip(), flags=_re_mod.IGNORECASE)
-                if _re_mod.search(r'\s+por\s+', resto, flags=_re_mod.IGNORECASE):
-                    partes = _re_mod.split(r'\s+por\s+', resto, maxsplit=1, flags=_re_mod.IGNORECASE)
+                resto = re.sub(r'^(reemplazar|cambiar)\s+', '', msg.strip(), flags=re.IGNORECASE)
+                if re.search(r'\s+por\s+', resto, flags=re.IGNORECASE):
+                    partes = re.split(r'\s+por\s+', resto, maxsplit=1, flags=re.IGNORECASE)
                     m = _PATRON_ITEM_MOD.match(partes[1].strip())
                     if m:
                         return {'accion': 'reemplazar',
