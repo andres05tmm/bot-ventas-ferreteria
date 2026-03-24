@@ -20,7 +20,7 @@ import config
 from sheets import sheets_leer_ventas_del_dia
 from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
-    _to_float, _cantidad_a_float, _stock_wayper,
+    _to_float, _cantidad_a_float, _stock_wayper, _WAYPER_KG_KEYS,
 )
 
 logger = logging.getLogger("ferrebot.api")
@@ -524,6 +524,9 @@ def actualizar_mayorista(key: str, body: MayoristaUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class StockUpdate(BaseModel):
+    stock: Union[float, int, None]
+
 @router.patch("/inventario/{key:path}/stock")
 def actualizar_stock(key: str, body: StockUpdate):
     """
@@ -729,5 +732,3 @@ def eliminar_producto(key: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
