@@ -834,17 +834,17 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             try:
                 # Regex flexible: acepta con/sin tilde, aplanar multilinea
                 _aviso_flat = " ".join(_aviso_no_encontrado.splitlines())
-                _match_pend = _re_pend.search(
+                _match_pend = re.search(
                     r'no encontr[eé] en cat[aá]logo[:\s]+(.+)',
                     _aviso_flat,
-                    _re_pend.IGNORECASE
+                    re.IGNORECASE
                 )
                 if _match_pend:
                     _nombres_raw = _match_pend.group(1).strip().rstrip('.')
                     # Pueden venir separados por coma o "y"
                     _nombres_lista = [
                         n.strip().strip('"\'').lower()
-                        for n in _re_pend.split(r',| y ', _nombres_raw)
+                        for n in re.split(r',| y ', _nombres_raw)
                         if n.strip()
                     ]
                     from memoria import cargar_memoria as _cm_pend, guardar_memoria as _gm_pend
