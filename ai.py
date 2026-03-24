@@ -332,7 +332,21 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             return True
         return False
 
-    palabras_clave = [p for p in mensaje_usuario.lower().split() if _es_keyword_relevante(p)]
+    # Si el mensaje es un prompt de modificación, extraer solo la instrucción del usuario
+    # para evitar que el JSON de la venta actual contamine el matching de productos
+    _msg_para_candidatos = mensaje_usuario
+    _sep_instruccion = "El vendedor quiere modificarla con esta instrucción:"
+    if _sep_instruccion in _msg_para_candidatos:
+        _msg_para_candidatos = _msg_para_candidatos.split(_sep_instruccion, 1)[1]
+    # También limpiar fragmentos JSON residuales (líneas con { } o "clave": valor)
+    import re as _re_cand
+    _lineas_limpias = [
+        l for l in _msg_para_candidatos.splitlines()
+        if not _re_cand.match(r'^\s*[\[{"]', l.strip())
+    ]
+    _msg_para_candidatos = " ".join(_lineas_limpias)
+
+    palabras_clave = [p for p in _msg_para_candidatos.lower().split() if _es_keyword_relevante(p)]
     info_fracciones_extra = ""
 
     # Mapa decimal → fracción para buscar precio especial
@@ -1356,16 +1370,22 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
             return respuesta
         except asyncio.TimeoutError:
             ultimo_error = RuntimeError("La IA tardó demasiado en responder (>45s).")
-            # No reintentar en timeout, probablemente es un problema de red
             if intento >= 2:
                 raise ultimo_error
         except Exception as e:
             ultimo_error = e
             error_str = str(e).lower()
+            # Saldo agotado — error no recuperable, lanzar mensaje amigable inmediatamente
+            if "credit balance" in error_str or "too low" in error_str or "billing" in error_str:
+                logging.getLogger("ferrebot.ai").error("[CLAUDE] ❌ Saldo de API agotado")
+                raise RuntimeError(
+                    "⚠️ La IA no está disponible por falta de saldo en la API. "
+                    "Puedes registrar ventas manualmente con el formato: "
+                    "'anadir N producto = total'"
+                )
             # Solo reintentar en errores 529 (overloaded) o 503 (service unavailable)
             if "529" in str(e) or "overload" in error_str or "503" in str(e) or "unavailable" in error_str:
                 if intento < max_reintentos - 1:
-                    # Backoff exponencial con jitter: 2^intento + random(0-1) segundos
                     espera = (2 ** intento) + random.uniform(0, 1)
                     logging.getLogger("ferrebot.ai").warning(
                         f"[CLAUDE] Error 529/503, reintento {intento+1}/{max_reintentos} en {espera:.1f}s..."
