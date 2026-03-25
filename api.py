@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-from routers import ventas, catalogo, caja, clientes, reportes, historico, chat
+from routers import ventas, catalogo, caja, clientes, reportes, historico, chat, proveedores
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -55,6 +55,7 @@ app.include_router(clientes.router)
 app.include_router(reportes.router)
 app.include_router(historico.router)
 app.include_router(chat.router)
+app.include_router(proveedores.router)
 
 # ── Health check ─────────────────────────────────────────────────────────────
 @app.get("/api/health")
