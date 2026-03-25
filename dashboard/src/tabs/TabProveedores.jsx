@@ -2,7 +2,7 @@
  * TabProveedores.jsx
  * Gestión de cuentas por pagar, facturas y abonos a proveedores.
  */
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import {
   useTheme, useFetch, Card, SectionTitle, KpiCard,
   Spinner, ErrorMsg, cop, useIsMobile, API_BASE, StyledInput,
@@ -212,15 +212,73 @@ function FacturaCard({ fac, t, mobile, onAbonar }) {
   )
 }
 
+function SelectorFoto({ t, label, onChange, preview, onClear }) {
+  const ref = useRef(null)
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <label style={labelStyle(t)}>{label}</label>
+      {preview ? (
+        <div style={{ position: 'relative', display: 'inline-block' }}>
+          <img src={preview} alt="preview"
+            style={{ width: '100%', maxHeight: 140, objectFit: 'cover',
+                     borderRadius: 8, border: `1px solid ${t.border}` }} />
+          <button onClick={onClear} style={{
+            position: 'absolute', top: 4, right: 4,
+            background: '#000a', color: '#fff', border: 'none',
+            borderRadius: '50%', width: 22, height: 22, cursor: 'pointer',
+            fontSize: 12, lineHeight: 1,
+          }}>✕</button>
+        </div>
+      ) : (
+        <div
+          onClick={() => ref.current?.click()}
+          style={{
+            border: `2px dashed ${t.border}`, borderRadius: 8,
+            padding: '16px 12px', textAlign: 'center', cursor: 'pointer',
+            color: t.textMuted, fontSize: 12,
+            transition: 'border-color .15s, background .15s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = t.accent; e.currentTarget.style.background = `${t.accent}08` }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.background = 'transparent' }}
+        >
+          📷 Toca para adjuntar foto o PDF
+          <div style={{ fontSize: 10, marginTop: 4, color: t.textMuted }}>
+            JPG · PNG · PDF — máx 10 MB
+          </div>
+        </div>
+      )}
+      <input ref={ref} type="file" accept="image/*,application/pdf"
+        style={{ display: 'none' }} onChange={onChange} />
+    </div>
+  )
+}
+
 function ModalNuevaFactura({ onClose, onCreada, t }) {
-  const [form, setForm] = useState({
-    proveedor: '', total: '', descripcion: '', fecha: ''
-  })
-  const [estado, setEstado] = useState('idle')
-  const [err, setErr] = useState('')
+  const [form, setForm] = useState({ proveedor: '', total: '', descripcion: '', fecha: '' })
+  const [foto, setFoto]         = useState(null)   // File object
+  const [preview, setPreview]   = useState(null)   // URL.createObjectURL
+  const [paso, setPaso]         = useState(1)       // 1=datos, 2=foto+confirmación
+  const [estado, setEstado]     = useState('idle')  // idle|saving|uploading|ok|err
+  const [facCreada, setFacCreada] = useState(null)
+  const [err, setErr]           = useState('')
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const guardar = async () => {
+  const seleccionarFoto = e => {
+    const file = e.target.files[0]
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) { setErr('La foto no puede superar 10 MB'); return }
+    setFoto(file)
+    if (file.type.startsWith('image/'))
+      setPreview(URL.createObjectURL(file))
+    else
+      setPreview(null)  // PDF: sin preview visual
+    setErr('')
+  }
+
+  const limpiarFoto = () => { setFoto(null); setPreview(null) }
+
+  // Paso 1: guardar datos de la factura
+  const guardarDatos = async () => {
     if (!form.proveedor.trim()) { setErr('El proveedor es obligatorio'); return }
     if (!form.total || isNaN(Number(form.total))) { setErr('El total debe ser un número'); return }
     setErr(''); setEstado('saving')
@@ -237,44 +295,140 @@ function ModalNuevaFactura({ onClose, onCreada, t }) {
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error')
+      setFacCreada(d.factura)
+      setEstado('idle')
+      setPaso(2)
+    } catch(e) { setErr(e.message); setEstado('err') }
+  }
+
+  // Paso 2: subir foto (opcional) y cerrar
+  const finalizarConFoto = async () => {
+    if (!foto) { onCreada(facCreada); onClose(); return }
+    setEstado('uploading')
+    try {
+      const fd = new FormData()
+      fd.append('foto', foto)
+      const r = await fetch(`${API_BASE}/proveedores/facturas/${facCreada.id}/foto`, {
+        method: 'POST', body: fd,
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Error subiendo foto')
       setEstado('ok')
-      setTimeout(() => { onCreada(d.factura); onClose() }, 700)
-    } catch(e) {
-      setErr(e.message); setEstado('err')
-    }
+      setTimeout(() => { onCreada({ ...facCreada, foto_url: d.url }); onClose() }, 600)
+    } catch(e) { setErr(e.message); setEstado('err') }
   }
 
   return (
     <Overlay onClose={onClose} t={t}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 16 }}>
-        📄 Nueva Factura de Proveedor
+      {/* Header con indicador de paso */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: t.text, flex: 1 }}>
+          {paso === 1 ? '📄 Nueva Factura' : `✅ ${facCreada?.id} creada`}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[1, 2].map(n => (
+            <div key={n} style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: paso >= n ? t.accent : t.borderSoft,
+              transition: 'background .2s',
+            }} />
+          ))}
+        </div>
       </div>
-      <label style={labelStyle(t)}>Proveedor</label>
-      <StyledInput value={form.proveedor} onChange={e => set('proveedor', e.target.value)}
-        placeholder="Ej: Pinturas Davinci" style={{ marginBottom: 10 }} />
-      <label style={labelStyle(t)}>Total de la factura</label>
-      <StyledInput value={form.total} onChange={e => set('total', e.target.value)}
-        placeholder="350000" type="number" style={{ marginBottom: 10 }} />
-      <label style={labelStyle(t)}>Descripción (opcional)</label>
-      <StyledInput value={form.descripcion} onChange={e => set('descripcion', e.target.value)}
-        placeholder="Ej: surtido brochas y rodillos" style={{ marginBottom: 10 }} />
-      <label style={labelStyle(t)}>Fecha (opcional, por defecto hoy)</label>
-      <StyledInput value={form.fecha} onChange={e => set('fecha', e.target.value)}
-        type="date" style={{ marginBottom: 14 }} />
-      {err && <div style={{ color: t.accent, fontSize: 12, marginBottom: 10 }}>{err}</div>}
-      <BtnPrimario t={t} onClick={guardar} disabled={estado === 'saving'}>
-        {estado === 'saving' ? 'Guardando…' : estado === 'ok' ? '✓ Guardada' : 'Guardar Factura'}
-      </BtnPrimario>
+
+      {paso === 1 && (
+        <>
+          <label style={labelStyle(t)}>Proveedor *</label>
+          <StyledInput value={form.proveedor} onChange={e => set('proveedor', e.target.value)}
+            placeholder="Ej: Pinturas Davinci" style={{ marginBottom: 10 }} />
+
+          <label style={labelStyle(t)}>Total de la factura *</label>
+          <StyledInput value={form.total} onChange={e => set('total', e.target.value)}
+            placeholder="350000" type="number" style={{ marginBottom: 10 }} />
+
+          <label style={labelStyle(t)}>Descripción (opcional)</label>
+          <StyledInput value={form.descripcion} onChange={e => set('descripcion', e.target.value)}
+            placeholder="Ej: surtido brochas y rodillos" style={{ marginBottom: 10 }} />
+
+          <label style={labelStyle(t)}>Fecha (por defecto hoy)</label>
+          <StyledInput value={form.fecha} onChange={e => set('fecha', e.target.value)}
+            type="date" style={{ marginBottom: 14 }} />
+
+          {err && <div style={{ color: t.accent, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+          <BtnPrimario t={t} onClick={guardarDatos} disabled={estado === 'saving'}>
+            {estado === 'saving' ? 'Guardando…' : 'Siguiente → Foto'}
+          </BtnPrimario>
+        </>
+      )}
+
+      {paso === 2 && (
+        <>
+          <div style={{
+            background: t.accentSub, border: `1px solid ${t.accent}33`,
+            borderRadius: 8, padding: '10px 12px', marginBottom: 14, fontSize: 12,
+          }}>
+            <div style={{ color: t.text, fontWeight: 600 }}>{facCreada?.proveedor}</div>
+            <div style={{ color: t.textMuted, marginTop: 2 }}>
+              {facCreada?.descripcion} · {cop(facCreada?.total)}
+            </div>
+          </div>
+
+          <SelectorFoto
+            t={t}
+            label="Foto de la factura (opcional)"
+            onChange={seleccionarFoto}
+            preview={preview}
+            onClear={limpiarFoto}
+          />
+          {foto && !preview && (
+            <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 8, marginTop: -8 }}>
+              📎 {foto.name}
+            </div>
+          )}
+
+          {err && <div style={{ color: t.accent, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+
+          <BtnPrimario t={t} onClick={finalizarConFoto}
+            disabled={estado === 'uploading' || estado === 'ok'}>
+            {estado === 'uploading' ? '⬆️ Subiendo a Drive…'
+              : estado === 'ok' ? '✓ Listo'
+              : foto ? '💾 Guardar con foto' : 'Guardar sin foto'}
+          </BtnPrimario>
+
+          {!foto && estado === 'idle' && (
+            <button onClick={() => { onCreada(facCreada); onClose() }} style={{
+              width: '100%', marginTop: 8, padding: '8px',
+              background: 'transparent', border: 'none',
+              color: t.textMuted, fontSize: 12, cursor: 'pointer',
+            }}>
+              Omitir foto por ahora
+            </button>
+          )}
+        </>
+      )}
     </Overlay>
   )
 }
 
 function ModalAbono({ factura, onClose, onAbonado, t }) {
-  const [monto, setMonto] = useState('')
-  const [estado, setEstado] = useState('idle')
-  const [err, setErr] = useState('')
+  const [monto, setMonto]       = useState('')
+  const [foto, setFoto]         = useState(null)
+  const [preview, setPreview]   = useState(null)
+  const [paso, setPaso]         = useState(1)    // 1=monto, 2=foto
+  const [estado, setEstado]     = useState('idle')
+  const [err, setErr]           = useState('')
 
-  const guardar = async () => {
+  const seleccionarFoto = e => {
+    const file = e.target.files[0]
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) { setErr('La foto no puede superar 10 MB'); return }
+    setFoto(file)
+    if (file.type.startsWith('image/')) setPreview(URL.createObjectURL(file))
+    setErr('')
+  }
+
+  // Paso 1: registrar el monto del abono
+  const registrarAbono = async () => {
     if (!monto || isNaN(Number(monto)) || Number(monto) <= 0) {
       setErr('El monto debe ser mayor a 0'); return
     }
@@ -287,17 +441,42 @@ function ModalAbono({ factura, onClose, onAbonado, t }) {
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error')
+      setEstado('idle')
+      setPaso(2)
+    } catch(e) { setErr(e.message); setEstado('err') }
+  }
+
+  // Paso 2: subir comprobante (opcional) y cerrar
+  const finalizarConFoto = async () => {
+    if (!foto) { onAbonado(); onClose(); return }
+    setEstado('uploading')
+    try {
+      const fd = new FormData()
+      fd.append('foto', foto)
+      const r = await fetch(`${API_BASE}/proveedores/abonos/${factura.id}/foto`, {
+        method: 'POST', body: fd,
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Error subiendo comprobante')
       setEstado('ok')
-      setTimeout(() => { onAbonado(); onClose() }, 700)
-    } catch(e) {
-      setErr(e.message); setEstado('err')
-    }
+      setTimeout(() => { onAbonado(); onClose() }, 600)
+    } catch(e) { setErr(e.message); setEstado('err') }
   }
 
   return (
     <Overlay onClose={onClose} t={t}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 6 }}>
-        💸 Registrar Abono
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: t.text, flex: 1 }}>
+          {paso === 1 ? '💸 Registrar Abono' : '✅ Abono registrado'}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[1, 2].map(n => (
+            <div key={n} style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: paso >= n ? t.accent : t.borderSoft,
+            }} />
+          ))}
+        </div>
       </div>
       <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 16 }}>
         {factura.id} · {factura.proveedor}
@@ -319,16 +498,56 @@ function ModalAbono({ factura, onClose, onAbonado, t }) {
           </div>
         ))}
       </div>
-      <label style={labelStyle(t)}>Monto del abono</label>
-      <StyledInput
-        value={monto} onChange={e => setMonto(e.target.value)}
-        placeholder={`Máx. ${cop(factura.pendiente)}`}
-        type="number" style={{ marginBottom: 14 }}
-      />
-      {err && <div style={{ color: t.accent, fontSize: 12, marginBottom: 10 }}>{err}</div>}
-      <BtnPrimario t={t} onClick={guardar} disabled={estado === 'saving'}>
-        {estado === 'saving' ? 'Registrando…' : estado === 'ok' ? '✓ Registrado' : 'Confirmar Abono'}
-      </BtnPrimario>
+      {paso === 1 && (
+        <>
+          <label style={labelStyle(t)}>Monto del abono</label>
+          <StyledInput
+            value={monto} onChange={e => setMonto(e.target.value)}
+            placeholder={`Máx. ${cop(factura.pendiente)}`}
+            type="number" style={{ marginBottom: 14 }}
+          />
+          {err && <div style={{ color: t.accent, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+          <BtnPrimario t={t} onClick={registrarAbono} disabled={estado === 'saving'}>
+            {estado === 'saving' ? 'Registrando…' : 'Siguiente → Comprobante'}
+          </BtnPrimario>
+        </>
+      )}
+
+      {paso === 2 && (
+        <>
+          <SelectorFoto
+            t={t}
+            label="Foto del comprobante de pago (opcional)"
+            onChange={seleccionarFoto}
+            preview={preview}
+            onClear={() => { setFoto(null); setPreview(null) }}
+          />
+          {foto && !preview && (
+            <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 8, marginTop: -8 }}>
+              📎 {foto.name}
+            </div>
+          )}
+
+          {err && <div style={{ color: t.accent, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+
+          <BtnPrimario t={t} onClick={finalizarConFoto}
+            disabled={estado === 'uploading' || estado === 'ok'}>
+            {estado === 'uploading' ? '⬆️ Subiendo a Drive…'
+              : estado === 'ok' ? '✓ Listo'
+              : foto ? '💾 Guardar con comprobante' : 'Guardar sin foto'}
+          </BtnPrimario>
+
+          {!foto && estado === 'idle' && (
+            <button onClick={() => { onAbonado(); onClose() }} style={{
+              width: '100%', marginTop: 8, padding: '8px',
+              background: 'transparent', border: 'none',
+              color: t.textMuted, fontSize: 12, cursor: 'pointer',
+            }}>
+              Omitir comprobante por ahora
+            </button>
+          )}
+        </>
+      )}
     </Overlay>
   )
 }
