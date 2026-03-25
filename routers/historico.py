@@ -144,9 +144,9 @@ def _sync_historico_hoy() -> dict:
     efectivo = transferencia = datafono = 0
     n_trans  = 0
     try:
-        rows = _leer_excel_rango(hoy, hoy)
+        rows = [r for r in _leer_excel_rango(dias=1) if str(r.get("fecha", ""))[:10] == hoy]
         for r in rows:
-            mt = str(r.get("metodo_pago", "")).lower()
+            mt = str(r.get("metodo", "")).lower()
             v  = float(r.get("total", 0) or 0)
             if "transfer" in mt:
                 transferencia += v
