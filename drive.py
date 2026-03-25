@@ -293,3 +293,91 @@ def sincronizar_archivos():
         # Desbloquear subidas — a partir de aqui todo funciona normal
         bloquear_subida_drive(False)
         logging.getLogger("ferrebot.drive").info("Subida a Drive desbloqueada.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SUBCARPETAS Y FOTOS DE FACTURAS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _normalizar_nombre_carpeta(nombre: str) -> str:
+    """Normaliza un nombre para usarlo como carpeta en Drive (sin caracteres raros)."""
+    import re, unicodedata
+    nombre = unicodedata.normalize("NFD", nombre)
+    nombre = "".join(c for c in nombre if unicodedata.category(c) != "Mn")
+    nombre = re.sub(r"[^\w\s\-]", "", nombre).strip()
+    nombre = re.sub(r"\s+", "_", nombre)
+    return nombre[:80]  # Drive permite hasta 255, usamos 80 para legibilidad
+
+
+def _obtener_o_crear_carpeta(service, nombre: str, parent_id: str) -> str:
+    """
+    Busca una carpeta por nombre dentro de parent_id.
+    Si no existe, la crea. Retorna el folder_id.
+    """
+    nombre_norm = _normalizar_nombre_carpeta(nombre)
+    query = (
+        f"name='{nombre_norm}' "
+        f"and '{parent_id}' in parents "
+        f"and mimeType='application/vnd.google-apps.folder' "
+        f"and trashed=false"
+    )
+    res = service.files().list(q=query, fields="files(id, name)").execute()
+    carpetas = res.get("files", [])
+    if carpetas:
+        return carpetas[0]["id"]
+    # Crear carpeta
+    metadata = {
+        "name": nombre_norm,
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": [parent_id],
+    }
+    carpeta = service.files().create(body=metadata, fields="id").execute()
+    logging.getLogger("ferrebot.drive").info(f"[Drive] 📁 Carpeta creada: {nombre_norm}")
+    return carpeta["id"]
+
+
+def _obtener_carpeta_facturas_proveedor(service, proveedor: str) -> str:
+    """
+    Retorna (o crea) la ruta:
+      GOOGLE_FOLDER_ID / Facturas_Proveedores / <Proveedor>
+    y devuelve el folder_id de la carpeta del proveedor.
+    """
+    root_id = config.GOOGLE_FOLDER_ID
+    facturas_id = _obtener_o_crear_carpeta(service, "Facturas_Proveedores", root_id)
+    proveedor_id = _obtener_o_crear_carpeta(service, proveedor, facturas_id)
+    return proveedor_id
+
+
+def subir_foto_factura(ruta_local: str, nombre_archivo: str, proveedor: str) -> dict:
+    """
+    Sube una foto de factura a Drive/Facturas_Proveedores/<Proveedor>/<nombre_archivo>.
+    Retorna {"ok": True, "file_id": "...", "url": "...", "nombre": "..."}
+    o       {"ok": False, "error": "..."}
+    """
+    from googleapiclient.http import MediaFileUpload
+    try:
+        service = config.get_drive_service()
+        carpeta_id = _obtener_carpeta_facturas_proveedor(service, proveedor)
+
+        mime = "image/jpeg"
+        if nombre_archivo.lower().endswith(".png"):
+            mime = "image/png"
+        elif nombre_archivo.lower().endswith(".pdf"):
+            mime = "application/pdf"
+
+        media = MediaFileUpload(ruta_local, mimetype=mime, resumable=False)
+        metadata = {"name": nombre_archivo, "parents": [carpeta_id]}
+        archivo = service.files().create(
+            body=metadata, media_body=media, fields="id, name, webViewLink"
+        ).execute()
+
+        file_id = archivo.get("id", "")
+        url     = archivo.get("webViewLink", f"https://drive.google.com/file/d/{file_id}/view")
+        logging.getLogger("ferrebot.drive").info(
+            f"[Drive] 📎 Foto subida: {nombre_archivo} → {proveedor}"
+        )
+        return {"ok": True, "file_id": file_id, "url": url, "nombre": nombre_archivo}
+
+    except Exception as e:
+        logging.getLogger("ferrebot.drive").error(f"[Drive] ❌ Error subiendo foto: {e}")
+        return {"ok": False, "error": str(e)}
