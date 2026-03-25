@@ -429,8 +429,14 @@ function ModalAbono({ factura, onClose, onAbonado, t }) {
 
   // Paso 1: registrar el monto del abono
   const registrarAbono = async () => {
-    if (!monto || isNaN(Number(monto)) || Number(monto) <= 0) {
+    const montoNum = Number(monto)
+    if (!monto || isNaN(montoNum) || montoNum <= 0) {
       setErr('El monto debe ser mayor a 0'); return
+    }
+    // FIX: validar que el abono no supere el saldo pendiente
+    if (montoNum > factura.pendiente) {
+      setErr(`El abono ($${montoNum.toLocaleString('es-CO')}) supera el pendiente ($${factura.pendiente.toLocaleString('es-CO')}). Máximo permitido: ${cop(factura.pendiente)}`)
+      return
     }
     setErr(''); setEstado('saving')
     try {
