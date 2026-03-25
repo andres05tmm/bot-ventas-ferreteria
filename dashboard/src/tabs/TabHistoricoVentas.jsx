@@ -164,8 +164,8 @@ export default function TabHistoricoVentas() {
     const i = intensidad(val, maxDia)
     if (i === 0) return 'transparent'
     // Mezclar con el accent del tema
-    const alpha = Math.round(0.08 + i * 0.22)  // 0.08 → 0.30
-    return `${t.accent}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`
+    const alpha = Math.round((0.08 + i * 0.22) * 255)  // FIX: faltaba × 255; antes siempre era 0 → transparente
+    return `${t.accent}${alpha.toString(16).padStart(2, '0')}`
   }
 
   /* ── Render ────────────────────────────────────────────────────────────── */
