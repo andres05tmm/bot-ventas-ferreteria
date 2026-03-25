@@ -811,7 +811,8 @@ def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
     except Exception:
         pass
 
-    # Redondear y fusionar — solo pisamos días que tienen desglose en 0
+    # Redondear y fusionar — solo pisamos desglose de días que no lo tienen,
+    # pero SIEMPRE actualizamos gastos y abonos desde memoria.json
     reconstruidos = 0
     for fecha, vals in por_dia.items():
         existente = diario.get(fecha, {})
@@ -831,6 +832,12 @@ def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
                 "abonos_proveedores": round(vals["abonos_proveedores"], 2),
             }
             reconstruidos += 1
+        else:
+            # Siempre actualizar gastos y abonos aunque el desglose ya exista
+            if vals["gastos"] > 0 or vals["abonos_proveedores"] > 0:
+                existente["gastos"]             = round(vals["gastos"], 2)
+                existente["abonos_proveedores"] = round(vals["abonos_proveedores"], 2)
+                diario[fecha] = existente
 
     # Guardar historico_diario.json localmente
     with _diario_lock:
