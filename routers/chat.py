@@ -286,6 +286,66 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
     except Exception:
         inv_texto = "INVENTARIO: Sin datos"
 
+    # ── Cuentas por pagar (facturas de proveedores) ─────────────────────────
+    try:
+        from memoria import listar_facturas as _lf_dash
+        _facturas_pend = _lf_dash(solo_pendientes=True)
+        if _facturas_pend:
+            _total_deuda_dash = sum(f["pendiente"] for f in _facturas_pend)
+            _lines_fac = []
+            for _f in _facturas_pend[:15]:
+                _dias_f = max(0, (datetime.now(config.COLOMBIA_TZ).date() -
+                              datetime.fromisoformat(_f["fecha"]).date()).days)
+                _lines_fac.append(
+                    f"  {_f['id']} | {_f['proveedor']} | "
+                    f"Total: ${_f['total']:,.0f} | Pagado: ${_f['pagado']:,.0f} | "
+                    f"Pendiente: ${_f['pendiente']:,.0f} | {_dias_f} días"
+                )
+            cuentas_texto = (
+                f"CUENTAS POR PAGAR ({len(_facturas_pend)} facturas, "
+                f"deuda total ${_total_deuda_dash:,.0f}):\n"
+                + "\n".join(_lines_fac)
+            )
+        else:
+            cuentas_texto = "CUENTAS POR PAGAR: Sin deudas pendientes con proveedores"
+    except Exception:
+        cuentas_texto = "CUENTAS POR PAGAR: Sin datos"
+
+    # ── Histórico últimos 30 días ─────────────────────────────────────────────
+    try:
+        import json as _json_hist
+        _historico_data = {}
+        _diario_data = {}
+        if os.path.exists("historico_ventas.json"):
+            with open("historico_ventas.json", encoding="utf-8") as _fh:
+                _historico_data = _json_hist.load(_fh)
+        if os.path.exists("historico_diario.json"):
+            with open("historico_diario.json", encoding="utf-8") as _fh:
+                _diario_data = _json_hist.load(_fh)
+
+        _hist_lines = []
+        _hoy_d = datetime.now(config.COLOMBIA_TZ).date()
+        for _i in range(29, -1, -1):
+            _dia = (_hoy_d - timedelta(days=_i)).strftime("%Y-%m-%d")
+            _v = _historico_data.get(_dia, 0)
+            if _v:
+                _dd = _diario_data.get(_dia, {})
+                _g  = _dd.get("gastos", 0)
+                _ab = _dd.get("abonos_proveedores", 0)
+                _cn = _v - _g - _ab
+                _hist_lines.append(
+                    f"  {_dia}: ventas=${_v:,.0f}"
+                    + (f" | gastos=${_g:,.0f}" if _g else "")
+                    + (f" | abonos=${_ab:,.0f}" if _ab else "")
+                    + f" | caja_neta=${_cn:,.0f}"
+                )
+        if _hist_lines:
+            historico_texto = f"HISTÓRICO 30 DÍAS:\n" + "\n".join(_hist_lines[-30:])
+        else:
+            historico_texto = "HISTÓRICO: Sin datos previos registrados"
+    except Exception:
+        historico_texto = "HISTÓRICO: Sin datos"
+
     # ── Márgenes ─────────────────────────────────────────────────────────────
     try:
         catalogo_m = mem.get("catalogo", {})
@@ -315,51 +375,84 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
         "'. Ten esto en cuenta para dar contexto relevante."
     ) if tab_activo else ""
 
+    # ── Alertas proactivas calculadas en Python (más confiable que Claude) ──
+    alertas = []
+    try:
+        # Deuda antigua
+        from memoria import listar_facturas as _lf2
+        for _f2 in _lf2(solo_pendientes=True):
+            _dias2 = max(0,(datetime.now(config.COLOMBIA_TZ).date()-
+                          datetime.fromisoformat(_f2["fecha"]).date()).days)
+            if _dias2 > 30:
+                alertas.append(f"DEUDA ANTIGUA: {_f2['id']} ({_f2['proveedor']}) lleva {_dias2} días sin pagar — ${_f2['pendiente']:,.0f} pendiente")
+        # Fiados altos
+        _fds = mem.get("fiados", {})
+        for _fn, _fd in _fds.items():
+            if float(_fd.get("saldo", 0)) > 200000:
+                alertas.append(f"FIADO ALTO: {_fn} debe ${float(_fd['saldo']):,.0f}")
+        # Stock crítico
+        for _ik, _iv in mem.get("inventario", {}).items():
+            if (isinstance(_iv, dict) and
+                float(_iv.get("cantidad",0)) < float(_iv.get("minimo",0)) and
+                float(_iv.get("minimo",0)) > 0):
+                alertas.append(f"STOCK BAJO: {_ik} — solo {_iv['cantidad']} {_iv.get('unidad','u')} (mín {_iv['minimo']})")
+    except Exception:
+        pass
+    alertas_texto = ("ALERTAS ACTIVAS:\n" + "\n".join("  ⚠ " + a for a in alertas)) if alertas else ""
+
     return (
-        "CANAL: Dashboard web — modo gerente/asistente avanzado.\n"
-        "FECHA Y HORA ACTUAL: " + fecha_hoy + "\n"
-        "\n"
-        "## PERSONALIDAD Y MODO DE OPERACION\n"
-        "Eres el asistente inteligente de Ferretería Punto Rojo. En este canal tienes un rol dual:\n"
-        "1. REGISTRAR con precisión (ventas, gastos, compras, fiados) — igual que en Telegram\n"
-        "2. SER GERENTE: analizar, opinar, recomendar, advertir, recordar decisiones pasadas\n"
-        "\n"
-        "TONO: Directo, claro, con criterio. No eres un bot genérico — conoces este negocio.\n"
-        "Si ves algo raro en los datos, lo dices. Si hay una oportunidad, la señalas.\n"
-        "Si te preguntan tu opinión, la das con base en los datos reales.\n"
-        "\n"
-        "FORMATO: Responde con la extensión que el tema requiera. Para análisis, sé detallado.\n"
-        "Para registros (ventas/gastos), usa el mismo formato compacto con [VENTA]/[GASTO].\n"
-        "No uses markdown (asteriscos, #). Usa texto plano limpio.\n"
-        "\n"
-        "## ESTADO ACTUAL DEL NEGOCIO\n"
+        "FECHA Y HORA: " + fecha_hoy + "\n\n"
+
+        "## IDENTIDAD\n"
+        "Eres el asistente de negocio de Ferretería Punto Rojo. Eres experto en ferretería "
+        "colombiana, conoces cada producto del catálogo, y tienes acceso en tiempo real a todas "
+        "las cifras del negocio. No eres un asistente genérico — eres el socio inteligente del dueño.\n\n"
+
+        "## PERSONALIDAD\n"
+        "Directo y sin rodeos. Cuando los números son buenos, lo dices. Cuando hay algo malo, "
+        "lo señalas sin suavizarlo. Das recomendaciones concretas basadas en datos reales, no "
+        "consejos genéricos. Si el negocio está perdiendo plata en algo, lo dices. "
+        "Si hay una oportunidad, la identificas. Recuerdas el contexto y las decisiones pasadas.\n\n"
+
+        "## CAPACIDADES\n"
+        "REGISTRAR: ventas, gastos, fiados, abonos, facturas de proveedores, abonos a proveedores\n"
+        "ANALIZAR: tendencias de ventas, rentabilidad por producto, días buenos/malos, ticket promedio\n"
+        "COMPARAR: esta semana vs semana pasada, este mes vs mes anterior\n"
+        "ADVERTIR: stock bajo, deudas viejas, fiados altos, días sin ventas\n"
+        "RECORDAR: guarda decisiones y observaciones del negocio con [MEMORIA]\n\n"
+
+        "## FORMATO\n"
+        "Para análisis: extenso, con números, con interpretación y recomendación al final.\n"
+        "Para registros: compacto — solo JSON de acción, sin texto adicional.\n"
+        "Para preguntas cortas: respuesta corta y directa.\n"
+        "Sin markdown (sin asteriscos, sin #). Texto plano limpio.\n\n"
+
+        "## ACCIONES DISPONIBLES\n"
+        "[VENTA]{...}[/VENTA] — registrar venta\n"
+        "[GASTO]{...}[/GASTO] — registrar gasto\n"
+        "[FIADO]{...}[/FIADO] — venta a crédito\n"
+        "[ABONO_FIADO]{...}[/ABONO_FIADO] — abono de cliente\n"
+        "[FACTURA_PROVEEDOR]{...}[/FACTURA_PROVEEDOR] — nueva factura de proveedor\n"
+        "[ABONO_PROVEEDOR]{...}[/ABONO_PROVEEDOR] — abono a factura de proveedor\n"
+        "[INVENTARIO]{...}[/INVENTARIO] — actualizar stock\n"
+        "[MEMORIA]{tipo: decision|observacion, contenido: texto}[/MEMORIA]\n\n"
+
+        + (alertas_texto + "\n\n" if alertas_texto else "")
+
+        + "## ESTADO DEL NEGOCIO\n"
         + caja_texto + "\n\n"
         + ventas_texto + "\n\n"
         + gastos_texto + "\n\n"
         + resumen_texto + "\n\n"
+        + historico_texto + "\n\n"
         + top_texto + "\n\n"
-        + compras_texto + "\n\n"
+        + cuentas_texto + "\n\n"
         + fiados_texto + "\n\n"
         + inv_texto + "\n\n"
+        + compras_texto + "\n\n"
         + margenes_texto + "\n\n"
         + catalogo_texto + "\n\n"
         + memoria_texto
-        + "## MEMORIA PERSISTENTE\n"
-        "Puedes guardar información importante del negocio usando la acción:\n"
-        '[MEMORIA]{"tipo":"decision"|"observacion"|"contexto","contenido":"texto"}[/MEMORIA]\n'
-        "Úsala cuando el usuario mencione algo que debe recordarse: cambios de estrategia,\n"
-        "observaciones sobre clientes, decisiones de precio, metas, etc.\n"
-        "\n"
-        "## CAPACIDADES COMPLETAS EN ESTE CANAL\n"
-        "- Registrar ventas, gastos, compras, fiados, abonos\n"
-        "- Consultar precio de cualquier producto del catálogo (los tienes todos arriba)\n"
-        "- Analizar ventas por día, semana, mes, producto, vendedor\n"
-        "- Identificar tendencias: qué vende más, qué días son mejores, ticket promedio\n"
-        "- Ver márgenes y rentabilidad (cuando estén configurados los costos)\n"
-        "- Gestionar inventario y alertas de stock\n"
-        "- Revisar compras recientes y proveedores\n"
-        "- Recordar y recuperar decisiones pasadas del negocio\n"
-        "- Dar opinión y recomendaciones basadas en datos reales"
         + tab_ctx
     )
 
