@@ -89,18 +89,106 @@ def _totales_por_dia_excel(dias: int = 30) -> dict:
 
 def _sync_historico_hoy() -> dict:
     """
-    Sincroniza el total de hoy (desde Sheets) al histórico persistente.
-    Retorna {"fecha": ..., "monto": ..., "ok": True/False}.
+    Sincroniza el total de hoy al histórico persistente.
+    Captura ventas (Sheets), desglose por método de pago (Excel),
+    gastos del día y abonos a proveedores (memoria.json).
     """
-    hoy = _hoy()
+    import json as _json
+    hoy   = _hoy()
     total = _total_ventas_hoy_sheets()
     if total <= 0:
         return {"fecha": hoy, "monto": 0, "ok": False, "razon": "sin ventas hoy"}
+
     monto = int(total)
+
+    # ── Desglose método de pago (desde Excel de ventas) ──────────────────
+    efectivo = transferencia = datafono = 0
+    n_trans  = 0
+    try:
+        rows = _leer_excel_rango(hoy, hoy)
+        for r in rows:
+            mt = str(r.get("metodo_pago", "")).lower()
+            v  = float(r.get("total", 0) or 0)
+            if "transfer" in mt:
+                transferencia += v
+            elif "data" in mt or "tarjeta" in mt:
+                datafono += v
+            else:
+                efectivo += v
+            n_trans += 1
+    except Exception:
+        pass
+
+    # ── Gastos del día (memoria.json) ─────────────────────────────────────
+    gastos_dia = 0.0
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as _fh:
+            _mem = _json.load(_fh)
+        for g in _mem.get("gastos", {}).get(hoy, []):
+            gastos_dia += float(g.get("monto", 0))
+    except Exception:
+        pass
+
+    # ── Abonos a proveedores del día ──────────────────────────────────────
+    abonos_dia = 0.0
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as _fh:
+            _mem = _json.load(_fh)
+        for g in _mem.get("gastos", {}).get(hoy, []):
+            if g.get("categoria") == "abono_proveedor":
+                abonos_dia += float(g.get("monto", 0))
+        # Descontar abonos de gastos (para no contarlos doble)
+        gastos_dia -= abonos_dia
+        if gastos_dia < 0:
+            gastos_dia = 0.0
+    except Exception:
+        pass
+
+    # ── Guardar en historico_diario.json (datos enriquecidos) ─────────────
+    _diario_file = "historico_diario.json"
+    try:
+        if os.path.exists(_diario_file):
+            with open(_diario_file, encoding="utf-8") as _fh:
+                _diario = _json.load(_fh)
+        else:
+            _diario = {}
+
+        _diario[hoy] = {
+            "ventas":               monto,
+            "efectivo":             round(efectivo, 2),
+            "transferencia":        round(transferencia, 2),
+            "datafono":             round(datafono, 2),
+            "n_transacciones":      n_trans,
+            "gastos":               round(gastos_dia, 2),
+            "abonos_proveedores":   round(abonos_dia, 2),
+        }
+        with open(_diario_file, "w", encoding="utf-8") as _fh:
+            _json.dump(_diario, _fh, ensure_ascii=False, indent=2)
+        try:
+            from drive import subir_a_drive_urgente
+            subir_a_drive_urgente(_diario_file)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # ── Guardar total en historico principal ──────────────────────────────
     data = _leer_historico()
     data[hoy] = monto
     _guardar_historico(data)
-    return {"fecha": hoy, "monto": monto, "ok": True}
+
+    return {
+        "fecha":             hoy,
+        "monto":             monto,
+        "efectivo":          round(efectivo, 2),
+        "transferencia":     round(transferencia, 2),
+        "datafono":          round(datafono, 2),
+        "n_transacciones":   n_trans,
+        "gastos":            round(gastos_dia, 2),
+        "abonos":            round(abonos_dia, 2),
+        "caja_neta":         monto - round(gastos_dia, 2) - round(abonos_dia, 2),
+        "ok":                True,
+    }
 
 
 # ── Helpers internos ──────────────────────────────────────────────────────────
@@ -135,41 +223,203 @@ def _excel_a_dict(ruta: str) -> dict:
 
 def _dict_a_excel(data: dict, ruta: str) -> None:
     """
-    Escribe {fecha: monto} en historico_ventas.xlsx.
-    Columnas: Fecha | Año | Mes | Día | Monto
+    Genera historico_ventas.xlsx con 3 hojas:
+      Hoja 1 — Operaciones Diarias  (una fila por día)
+      Hoja 2 — Cuentas por Pagar    (una fila por factura)
+      Hoja 3 — Resumen Mensual      (una fila por mes, calculada)
     """
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from collections import defaultdict
+
+    ROJO     = "C0392B"
+    AZUL     = "2E4057"
+    VERDE    = "1A7A4A"
+    BLANCO   = "FFFFFF"
+    GRIS_L   = "F2F2F2"
+    BORDE_S  = Side(style="thin", color="CCCCCC")
+    BORDE    = Border(left=BORDE_S, right=BORDE_S, top=BORDE_S, bottom=BORDE_S)
+
+    def _hdr(ws, fila, cols, color=ROJO):
+        """Escribe encabezados con fondo de color."""
+        for col, texto in enumerate(cols, 1):
+            c = ws.cell(row=fila, column=col, value=texto)
+            c.font      = Font(bold=True, color=BLANCO, size=10)
+            c.fill      = PatternFill("solid", fgColor=color)
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border    = BORDE
+
+    def _celda(ws, fila, col, valor, fmt=None, negrita=False, color_txt=None, bg=None):
+        c = ws.cell(row=fila, column=col, value=valor)
+        c.border    = BORDE
+        c.alignment = Alignment(horizontal="right" if isinstance(valor, (int, float)) else "left",
+                                 vertical="center")
+        if fmt:        c.number_format = fmt
+        if negrita:    c.font = Font(bold=True, color=color_txt or "000000", size=10)
+        elif color_txt: c.font = Font(color=color_txt, size=10)
+        if bg:         c.fill = PatternFill("solid", fgColor=bg)
+        return c
+
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Historial"
 
-    # Encabezados
-    headers = ["Fecha", "Año", "Mes", "Día", "Monto"]
-    for col, h in enumerate(headers, 1):
-        c = ws.cell(row=1, column=col, value=h)
-        c.font = Font(bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor="C0392B")
-        c.alignment = Alignment(horizontal="center")
+    # ── HOJA 1: Operaciones Diarias ──────────────────────────────────────────
+    ws1 = wb.active
+    ws1.title = "Operaciones Diarias"
+    ws1.row_dimensions[1].height = 22
 
-    # Datos ordenados por fecha
-    for row_idx, (fecha, monto) in enumerate(sorted(data.items()), 2):
+    # Título
+    ws1.merge_cells("A1:I1")
+    t = ws1.cell(row=1, column=1,
+                 value="FERRETERÍA PUNTO ROJO — Operaciones Diarias")
+    t.font      = Font(bold=True, color=BLANCO, size=12)
+    t.fill      = PatternFill("solid", fgColor=ROJO)
+    t.alignment = Alignment(horizontal="center", vertical="center")
+
+    cols1 = ["Fecha","Ventas","Efectivo","Transferencia","Datáfono",
+             "N° Trans","Gastos","Abonos Prov.","Caja Neta"]
+    _hdr(ws1, 2, cols1)
+
+    # Cargar datos enriquecidos si existen (gastos, abonos)
+    _datos_dia: dict = {}
+    try:
+        import json as _j, config as _cfg, os as _os
+        if _os.path.exists("historico_diario.json"):
+            with open("historico_diario.json", encoding="utf-8") as _fh:
+                _datos_dia = _j.load(_fh)
+    except Exception:
+        pass
+
+    anchos1 = [13, 14, 14, 14, 12, 9, 13, 14, 13]
+    for i, w in enumerate(anchos1, 1):
+        ws1.column_dimensions[get_column_letter(i)].width = w
+
+    totales1 = [0.0] * 9
+    for fila_idx, (fecha, monto) in enumerate(sorted(data.items()), 3):
+        bg = GRIS_L if fila_idx % 2 == 0 else None
+        dd = _datos_dia.get(fecha, {})
+        ventas      = float(monto)
+        efectivo    = float(dd.get("efectivo", 0))
+        transf      = float(dd.get("transferencia", 0))
+        datafono    = float(dd.get("datafono", 0))
+        n_trans     = int(dd.get("n_transacciones", 0))
+        gastos      = float(dd.get("gastos", 0))
+        abonos      = float(dd.get("abonos_proveedores", 0))
+        caja_neta   = ventas - gastos - abonos
+
+        vals = [fecha, ventas, efectivo, transf, datafono,
+                n_trans, gastos, abonos, caja_neta]
+        for ci, val in enumerate(vals, 1):
+            fmt = "#,##0" if isinstance(val, float) else None
+            color = "1A7A4A" if ci == 9 and caja_neta >= 0 else (
+                    "C0392B" if ci == 9 and caja_neta < 0 else None)
+            _celda(ws1, fila_idx, ci, val, fmt=fmt, color_txt=color, bg=bg)
+        for ci, val in enumerate(vals, 1):
+            if isinstance(val, float):
+                totales1[ci-1] += val
+
+    # Fila de totales
+    fila_tot = max(3, 3 + len(data))
+    _celda(ws1, fila_tot, 1, "TOTAL", negrita=True, bg="E8E8E8")
+    for ci, tot in enumerate(totales1[1:], 2):
+        if ci == 6: continue  # N° Trans no suma
+        _celda(ws1, fila_tot, ci, tot, fmt="#,##0", negrita=True, bg="E8E8E8")
+    ws1.freeze_panes = "A3"
+
+    # ── HOJA 2: Cuentas por Pagar ────────────────────────────────────────────
+    ws2 = wb.create_sheet("Cuentas por Pagar")
+    ws2.row_dimensions[1].height = 22
+    ws2.merge_cells("A1:H1")
+    t2 = ws2.cell(row=1, column=1,
+                  value="FERRETERÍA PUNTO ROJO — Cuentas por Pagar")
+    t2.font      = Font(bold=True, color=BLANCO, size=12)
+    t2.fill      = PatternFill("solid", fgColor=AZUL)
+    t2.alignment = Alignment(horizontal="center", vertical="center")
+
+    cols2 = ["ID","Fecha","Proveedor","Descripción","Total","Pagado","Pendiente","Estado"]
+    _hdr(ws2, 2, cols2, color=AZUL)
+
+    anchos2 = [10, 13, 20, 30, 14, 14, 14, 11]
+    for i, w in enumerate(anchos2, 1):
+        ws2.column_dimensions[get_column_letter(i)].width = w
+
+    facturas_data = []
+    try:
+        from memoria import listar_facturas as _lf
+        facturas_data = _lf()
+    except Exception:
+        pass
+
+    for fi, fac in enumerate(sorted(facturas_data, key=lambda x: x.get("fecha",""))):
+        fila_f = fi + 3
+        bg = GRIS_L if fila_f % 2 == 0 else None
+        estado = fac.get("estado", "pendiente")
+        col_estado = {"pagada": "1A7A4A", "parcial": "E67E22", "pendiente": "C0392B"}.get(estado, "000000")
+
+        _celda(ws2, fila_f, 1, fac.get("id",""), bg=bg)
+        _celda(ws2, fila_f, 2, fac.get("fecha",""), bg=bg)
+        _celda(ws2, fila_f, 3, fac.get("proveedor",""), bg=bg)
+        _celda(ws2, fila_f, 4, fac.get("descripcion",""), bg=bg)
+        _celda(ws2, fila_f, 5, fac.get("total",0), fmt="#,##0", bg=bg)
+        _celda(ws2, fila_f, 6, fac.get("pagado",0), fmt="#,##0", bg=bg)
+        _celda(ws2, fila_f, 7, fac.get("pendiente",0), fmt="#,##0",
+               negrita=True, color_txt=col_estado if estado != "pagada" else None, bg=bg)
+        _celda(ws2, fila_f, 8, estado.upper(), color_txt=col_estado, negrita=True, bg=bg)
+
+        # Si tiene foto, agregar hyperlink en la celda ID
+        foto_url = fac.get("foto_url","")
+        if foto_url:
+            ws2.cell(row=fila_f, column=1).hyperlink = foto_url
+            ws2.cell(row=fila_f, column=1).style = "Hyperlink"
+
+    ws2.freeze_panes = "A3"
+
+    # ── HOJA 3: Resumen Mensual ───────────────────────────────────────────────
+    ws3 = wb.create_sheet("Resumen Mensual")
+    ws3.row_dimensions[1].height = 22
+    ws3.merge_cells("A1:F1")
+    t3 = ws3.cell(row=1, column=1,
+                  value="FERRETERÍA PUNTO ROJO — Resumen Mensual")
+    t3.font      = Font(bold=True, color=BLANCO, size=12)
+    t3.fill      = PatternFill("solid", fgColor=VERDE)
+    t3.alignment = Alignment(horizontal="center", vertical="center")
+
+    cols3 = ["Mes","Ventas","Gastos","Abonos Prov.","Caja Neta","Deuda Total"]
+    _hdr(ws3, 2, cols3, color=VERDE)
+
+    anchos3 = [15, 15, 13, 14, 14, 14]
+    for i, w in enumerate(anchos3, 1):
+        ws3.column_dimensions[get_column_letter(i)].width = w
+
+    # Agrupar días por mes
+    por_mes: dict = defaultdict(lambda: {"ventas":0.0,"gastos":0.0,"abonos":0.0})
+    for fecha, monto in data.items():
+        mes_k = fecha[:7]
+        por_mes[mes_k]["ventas"] += float(monto)
+        dd = _datos_dia.get(fecha, {})
+        por_mes[mes_k]["gastos"] += float(dd.get("gastos", 0))
+        por_mes[mes_k]["abonos"] += float(dd.get("abonos_proveedores", 0))
+
+    # Deuda total vigente al final del período
+    deuda_total = sum(f.get("pendiente",0) for f in facturas_data if f.get("estado") != "pagada")
+
+    for mi, (mes_k, vals) in enumerate(sorted(por_mes.items()), 3):
+        bg = GRIS_L if mi % 2 == 0 else None
         try:
-            parts   = fecha.split("-")
-            año_n   = int(parts[0])
-            mes_n   = int(parts[1])
-            dia_n   = int(parts[2])
-            nom_mes = _NOMBRES_MES[mes_n] if 1 <= mes_n <= 12 else str(mes_n)
-            ws.cell(row=row_idx, column=1, value=fecha)
-            ws.cell(row=row_idx, column=2, value=año_n)
-            ws.cell(row=row_idx, column=3, value=nom_mes)
-            ws.cell(row=row_idx, column=4, value=dia_n)
-            ws.cell(row=row_idx, column=5, value=int(monto))
+            año_n, mes_n = int(mes_k[:4]), int(mes_k[5:])
+            nom = f"{_NOMBRES_MES[mes_n]} {año_n}"
         except Exception:
-            pass
+            nom = mes_k
+        caja_neta = vals["ventas"] - vals["gastos"] - vals["abonos"]
+        color_cn = "1A7A4A" if caja_neta >= 0 else "C0392B"
+        _celda(ws3, mi, 1, nom, bg=bg)
+        _celda(ws3, mi, 2, vals["ventas"], fmt="#,##0", bg=bg)
+        _celda(ws3, mi, 3, vals["gastos"], fmt="#,##0", bg=bg)
+        _celda(ws3, mi, 4, vals["abonos"], fmt="#,##0", bg=bg)
+        _celda(ws3, mi, 5, caja_neta, fmt="#,##0", negrita=True, color_txt=color_cn, bg=bg)
+        _celda(ws3, mi, 6, deuda_total, fmt="#,##0", bg=bg)
 
-    ws.column_dimensions["A"].width = 14
-    ws.column_dimensions["C"].width = 14
-    ws.column_dimensions["E"].width = 16
+    ws3.freeze_panes = "A3"
+
     wb.save(ruta)
 
 def _leer_historico_de_excel() -> dict:
@@ -396,4 +646,3 @@ def historico_sync_rango(dias: int = Query(default=30, ge=1, le=365)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
