@@ -1213,6 +1213,18 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.message.reply_text(
                     f"📊 Histórico actualizado:\n" + "\n".join(guardados)
                 )
+            # ── Capturar gastos del día → historico_diario.json → Drive ──
+            # Persiste gastos de memoria.json antes de que un redeploy los borre
+            try:
+                from routers.historico import _sync_historico_hoy
+                resultado_sync = await asyncio.to_thread(_sync_historico_hoy)
+                gastos_dia = resultado_sync.get("gastos", 0)
+                if gastos_dia > 0:
+                    await update.message.reply_text(
+                        f"💸 Gastos del día guardados: ${gastos_dia:,.0f}"
+                    )
+            except Exception as e_sync:
+                print(f"⚠️ Error sincronizando gastos al historico: {e_sync}")
         except Exception as e_hist:
             print(f"⚠️ Error guardando histórico: {e_hist}")
             # No bloquear el cierre por un error en el histórico
