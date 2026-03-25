@@ -525,7 +525,10 @@ _PALABRAS_MULTILINEA_OK = {
 _ENCABEZADOS = re.compile(
     r'^(ventas?|venta|productos?|items?|fecha|marzo|abril|mayo|junio|julio|'
     r'agosto|septiembre|octubre|noviembre|diciembre|enero|febrero|'
-    r'lunes|martes|miercoles|jueves|viernes|sabado|domingo|\d{1,2}/\d{1,2}|\d{4})',
+    r'lunes|martes|miercoles|jueves|viernes|sabado|domingo|'
+    # Fecha tipo "1/4", "12/3" — solo si va seguida de espacio+año o fin de línea
+    # NO si va seguida de texto alfabético (sería fracción de producto)
+    r'\d{1,2}/\d{1,2}(?:/\d{2,4})?(?:\s*$|\s+\d{4})|\d{4})',
     re.IGNORECASE
 )
 
