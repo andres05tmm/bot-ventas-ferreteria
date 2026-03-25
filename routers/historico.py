@@ -656,13 +656,13 @@ def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
     except Exception:
         diario = {}
 
-    # Calcular rango de fechas
-    desde = _hace_n_dias(dias)
+    # Calcular rango de fechas (strings YYYY-MM-DD)
+    desde = _hace_n_dias(dias).strftime("%Y-%m-%d")
     hasta = _hoy()
 
     # Leer todas las ventas del Excel en ese rango
     try:
-        rows = _leer_excel_rango(desde, hasta)
+        rows = _leer_excel_rango(dias=dias)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error leyendo Excel: {e}")
 
@@ -678,7 +678,7 @@ def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
         if not fecha or fecha < desde or fecha > hasta:
             continue
         total = float(r.get("total", 0) or 0)
-        mt    = str(r.get("metodo_pago", "")).lower()
+        mt    = str(r.get("metodo", "")).lower()
         por_dia[fecha]["ventas"]          += total
         por_dia[fecha]["n_transacciones"] += 1
         if "transfer" in mt:
