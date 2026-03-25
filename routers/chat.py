@@ -799,6 +799,83 @@ async def chat_stream(req: ChatRequest):
 
 # ── Transcripción de audio desde el Dashboard ─────────────────────────────────
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MEJORA C: BRIEFING MATUTINO AUTOMÁTICO
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/chat/briefing")
+async def briefing_matutino():
+    """
+    Genera un briefing inteligente del estado del negocio.
+    Se llama automáticamente al abrir el dashboard.
+    Usa Extended Thinking para un análisis más profundo.
+    Incluye: resumen de ayer, alertas críticas, recomendaciones para hoy.
+    """
+    from ai import procesar_con_claude
+    import json as _json
+
+    try:
+        ahora    = datetime.now(config.COLOMBIA_TZ)
+        hoy_str  = ahora.strftime("%Y-%m-%d")
+        ayer_str = (ahora - timedelta(days=1)).strftime("%Y-%m-%d")
+        hora     = ahora.hour
+
+        # Saludo según hora
+        if hora < 12:
+            saludo = "buenos días"
+        elif hora < 18:
+            saludo = "buenas tardes"
+        else:
+            saludo = "buenas noches"
+
+        # Construir contexto completo
+        contexto = _construir_contexto_dashboard("briefing", tab_activo="Resumen")
+
+        prompt = (
+            f"Andrés, {saludo}. "
+            f"Hoy es {ahora.strftime('%A %d de %B')}. "
+            f"Dame un briefing breve del negocio en este formato exacto:\n\n"
+            f"AYER ({ayer_str}):\n"
+            f"[resumen de ventas de ayer: total, productos principales, método de pago predominante]\n\n"
+            f"ALERTAS:\n"
+            f"[lista de 1-4 alertas críticas: deudas vencidas, stock bajo, fiados altos — solo lo urgente]\n\n"
+            f"PARA HOY:\n"
+            f"[2-3 recomendaciones concretas y accionables basadas en los datos reales]\n\n"
+            f"Si no hay datos de ayer o las alertas están vacías, dilo directamente. "
+            f"Máximo 200 palabras en total. Sin asteriscos ni markdown."
+        )
+
+        respuesta = await procesar_con_claude(
+            mensaje_usuario=f"##DASHBOARD## Dashboard: {prompt}",
+            nombre_usuario="Dashboard",
+            historial_chat=[],
+            contexto_extra=contexto,
+            modelo_preferido="sonnet",
+        )
+
+        # Limpiar tags de acción si Claude emitió alguno
+        import re as _re
+        texto_limpio = _re.sub(r'\[(?:VENTA|GASTO|MEMORIA|INVENTARIO)[^\]]*\].*?\[/(?:VENTA|GASTO|MEMORIA|INVENTARIO)\]',
+                               '', respuesta, flags=_re.DOTALL).strip()
+
+        return {
+            "ok":       True,
+            "briefing": texto_limpio,
+            "hora":     ahora.strftime("%H:%M"),
+            "fecha":    ahora.strftime("%A %d de %B de %Y"),
+        }
+
+    except Exception as e:
+        logger.error(f"[briefing] Error: {e}")
+        return {
+            "ok":       False,
+            "briefing": "No pude generar el briefing en este momento.",
+            "hora":     datetime.now(config.COLOMBIA_TZ).strftime("%H:%M"),
+        }
+
+
 @router.post("/chat/transcribir")
 async def transcribir_audio(audio: UploadFile = File(...)):
     """
