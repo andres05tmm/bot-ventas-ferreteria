@@ -29,7 +29,7 @@ from handlers.comandos import (
     comando_compra, comando_margenes,
 
     comando_modelo,
-    comando_factura, comando_abonar, comando_deudas,
+    comando_factura, comando_abonar, comando_deudas, comando_borrar_factura,
 )
 from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento, manejar_foto
 from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente, manejar_callback_foto
@@ -86,6 +86,7 @@ def main():
     app.add_handler(CommandHandler("factura",    comando_factura))
     app.add_handler(CommandHandler("abonar",     comando_abonar))
     app.add_handler(CommandHandler("deudas",     comando_deudas))
+    app.add_handler(CommandHandler("borrar_factura", comando_borrar_factura))
     app.add_handler(CommandHandler("clientes",      comando_clientes))
     app.add_handler(CommandHandler("nuevo_cliente", comando_nuevo_cliente))
     app.add_handler(CommandHandler("grafica",    comando_grafica))
