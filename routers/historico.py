@@ -638,6 +638,121 @@ def historico_auto_sync():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/historico/reconstruir-desglose")
+def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
+    """
+    Reconstruye historico_diario.json leyendo el Excel de ventas fila por fila.
+    Usar cuando el desglose (efectivo/transferencia/datáfono) se muestra en 0
+    después de un redeploy que perdió historico_diario.json.
+    """
+    import json as _json
+
+    _diario_file = "historico_diario.json"
+
+    # Leer diario existente (si hay algo, lo preservamos)
+    try:
+        with open(_diario_file, encoding="utf-8") as fh:
+            diario = _json.load(fh)
+    except Exception:
+        diario = {}
+
+    # Calcular rango de fechas
+    desde = _hace_n_dias(dias)
+    hasta = _hoy()
+
+    # Leer todas las ventas del Excel en ese rango
+    try:
+        rows = _leer_excel_rango(desde, hasta)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error leyendo Excel: {e}")
+
+    # Agrupar por fecha y método de pago
+    por_dia: dict = defaultdict(lambda: {
+        "ventas": 0.0, "efectivo": 0.0,
+        "transferencia": 0.0, "datafono": 0.0,
+        "n_transacciones": 0, "gastos": 0.0, "abonos_proveedores": 0.0
+    })
+
+    for r in rows:
+        fecha = str(r.get("fecha", ""))[:10]
+        if not fecha or fecha < desde or fecha > hasta:
+            continue
+        total = float(r.get("total", 0) or 0)
+        mt    = str(r.get("metodo_pago", "")).lower()
+        por_dia[fecha]["ventas"]          += total
+        por_dia[fecha]["n_transacciones"] += 1
+        if "transfer" in mt:
+            por_dia[fecha]["transferencia"] += total
+        elif "data" in mt or "tarjeta" in mt:
+            por_dia[fecha]["datafono"] += total
+        else:
+            por_dia[fecha]["efectivo"] += total
+
+    # Leer gastos y abonos de memoria.json para cada fecha
+    try:
+        with open(config.MEMORIA_FILE, encoding="utf-8") as fh:
+            mem = _json.load(fh)
+        gastos_mem = mem.get("gastos", {})
+        for fecha, lista in gastos_mem.items():
+            if fecha < desde or fecha > hasta:
+                continue
+            for g in lista:
+                val = float(g.get("monto", 0))
+                if g.get("categoria") == "abono_proveedor":
+                    por_dia[fecha]["abonos_proveedores"] += val
+                else:
+                    por_dia[fecha]["gastos"] += val
+    except Exception:
+        pass
+
+    # Redondear y fusionar — solo pisamos días que tienen desglose en 0
+    reconstruidos = 0
+    for fecha, vals in por_dia.items():
+        existente = diario.get(fecha, {})
+        ya_tiene_desglose = (
+            existente.get("efectivo", 0) > 0
+            or existente.get("transferencia", 0) > 0
+            or existente.get("datafono", 0) > 0
+        )
+        if not ya_tiene_desglose:
+            diario[fecha] = {
+                "ventas":             round(vals["ventas"], 2),
+                "efectivo":           round(vals["efectivo"], 2),
+                "transferencia":      round(vals["transferencia"], 2),
+                "datafono":           round(vals["datafono"], 2),
+                "n_transacciones":    vals["n_transacciones"],
+                "gastos":             round(vals["gastos"], 2),
+                "abonos_proveedores": round(vals["abonos_proveedores"], 2),
+            }
+            reconstruidos += 1
+
+    # Guardar historico_diario.json localmente
+    with _diario_lock:
+        with open(_diario_file, "w", encoding="utf-8") as fh:
+            _json.dump(diario, fh, ensure_ascii=False, indent=2)
+
+    # Subir a Drive
+    try:
+        from drive import subir_a_drive_urgente
+        subir_a_drive_urgente(_diario_file)
+    except Exception:
+        pass
+
+    # Regenerar Excel del histórico con el desglose ya reconstruido
+    try:
+        data_hist = _leer_historico()
+        _guardar_historico(data_hist)
+    except Exception:
+        pass
+
+    return {
+        "ok":                    True,
+        "dias_escaneados":       dias,
+        "fechas_reconstruidas":  reconstruidos,
+        "total_dias_en_diario":  len(diario),
+    }
+
+
 @router.post("/historico/sync-rango")
 def historico_sync_rango(dias: int = Query(default=30, ge=1, le=365)):
     """
