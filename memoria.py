@@ -1176,3 +1176,133 @@ def actualizar_precio_en_excel_drive(
     """
     from precio_sync import actualizar_precio as _ap
     return _ap(nombre_producto, nuevo_precio, fraccion)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CUENTAS POR PAGAR (facturas de proveedores)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _siguiente_id_factura(mem: dict) -> str:
+    """Genera el próximo ID secuencial: FAC-001, FAC-002, ..."""
+    facturas = mem.get("cuentas_por_pagar", [])
+    if not facturas:
+        return "FAC-001"
+    # Extraer números existentes
+    import re as _re
+    nums = []
+    for f in facturas:
+        m = _re.match(r"FAC-(\d+)", f.get("id", ""))
+        if m:
+            nums.append(int(m.group(1)))
+    siguiente = max(nums) + 1 if nums else 1
+    return f"FAC-{siguiente:03d}"
+
+
+def registrar_factura_proveedor(
+    proveedor: str,
+    descripcion: str,
+    total: float,
+    fecha: str = None,
+    foto_url: str = "",
+    foto_nombre: str = "",
+) -> dict:
+    """
+    Registra una nueva factura de proveedor en memoria.json.
+    Retorna el dict de la factura creada.
+    """
+    from datetime import datetime as _dt
+    mem = cargar_memoria()
+    if "cuentas_por_pagar" not in mem:
+        mem["cuentas_por_pagar"] = []
+
+    fac_id = _siguiente_id_factura(mem)
+    hoy    = fecha or _dt.now(import_config_tz()).strftime("%Y-%m-%d")
+
+    factura = {
+        "id":          fac_id,
+        "proveedor":   proveedor.strip(),
+        "descripcion": descripcion.strip(),
+        "total":       float(total),
+        "pagado":      0.0,
+        "pendiente":   float(total),
+        "estado":      "pendiente",   # pendiente | parcial | pagada
+        "fecha":       hoy,
+        "foto_url":    foto_url,
+        "foto_nombre": foto_nombre,
+        "abonos":      [],             # historial de abonos
+    }
+    mem["cuentas_por_pagar"].append(factura)
+    guardar_memoria(mem, urgente=True)
+    return factura
+
+
+def registrar_abono_factura(
+    fac_id: str,
+    monto: float,
+    fecha: str = None,
+    foto_url: str = "",
+    foto_nombre: str = "",
+) -> dict:
+    """
+    Registra un abono a una factura existente.
+    Actualiza pagado/pendiente/estado.
+    Retorna {"ok": True/False, "factura": {...}, "error": "..."}
+    """
+    from datetime import datetime as _dt
+    mem = cargar_memoria()
+    facturas = mem.get("cuentas_por_pagar", [])
+
+    factura = next((f for f in facturas if f["id"].upper() == fac_id.upper()), None)
+    if not factura:
+        return {"ok": False, "error": f"Factura {fac_id} no encontrada"}
+
+    hoy = fecha or _dt.now(import_config_tz()).strftime("%Y-%m-%d")
+
+    abono = {
+        "fecha":       hoy,
+        "monto":       float(monto),
+        "foto_url":    foto_url,
+        "foto_nombre": foto_nombre,
+    }
+    factura["abonos"].append(abono)
+    factura["pagado"]    = round(factura["pagado"] + monto, 2)
+    factura["pendiente"] = round(factura["total"] - factura["pagado"], 2)
+
+    if factura["pendiente"] <= 0:
+        factura["estado"] = "pagada"
+        factura["pendiente"] = 0.0
+    elif factura["pagado"] > 0:
+        factura["estado"] = "parcial"
+
+    # También registrar en gastos del día como abono a proveedor
+    hoy_gastos = mem.setdefault("gastos", {}).setdefault(hoy, [])
+    hoy_gastos.append({
+        "concepto":  f"Abono {fac_id} - {factura['proveedor']}",
+        "monto":     float(monto),
+        "categoria": "abono_proveedor",
+        "origen":    "proveedor",
+        "hora":      _dt.now(import_config_tz()).strftime("%H:%M"),
+        "fac_id":    fac_id,
+    })
+
+    guardar_memoria(mem, urgente=True)
+    return {"ok": True, "factura": factura}
+
+
+def import_config_tz():
+    """Helper para no importar config a nivel de módulo aquí."""
+    try:
+        import config as _c
+        return _c.COLOMBIA_TZ
+    except Exception:
+        import pytz
+        return pytz.timezone("America/Bogota")
+
+
+def listar_facturas(solo_pendientes: bool = False) -> list:
+    """Retorna la lista de facturas, opcionalmente solo las no pagadas."""
+    mem = cargar_memoria()
+    facturas = mem.get("cuentas_por_pagar", [])
+    if solo_pendientes:
+        return [f for f in facturas if f.get("estado") != "pagada"]
+    return sorted(facturas, key=lambda f: f.get("fecha", ""), reverse=True)
