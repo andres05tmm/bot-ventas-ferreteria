@@ -2420,3 +2420,183 @@ async def comando_modelo(update, context):
         f"_{descripciones[seleccion]}_",
         parse_mode="Markdown"
     )
+
+
+# ─────────────────────────────────────────────
+# /factura - Registrar factura de proveedor
+# ─────────────────────────────────────────────
+
+async def comando_factura(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Registra una factura de proveedor.
+    Uso: /factura Proveedor 700000 descripción opcional
+    Ejemplo: /factura "Pinturas Davinci" 350000 brochas y rodillos
+
+    Después de registrar, el bot pide la foto de la factura.
+    """
+    args = context.args
+    if not args or len(args) < 2:
+        await update.message.reply_text(
+            "📄 *Registrar factura de proveedor*\n\n"
+            "Uso: `/factura Proveedor Total Descripción`\n\n"
+            "Ejemplos:\n"
+            "• `/factura Ferrisariato 700000 surtido tornillería`\n"
+            "• `/factura Pinturas Davinci 350000 brochas`\n\n"
+            "Después podrás adjuntar la foto de la factura.",
+            parse_mode="Markdown"
+        )
+        return
+
+    texto = " ".join(args)
+    import re as _re
+    # Buscar el total (primer número en el texto)
+    m_total = _re.search(r'(\d[\d.,]*)', texto)
+    if not m_total:
+        await update.message.reply_text("❌ No encontré el monto. Ejemplo: `/factura Ferrisariato 700000`", parse_mode="Markdown")
+        return
+
+    total_str = m_total.group(1).replace(".", "").replace(",", "")
+    try:
+        total = float(total_str)
+    except ValueError:
+        await update.message.reply_text("❌ Monto inválido.", parse_mode="Markdown")
+        return
+
+    # Proveedor = texto antes del número
+    idx_num = texto.find(m_total.group(0))
+    proveedor = texto[:idx_num].strip().strip('"').strip("'")
+    if not proveedor:
+        await update.message.reply_text("❌ Falta el nombre del proveedor.", parse_mode="Markdown")
+        return
+
+    # Descripción = texto después del número
+    descripcion = texto[idx_num + len(m_total.group(0)):].strip() or "Sin descripción"
+
+    # Registrar
+    from memoria import registrar_factura_proveedor
+    factura = registrar_factura_proveedor(
+        proveedor   = proveedor,
+        descripcion = descripcion,
+        total       = total,
+    )
+    fac_id = factura["id"]
+
+    # Pedir foto
+    from ventas_state import _estado_lock
+    # Guardar estado: esperando foto de factura
+    context.user_data["esperando_foto_factura"] = fac_id
+
+    await update.message.reply_text(
+        f"✅ *Factura {fac_id} registrada*\n\n"
+        f"🏪 Proveedor: {proveedor}\n"
+        f"💰 Total: ${total:,.0f}\n"
+        f"📝 Descripción: {descripcion}\n"
+        f"📊 Estado: PENDIENTE\n\n"
+        f"📸 Envía la foto de la factura ahora\n"
+        f"_(o escribe `sin foto` para omitir)_",
+        parse_mode="Markdown"
+    )
+
+
+# ─────────────────────────────────────────────
+# /abonar - Registrar abono a factura
+# ─────────────────────────────────────────────
+
+async def comando_abonar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Registra un abono a una factura existente.
+    Uso: /abonar FAC-001 500000
+    """
+    args = context.args
+    if len(args) < 2:
+        # Mostrar facturas pendientes para facilitar
+        from memoria import listar_facturas
+        pendientes = listar_facturas(solo_pendientes=True)
+
+        if not pendientes:
+            await update.message.reply_text(
+                "📋 No hay facturas pendientes.\n\n"
+                "Usa `/factura Proveedor Total` para registrar una.",
+                parse_mode="Markdown"
+            )
+            return
+
+        lineas = ["📋 *Facturas pendientes:*\n"]
+        for f in pendientes[:8]:
+            lineas.append(
+                f"• `{f['id']}` — {f['proveedor']} — "
+                f"Pendiente: ${f['pendiente']:,.0f} ({f['estado']})"
+            )
+        lineas.append("\nUso: `/abonar FAC-001 500000`")
+        await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
+        return
+
+    fac_id   = args[0].upper()
+    monto_str = args[1].replace(".", "").replace(",", "")
+    try:
+        monto = float(monto_str)
+    except ValueError:
+        await update.message.reply_text("❌ Monto inválido.", parse_mode="Markdown")
+        return
+
+    from memoria import registrar_abono_factura
+    result = registrar_abono_factura(fac_id=fac_id, monto=monto)
+
+    if not result["ok"]:
+        await update.message.reply_text(f"❌ {result['error']}", parse_mode="Markdown")
+        return
+
+    fac = result["factura"]
+    estado_emoji = {"pagada": "✅", "parcial": "🔶", "pendiente": "🔴"}.get(fac["estado"], "📄")
+
+    # Guardar estado para foto del comprobante
+    context.user_data["esperando_foto_abono"] = fac_id
+
+    await update.message.reply_text(
+        f"✅ *Abono registrado — {fac_id}*\n\n"
+        f"🏪 Proveedor: {fac['proveedor']}\n"
+        f"💸 Abono: ${monto:,.0f}\n"
+        f"✔️ Total pagado: ${fac['pagado']:,.0f}\n"
+        f"⏳ Pendiente: ${fac['pendiente']:,.0f}\n"
+        f"{estado_emoji} Estado: {fac['estado'].upper()}\n\n"
+        f"📸 Envía el comprobante de pago ahora\n"
+        f"_(o escribe `sin foto` para omitir)_",
+        parse_mode="Markdown"
+    )
+
+
+# ─────────────────────────────────────────────
+# /deudas - Ver resumen de deudas con proveedores
+# ─────────────────────────────────────────────
+
+async def comando_deudas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra resumen de deudas actuales con proveedores."""
+    from memoria import listar_facturas
+    from collections import defaultdict
+
+    todas = listar_facturas()
+    if not todas:
+        await update.message.reply_text(
+            "📋 No hay facturas registradas.\n"
+            "Usa `/factura Proveedor Total` para registrar una.",
+            parse_mode="Markdown"
+        )
+        return
+
+    pendientes = [f for f in todas if f["estado"] != "pagada"]
+    total_deuda = sum(f["pendiente"] for f in pendientes)
+
+    # Agrupar por proveedor
+    por_proveedor = defaultdict(float)
+    for f in pendientes:
+        por_proveedor[f["proveedor"]] += f["pendiente"]
+
+    lineas = [f"💳 *DEUDAS CON PROVEEDORES*\n"]
+    for prov, deuda in sorted(por_proveedor.items(), key=lambda x: -x[1]):
+        lineas.append(f"• {prov}: ${deuda:,.0f}")
+
+    lineas.append(f"\n💰 *Total deuda: ${total_deuda:,.0f}*")
+    lineas.append(f"\n{len(pendientes)} factura(s) pendiente(s)")
+    lineas.append("\nUsa `/abonar` para ver las facturas o registrar un pago.")
+
+    await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
