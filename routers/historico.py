@@ -638,6 +638,78 @@ def historico_auto_sync():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class CorreccionDia(BaseModel):
+    fecha:        str    # "YYYY-MM-DD"
+    monto:        int    # total de ventas del día
+    efectivo:     Optional[int] = None
+    transferencia: Optional[int] = None
+    datafono:     Optional[int] = None
+    gastos:       Optional[int] = None
+    abonos:       Optional[int] = None
+
+@router.post("/historico/corregir-dia")
+def historico_corregir_dia(body: CorreccionDia):
+    """
+    Corrige o agrega manualmente el total de un día específico.
+    Útil para cuadrar con el cuaderno sin depender de Drive ni Excel.
+    Acepta opcionalmente el desglose (efectivo, transferencia, datáfono).
+    """
+    import json as _json
+
+    # Validar formato fecha
+    try:
+        datetime.strptime(body.fecha, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usar YYYY-MM-DD")
+
+    if body.monto <= 0:
+        raise HTTPException(status_code=400, detail="El monto debe ser mayor a 0")
+
+    # Actualizar historico principal
+    data = _leer_historico()
+    anterior = data.get(body.fecha, 0)
+    data[body.fecha] = body.monto
+    _guardar_historico(data)
+
+    # Actualizar desglose si se proporcionó
+    _diario_file = "historico_diario.json"
+    if any(v is not None for v in [body.efectivo, body.transferencia, body.datafono, body.gastos, body.abonos]):
+        try:
+            with _diario_lock:
+                if os.path.exists(_diario_file):
+                    with open(_diario_file, encoding="utf-8") as fh:
+                        diario = _json.load(fh)
+                else:
+                    diario = {}
+
+                existente = diario.get(body.fecha, {})
+                diario[body.fecha] = {
+                    "ventas":             body.monto,
+                    "efectivo":           body.efectivo     if body.efectivo     is not None else existente.get("efectivo", 0),
+                    "transferencia":      body.transferencia if body.transferencia is not None else existente.get("transferencia", 0),
+                    "datafono":           body.datafono     if body.datafono     is not None else existente.get("datafono", 0),
+                    "n_transacciones":    existente.get("n_transacciones", 0),
+                    "gastos":             body.gastos       if body.gastos       is not None else existente.get("gastos", 0),
+                    "abonos_proveedores": body.abonos       if body.abonos       is not None else existente.get("abonos_proveedores", 0),
+                }
+                with open(_diario_file, "w", encoding="utf-8") as fh:
+                    _json.dump(diario, fh, ensure_ascii=False, indent=2)
+            try:
+                from drive import subir_a_drive_urgente
+                subir_a_drive_urgente(_diario_file)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"[corregir-dia] No se pudo actualizar desglose: {e}")
+
+    return {
+        "ok":       True,
+        "fecha":    body.fecha,
+        "anterior": anterior,
+        "nuevo":    body.monto,
+    }
+
+
 @router.post("/historico/reconstruir-desglose")
 def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
     """
