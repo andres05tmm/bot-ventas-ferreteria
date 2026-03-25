@@ -28,7 +28,9 @@ from handlers.comandos import (
     comando_inv, comando_stock, comando_ajuste,
     comando_compra, comando_margenes,
 
-    comando_modelo)
+    comando_modelo,
+    comando_factura, comando_abonar, comando_deudas,
+)
 from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento, manejar_foto
 from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente, manejar_callback_foto
 from handlers.productos import comando_productos, manejar_callback_productos
@@ -81,6 +83,9 @@ def main():
     app.add_handler(CommandHandler("ajuste",     comando_ajuste))
     app.add_handler(CommandHandler("compra",     comando_compra))
     app.add_handler(CommandHandler("margenes",   comando_margenes))
+    app.add_handler(CommandHandler("factura",    comando_factura))
+    app.add_handler(CommandHandler("abonar",     comando_abonar))
+    app.add_handler(CommandHandler("deudas",     comando_deudas))
     app.add_handler(CommandHandler("clientes",      comando_clientes))
     app.add_handler(CommandHandler("nuevo_cliente", comando_nuevo_cliente))
     app.add_handler(CommandHandler("grafica",    comando_grafica))
