@@ -625,6 +625,40 @@ def historico_resumen():
     return dict(sorted(por_mes.items()))
 
 
+@router.get("/historico/diario")
+def historico_diario_get(año: int = 0, mes: int = 0):
+    """
+    Retorna el desglose diario (efectivo, transferencia, datáfono, gastos, abonos).
+    Fuente: historico_diario.json local, con fallback desde Drive.
+    """
+    import json as _json
+    _diario_file = "historico_diario.json"
+    diario = {}
+
+    # 1. Local
+    if os.path.exists(_diario_file):
+        try:
+            with open(_diario_file, encoding="utf-8") as fh:
+                diario = _json.load(fh)
+        except Exception:
+            pass
+
+    # 2. Fallback Drive
+    if not diario:
+        try:
+            from drive import descargar_de_drive
+            if descargar_de_drive(_diario_file, _diario_file):
+                with open(_diario_file, encoding="utf-8") as fh:
+                    diario = _json.load(fh)
+        except Exception:
+            pass
+
+    if not año and not mes:
+        return diario
+    prefijo = f"{año}-{mes:02d}" if mes else str(año)
+    return {k: v for k, v in diario.items() if k.startswith(prefijo)}
+
+
 @router.post("/historico/auto-sync")
 def historico_auto_sync():
     """
