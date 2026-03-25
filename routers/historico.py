@@ -34,37 +34,76 @@ HISTORICO_EXCEL = "historico_ventas.xlsx"
 _NOMBRES_MES    = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
                    "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
+# ── Locks y caché en memoria ────────────────────────────────────────────────
+import threading as _threading
+
+# Caché para el total de hoy (evita llamar a Sheets en cada GET)
+_cache_hoy_lock  = _threading.Lock()
+_cache_hoy_valor: float = 0.0
+_cache_hoy_fecha: str   = ""      # "YYYY-MM-DD" — se invalida al cambiar de día
+_cache_hoy_ts:    float = 0.0     # timestamp UNIX de la última consulta real
+_CACHE_TTL = 90                   # segundos — equilibrio entre frescura y peticiones
+
+# Locks de escritura para archivos JSON del histórico
+# Evitan corrupción cuando el bot y el API escriben simultáneamente
+_historico_lock = _threading.Lock()   # protege historico_ventas.json + .xlsx
+_diario_lock    = _threading.Lock()   # protege historico_diario.json
+
 # ── Helpers: total en vivo desde Sheets / Excel ──────────────────────────────
 
 def _total_ventas_hoy_sheets() -> float:
     """
     Calcula el total de ventas del día actual desde Google Sheets (en vivo).
+    Resultado cacheado durante _CACHE_TTL segundos para evitar saturar la API
+    de Sheets cuando el dashboard refresca frecuentemente.
     Si Sheets falla, intenta Excel como fallback.
     """
+    import time as _time
+    global _cache_hoy_valor, _cache_hoy_fecha, _cache_hoy_ts
+
     hoy = _hoy()
+    with _cache_hoy_lock:
+        ahora = _time.monotonic()
+        # Caché válido si es el mismo día y no expiró
+        if (
+            _cache_hoy_fecha == hoy
+            and _cache_hoy_valor > 0
+            and (ahora - _cache_hoy_ts) < _CACHE_TTL
+        ):
+            return _cache_hoy_valor
+
+    # ── Consulta real a Sheets ────────────────────────────────────────────
+    total = 0.0
     try:
         ventas = sheets_leer_ventas_del_dia()
-        total = 0.0
         for v in ventas:
             if str(v.get("fecha", ""))[:10] == hoy:
                 try:
                     total += float(str(v.get("total", 0)).replace(",", ".") or 0)
                 except (ValueError, TypeError):
                     pass
-        if total > 0:
-            return total
     except Exception:
         pass
-    # Fallback: Excel
-    try:
-        ventas_xls = _leer_excel_rango(dias=1)
-        return sum(
-            float(str(v.get("total", 0)).replace(",", ".") or 0)
-            for v in ventas_xls
-            if str(v.get("fecha", ""))[:10] == hoy
-        )
-    except Exception:
-        return 0.0
+
+    # ── Fallback: Excel si Sheets no devolvió nada ────────────────────────
+    if total <= 0:
+        try:
+            ventas_xls = _leer_excel_rango(dias=1)
+            total = sum(
+                float(str(v.get("total", 0)).replace(",", ".") or 0)
+                for v in ventas_xls
+                if str(v.get("fecha", ""))[:10] == hoy
+            )
+        except Exception:
+            pass
+
+    if total > 0:
+        import time as _time2
+        with _cache_hoy_lock:
+            _cache_hoy_valor = total
+            _cache_hoy_fecha = hoy
+            _cache_hoy_ts    = _time2.monotonic()
+    return total
 
 
 def _totales_por_dia_excel(dias: int = 30) -> dict:
@@ -119,51 +158,44 @@ def _sync_historico_hoy() -> dict:
     except Exception:
         pass
 
-    # ── Gastos del día (memoria.json) ─────────────────────────────────────
+    # ── Gastos y abonos del día — una sola lectura de memoria.json ──────
     gastos_dia = 0.0
-    try:
-        with open(config.MEMORIA_FILE, encoding="utf-8") as _fh:
-            _mem = _json.load(_fh)
-        for g in _mem.get("gastos", {}).get(hoy, []):
-            gastos_dia += float(g.get("monto", 0))
-    except Exception:
-        pass
-
-    # ── Abonos a proveedores del día ──────────────────────────────────────
     abonos_dia = 0.0
     try:
         with open(config.MEMORIA_FILE, encoding="utf-8") as _fh:
             _mem = _json.load(_fh)
         for g in _mem.get("gastos", {}).get(hoy, []):
+            val = float(g.get("monto", 0))
+            gastos_dia += val
             if g.get("categoria") == "abono_proveedor":
-                abonos_dia += float(g.get("monto", 0))
-        # Descontar abonos de gastos (para no contarlos doble)
-        gastos_dia -= abonos_dia
-        if gastos_dia < 0:
-            gastos_dia = 0.0
+                abonos_dia += val
+        # Descontar abonos de gastos para no contarlos doble
+        gastos_dia = max(0.0, gastos_dia - abonos_dia)
     except Exception:
         pass
 
     # ── Guardar en historico_diario.json (datos enriquecidos) ─────────────
     _diario_file = "historico_diario.json"
     try:
-        if os.path.exists(_diario_file):
-            with open(_diario_file, encoding="utf-8") as _fh:
-                _diario = _json.load(_fh)
-        else:
-            _diario = {}
+        with _diario_lock:
+            if os.path.exists(_diario_file):
+                with open(_diario_file, encoding="utf-8") as _fh:
+                    _diario = _json.load(_fh)
+            else:
+                _diario = {}
 
-        _diario[hoy] = {
-            "ventas":               monto,
-            "efectivo":             round(efectivo, 2),
-            "transferencia":        round(transferencia, 2),
-            "datafono":             round(datafono, 2),
-            "n_transacciones":      n_trans,
-            "gastos":               round(gastos_dia, 2),
-            "abonos_proveedores":   round(abonos_dia, 2),
-        }
-        with open(_diario_file, "w", encoding="utf-8") as _fh:
-            _json.dump(_diario, _fh, ensure_ascii=False, indent=2)
+            _diario[hoy] = {
+                "ventas":               monto,
+                "efectivo":             round(efectivo, 2),
+                "transferencia":        round(transferencia, 2),
+                "datafono":             round(datafono, 2),
+                "n_transacciones":      n_trans,
+                "gastos":               round(gastos_dia, 2),
+                "abonos_proveedores":   round(abonos_dia, 2),
+            }
+            with open(_diario_file, "w", encoding="utf-8") as _fh:
+                _json.dump(_diario, _fh, ensure_ascii=False, indent=2)
+        # Drive upload fuera del lock (puede tardar)
         try:
             from drive import subir_a_drive_urgente
             subir_a_drive_urgente(_diario_file)
@@ -196,7 +228,8 @@ def _sync_historico_hoy() -> dict:
 def _excel_a_dict(ruta: str) -> dict:
     """
     Lee historico_ventas.xlsx y retorna {fecha: monto}.
-    Columna A = Fecha (YYYY-MM-DD), Columna E = Monto.
+    Columna A (idx 0) = Fecha (YYYY-MM-DD), Columna B (idx 1) = Ventas.
+    Orden de columnas hoja 1: Fecha|Ventas|Efectivo|Transferencia|Datáfono|…
     Ignora filas con fecha o monto inválidos.
     """
     data = {}
@@ -205,7 +238,7 @@ def _excel_a_dict(ruta: str) -> dict:
         ws = wb.active
         for row in ws.iter_rows(min_row=2, values_only=True):
             fecha = str(row[0] or "").strip()
-            monto = row[4]  # Col E
+            monto = row[1]  # Col B = Ventas (antes era row[4] = Datáfono ← BUG)
             if not fecha or not monto:
                 continue
             try:
@@ -479,15 +512,17 @@ def _guardar_historico(data: dict) -> None:
     """
     Guarda en JSON local + Excel local, y sube ambos a Drive.
     Excel es la fuente de verdad — siempre se regenera completo.
+    Protegido con _historico_lock para evitar corrupción por escrituras concurrentes.
     """
-    # 1. JSON local (caché rápida para el API)
-    with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    with _historico_lock:
+        # 1. JSON local (caché rápida para el API)
+        with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
-    # 2. Excel local (fuente de verdad editable)
-    _dict_a_excel(data, HISTORICO_EXCEL)
+        # 2. Excel local (fuente de verdad editable)
+        _dict_a_excel(data, HISTORICO_EXCEL)
 
-    # 3. Subir ambos a Drive
+    # 3. Subir ambos a Drive (fuera del lock — puede tardar sin bloquear lecturas)
     try:
         from drive import subir_a_drive_urgente
         subir_a_drive_urgente(HISTORICO_FILE)
@@ -495,7 +530,6 @@ def _guardar_historico(data: dict) -> None:
     except Exception:
         pass
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/historico/ventas")
@@ -560,9 +594,10 @@ def historico_sincronizar_excel():
         data = _leer_historico_de_excel()
         if not data:
             return {"ok": False, "error": "No se encontró historico_ventas.xlsx en Drive o está vacío"}
-        # Actualizar JSON local con lo que tiene el Excel
-        with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        # Actualizar JSON local con lo que tiene el Excel (protegido con lock)
+        with _historico_lock:
+            with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
         try:
             from drive import subir_a_drive_urgente
             subir_a_drive_urgente(HISTORICO_FILE)
