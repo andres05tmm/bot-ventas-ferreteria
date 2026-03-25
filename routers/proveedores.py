@@ -107,8 +107,9 @@ async def subir_foto_factura(fac_id: str, foto: UploadFile = File(...)):
         elif foto.content_type == "application/pdf":
             ext = ".pdf"
 
-        fecha_str = factura.get("fecha", _hoy()).replace("-", "")
-        nombre_archivo = f"{factura['fecha']}_{fac_id}{ext}"
+        # FIX: usar get() con fallback para evitar KeyError si 'fecha' es None
+        fecha_factura  = factura.get("fecha") or _hoy()
+        nombre_archivo = f"{fecha_factura}_{fac_id}{ext}"
 
         # Guardar temp y subir a Drive
         contenido = await foto.read()
@@ -142,9 +143,24 @@ async def subir_foto_factura(fac_id: str, foto: UploadFile = File(...)):
 def registrar_abono(body: AbonoBody):
     """Registra un abono a una factura (sin foto)."""
     try:
-        from memoria import registrar_abono_factura
+        from memoria import registrar_abono_factura, listar_facturas
         if body.monto <= 0:
             raise HTTPException(status_code=400, detail="El monto debe ser mayor a 0")
+
+        # FIX: validar que el abono no supere el saldo pendiente
+        facturas = listar_facturas()
+        factura  = next((f for f in facturas if f["id"].upper() == body.fac_id.upper()), None)
+        if not factura:
+            raise HTTPException(status_code=404, detail=f"Factura {body.fac_id} no encontrada")
+        if factura["estado"] == "pagada":
+            raise HTTPException(status_code=400, detail="La factura ya está completamente pagada")
+        pendiente = round(factura["pendiente"], 2)
+        if body.monto > pendiente:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El abono ({body.monto:,.0f}) supera el saldo pendiente ({pendiente:,.0f}). "
+                       f"Si deseas liquidar la factura, ingresa exactamente {pendiente:,.0f}."
+            )
 
         result = registrar_abono_factura(
             fac_id = body.fac_id,
