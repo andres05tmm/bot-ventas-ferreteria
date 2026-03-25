@@ -1100,6 +1100,32 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         if not config._get_drive_disponible() else ""
     )
 
+    # ── Cuentas por pagar (facturas de proveedores) ───────────────────────────
+    _kw_proveedores = ["deuda", "debo", "factura", "proveedor", "abono a", "le pague",
+                       "pague a", "cuanto le debo", "fac-", "pendiente", "llego mercancia",
+                       "llegó", "trajo"]
+    proveedores_texto = ""
+    if any(k in mensaje_usuario.lower() for k in _kw_proveedores):
+        try:
+            from memoria import listar_facturas as _lf
+            _facturas_pend = _lf(solo_pendientes=True)
+            if _facturas_pend:
+                _lineas_prov = []
+                _total_deuda = 0.0
+                for _f in _facturas_pend[:10]:  # máx 10 para no inflar el prompt
+                    _lineas_prov.append(
+                        f"{_f['id']} | {_f['proveedor']} | Total:{_f['total']:,.0f} | "
+                        f"Pagado:{_f['pagado']:,.0f} | Pendiente:{_f['pendiente']:,.0f} | "
+                        f"Fecha:{_f['fecha']} | Estado:{_f['estado']}"
+                    )
+                    _total_deuda += _f["pendiente"]
+                proveedores_texto = (
+                    "CUENTAS_POR_PAGAR (deuda total: ${:,.0f}):\n".format(_total_deuda)
+                    + "\n".join(_lineas_prov)
+                )
+        except Exception:
+            proveedores_texto = ""
+
     msg_l = mensaje_usuario.lower()
 
     # ── Acronal: precalcular total en Python ──
@@ -1288,6 +1314,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             inventario_texto,
             caja_texto,
             gastos_texto,
+            proveedores_texto,
             aviso_drive,
             f"Vendedor:{nombre_usuario}",
             _regla_no_encontrado,
@@ -1535,6 +1562,11 @@ async def procesar_con_claude(
     else:
         max_tokens = min(3000, max(800, num_lineas * 220))  # multi-producto
 
+    # ── MEJORA B: Separar contexto en bloques cacheables ────────────────────
+    # Bloque 1: parte estática del prompt (reglas, catálogo comprimido) — muy estable
+    # Bloque 2: parte dinámica (MATCH, candidatos del mensaje) — cambia por mensaje  
+    # Bloque 3 (dashboard): catálogo completo — estable, cacheable
+    # Bloque 4 (dashboard): datos del día — cambia cada hora
     system = [
         {
             "type": "text",
@@ -1547,13 +1579,44 @@ async def procesar_con_claude(
         },
     ]
 
-    # Bloque extra para el dashboard — se cachea igual que la parte estática
     if contexto_extra:
-        system.append({
-            "type": "text",
-            "text": contexto_extra,
-            "cache_control": {"type": "ephemeral"},
-        })
+        # Separar catálogo (estático) de datos del día (dinámico)
+        _sep = "## ESTADO DEL NEGOCIO"
+        if _sep in contexto_extra:
+            _partes_ctx = contexto_extra.split(_sep, 1)
+            _ctx_estatico = _partes_ctx[0].strip()   # identidad + catálogo
+            _ctx_dinamico = (_sep + _partes_ctx[1]).strip()  # datos del día
+            # Bloque estático (catálogo): se cachea de forma independiente
+            system.append({
+                "type": "text",
+                "text": _ctx_estatico,
+                "cache_control": {"type": "ephemeral"},
+            })
+            # Bloque dinámico (datos del día): sin caché, cambia constantemente
+            system.append({
+                "type": "text",
+                "text": _ctx_dinamico,
+            })
+        else:
+            system.append({
+                "type": "text",
+                "text": contexto_extra,
+                "cache_control": {"type": "ephemeral"},
+            })
+
+    # ── MEJORA A: Extended Thinking para análisis complejos ──────────────────
+    _kw_thinking = {
+        "analiz", "analís", "por qué", "porqué", "recomienda", "suger",
+        "proyecc", "estrateg", "diagnos", "evalua", "evalúa",
+        "debería", "deberia", "conviene", "vale la pena",
+        "cuánto me queda", "cuanto me queda", "ganancia", "utilidad",
+        "compara", "tendencia", "predic", "próximo mes", "proximo mes",
+    }
+    _usar_thinking = (
+        _dashboard_mode
+        and modelo_preferido != "haiku"
+        and any(kw in mensaje_usuario.lower() for kw in _kw_thinking)
+    )
 
     # Elegir modelo según preferencia o auto-selección
     if modelo_preferido == "sonnet":
@@ -1562,9 +1625,43 @@ async def procesar_con_claude(
         _modelo_no_stream = MODELO_HAIKU
     else:
         _modelo_no_stream = _elegir_modelo(mensaje_usuario)
-    respuesta = await _llamar_claude_con_reintentos(
-        config.claude_client, max_tokens, system, messages, model=_modelo_no_stream
-    )
+
+    if _usar_thinking:
+        # Extended Thinking: Claude razona antes de responder
+        # budget_tokens = tokens de pensamiento (no visibles al usuario)
+        # max_tokens debe ser > budget_tokens
+        _budget = 8000
+        _max_thinking = max(max_tokens, _budget + 2000)
+        try:
+            loop = asyncio.get_event_loop()
+            respuesta = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: config.claude_client.messages.create(
+                        model=MODELO_SONNET,
+                        max_tokens=_max_thinking,
+                        thinking={"type": "enabled", "budget_tokens": _budget},
+                        system=system,
+                        messages=messages,
+                    )
+                ),
+                timeout=90.0,  # thinking necesita más tiempo
+            )
+            logging.getLogger("ferrebot.ai").info(
+                f"[THINKING] ✅ Análisis con extended thinking activado"
+            )
+        except Exception as _e_think:
+            logging.getLogger("ferrebot.ai").warning(
+                f"[THINKING] Falló, usando Sonnet normal: {_e_think}"
+            )
+            respuesta = await _llamar_claude_con_reintentos(
+                config.claude_client, max_tokens, system, messages,
+                model=_modelo_no_stream
+            )
+    else:
+        respuesta = await _llamar_claude_con_reintentos(
+            config.claude_client, max_tokens, system, messages, model=_modelo_no_stream
+        )
 
     # ── Log de uso de tokens y cache ──
     uso = respuesta.usage
@@ -1773,17 +1870,21 @@ async def procesar_con_claude_stream(
     else:
         max_tokens = min(3000, max(800, _nl * 220))
 
-    # ── System prompt ─────────────────────────────────────────────────────────
+    # ── System prompt con cache separado (Mejora B) ──────────────────────────
     system = [
         {"type": "text", "text": parte_estatica, "cache_control": {"type": "ephemeral"}},
         {"type": "text", "text": parte_dinamica},
     ]
     if contexto_extra:
-        system.append({
-            "type": "text",
-            "text": contexto_extra,
-            "cache_control": {"type": "ephemeral"},
-        })
+        _sep2 = "## ESTADO DEL NEGOCIO"
+        if _sep2 in contexto_extra:
+            _p2 = contexto_extra.split(_sep2, 1)
+            system.append({"type": "text", "text": _p2[0].strip(),
+                            "cache_control": {"type": "ephemeral"}})
+            system.append({"type": "text", "text": (_sep2 + _p2[1]).strip()})
+        else:
+            system.append({"type": "text", "text": contexto_extra,
+                            "cache_control": {"type": "ephemeral"}})
 
     # ── Elegir modelo (híbrido o forzado por usuario) ───────────────────────
     if modelo_preferido == "sonnet":
@@ -2328,6 +2429,49 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             print(f"Error generando Excel: {e}")
         texto_limpio = texto_limpio.replace(f'[EXCEL]{excel_json}[/EXCEL]', '')
+
+    # ── Factura de proveedor ──
+    for fac_json in re.findall(r'\[FACTURA_PROVEEDOR\](.*?)\[/FACTURA_PROVEEDOR\]', texto_respuesta, re.DOTALL):
+        try:
+            datos = json.loads(fac_json.strip())
+            proveedor   = datos.get("proveedor", "").strip()
+            total       = float(datos.get("total", 0))
+            descripcion = datos.get("descripcion", "Sin descripción").strip()
+            if proveedor and total > 0:
+                from memoria import registrar_factura_proveedor
+                factura = registrar_factura_proveedor(
+                    proveedor   = proveedor,
+                    descripcion = descripcion,
+                    total       = total,
+                )
+                acciones.append(
+                    f"✅ {factura['id']} registrada · {proveedor} · ${total:,.0f} pendiente"
+                )
+        except Exception as e:
+            print(f"Error factura proveedor: {e}")
+        texto_limpio = texto_limpio.replace(f'[FACTURA_PROVEEDOR]{fac_json}[/FACTURA_PROVEEDOR]', '')
+
+    # ── Abono a proveedor ──
+    for abo_json in re.findall(r'\[ABONO_PROVEEDOR\](.*?)\[/ABONO_PROVEEDOR\]', texto_respuesta, re.DOTALL):
+        try:
+            datos  = json.loads(abo_json.strip())
+            fac_id = datos.get("fac_id", "").strip().upper()
+            monto  = float(datos.get("monto", 0))
+            if fac_id and monto > 0:
+                from memoria import registrar_abono_factura
+                result = registrar_abono_factura(fac_id=fac_id, monto=monto)
+                if result["ok"]:
+                    fac = result["factura"]
+                    estado_icon = {"pagada": "✅", "parcial": "🔶", "pendiente": "🔴"}.get(fac["estado"], "📄")
+                    acciones.append(
+                        f"{estado_icon} Abono ${monto:,.0f} a {fac_id} · "
+                        f"Pendiente: ${fac['pendiente']:,.0f}"
+                    )
+                else:
+                    acciones.append(f"⚠️ {result['error']}")
+        except Exception as e:
+            print(f"Error abono proveedor: {e}")
+        texto_limpio = texto_limpio.replace(f'[ABONO_PROVEEDOR]{abo_json}[/ABONO_PROVEEDOR]', '')
 
     return texto_limpio.strip(), acciones, archivos_excel
 
