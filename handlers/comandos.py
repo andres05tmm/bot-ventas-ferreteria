@@ -2600,3 +2600,67 @@ async def comando_deudas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lineas.append("\nUsa `/abonar` para ver las facturas o registrar un pago.")
 
     await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
+# /borrar_factura - Borrar factura (pruebas / error)
+# ─────────────────────────────────────────────
+
+async def comando_borrar_factura(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Borra una factura por ID. Útil para pruebas o registros en error.
+    Uso: /borrar_factura FAC-001
+         /borrar_factura (sin args → muestra lista)
+    """
+    args = context.args
+
+    from memoria import cargar_memoria, guardar_memoria
+
+    mem      = cargar_memoria()
+    facturas = mem.get("cuentas_por_pagar", [])
+
+    # Sin args → listar todas para que el usuario escoja
+    if not args:
+        if not facturas:
+            await update.message.reply_text("📋 No hay facturas registradas.")
+            return
+        lineas = ["📋 *Facturas registradas:*\n"]
+        for f in sorted(facturas, key=lambda x: x.get("fecha", ""), reverse=True):
+            icon = {"pagada": "✅", "parcial": "🔶", "pendiente": "🔴"}.get(f["estado"], "📄")
+            lineas.append(
+                f"{icon} `{f['id']}` — {f['proveedor']} — "
+                f"${f['total']:,.0f} ({f['estado']})"
+            )
+        lineas.append("\nUso: `/borrar_factura FAC-001`")
+        await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
+        return
+
+    fac_id = args[0].upper()
+    if not fac_id.startswith("FAC-"):
+        fac_id = "FAC-" + fac_id
+
+    # Buscar la factura
+    factura = next((f for f in facturas if f["id"].upper() == fac_id), None)
+    if not factura:
+        await update.message.reply_text(
+            f"❌ No encontré la factura `{fac_id}`.\n"
+            f"Usa `/borrar_factura` sin argumentos para ver la lista.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Confirmar si tiene abonos para advertir
+    tiene_abonos = len(factura.get("abonos", [])) > 0
+    aviso_abonos = f"\n⚠️ Esta factura tiene {len(factura['abonos'])} abono(s) registrado(s) que también se borrarán." if tiene_abonos else ""
+
+    # Borrar
+    mem["cuentas_por_pagar"] = [f for f in facturas if f["id"].upper() != fac_id]
+    guardar_memoria(mem, urgente=True)
+
+    await update.message.reply_text(
+        f"🗑️ Factura `{fac_id}` eliminada.\n"
+        f"Proveedor: {factura['proveedor']} — ${factura['total']:,.0f}"
+        f"{aviso_abonos}\n\n"
+        f"_Nota: las fotos en Drive no se borran automáticamente._",
+        parse_mode="Markdown"
+    )
