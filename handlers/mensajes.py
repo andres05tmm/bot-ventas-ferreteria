@@ -332,6 +332,15 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mensaje.startswith("/"):
         return
 
+    # ── "sin foto" en flujo /factura o /abonar ───────────────────────────────
+    if mensaje.strip().lower() in ("sin foto", "sinfoto", "sin fotos", "omitir", "skip"):
+        if (context.user_data.get("esperando_foto_factura")
+                or context.user_data.get("esperando_foto_abono")):
+            context.user_data.pop("esperando_foto_factura", None)
+            context.user_data.pop("esperando_foto_abono", None)
+            await update.message.reply_text("👍 Foto omitida. La factura queda registrada sin foto.")
+            return
+
     async with get_chat_lock(chat_id):
         await _procesar_mensaje(update, context, mensaje, chat_id, vendedor)
 
@@ -939,6 +948,86 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
 
 
 
+async def _manejar_foto_factura_o_abono(update, context) -> bool:
+    """
+    Intercepta fotos cuando el usuario está en flujo /factura o /abonar.
+    Retorna True si la foto fue manejada (y manejar_foto no debe continuar).
+    """
+    fac_factura = context.user_data.pop("esperando_foto_factura", None)
+    fac_abono   = context.user_data.pop("esperando_foto_abono", None)
+    fac_id      = fac_factura or fac_abono
+
+    if not fac_id:
+        return False
+
+    chat_id = update.message.chat_id
+    await context.bot.send_chat_action(chat_id=chat_id, action="upload_photo")
+
+    try:
+        foto    = update.message.photo[-1]
+        archivo = await foto.get_file()
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            ruta_tmp = tmp.name
+        await archivo.download_to_drive(ruta_tmp)
+
+        # Determinar proveedor desde memoria
+        from memoria import cargar_memoria
+        mem      = cargar_memoria()
+        facturas = mem.get("cuentas_por_pagar", [])
+        factura  = next((f for f in facturas if f["id"].upper() == fac_id.upper()), None)
+        if not factura:
+            await update.message.reply_text(f"⚠️ Factura {fac_id} no encontrada.")
+            return True
+
+        proveedor = factura["proveedor"]
+        hoy       = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+
+        if fac_factura:
+            nombre_archivo = f"{factura['fecha']}_{fac_id}.jpg"
+        else:
+            n_abono = len(factura.get("abonos", []))
+            nombre_archivo = f"{hoy}_{fac_id}_abono{n_abono}.jpg"
+
+        from drive import subir_foto_factura
+        result = subir_foto_factura(ruta_tmp, nombre_archivo, proveedor)
+        try:
+            import os as _os; _os.unlink(ruta_tmp)
+        except Exception:
+            pass
+
+        if not result["ok"]:
+            await update.message.reply_text(
+                f"⚠️ No se pudo subir la foto a Drive: {result.get('error','')}"
+            )
+            return True
+
+        # Actualizar URL en la factura
+        from memoria import guardar_memoria
+        if fac_factura:
+            factura["foto_url"]    = result["url"]
+            factura["foto_nombre"] = nombre_archivo
+        else:
+            abonos = factura.get("abonos", [])
+            if abonos:
+                abonos[-1]["foto_url"]    = result["url"]
+                abonos[-1]["foto_nombre"] = nombre_archivo
+        guardar_memoria(mem, urgente=True)
+
+        tipo_txt = "factura" if fac_factura else "comprobante de abono"
+        await update.message.reply_text(
+            f"📎 Foto del {tipo_txt} guardada en Drive\n"
+            f"🏪 {proveedor} · {fac_id}\n"
+            f"[Ver foto]({result['url']})",
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
+        return True
+
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Error guardando foto: {e}")
+        return True
+
+
 async def manejar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handler de fotos: transcribe ventas anotadas a mano usando visión de Claude.
@@ -957,6 +1046,10 @@ async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, ven
     ruta_foto = None
 
     try:
+        # ── Interceptar fotos de facturas/abonos ─────────────────────────
+        if await _manejar_foto_factura_o_abono(update, context):
+            return
+
         # Chequeo de pago pendiente: si hay venta esperando, la foto va al standby
         with _estado_lock:
             _ventas_pend = list(ventas_pendientes.get(chat_id, []))
