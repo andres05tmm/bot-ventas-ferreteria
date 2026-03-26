@@ -58,12 +58,12 @@ Plans:
   3. El endpoint /ventas/historial devuelve el historial leyendo desde Postgres
   4. El dashboard muestra ventas con los mismos formatos JSON que antes (sin cambios en el frontend)
   5. Las ventas históricas del Excel están importadas en Postgres y visibles en el dashboard
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 03-01-PLAN.md — Write ventas to Postgres on payment confirm + /cerrar triple-write
 - [ ] 03-02-PLAN.md — Replace _leer_excel_rango with Postgres-first reads in ventas endpoints
-- [ ] 03-03-PLAN.md — Create migrate_ventas.py to import historical ventas from Excel
+- [x] 03-03-PLAN.md — Create migrate_ventas.py to import historical ventas from Excel
 
 ### Phase 4: Proveedores + Fiados + Compras
 **Goal**: Las cuentas por pagar a proveedores, los fiados de clientes y las compras de mercancía viven en Postgres y el tab Proveedores funciona desde allí
@@ -97,6 +97,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. DB Infra + Catálogo + Inventario | 3/3 | Complete   | 2026-03-26 |
 | 2. Histórico + Gastos + Caja | 2/2 | Complete   | 2026-03-26 |
-| 3. Ventas | 0/3 | Not started | - |
+| 3. Ventas | 1/3 | In Progress|  |
 | 4. Proveedores + Fiados + Compras | 0/TBD | Not started | - |
 | 5. Limpieza | 0/TBD | Not started | - |

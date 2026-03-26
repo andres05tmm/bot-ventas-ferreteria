@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-03-26T20:52:48.946Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-03-26T22:20:06.847Z"
 last_activity: 2026-03-26
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 6
   percent: 0
 ---
 
@@ -21,12 +21,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-25)
 
 **Core value:** El bot debe registrar ventas sin interrupciones — si la DB falla, el bot no puede caer.
-**Current focus:** Phase 02 — hist-rico-gastos-caja
+**Current focus:** Phase 03 — ventas
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
+Phase: 03 (ventas) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
 Last activity: 2026-03-26
 
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-db-infra-cat-logo-inventario P03 | 1 | 1 tasks | 1 files |
 | Phase 02 P01 | 600 | 2 tasks | 3 files |
 | Phase 02 P02 | 3 | 2 tasks | 2 files |
+| Phase 03 P03 | 80 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,8 @@ Recent decisions affecting current work:
 - [Phase 02]: migrate_gastos_caja.py deduplicates gastos by fecha+concepto+monto (no unique constraint in gastos table)
 - [Phase 02]: Drive uploads of historico JSON/Excel eliminated: Postgres replaces Drive as source of truth for historico data
 - [Phase 02]: migrate_historico.py merges historico_ventas.json totals + historico_diario.json enriched breakdown into historico_ventas table
+- [Phase 03]: cliente_id set to None during ventas migration — FK resolution unreliable against live catalog
+- [Phase 03]: alias_usado mapped directly from alias column in ventas migration, None if column absent
 
 ### Pending Todos
 
@@ -93,6 +96,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T20:52:48.931Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-ventas/03-CONTEXT.md
+Last session: 2026-03-26T22:20:06.836Z
+Stopped at: Completed 03-03-PLAN.md
+Resume file: None
