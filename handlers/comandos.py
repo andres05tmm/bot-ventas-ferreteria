@@ -1190,6 +1190,97 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await asyncio.to_thread(wb.save, config.EXCEL_FILE)
         await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
 
+        # ── Postgres triple-write: sync ventas_sheets → ventas + ventas_detalle ──
+        def _sync_ventas_postgres():
+            import db as _db
+            if not _db.DB_DISPONIBLE:
+                return 0
+            count = 0
+            try:
+                # Agrupar items por consecutivo
+                grupos: dict[int, list] = {}
+                for v in ventas_sheets:
+                    num = int(v.get("num", 0) or 0)
+                    grupos.setdefault(num, []).append(v)
+
+                for num, items in grupos.items():
+                    if num == 0:
+                        continue
+                    first = items[0]
+                    fecha_v = str(first.get("fecha", fecha_str))[:10]
+                    hora_v  = str(first.get("hora", ""))
+                    cliente_nombre_v = str(first.get("cliente", "Consumidor Final"))
+                    vendedor_v  = str(first.get("vendedor", ""))
+                    metodo_v    = str(first.get("metodo", ""))
+                    total_v     = int(sum(float(v.get("total", 0) or 0) for v in items))
+
+                    # Resolver cliente_id
+                    cliente_id_v = None
+                    id_cliente_raw = first.get("id_cliente", "CF")
+                    if id_cliente_raw and str(id_cliente_raw) != "CF":
+                        cr = _db.query_one(
+                            "SELECT id FROM clientes WHERE LOWER(nombre) = LOWER(%s)",
+                            (cliente_nombre_v,)
+                        )
+                        if cr:
+                            cliente_id_v = cr["id"]
+
+                    # Idempotent check-then-insert for ventas
+                    existing = _db.query_one(
+                        "SELECT id FROM ventas WHERE consecutivo = %s AND fecha = %s",
+                        (num, fecha_v)
+                    )
+                    if existing:
+                        venta_id_v = existing["id"]
+                    else:
+                        row = _db.execute_returning(
+                            """INSERT INTO ventas
+                                   (consecutivo, fecha, hora, cliente_id, cliente_nombre,
+                                    vendedor, metodo_pago, total)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                               RETURNING id""",
+                            (num, fecha_v, hora_v or None, cliente_id_v,
+                             cliente_nombre_v, vendedor_v, metodo_v, total_v)
+                        )
+                        if not row:
+                            continue
+                        venta_id_v = row["id"]
+                        count += 1
+
+                    # Insert ventas_detalle items (idempotent)
+                    for v in items:
+                        prod_nombre = str(v.get("producto", ""))
+                        det_existing = _db.query_one(
+                            "SELECT id FROM ventas_detalle WHERE venta_id = %s AND producto_nombre = %s",
+                            (venta_id_v, prod_nombre)
+                        )
+                        if det_existing:
+                            continue
+                        _db.execute(
+                            """INSERT INTO ventas_detalle
+                                   (venta_id, producto_nombre, cantidad, unidad_medida,
+                                    precio_unitario, total, alias_usado)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                            (venta_id_v,
+                             prod_nombre,
+                             float(v.get("cantidad", 1) or 1),
+                             str(v.get("unidad_medida", "Unidad")),
+                             int(float(v.get("precio_unitario", 0) or 0)),
+                             int(float(v.get("total", 0) or 0)),
+                             None)
+                        )
+            except Exception as e:
+                logger.warning(f"Postgres /cerrar sync failed: {e}")
+                return count
+            logger.info(f"Postgres /cerrar: {count} ventas synced")
+            return count
+
+        try:
+            await asyncio.to_thread(_sync_ventas_postgres)
+        except Exception as e_pg:
+            logger.warning(f"Postgres /cerrar sync failed: {e_pg}")
+        # ─────────────────────────────────────────────────────────────────────
+
         await update.message.reply_text(f"✅ Sincronizado: {len(ventas_sheets)} ventas — Total: ${total_general:,.0f}")
         with open(config.EXCEL_FILE, "rb") as f:
             await update.message.reply_document(document=f, filename="ventas.xlsx")
