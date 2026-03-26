@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-03-26T22:21:17.192Z"
+status: verifying
+stopped_at: Completed 03-ventas-03-01-PLAN.md
+last_updated: "2026-03-26T22:22:12.974Z"
 last_activity: 2026-03-26
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 
 Phase: 03 (ventas) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-26
 
 Progress: [░░░░░░░░░░] 0%
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P02 | 3 | 2 tasks | 2 files |
 | Phase 03 P03 | 80 | 1 tasks | 1 files |
 | Phase 03 P02 | 142 | 2 tasks | 2 files |
+| Phase 03-ventas P01 | 3 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ Recent decisions affecting current work:
 - [Phase 03]: alias_usado mapped directly from alias column in ventas migration, None if column absent
 - [Phase 03]: _leer_ventas_postgres returns None (not []) on DB unavailability so callers can distinguish 'no data' from 'DB unavailable' for fallback logic
 - [Phase 03]: ventas_hoy uses three-tier fallback: Sheets (primary) -> Postgres -> Excel (last resort); all other read endpoints use two-tier: Postgres -> Excel
+- [Phase 03-ventas]: items_para_pg collected during existing for loop in registrar_ventas_con_metodo to avoid re-iterating ventas list
+- [Phase 03-ventas]: check-then-insert pattern in /cerrar (not UPSERT) because ventas schema lacks UNIQUE constraint on consecutivo
 
 ### Pending Todos
 
@@ -99,6 +102,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T22:21:17.176Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-03-26T22:22:12.966Z
+Stopped at: Completed 03-ventas-03-01-PLAN.md
 Resume file: None

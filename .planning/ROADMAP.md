@@ -61,7 +61,7 @@ Plans:
 **Plans:** 2/3 plans executed
 
 Plans:
-- [ ] 03-01-PLAN.md — Write ventas to Postgres on payment confirm + /cerrar triple-write
+- [x] 03-01-PLAN.md — Write ventas to Postgres on payment confirm + /cerrar triple-write
 - [x] 03-02-PLAN.md — Replace _leer_excel_rango with Postgres-first reads in ventas endpoints
 - [x] 03-03-PLAN.md — Create migrate_ventas.py to import historical ventas from Excel
 

@@ -37,8 +37,8 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 
 ### Ventas (Fase 3)
 
-- [ ] **VEN-01**: Confirmación de pago escribe venta en tabla `ventas` + `ventas_detalle` (en paralelo con Sheets durante transición)
-- [ ] **VEN-02**: `/cerrar` copia ventas de Sheets → Postgres (en lugar de Sheets → Excel)
+- [x] **VEN-01**: Confirmación de pago escribe venta en tabla `ventas` + `ventas_detalle` (en paralelo con Sheets durante transición)
+- [x] **VEN-02**: `/cerrar` copia ventas de Sheets → Postgres (en lugar de Sheets → Excel)
 - [x] **VEN-03**: `_leer_excel_rango()` en `routers/shared.py` reemplazada por query a `ventas` + `ventas_detalle`
 - [x] **VEN-04**: Endpoints `/ventas/hoy`, `/ventas/historial` leen desde Postgres
 - [x] **VEN-05**: Script de migración importa ventas históricas del Excel a Postgres
@@ -109,8 +109,8 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 | GAS-02 | Phase 2 | Complete |
 | CAJ-01 | Phase 2 | Complete |
 | CAJ-02 | Phase 2 | Complete |
-| VEN-01 | Phase 3 | Pending |
-| VEN-02 | Phase 3 | Pending |
+| VEN-01 | Phase 3 | Complete |
+| VEN-02 | Phase 3 | Complete |
 | VEN-03 | Phase 3 | Complete |
 | VEN-04 | Phase 3 | Complete |
 | VEN-05 | Phase 3 | Complete |
