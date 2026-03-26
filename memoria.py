@@ -22,6 +22,8 @@ from datetime import datetime
 import config
 from utils import _normalizar  # única definición centralizada
 
+logger = logging.getLogger("ferrebot.memoria")
+
 _cache: dict | None = None
 _bloquear_subida_drive: bool = False  # True durante la sincronización inicial
 _cache_lock = threading.Lock()        # Protege _cache en entornos multi-hilo
@@ -152,6 +154,88 @@ def cargar_memoria() -> dict:
         return _cache
 
 
+def _sincronizar_catalogo_postgres(catalogo: dict, db_module):
+    """Sincroniza catalogo dict a Postgres via UPSERT (D-06, D-07)."""
+    for clave, prod in catalogo.items():
+        row = db_module.execute_returning("""
+            INSERT INTO productos (clave, nombre, nombre_lower, categoria, precio_unidad, unidad_medida)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (clave) DO UPDATE SET
+                nombre = EXCLUDED.nombre,
+                nombre_lower = EXCLUDED.nombre_lower,
+                precio_unidad = EXCLUDED.precio_unidad,
+                unidad_medida = EXCLUDED.unidad_medida,
+                updated_at = NOW()
+            RETURNING id
+        """, (
+            clave,
+            prod.get("nombre", ""),
+            prod.get("nombre_lower", prod.get("nombre", "").lower()),
+            prod.get("categoria", ""),
+            prod.get("precio_unidad", 0),
+            prod.get("unidad_medida", "Unidad"),
+        ))
+        if not row:
+            continue
+        prod_id = row["id"]
+
+        # Fracciones: delete + insert (simpler than individual UPSERTs)
+        db_module.execute("DELETE FROM productos_fracciones WHERE producto_id = %s", (prod_id,))
+        for frac, datos in prod.get("precios_fraccion", {}).items():
+            db_module.execute("""
+                INSERT INTO productos_fracciones (producto_id, fraccion, precio_total, precio_unitario)
+                VALUES (%s, %s, %s, %s)
+            """, (prod_id, frac, datos.get("precio", 0), datos.get("precio_unitario", 0)))
+
+        # Precio por cantidad
+        pxc = prod.get("precio_por_cantidad", {})
+        if pxc:
+            db_module.execute("""
+                INSERT INTO productos_precio_cantidad (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (producto_id) DO UPDATE SET
+                    umbral = EXCLUDED.umbral,
+                    precio_bajo_umbral = EXCLUDED.precio_bajo_umbral,
+                    precio_sobre_umbral = EXCLUDED.precio_sobre_umbral
+            """, (
+                prod_id,
+                pxc.get("umbral", 50),
+                pxc.get("precio_bajo_umbral", prod.get("precio_unidad", 0)),
+                pxc.get("precio_sobre_umbral", 0),
+            ))
+
+        # Alias
+        for alias_str in prod.get("alias", []):
+            if alias_str and isinstance(alias_str, str) and alias_str.strip():
+                db_module.execute("""
+                    INSERT INTO productos_alias (producto_id, alias)
+                    VALUES (%s, %s)
+                    ON CONFLICT (alias) DO NOTHING
+                """, (prod_id, alias_str.strip()))
+
+
+def _sincronizar_inventario_postgres(inventario: dict, db_module):
+    """Sincroniza inventario dict a Postgres via UPSERT (D-06, D-07)."""
+    for clave, datos in inventario.items():
+        prod_row = db_module.query_one("SELECT id FROM productos WHERE clave = %s", (clave,))
+        if not prod_row:
+            continue
+        db_module.execute("""
+            INSERT INTO inventario (producto_id, cantidad, minimo, unidad, updated_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (producto_id) DO UPDATE SET
+                cantidad = EXCLUDED.cantidad,
+                minimo = EXCLUDED.minimo,
+                unidad = EXCLUDED.unidad,
+                updated_at = NOW()
+        """, (
+            prod_row["id"],
+            datos.get("cantidad", 0),
+            datos.get("minimo", 0),
+            datos.get("unidad", "Unidad"),
+        ))
+
+
 def guardar_memoria(memoria: dict, urgente: bool = False):
     """
     Guarda memoria en disco y sube a Drive.
@@ -170,6 +254,14 @@ def guardar_memoria(memoria: dict, urgente: bool = False):
         else:
             from drive import subir_a_drive
             subir_a_drive(config.MEMORIA_FILE)
+    # Sincronizacion adicional a Postgres (si disponible) — D-06
+    import db as _db
+    if _db.DB_DISPONIBLE:
+        try:
+            _sincronizar_catalogo_postgres(memoria.get("catalogo", {}), _db)
+            _sincronizar_inventario_postgres(memoria.get("inventario", {}), _db)
+        except Exception as e:
+            logger.warning(f"Error sincronizando a Postgres (no critico): {e}")
 
 
 def invalidar_cache_memoria():
