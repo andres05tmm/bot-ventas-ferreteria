@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-03-26T06:28:48.412Z"
+status: verifying
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-03-26T06:31:40.853Z"
 last_activity: 2026-03-26
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 
 Phase: 01 (db-infra-cat-logo-inventario) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-26
 
 Progress: [░░░░░░░░░░] 0%
@@ -54,6 +54,7 @@ Progress: [░░░░░░░░░░] 0%
 *Updated after each plan completion*
 | Phase 01 P01 | 2 | 2 tasks | 4 files |
 | Phase 01 P02 | 180 | 2 tasks | 1 files |
+| Phase 01-db-infra-cat-logo-inventario P03 | 1 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ Recent decisions affecting current work:
 - [Phase 01]: db imported lazily inside functions in memoria.py (not top-level) to avoid circular import
 - [Phase 01]: Postgres write in guardar_memoria is non-fatal (except Exception + logger.warning) — bot cannot fall
 - [Phase 01]: cargar_memoria overlays catalogo+inventario from Postgres on JSON base (unmigrated fields: gastos, caja, notas stay in JSON)
+- [Phase 01]: D-08/D-09/D-10: migrate_memoria.py runs manually via railway run; all UPSERTs make it idempotent; fails fast if DATABASE_URL missing
+- [Phase 01]: [Phase 01]: Alias conflicts in migration logged as WARNING (DO NOTHING + rowcount==0) not errors — preserves first-registered alias owner
 
 ### Pending Todos
 
@@ -84,6 +87,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T06:28:48.405Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-03-26T06:31:40.846Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None

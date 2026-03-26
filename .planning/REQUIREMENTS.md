@@ -16,9 +16,9 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 
 ### Catálogo e Inventario (Fase 1)
 
-- [ ] **CAT-01**: Script `migrate_memoria.py` migra los ~576 productos de `memoria.json` a tabla `productos` con fracciones y precios por cantidad
-- [ ] **CAT-02**: Script migra alias de productos a tabla `productos_alias`
-- [ ] **CAT-03**: Script migra inventario a tabla `inventario`
+- [x] **CAT-01**: Script `migrate_memoria.py` migra los ~576 productos de `memoria.json` a tabla `productos` con fracciones y precios por cantidad
+- [x] **CAT-02**: Script migra alias de productos a tabla `productos_alias`
+- [x] **CAT-03**: Script migra inventario a tabla `inventario`
 - [x] **CAT-04**: `memoria.py` lee catálogo desde Postgres manteniendo la firma pública de `cargar_memoria()` y `guardar_memoria()`
 - [x] **CAT-05**: `fuzzy_match.py` construye el índice de búsqueda leyendo productos desde Postgres
 - [x] **CAT-06**: Comandos `/precios`, `/buscar`, `/inventario` funcionan igual que antes
@@ -94,9 +94,9 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 | DB-02 | Phase 1 | Complete |
 | DB-03 | Phase 1 | Complete |
 | DB-04 | Phase 1 | Complete |
-| CAT-01 | Phase 1 | Pending |
-| CAT-02 | Phase 1 | Pending |
-| CAT-03 | Phase 1 | Pending |
+| CAT-01 | Phase 1 | Complete |
+| CAT-02 | Phase 1 | Complete |
+| CAT-03 | Phase 1 | Complete |
 | CAT-04 | Phase 1 | Complete |
 | CAT-05 | Phase 1 | Complete |
 | CAT-06 | Phase 1 | Complete |
