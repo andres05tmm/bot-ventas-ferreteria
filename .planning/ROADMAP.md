@@ -30,11 +30,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. La búsqueda fuzzy encuentra productos con la misma precisión que antes (test_suite.py pasa 1096+ tests)
   4. memoria.py mantiene las firmas públicas de cargar_memoria() y guardar_memoria() sin cambios externos visibles
   5. El bot sigue funcionando si DATABASE_URL no está presente (fallback a comportamiento anterior)
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [x] 01-01-PLAN.md — Create db.py module with ThreadedConnectionPool, schema init, and wire into boot sequence
-- [ ] 01-02-PLAN.md — Refactor memoria.py to read/write catalogo+inventario from Postgres with JSON fallback
+- [x] 01-02-PLAN.md — Refactor memoria.py to read/write catalogo+inventario from Postgres with JSON fallback
 - [ ] 01-03-PLAN.md — Create migrate_memoria.py script to migrate ~576 products from memoria.json to Postgres
 
 ### Phase 2: Histórico + Gastos + Caja
@@ -90,7 +90,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. DB Infra + Catálogo + Inventario | 1/3 | In Progress|  |
+| 1. DB Infra + Catálogo + Inventario | 2/3 | In Progress|  |
 | 2. Histórico + Gastos + Caja | 0/TBD | Not started | - |
 | 3. Ventas | 0/TBD | Not started | - |
 | 4. Proveedores + Fiados + Compras | 0/TBD | Not started | - |

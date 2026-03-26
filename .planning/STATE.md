@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-03-26T06:23:32.099Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-03-26T06:28:48.412Z"
 last_activity: 2026-03-26
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 ## Current Position
 
 Phase: 01 (db-infra-cat-logo-inventario) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-26
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 01 P01 | 2 | 2 tasks | 4 files |
+| Phase 01 P02 | 180 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,9 @@ Recent decisions affecting current work:
 - [Phase 01]: db.py uses ThreadedConnectionPool with lazy psycopg2 import inside init_db() — prevents import errors and is thread-safe
 - [Phase 01]: DATABASE_URL not added to _CLAVES_REQUERIDAS — optional env var, bot runs in JSON mode if absent (D-05)
 - [Phase 01]: init_db() called before _restaurar_memoria() in start.py — ensures DB_DISPONIBLE set before first cargar_memoria() call (D-03)
+- [Phase 01]: db imported lazily inside functions in memoria.py (not top-level) to avoid circular import
+- [Phase 01]: Postgres write in guardar_memoria is non-fatal (except Exception + logger.warning) — bot cannot fall
+- [Phase 01]: cargar_memoria overlays catalogo+inventario from Postgres on JSON base (unmigrated fields: gastos, caja, notas stay in JSON)
 
 ### Pending Todos
 
@@ -80,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T06:23:32.088Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-03-26T06:28:48.405Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None

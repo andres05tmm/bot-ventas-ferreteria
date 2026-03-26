@@ -9,20 +9,20 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 
 ### Infraestructura DB
 
-- [ ] **DB-01**: Sistema puede conectarse a PostgreSQL usando `DATABASE_URL` desde variables de entorno de Railway
-- [ ] **DB-02**: Módulo `db.py` centraliza todo el acceso a Postgres con context manager, `query_one`, `query_all`, `execute`, `execute_returning`
-- [ ] **DB-03**: Schema completo creado en Railway: tablas `productos`, `productos_fracciones`, `productos_precio_cantidad`, `productos_alias`, `inventario`, `clientes`, `ventas`, `ventas_detalle`, `gastos`, `caja`, `fiados`, `fiados_historial`, `facturas_proveedores`, `facturas_abonos`, `historico_ventas`, `compras`, `productos_pendientes`, `config_sistema`
-- [ ] **DB-04**: Sistema arranca sin errores cuando `DATABASE_URL` está presente, y sigue funcionando (con fallback) si no está
+- [x] **DB-01**: Sistema puede conectarse a PostgreSQL usando `DATABASE_URL` desde variables de entorno de Railway
+- [x] **DB-02**: Módulo `db.py` centraliza todo el acceso a Postgres con context manager, `query_one`, `query_all`, `execute`, `execute_returning`
+- [x] **DB-03**: Schema completo creado en Railway: tablas `productos`, `productos_fracciones`, `productos_precio_cantidad`, `productos_alias`, `inventario`, `clientes`, `ventas`, `ventas_detalle`, `gastos`, `caja`, `fiados`, `fiados_historial`, `facturas_proveedores`, `facturas_abonos`, `historico_ventas`, `compras`, `productos_pendientes`, `config_sistema`
+- [x] **DB-04**: Sistema arranca sin errores cuando `DATABASE_URL` está presente, y sigue funcionando (con fallback) si no está
 
 ### Catálogo e Inventario (Fase 1)
 
 - [ ] **CAT-01**: Script `migrate_memoria.py` migra los ~576 productos de `memoria.json` a tabla `productos` con fracciones y precios por cantidad
 - [ ] **CAT-02**: Script migra alias de productos a tabla `productos_alias`
 - [ ] **CAT-03**: Script migra inventario a tabla `inventario`
-- [ ] **CAT-04**: `memoria.py` lee catálogo desde Postgres manteniendo la firma pública de `cargar_memoria()` y `guardar_memoria()`
-- [ ] **CAT-05**: `fuzzy_match.py` construye el índice de búsqueda leyendo productos desde Postgres
-- [ ] **CAT-06**: Comandos `/precios`, `/buscar`, `/inventario` funcionan igual que antes
-- [ ] **CAT-07**: `test_suite.py` pasa 1096+ tests después de Fase 1
+- [x] **CAT-04**: `memoria.py` lee catálogo desde Postgres manteniendo la firma pública de `cargar_memoria()` y `guardar_memoria()`
+- [x] **CAT-05**: `fuzzy_match.py` construye el índice de búsqueda leyendo productos desde Postgres
+- [x] **CAT-06**: Comandos `/precios`, `/buscar`, `/inventario` funcionan igual que antes
+- [x] **CAT-07**: `test_suite.py` pasa 1096+ tests después de Fase 1
 
 ### Histórico, Gastos y Caja (Fase 2)
 
@@ -90,17 +90,17 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DB-01 | Phase 1 | Pending |
-| DB-02 | Phase 1 | Pending |
-| DB-03 | Phase 1 | Pending |
-| DB-04 | Phase 1 | Pending |
+| DB-01 | Phase 1 | Complete |
+| DB-02 | Phase 1 | Complete |
+| DB-03 | Phase 1 | Complete |
+| DB-04 | Phase 1 | Complete |
 | CAT-01 | Phase 1 | Pending |
 | CAT-02 | Phase 1 | Pending |
 | CAT-03 | Phase 1 | Pending |
-| CAT-04 | Phase 1 | Pending |
-| CAT-05 | Phase 1 | Pending |
-| CAT-06 | Phase 1 | Pending |
-| CAT-07 | Phase 1 | Pending |
+| CAT-04 | Phase 1 | Complete |
+| CAT-05 | Phase 1 | Complete |
+| CAT-06 | Phase 1 | Complete |
+| CAT-07 | Phase 1 | Complete |
 | HIS-01 | Phase 2 | Pending |
 | HIS-02 | Phase 2 | Pending |
 | HIS-03 | Phase 2 | Pending |
