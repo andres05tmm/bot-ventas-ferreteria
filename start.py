@@ -39,6 +39,10 @@ log = logging.getLogger("start")
 # solo gracias al time.sleep(30) inicial. Ahora el import está en el lugar correcto.
 import config  # noqa: E402
 
+# ── Inicializar PostgreSQL (si DATABASE_URL esta configurado) ──────────────────
+import db as _db  # noqa: E402
+_db.init_db()  # determina DB_DISPONIBLE una vez; no falla si DATABASE_URL ausente
+
 # ── Restaurar memoria.json desde Drive al arrancar ────────────────────────────
 # El archivo NO vive en el repo (está en .gitignore). En cada deploy Railway
 # arranca sin él, así que lo descargamos de Drive antes de levantar cualquier

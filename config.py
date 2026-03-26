@@ -40,6 +40,9 @@ SHEETS_ID               = os.getenv("SHEETS_ID", "")
 WEBHOOK_URL             = os.getenv("WEBHOOK_URL", "")
 WEBHOOK_PORT            = int(os.getenv("PORT", "8443"))
 
+# PostgreSQL (opcional — si no esta, el bot corre en modo JSON)
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 # Validar claves obligatorias al importar
 _CLAVES_REQUERIDAS = {
     "TELEGRAM_TOKEN":          TELEGRAM_TOKEN,
