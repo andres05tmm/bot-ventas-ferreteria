@@ -19,7 +19,7 @@ from typing import Optional, Union
 import config
 from sheets import sheets_leer_ventas_del_dia
 from routers.shared import (
-    _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
+    _hoy, _hace_n_dias, _leer_excel_rango, _leer_ventas_postgres, _leer_excel_compras,
     _to_float, _cantidad_a_float, _stock_wayper,
 )
 from routers.caja import VentaRapidaPayload, VentaRapidaItem
@@ -47,7 +47,17 @@ def ventas_hoy():
             )
             fuente = "excel_fallback"
 
-        # ── Fallback al Excel si Sheets devuelve vacío o falló ────────────────
+        # ── Fallback a Postgres si Sheets devuelve vacío o falló ─────────────
+        if not filtradas:
+            try:
+                pg_ventas = _leer_ventas_postgres(dias=1)
+                if pg_ventas is not None:
+                    filtradas = [v for v in pg_ventas if str(v.get("fecha", ""))[:10] == hoy]
+                    if filtradas:
+                        fuente = "postgres_fallback"
+            except Exception:
+                pass
+        # ── Fallback al Excel como último recurso ─────────────────────────────
         if not filtradas:
             try:
                 ventas_xls = _leer_excel_rango(dias=1)
@@ -88,7 +98,9 @@ def ventas_hoy():
 @router.get("/ventas/semana")
 def ventas_semana():
     try:
-        ventas = _leer_excel_rango(dias=7)
+        ventas = _leer_ventas_postgres(dias=7)
+        if ventas is None:
+            ventas = _leer_excel_rango(dias=7)
         return {"ventas": ventas, "total": len(ventas)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -99,7 +111,9 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
     try:
         dias = 7 if periodo == "semana" else None
         mes = periodo == "mes"
-        ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
+        ventas = _leer_ventas_postgres(dias=dias, mes_actual=mes)
+        if ventas is None:
+            ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
 
         # Leer catálogo para obtener unidad_medida canónica de cada producto
         cat_unidad: dict[str, str] = {}
@@ -161,9 +175,11 @@ def ventas_resumen():
         total_hoy   = sum(_to_float(v.get("total", 0)) for v in ventas_hoy_list)
         pedidos_hoy = len({str(v.get("num", i)) for i, v in enumerate(ventas_hoy_list)})
 
-        # Excel semana — tolerante a fallo
+        # Postgres semana (con fallback a Excel) — tolerante a fallo
         try:
-            ventas_sem = _leer_excel_rango(dias=7)
+            ventas_sem = _leer_ventas_postgres(dias=7)
+            if ventas_sem is None:
+                ventas_sem = _leer_excel_rango(dias=7)
         except Exception:
             ventas_sem = []
         total_sem   = sum(_to_float(v.get("total", 0)) for v in ventas_sem)
@@ -180,9 +196,11 @@ def ventas_resumen():
             dia = (_hace_n_dias(i)).strftime("%Y-%m-%d")
             historico.append({"fecha": dia, "total": ventas_por_dia.get(dia, 0)})
 
-        # Excel mes — tolerante a fallo
+        # Postgres mes (con fallback a Excel) — tolerante a fallo
         try:
-            ventas_mes = _leer_excel_rango(mes_actual=True)
+            ventas_mes = _leer_ventas_postgres(mes_actual=True)
+            if ventas_mes is None:
+                ventas_mes = _leer_excel_rango(mes_actual=True)
         except Exception:
             ventas_mes = []
         total_mes = sum(_to_float(v.get("total", 0)) for v in ventas_mes)
@@ -302,7 +320,9 @@ def ventas_top2(
     try:
         dias = 7 if periodo == "semana" else None
         mes  = periodo == "mes"
-        ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
+        ventas = _leer_ventas_postgres(dias=dias, mes_actual=mes)
+        if ventas is None:
+            ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
 
         # Leer catálogo para saber la categoría de cada producto
         cat_map: dict[str, str] = {}
