@@ -28,10 +28,10 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 
 - [ ] **HIS-01**: Script migra `historico_ventas.json` + `historico_diario.json` a tabla `historico_ventas`
 - [ ] **HIS-02**: `_sync_historico_hoy()` escribe el cierre diario en Postgres en lugar de JSON + Drive
-- [ ] **GAS-01**: Gastos de `memoria.json["gastos"]` migrados a tabla `gastos`
-- [ ] **GAS-02**: Nuevo registro de gastos escribe en Postgres
-- [ ] **CAJ-01**: Estado de caja de `memoria.json["caja_actual"]` migrado a tabla `caja`
-- [ ] **CAJ-02**: Apertura/cierre de caja escribe en Postgres
+- [x] **GAS-01**: Gastos de `memoria.json["gastos"]` migrados a tabla `gastos`
+- [x] **GAS-02**: Nuevo registro de gastos escribe en Postgres
+- [x] **CAJ-01**: Estado de caja de `memoria.json["caja_actual"]` migrado a tabla `caja`
+- [x] **CAJ-02**: Apertura/cierre de caja escribe en Postgres
 - [ ] **HIS-03**: Tab Histórico del dashboard muestra datos desde Postgres
 - [ ] **HIS-04**: Subidas a Drive de archivos JSON de histórico eliminadas
 
@@ -105,10 +105,10 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 | HIS-02 | Phase 2 | Pending |
 | HIS-03 | Phase 2 | Pending |
 | HIS-04 | Phase 2 | Pending |
-| GAS-01 | Phase 2 | Pending |
-| GAS-02 | Phase 2 | Pending |
-| CAJ-01 | Phase 2 | Pending |
-| CAJ-02 | Phase 2 | Pending |
+| GAS-01 | Phase 2 | Complete |
+| GAS-02 | Phase 2 | Complete |
+| CAJ-01 | Phase 2 | Complete |
+| CAJ-02 | Phase 2 | Complete |
 | VEN-01 | Phase 3 | Pending |
 | VEN-02 | Phase 3 | Pending |
 | VEN-03 | Phase 3 | Pending |

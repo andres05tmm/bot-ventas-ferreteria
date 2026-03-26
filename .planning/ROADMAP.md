@@ -13,7 +13,7 @@ Migración completa de la persistencia del sistema POS FerreBot desde Google Dri
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: DB Infra + Catálogo + Inventario** - Crear db.py, desplegar schema, migrar productos e inventario desde memoria.json a Postgres (completed 2026-03-26)
-- [ ] **Phase 2: Histórico + Gastos + Caja** - Migrar archivos JSON de histórico y campos de memoria.json a tablas Postgres
+- [x] **Phase 2: Histórico + Gastos + Caja** - Migrar archivos JSON de histórico y campos de memoria.json a tablas Postgres (completed 2026-03-26)
 - [ ] **Phase 3: Ventas** - Migrar la escritura y lectura de ventas desde Sheets/Excel a Postgres
 - [ ] **Phase 4: Proveedores + Fiados + Compras** - Migrar cuentas por pagar, fiados y compras a Postgres
 - [ ] **Phase 5: Limpieza** - Export Excel on-demand, eliminar dependencias de Drive y Sheets para datos estructurados
@@ -91,7 +91,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. DB Infra + Catálogo + Inventario | 3/3 | Complete   | 2026-03-26 |
-| 2. Histórico + Gastos + Caja | 0/TBD | Not started | - |
+| 2. Histórico + Gastos + Caja | 1/1 | Complete   | 2026-03-26 |
 | 3. Ventas | 0/TBD | Not started | - |
 | 4. Proveedores + Fiados + Compras | 0/TBD | Not started | - |
 | 5. Limpieza | 0/TBD | Not started | - |
