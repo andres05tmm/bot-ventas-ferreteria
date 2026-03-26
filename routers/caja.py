@@ -31,6 +31,75 @@ router = APIRouter()
 @router.get("/caja")
 def caja():
     try:
+        # Try Postgres first
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            ahora = datetime.now(config.COLOMBIA_TZ)
+            hoy = ahora.strftime("%Y-%m-%d")
+            caja_row = _db.query_one("SELECT * FROM caja WHERE fecha = %s", (hoy,))
+            if caja_row and not caja_row.get("abierta"):
+                return {
+                    "abierta":           False,
+                    "fecha":             str(caja_row["fecha"]),
+                    "monto_apertura":    0,
+                    "efectivo":          0,
+                    "transferencias":    0,
+                    "datafono":          0,
+                    "total_ventas":      0,
+                    "total_gastos_caja": 0,
+                    "total_gastos":      0,
+                    "efectivo_esperado": 0,
+                    "gastos":            [],
+                }
+            if caja_row and caja_row.get("abierta"):
+                gastos_rows = _db.query_all(
+                    "SELECT concepto, monto, categoria, origen, hora FROM gastos WHERE fecha = %s", (hoy,)
+                )
+                gastos_hoy = [{
+                    "concepto":  g["concepto"],
+                    "monto":     int(g["monto"]),
+                    "categoria": g.get("categoria") or "General",
+                    "origen":    g.get("origen") or "caja",
+                    "hora":      str(g["hora"])[:5] if g.get("hora") else "",
+                } for g in gastos_rows]
+                total_gastos_caja = sum(g["monto"] for g in gastos_hoy if g.get("origen") == "caja")
+                total_gastos      = sum(g["monto"] for g in gastos_hoy)
+                efectivo       = int(caja_row.get("efectivo", 0))
+                transferencias = int(caja_row.get("transferencias", 0))
+                datafono       = int(caja_row.get("datafono", 0))
+                apertura       = int(caja_row.get("monto_apertura", 0))
+                total_ventas      = efectivo + transferencias + datafono
+                efectivo_esperado = apertura + efectivo - total_gastos_caja
+                return {
+                    "abierta":           True,
+                    "fecha":             str(caja_row["fecha"]),
+                    "monto_apertura":    apertura,
+                    "efectivo":          efectivo,
+                    "transferencias":    transferencias,
+                    "datafono":          datafono,
+                    "total_ventas":      total_ventas,
+                    "total_gastos_caja": total_gastos_caja,
+                    "total_gastos":      total_gastos,
+                    "efectivo_esperado": efectivo_esperado,
+                    "gastos":            gastos_hoy,
+                }
+            # DB available but no caja row for today — return closed state
+            if caja_row is None:
+                return {
+                    "abierta":           False,
+                    "fecha":             hoy,
+                    "monto_apertura":    0,
+                    "efectivo":          0,
+                    "transferencias":    0,
+                    "datafono":          0,
+                    "total_ventas":      0,
+                    "total_gastos_caja": 0,
+                    "total_gastos":      0,
+                    "efectivo_esperado": 0,
+                    "gastos":            [],
+                }
+
+        # Fallback: JSON logic
         if not os.path.exists(config.MEMORIA_FILE):
             return {"caja": {}, "gastos": []}
         with open(config.MEMORIA_FILE, encoding="utf-8") as f:
@@ -240,6 +309,47 @@ class VentaRapidaPayload(BaseModel):
 @router.get("/gastos")
 def gastos(dias: int = Query(default=7, ge=1, le=90)):
     try:
+        # Try Postgres first
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            ahora      = datetime.now(config.COLOMBIA_TZ)
+            fecha_fin  = ahora.strftime("%Y-%m-%d")
+            fecha_inicio = (ahora - timedelta(days=dias - 1)).strftime("%Y-%m-%d")
+            rows = _db.query_all(
+                "SELECT fecha, hora, concepto, monto, categoria, origen FROM gastos "
+                "WHERE fecha >= %s AND fecha <= %s ORDER BY fecha DESC, hora DESC",
+                (fecha_inicio, fecha_fin)
+            )
+            resultado: list = []
+            por_categoria: dict[str, float] = defaultdict(float)
+            por_dia: dict[str, float]       = defaultdict(float)
+            for r in rows:
+                m         = int(r["monto"])
+                cat       = r.get("categoria") or "Sin categoria"
+                fecha_str = str(r["fecha"])
+                resultado.append({
+                    "concepto":  r["concepto"],
+                    "monto":     m,
+                    "categoria": cat,
+                    "origen":    r.get("origen") or "caja",
+                    "hora":      str(r["hora"])[:5] if r.get("hora") else "",
+                    "fecha":     fecha_str,
+                })
+                por_categoria[cat] += m
+                por_dia[fecha_str] += m
+            historico_list = []
+            for i in range(dias - 1, -1, -1):
+                dia = (ahora - timedelta(days=i)).strftime("%Y-%m-%d")
+                historico_list.append({"fecha": dia, "total": por_dia.get(dia, 0)})
+            return {
+                "gastos":        resultado,
+                "total":         sum(g["monto"] for g in resultado),
+                "por_categoria": dict(por_categoria),
+                "historico":     historico_list,
+                "dias":          dias,
+            }
+
+        # Fallback: JSON logic
         if not os.path.exists(config.MEMORIA_FILE):
             return {"gastos": [], "total": 0, "por_categoria": {}}
         with open(config.MEMORIA_FILE, encoding="utf-8") as f:
