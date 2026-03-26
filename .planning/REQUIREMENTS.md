@@ -39,10 +39,10 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 
 - [ ] **VEN-01**: Confirmación de pago escribe venta en tabla `ventas` + `ventas_detalle` (en paralelo con Sheets durante transición)
 - [ ] **VEN-02**: `/cerrar` copia ventas de Sheets → Postgres (en lugar de Sheets → Excel)
-- [ ] **VEN-03**: `_leer_excel_rango()` en `routers/shared.py` reemplazada por query a `ventas` + `ventas_detalle`
-- [ ] **VEN-04**: Endpoints `/ventas/hoy`, `/ventas/historial` leen desde Postgres
-- [ ] **VEN-05**: Script de migración importa ventas históricas del Excel a Postgres
-- [ ] **VEN-06**: Dashboard muestra ventas desde Postgres (mismos formatos de respuesta JSON)
+- [x] **VEN-03**: `_leer_excel_rango()` en `routers/shared.py` reemplazada por query a `ventas` + `ventas_detalle`
+- [x] **VEN-04**: Endpoints `/ventas/hoy`, `/ventas/historial` leen desde Postgres
+- [x] **VEN-05**: Script de migración importa ventas históricas del Excel a Postgres
+- [x] **VEN-06**: Dashboard muestra ventas desde Postgres (mismos formatos de respuesta JSON)
 
 ### Proveedores, Fiados y Compras (Fase 4)
 
@@ -111,10 +111,10 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 | CAJ-02 | Phase 2 | Complete |
 | VEN-01 | Phase 3 | Pending |
 | VEN-02 | Phase 3 | Pending |
-| VEN-03 | Phase 3 | Pending |
-| VEN-04 | Phase 3 | Pending |
-| VEN-05 | Phase 3 | Pending |
-| VEN-06 | Phase 3 | Pending |
+| VEN-03 | Phase 3 | Complete |
+| VEN-04 | Phase 3 | Complete |
+| VEN-05 | Phase 3 | Complete |
+| VEN-06 | Phase 3 | Complete |
 | PROV-01 | Phase 4 | Pending |
 | PROV-02 | Phase 4 | Pending |
 | PROV-03 | Phase 4 | Pending |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-03-26T22:20:06.847Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-03-26T22:21:17.192Z"
 last_activity: 2026-03-26
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 ## Current Position
 
 Phase: 03 (ventas) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-26
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P01 | 600 | 2 tasks | 3 files |
 | Phase 02 P02 | 3 | 2 tasks | 2 files |
 | Phase 03 P03 | 80 | 1 tasks | 1 files |
+| Phase 03 P02 | 142 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,8 @@ Recent decisions affecting current work:
 - [Phase 02]: migrate_historico.py merges historico_ventas.json totals + historico_diario.json enriched breakdown into historico_ventas table
 - [Phase 03]: cliente_id set to None during ventas migration — FK resolution unreliable against live catalog
 - [Phase 03]: alias_usado mapped directly from alias column in ventas migration, None if column absent
+- [Phase 03]: _leer_ventas_postgres returns None (not []) on DB unavailability so callers can distinguish 'no data' from 'DB unavailable' for fallback logic
+- [Phase 03]: ventas_hoy uses three-tier fallback: Sheets (primary) -> Postgres -> Excel (last resort); all other read endpoints use two-tier: Postgres -> Excel
 
 ### Pending Todos
 
@@ -96,6 +99,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T22:20:06.836Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-03-26T22:21:17.176Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
