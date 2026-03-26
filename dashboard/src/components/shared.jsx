@@ -315,6 +315,9 @@ export function PeriodBtn({ children, active, onClick }) {
 
 export function StyledInput({ value, onChange, placeholder, style = {} }) {
   const t = useTheme()
+  // iOS Safari hace zoom en inputs con font-size < 16px — forzamos 16px en móvil
+  const isMob = typeof window !== 'undefined' && window.screen &&
+    Math.min(window.screen.width, window.screen.height) < 768
   return (
     <input
       value={value}
@@ -326,7 +329,7 @@ export function StyledInput({ value, onChange, placeholder, style = {} }) {
         color:        t.text,
         padding:      '7px 12px',
         borderRadius: 7,
-        fontSize:     11,
+        fontSize:     isMob ? 16 : 11,
         outline:      'none',
         fontFamily:   'inherit',
         transition:   'border-color .15s',

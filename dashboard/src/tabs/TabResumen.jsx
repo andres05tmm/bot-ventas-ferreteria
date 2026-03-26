@@ -172,9 +172,30 @@ function VendedorRow({ v, i, maxTotal, t }) {
   )
 }
 
+// Formatea cantidad + unidad de forma inteligente:
+// gramos → muestra en kg si ≥1000, si no en g
+// resto   → muestra con la etiqueta correcta (galón, mts, kg, uds…)
+function formatCantidadTop(unidades, unidad_medida) {
+  const u = (unidad_medida || 'Unidad').toLowerCase().replace('ó', 'o')
+  const esGramos = u === 'gramos' || u === 'grm' || u === 'g'
+  const esKg     = u === 'kg'
+  const esMts    = u === 'mts' || u === 'cms'
+  const esGalon  = u === 'galón' || u === 'galon' || u === 'lt' || u === 'lts'
+
+  if (esGramos) {
+    if (unidades >= 1000) return `${(unidades / 1000).toFixed(1).replace(/\.0$/, '')} kg`
+    return `${num(unidades)} g`
+  }
+  if (esKg)    return `${num(unidades)} kg`
+  if (esMts)   return `${num(unidades)} ${u}`
+  if (esGalon) return `${num(unidades)} gal`
+  return `${num(unidades)} uds`
+}
+
 function TopRow({ p, i, max, t }) {
   const pct = max > 0 ? Math.round((p.ingresos / max) * 100) : 0
   const color = TOP_COLORS[i] || t.textMuted
+  const cantLabel = formatCantidadTop(p.unidades, p.unidad_medida)
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: `1px solid ${t.border}` }}>
       <div style={{
@@ -195,8 +216,8 @@ function TopRow({ p, i, max, t }) {
           <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2 }} />
         </div>
       </div>
-      <span style={{ fontSize: 10, color: t.textMuted, minWidth: 36, textAlign: 'right' }}>
-        {num(p.unidades)} uds
+      <span style={{ fontSize: 10, color: t.textMuted, minWidth: 40, textAlign: 'right' }}>
+        {cantLabel}
       </span>
     </div>
   )

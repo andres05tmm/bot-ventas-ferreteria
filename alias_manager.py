@@ -36,6 +36,21 @@ _ALIASES_DEFAULT: dict[str, str] = {
     "sellador":     "sellante",
     "pagaternit":   "pegaternit",
     "pega ternit":  "pegaternit",
+    # ── Carbonato ─────────────────────────────────────────────
+    "cal":          "carbonato x kg",
+    # ── Enchufes ──────────────────────────────────────────────
+    "cofelca":         "enchufe cofelca",
+    "enchufe cofelca": "enchufe cofelca",
+    # ── Vinilo ICO ────────────────────────────────────────────
+    "vinilo ico":      "vinilo ico blanco",
+    "ico blanco":      "vinilo ico blanco",
+    "ico":             "vinilo ico blanco",
+    # ── Abreviaciones de puntillas ────────────────────────────
+    "cc":   "con cabeza",
+    "sc":   "sin cabeza",
+    # ── Tirafondo ─────────────────────────────────────────────
+    "tirafondo":       "tornillo tirafondo",
+    "tira fondo":      "tornillo tirafondo",
     # ── Cemento ───────────────────────────────────────────────
     "cemente gris": "cemento gris",
     # "cemento" solo (sin color) → gris por defecto, pero NO si dice "blanco"
@@ -196,6 +211,39 @@ def listar_aliases() -> str:
 # APLICAR ALIASES AL MENSAJE
 # ─────────────────────────────────────────────
 
+def _resolver_wayper(mensaje: str) -> str:
+    """
+    Resuelve la ambigüedad wayper kilo vs unidad ANTES de los aliases.
+
+    Regla del negocio:
+      - Sin indicador de peso  → UNIDAD  ("3 wayper de color" → WAYPER DE COLOR UNIDAD)
+      - Con kg/kilo/libra       → KG     ("2 kg wayper de color" → WAYPER DE COLOR)
+
+    Usa placeholders para evitar que el reemplazo genérico capture
+    lo que ya fue reemplazado por un patrón más específico.
+    """
+    import re as _re_w
+
+    _PESO = r'\b(kilo|kilos|kg|libra|libras|gramo|gramos)\b'
+    _tiene_peso = bool(_re_w.search(_PESO, mensaje, _re_w.IGNORECASE))
+
+    msg = mensaje
+    if _tiene_peso:
+        msg = _re_w.sub(r'\bwaypers?\s+de\s+colou?r\b', '__WPC_KG__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\s+colou?r\b',        '__WPC_KG__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\s+blancos?\b',       '__WPB_KG__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\b',                   '__WPB_KG__',  msg, flags=_re_w.IGNORECASE)
+        msg = msg.replace('__WPC_KG__', 'WAYPER DE COLOR').replace('__WPB_KG__', 'WAYPER BLANCO')
+    else:
+        msg = _re_w.sub(r'\bwaypers?\s+de\s+colou?r\b', '__WPC_U__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\s+colou?r\b',        '__WPC_U__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\s+blancos?\b',       '__WPB_U__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\b',                   '__WPB_U__',  msg, flags=_re_w.IGNORECASE)
+        msg = msg.replace('__WPC_U__', 'WAYPER DE COLOR UNIDAD').replace('__WPB_U__', 'WAYPER BLANCO UNIDAD')
+
+    return msg
+
+
 def aplicar_aliases_dinamicos(mensaje: str) -> str:
     """
     Reemplaza términos simples del mensaje usando aliases en RAM.
@@ -210,10 +258,8 @@ def aplicar_aliases_dinamicos(mensaje: str) -> str:
     # Combinar defaults + dinámicos (dinámicos tienen prioridad)
     todos = {**_ALIASES_DEFAULT, **aliases_activos}
 
-    if not todos:
-        return mensaje
-
-    resultado = mensaje
+    # Resolver wayper (kilo vs unidad) antes de los aliases generales
+    resultado = _resolver_wayper(mensaje)
     for termino, reemplazo in todos.items():
         # Word boundary para evitar falsos positivos
         patron = r'\b' + re.escape(termino) + r'\b'

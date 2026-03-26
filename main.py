@@ -28,7 +28,9 @@ from handlers.comandos import (
     comando_inv, comando_stock, comando_ajuste,
     comando_compra, comando_margenes,
 
-    comando_modelo)
+    comando_modelo,
+    comando_factura, comando_abonar, comando_deudas, comando_borrar_factura,
+)
 from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento, manejar_foto
 from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente, manejar_callback_foto
 from handlers.productos import comando_productos, manejar_callback_productos
@@ -39,6 +41,16 @@ def main():
     print(f"🚀 Iniciando FerreBot {config.VERSION}")
     sincronizar_archivos()
     inicializar_excel()
+
+    # Construir índice fuzzy al arrancar para que las búsquedas funcionen
+    try:
+        from fuzzy_match import construir_indice
+        from memoria import cargar_memoria as _cm_init
+        _mem_init = _cm_init()
+        construir_indice(_mem_init.get("catalogo", {}))
+        print(f"🔍 Índice fuzzy construido: {len(_mem_init.get('catalogo', {}))} productos")
+    except Exception as e:
+        print(f"⚠️ No se pudo construir índice fuzzy: {e}")
 
     if config.SHEETS_ID:
         print(f"📊 Google Sheets configurado: {config.SHEETS_ID}")
@@ -71,6 +83,10 @@ def main():
     app.add_handler(CommandHandler("ajuste",     comando_ajuste))
     app.add_handler(CommandHandler("compra",     comando_compra))
     app.add_handler(CommandHandler("margenes",   comando_margenes))
+    app.add_handler(CommandHandler("factura",    comando_factura))
+    app.add_handler(CommandHandler("abonar",     comando_abonar))
+    app.add_handler(CommandHandler("deudas",     comando_deudas))
+    app.add_handler(CommandHandler("borrar_factura", comando_borrar_factura))
     app.add_handler(CommandHandler("clientes",      comando_clientes))
     app.add_handler(CommandHandler("nuevo_cliente", comando_nuevo_cliente))
     app.add_handler(CommandHandler("grafica",    comando_grafica))

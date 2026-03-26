@@ -181,6 +181,8 @@ const CSS = `
     flex: 1; overflow-y: auto; overflow-x: hidden; padding: 14px 13px;
     display: flex; flex-direction: column; gap: 3px;
     background: #F7F6F4; scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
   .fw-msgs::-webkit-scrollbar { width: 3px; }
   .fw-msgs::-webkit-scrollbar-thumb { background: rgba(0,0,0,.1); border-radius: 4px; }
@@ -211,6 +213,7 @@ const CSS = `
   .fw-row { display: flex; flex-direction: column; animation: fw-msg .16s ease forwards; }
   .fw-row.u { align-items: flex-end;   margin-top: 7px; }
   .fw-row.b { align-items: flex-start; margin-top: 7px; }
+  .fw-bbl.briefing { border-left: 3px solid var(--fw-accent) !important; background: color-mix(in srgb, var(--fw-accent) 8%, transparent) !important; }
 
   .fw-bbl {
     max-width: 85%; padding: 9px 13px;
@@ -336,6 +339,12 @@ const CSS = `
     display: flex; gap: 7px; align-items: flex-end; flex-shrink: 0;
     border-radius: 0 0 22px 22px;
   }
+  @media (max-width: 767px) {
+    .fw-footer {
+      border-radius: 0;
+      padding-bottom: max(11px, env(safe-area-inset-bottom, 11px));
+    }
+  }
   .fw-iwrap {
     flex: 1; background: #F2F1EF; border-radius: 13px;
     border: 1.5px solid transparent; transition: border-color .15s, background .15s;
@@ -346,7 +355,7 @@ const CSS = `
     width: 100%; resize: none; border: none; background: transparent;
     padding: 8px 11px;
     font-family: 'DM Sans', system-ui, sans-serif;
-    font-size: 13.5px; line-height: 1.45; color: #1A1A1A; outline: none;
+    font-size: 16px; line-height: 1.45; color: #1A1A1A; outline: none;
     max-height: 96px; min-height: 36px; overflow-y: auto;
   }
   .fw-ta::placeholder { color: #B0ABA5; }
@@ -453,8 +462,8 @@ const CSS = `
       width: 100%;
       max-width: 100%;
       border-radius: 20px 20px 0 0;
-      height: 62vh;
-      max-height: 62vh;
+      height: calc(100dvh - 140px);
+      max-height: calc(100dvh - 140px);
     }
   }
 `
@@ -525,6 +534,9 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
   const [transcribiendo, setTranscribiendo] = useState(false)
   const [recSeconds, setRecSeconds]     = useState(0) // timer de grabación
 
+  // Mejora C: briefing matutino
+  const [briefingCargado, setBriefingCargado] = useState(false)
+
   const mediaRecRef  = useRef(null)
   const chunksRef    = useRef([])
   const recTimerRef  = useRef(null)  // interval del timer
@@ -547,6 +559,35 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 280)
   }, [open])
+
+  // Mejora C: pedir briefing la primera vez que se abre el chat en el día
+  useEffect(() => {
+    if (!open || briefingCargado) return
+    const hoy = new Date().toDateString()
+    const ultimoBriefing = sessionStorage.getItem('ferrebot_briefing_fecha')
+    if (ultimoBriefing === hoy) { setBriefingCargado(true); return }
+
+    setBriefingCargado(true)
+    sessionStorage.setItem('ferrebot_briefing_fecha', hoy)
+
+    fetch(`${API_BASE}/chat/briefing`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d?.ok || !d.briefing) return
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: `📋 ${d.fecha} — ${d.hora}
+
+${d.briefing}`,
+            ts: Date.now(),
+            briefing: true,
+          }
+        ])
+      })
+      .catch(() => {})
+  }, [open, briefingCargado])
 
   // ── Cleanup: abortar stream al desmontar o cerrar panel ────────────────────
   useEffect(() => {
@@ -914,8 +955,8 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
               const esError = m.isError && esBotUltimo
               return (
                 <div key={i} className={`fw-row ${m.role === 'user' ? 'u' : 'b'}`}>
-                  <div className={`fw-bbl ${m.role === 'user' ? 'u' : 'b'}`}>
-                    {m.content}
+                  <div className={`fw-bbl ${m.role === 'user' ? 'u' : 'b'} ${m.briefing ? 'briefing' : ''}`}>
+                    {m.content ?? m.text}
                   </div>
                   {/* Meta: hora + vendedor (user) o hora + modelo (bot) */}
                   <div className="fw-meta">

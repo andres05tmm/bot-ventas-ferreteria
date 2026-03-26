@@ -67,6 +67,13 @@ def invalidar_cache_memoria():
     global _cache
     with _cache_lock:
         _cache = None
+    # Reconstruir índice fuzzy para que productos nuevos sean encontrables
+    try:
+        from fuzzy_match import construir_indice
+        mem = cargar_memoria()
+        construir_indice(mem.get("catalogo", {}))
+    except Exception:
+        pass
 
 
 # ─────────────────────────────────────────────
@@ -515,28 +522,29 @@ def buscar_clave_inventario(termino: str) -> str | None:
 
 
 # ── Wayper: conversión kg ↔ unidades ────────────────────────────────────────
-# 1 kg = 12 unidades. El inventario siempre se lleva en UNIDADES.
-# Cuando se vende por kg (WAYPER BLANCO / WAYPER DE COLOR), se convierte a unidades.
-_WAYPER_KG_A_UNIDADES = 12  # unidades por kg
-
-_WAYPER_KG_A_UNIDAD_KEY = {
-    # producto vendido por kg → clave de inventario en unidades
-    "wayper blanco":   "wayper_blanco_unidad",
-    "wayper de color": "wayper_de_color_unidad",
+# Tabla de redirección de inventario para productos "vendidos diferente a como se almacenan".
+# Formato: nombre_producto_lower → (clave_inventario, factor)
+#   factor = multiplicador sobre la cantidad vendida para obtener la cantidad a descontar.
+#   Waypers: 1 kg vendido = 12 unidades descontadas  (factor 12)
+#   Carbonato: 1 kg vendido = 1 kg descontado de la bolsa (factor 1)
+_KG_INVENTARIO_LINKS: dict[str, tuple[str, float]] = {
+    "wayper blanco":   ("wayper_blanco_unidad",  12.0),
+    "wayper de color": ("wayper_de_color_unidad", 12.0),
+    # Carbonato x Kg descuenta de la bolsa de 25 kg (inventario en kg)
+    "carbonato x kg":  ("carbonato_x_25_kg",       1.0),
 }
 
 def _resolver_wayper_inventario(nombre_producto: str, cantidad: float) -> tuple[str | None, float]:
     """
-    Para waypers vendidos por kg: convierte a unidades y retorna la clave de inventario correcta.
-    Retorna (clave_inventario, cantidad_en_unidades) o (None, cantidad) si no es wayper por kg.
+    Para productos vendidos de forma distinta a como se almacenan, redirige
+    al inventario real y aplica el factor de conversión correspondiente.
+    Retorna (clave_inventario, cantidad_a_descontar) o (None, cantidad) si no aplica.
     """
     nombre_lower = nombre_producto.lower().strip()
-    for nombre_kg, clave_und in _WAYPER_KG_A_UNIDAD_KEY.items():
-        if nombre_lower == nombre_kg or nombre_lower.startswith(nombre_kg):
-            # Verificar que NO sea la variante "unidad" (esa ya está en unidades)
+    for nombre_ref, (clave_inv, factor) in _KG_INVENTARIO_LINKS.items():
+        if nombre_lower == nombre_ref or nombre_lower.startswith(nombre_ref):
             if "unidad" not in nombre_lower:
-                unidades = round(cantidad * _WAYPER_KG_A_UNIDADES, 2)
-                return clave_und, unidades
+                return clave_inv, round(cantidad * factor, 4)
     return None, cantidad
 
 
@@ -1168,3 +1176,133 @@ def actualizar_precio_en_excel_drive(
     """
     from precio_sync import actualizar_precio as _ap
     return _ap(nombre_producto, nuevo_precio, fraccion)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CUENTAS POR PAGAR (facturas de proveedores)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _siguiente_id_factura(mem: dict) -> str:
+    """Genera el próximo ID secuencial: FAC-001, FAC-002, ..."""
+    facturas = mem.get("cuentas_por_pagar", [])
+    if not facturas:
+        return "FAC-001"
+    # Extraer números existentes
+    import re as _re
+    nums = []
+    for f in facturas:
+        m = _re.match(r"FAC-(\d+)", f.get("id", ""))
+        if m:
+            nums.append(int(m.group(1)))
+    siguiente = max(nums) + 1 if nums else 1
+    return f"FAC-{siguiente:03d}"
+
+
+def registrar_factura_proveedor(
+    proveedor: str,
+    descripcion: str,
+    total: float,
+    fecha: str = None,
+    foto_url: str = "",
+    foto_nombre: str = "",
+) -> dict:
+    """
+    Registra una nueva factura de proveedor en memoria.json.
+    Retorna el dict de la factura creada.
+    """
+    from datetime import datetime as _dt
+    mem = cargar_memoria()
+    if "cuentas_por_pagar" not in mem:
+        mem["cuentas_por_pagar"] = []
+
+    fac_id = _siguiente_id_factura(mem)
+    hoy    = fecha or _dt.now(import_config_tz()).strftime("%Y-%m-%d")
+
+    factura = {
+        "id":          fac_id,
+        "proveedor":   proveedor.strip(),
+        "descripcion": descripcion.strip(),
+        "total":       float(total),
+        "pagado":      0.0,
+        "pendiente":   float(total),
+        "estado":      "pendiente",   # pendiente | parcial | pagada
+        "fecha":       hoy,
+        "foto_url":    foto_url,
+        "foto_nombre": foto_nombre,
+        "abonos":      [],             # historial de abonos
+    }
+    mem["cuentas_por_pagar"].append(factura)
+    guardar_memoria(mem, urgente=True)
+    return factura
+
+
+def registrar_abono_factura(
+    fac_id: str,
+    monto: float,
+    fecha: str = None,
+    foto_url: str = "",
+    foto_nombre: str = "",
+) -> dict:
+    """
+    Registra un abono a una factura existente.
+    Actualiza pagado/pendiente/estado.
+    Retorna {"ok": True/False, "factura": {...}, "error": "..."}
+    """
+    from datetime import datetime as _dt
+    mem = cargar_memoria()
+    facturas = mem.get("cuentas_por_pagar", [])
+
+    factura = next((f for f in facturas if f["id"].upper() == fac_id.upper()), None)
+    if not factura:
+        return {"ok": False, "error": f"Factura {fac_id} no encontrada"}
+
+    hoy = fecha or _dt.now(import_config_tz()).strftime("%Y-%m-%d")
+
+    abono = {
+        "fecha":       hoy,
+        "monto":       float(monto),
+        "foto_url":    foto_url,
+        "foto_nombre": foto_nombre,
+    }
+    factura["abonos"].append(abono)
+    factura["pagado"]    = round(factura["pagado"] + monto, 2)
+    factura["pendiente"] = round(factura["total"] - factura["pagado"], 2)
+
+    if factura["pendiente"] <= 0:
+        factura["estado"] = "pagada"
+        factura["pendiente"] = 0.0
+    elif factura["pagado"] > 0:
+        factura["estado"] = "parcial"
+
+    # También registrar en gastos del día como abono a proveedor
+    hoy_gastos = mem.setdefault("gastos", {}).setdefault(hoy, [])
+    hoy_gastos.append({
+        "concepto":  f"Abono {fac_id} - {factura['proveedor']}",
+        "monto":     float(monto),
+        "categoria": "abono_proveedor",
+        "origen":    "proveedor",
+        "hora":      _dt.now(import_config_tz()).strftime("%H:%M"),
+        "fac_id":    fac_id,
+    })
+
+    guardar_memoria(mem, urgente=True)
+    return {"ok": True, "factura": factura}
+
+
+def import_config_tz():
+    """Helper para no importar config a nivel de módulo aquí."""
+    try:
+        import config as _c
+        return _c.COLOMBIA_TZ
+    except Exception:
+        import pytz
+        return pytz.timezone("America/Bogota")
+
+
+def listar_facturas(solo_pendientes: bool = False) -> list:
+    """Retorna la lista de facturas, opcionalmente solo las no pagadas."""
+    mem = cargar_memoria()
+    facturas = mem.get("cuentas_por_pagar", [])
+    if solo_pendientes:
+        return [f for f in facturas if f.get("estado") != "pagada"]
+    return sorted(facturas, key=lambda f: f.get("fecha", ""), reverse=True)

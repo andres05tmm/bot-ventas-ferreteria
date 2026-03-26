@@ -22,6 +22,7 @@ from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
     _to_float, _cantidad_a_float, _stock_wayper,
 )
+from routers.caja import VentaRapidaPayload, VentaRapidaItem
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -100,19 +101,40 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
         mes = periodo == "mes"
         ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
 
-        por_producto: dict[str, dict] = defaultdict(lambda: {"unidades": 0.0, "ingresos": 0.0})
+        # Leer catálogo para obtener unidad_medida canónica de cada producto
+        cat_unidad: dict[str, str] = {}
+        if os.path.exists(config.MEMORIA_FILE):
+            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
+                _mem = json.load(_f)
+            for prod in _mem.get("catalogo", {}).values():
+                nombre_lower = (prod.get("nombre_lower") or prod.get("nombre", "")).lower().strip()
+                cat_unidad[nombre_lower] = prod.get("unidad_medida", "Unidad") or "Unidad"
+
+        por_producto: dict[str, dict] = {}
         for v in ventas:
             nombre = str(v.get("producto", "")).strip()
             if not nombre:
                 continue
-            cantidad = _cantidad_a_float(v.get("cantidad", 0))
-            total    = _to_float(v.get("total", 0))
-            por_producto[nombre]["unidades"] += cantidad
-            por_producto[nombre]["ingresos"] += total
+            cantidad  = _cantidad_a_float(v.get("cantidad", 0))
+            total     = _to_float(v.get("total", 0))
+            unidad_v  = str(v.get("unidad_medida", "") or "").strip()
 
+            if nombre not in por_producto:
+                unidad_cat = cat_unidad.get(nombre.lower(), "")
+                por_producto[nombre] = {
+                    "unidades":      0.0,
+                    "ingresos":      0.0,
+                    "frecuencia":    0,
+                    "unidad_medida": unidad_cat or unidad_v or "Unidad",
+                }
+            por_producto[nombre]["unidades"]   += cantidad
+            por_producto[nombre]["ingresos"]   += total
+            por_producto[nombre]["frecuencia"] += 1
+
+        # Ordenar por INGRESOS (no por unidades — evita que gramos inflen el ranking)
         ranking = sorted(
             [{"producto": k, **v} for k, v in por_producto.items()],
-            key=lambda x: x["unidades"],
+            key=lambda x: x["ingresos"],
             reverse=True,
         )[:10]
 

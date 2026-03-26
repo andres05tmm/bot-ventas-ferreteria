@@ -35,6 +35,7 @@ export default function TabHistoricoVentas() {
   const [año, setAño]   = useState(hoy.getFullYear())
   const [mes, setMes]   = useState(hoy.getMonth() + 1)
   const [celdas, setCeldas]       = useState({})
+  const [diario, setDiario]       = useState({})
   const [guardando, setGuardando] = useState(false)
   const [syncing, setSyncing]     = useState(false)
   const [msg, setMsg]             = useState(null)
@@ -44,16 +45,19 @@ export default function TabHistoricoVentas() {
   /* ── Cargar datos ──────────────────────────────────────────────────────── */
   const cargar = useCallback(() => {
     setLoading(true)
-    fetch(`${API_BASE}/historico/ventas?año=${año}&mes=${mes}`)
-      .then(r => r.ok ? r.json() : {})
-      .then(d => {
+    Promise.all([
+      fetch(`${API_BASE}/historico/ventas?año=${año}&mes=${mes}`).then(r => r.ok ? r.json() : {}),
+      fetch(`${API_BASE}/historico/diario?año=${año}&mes=${mes}`).then(r => r.ok ? r.json() : {}),
+    ])
+      .then(([ventas, diar]) => {
         const str = {}
-        Object.entries(d).forEach(([k, v]) => {
+        Object.entries(ventas).forEach(([k, v]) => {
           if (v && v > 0) str[k] = String(v)
         })
         setCeldas(str)
+        setDiario(diar || {})
       })
-      .catch(() => setCeldas({}))
+      .catch(() => { setCeldas({}); setDiario({}) })
       .finally(() => setLoading(false))
   }, [año, mes])
 
@@ -66,6 +70,17 @@ export default function TabHistoricoVentas() {
   const promedio   = diasVenta ? Math.round(totalMes / diasVenta) : 0
   const maxDia     = Math.max(...valores, 1)
   const mejorDia   = valores.length ? Math.max(...valores) : 0
+
+  // Totales de métodos de pago desde historico_diario
+  const totalEfectivo     = Object.values(diario).reduce((a, d) => a + (d.efectivo || 0), 0)
+  const totalTransferencia = Object.values(diario).reduce((a, d) => a + (d.transferencia || 0), 0)
+  const totalDatafono     = Object.values(diario).reduce((a, d) => a + (d.datafono || 0), 0)
+  const hayDesglose       = totalEfectivo > 0 || totalTransferencia > 0 || totalDatafono > 0
+
+  // Filas de la tabla ordenadas por fecha descendente
+  const filasTabla = Object.entries(diario)
+    .filter(([, d]) => d.ventas > 0)
+    .sort(([a], [b]) => b.localeCompare(a))
 
   /* ── Calendario ────────────────────────────────────────────────────────── */
   const numDias   = diasEnMes(mes, año)
@@ -164,8 +179,8 @@ export default function TabHistoricoVentas() {
     const i = intensidad(val, maxDia)
     if (i === 0) return 'transparent'
     // Mezclar con el accent del tema
-    const alpha = Math.round(0.08 + i * 0.22)  // 0.08 → 0.30
-    return `${t.accent}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`
+    const alpha = Math.round((0.08 + i * 0.22) * 255)  // FIX: faltaba × 255; antes siempre era 0 → transparente
+    return `${t.accent}${alpha.toString(16).padStart(2, '0')}`
   }
 
   /* ── Render ────────────────────────────────────────────────────────────── */
@@ -315,6 +330,77 @@ export default function TabHistoricoVentas() {
         </div>
       )}
 
+      {/* ── Métodos de pago (KPIs) ─────────────────────────────────────── */}
+      {hayDesglose && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: mobile ? '1fr 1fr' : 'repeat(3, 1fr)',
+          gap: 10, marginBottom: 16,
+        }}>
+          <KpiCard label="Efectivo"      value={cop(totalEfectivo)}      icon="💵" color={t.green}  />
+          <KpiCard label="Transferencia" value={cop(totalTransferencia)} icon="📲" color={t.blue}   />
+          <KpiCard label="Datáfono"      value={cop(totalDatafono)}      icon="💳" color={t.yellow} />
+        </div>
+      )}
+
+      {/* ── Tabla de desglose por día ──────────────────────────────────── */}
+      {filasTabla.length > 0 && (
+        <Card style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+          <div style={{
+            padding: '10px 14px', borderBottom: `1px solid ${t.border}`,
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>📋 Desglose por día</span>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: t.cardHover }}>
+                  {['Fecha','Ventas','Efectivo','Transf.','Datáfono','Gastos','Caja Neta'].map(h => (
+                    <th key={h} style={{
+                      padding: '8px 10px', textAlign: 'right', fontWeight: 600,
+                      color: t.textMuted, letterSpacing: '.03em', fontSize: 10,
+                      whiteSpace: 'nowrap',
+                      ...(h === 'Fecha' ? { textAlign: 'left' } : {}),
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filasTabla.map(([fecha, d], idx) => {
+                  const cajaNeta = (d.ventas || 0) - (d.gastos || 0) - (d.abonos_proveedores || 0)
+                  const bg = idx % 2 === 1 ? t.cardHover : 'transparent'
+                  return (
+                    <tr key={fecha} style={{ background: bg }}>
+                      <td style={{ padding: '7px 10px', color: t.textSub, fontWeight: 500 }}>
+                        {fecha.slice(5).replace('-', '/')}
+                      </td>
+                      <Td t={t} val={d.ventas}                color={t.text}   />
+                      <Td t={t} val={d.efectivo}              color={t.green}  />
+                      <Td t={t} val={d.transferencia}         color={t.blue}   />
+                      <Td t={t} val={d.datafono}              color={t.yellow} />
+                      <Td t={t} val={d.gastos}                color={d.gastos > 0 ? t.accent : t.textMuted} />
+                      <Td t={t} val={cajaNeta} bold           color={cajaNeta >= 0 ? t.green : t.accent} />
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: `2px solid ${t.border}`, background: t.cardHover }}>
+                  <td style={{ padding: '8px 10px', fontWeight: 700, color: t.text, fontSize: 11 }}>TOTAL</td>
+                  <Td t={t} val={totalMes}          bold color={t.text}   />
+                  <Td t={t} val={totalEfectivo}     bold color={t.green}  />
+                  <Td t={t} val={totalTransferencia} bold color={t.blue}  />
+                  <Td t={t} val={totalDatafono}     bold color={t.yellow} />
+                  <Td t={t} val={Object.values(diario).reduce((a, d) => a + (d.gastos || 0), 0)} bold color={t.accent} />
+                  <Td t={t} val={Object.values(diario).reduce((a, d) => a + (d.ventas || 0) - (d.gastos || 0) - (d.abonos_proveedores || 0), 0)} bold color={t.green} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </Card>
+      )}
+
       {/* ── Acciones ───────────────────────────────────────────────────── */}
       <Card style={{ padding: 14 }}>
         <div style={{
@@ -452,6 +538,22 @@ function DiaCell({ t, dia, valor, tieneVal, esHoy, esFuturo, editMode, heatBg, o
         }} />
       )}
     </div>
+  )
+}
+
+function Td({ t, val, color, bold }) {
+  const n = parseFloat(val) || 0
+  return (
+    <td style={{
+      padding: '7px 10px', textAlign: 'right',
+      color: n === 0 ? t.textMuted : (color || t.text),
+      fontWeight: bold ? 700 : 400,
+      fontVariantNumeric: 'tabular-nums',
+      opacity: n === 0 ? 0.4 : 1,
+      whiteSpace: 'nowrap',
+    }}>
+      {n === 0 ? '—' : cop(n)}
+    </td>
   )
 }
 

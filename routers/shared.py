@@ -152,27 +152,31 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
     return resultado
 
 
-# ── Wayper: stock unificado (inventario en unidades, venta en kg o unidades) ──
-_WAYPER_KG_A_UNIDAD = 12  # 1 kg = 12 unidades
+# ── Redirección de inventario: productos que se almacenan bajo otra clave ─────
+# Formato: clave_producto → (clave_inventario_real, divisor_para_mostrar_stock)
+#   Waypers: inventario en UNIDADES, se muestra en kg  (divisor = 12)
+#   Carbonato x Kg: inventario en KG en la bolsa, se muestra tal cual (divisor = 1)
 _WAYPER_KG_KEYS = {
-    "wayper_blanco":   "wayper_blanco_unidad",
-    "wayper_de_color": "wayper_de_color_unidad",
+    "wayper_blanco":   ("wayper_blanco_unidad",  12.0),
+    "wayper_de_color": ("wayper_de_color_unidad", 12.0),
+    # Carbonato por kilo → stock vive en la bolsa de 25 kg (en kg)
+    "carbonato_x_kg":  ("carbonato_x_25_kg",       1.0),
 }
 
 def _stock_wayper(key: str, inventario: dict):
     """
-    Para waypers por kg: muestra stock en kg (= unidades / 12).
-    Para waypers por unidad: muestra stock en unidades directamente.
+    Para productos cuyo inventario vive bajo otra clave, aplica la conversión
+    correspondiente y devuelve el stock en la unidad de venta.
+    Para el resto devuelve el stock directo.
     """
-    # Si es el producto "por kg", leer el stock de unidades y convertir
     if key in _WAYPER_KG_KEYS:
-        inv_und = inventario.get(_WAYPER_KG_KEYS[key])
-        if inv_und is not None:
-            und = inv_und.get("cantidad") if isinstance(inv_und, dict) else inv_und
-            if und is not None:
-                return round(und / _WAYPER_KG_A_UNIDAD, 2)  # kg
+        clave_inv, divisor = _WAYPER_KG_KEYS[key]
+        inv_raw = inventario.get(clave_inv)
+        if inv_raw is not None:
+            cantidad = inv_raw.get("cantidad") if isinstance(inv_raw, dict) else inv_raw
+            if cantidad is not None:
+                return round(cantidad / divisor, 2)
         return None
-    # Stock normal
     raw = inventario.get(key)
     if raw is None:
         return None
@@ -246,5 +250,3 @@ def _cantidad_a_float(val) -> float:
         except (ValueError, IndexError, ZeroDivisionError):
             return 0.0
     return 0.0
-
-

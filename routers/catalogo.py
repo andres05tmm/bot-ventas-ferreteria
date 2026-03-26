@@ -20,7 +20,7 @@ import config
 from sheets import sheets_leer_ventas_del_dia
 from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
-    _to_float, _cantidad_a_float, _stock_wayper,
+    _to_float, _cantidad_a_float, _stock_wayper, _WAYPER_KG_KEYS,
 )
 
 logger = logging.getLogger("ferrebot.api")
@@ -274,15 +274,29 @@ def crear_producto(body: NuevoProducto):
         mem["catalogo"]   = catalogo
         mem["inventario"] = inventario
 
-        # guardar_memoria sube a Drive automáticamente (urgente=True evita pérdida en reinicios)
+        # Guardar en disco primero (nunca falla)
+        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+
+        # Subida a Drive SINCRÓNICA para confirmar que no se pierde en reinicios
+        drive_ok = False
+        try:
+            from drive import _subir_con_service
+            import config as _cfg
+            service = _cfg.get_drive_service()
+            drive_ok = _subir_con_service(service, config.MEMORIA_FILE)
+        except Exception as e_drive:
+            logging.getLogger("ferrebot.api").warning(
+                f"[crear_producto] Drive upload falló para '{body.nombre}': {e_drive}"
+            )
+
+        # Actualizar caché RAM e índice fuzzy
         try:
             from memoria import guardar_memoria, invalidar_cache_memoria
-            guardar_memoria(mem, urgente=True)
+            guardar_memoria(mem, urgente=False)  # disco ya escrito, solo actualiza cache RAM
             invalidar_cache_memoria()
         except Exception:
-            # Fallback: escritura directa si el módulo no está disponible
-            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-                json.dump(mem, f, ensure_ascii=False, indent=2)
+            pass
 
         # Intentar escribir en el Excel de productos (no bloquea si falla)
         excel_resultado = {"ok": False, "error": "no intentado"}
@@ -309,6 +323,7 @@ def crear_producto(body: NuevoProducto):
             "precio_unidad":  nuevo["precio_unidad"],
             "unidad_medida":  unidad_norm,
             "stock_inicial":  body.stock_inicial,
+            "drive_guardado": drive_ok,
             "excel_guardado": excel_resultado.get("ok", False),
             "excel_detalle":  excel_resultado,
         }
@@ -476,6 +491,124 @@ def sync_catalogo_desde_excel():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/catalogo/agregar-a-excel")
+def agregar_producto_a_excel_endpoint():
+    """
+    Escribe en BASE_DE_DATOS_PRODUCTOS.xlsx los productos de memoria.json
+    que todavía no existen en el Excel.
+    Útil para agregar productos creados directamente en memoria.json.
+    """
+    try:
+        from precio_sync import agregar_producto_a_excel, _normalizar_unidad
+        import json
+
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+
+        # Leer nombres actuales del Excel para no duplicar
+        nombres_excel = set()
+        try:
+            from precio_sync import importar_catalogo_desde_excel as _imp
+            import tempfile as _tmp
+            from drive import descargar_de_drive as _ddl
+            with _tmp.NamedTemporaryFile(suffix=".xlsx", delete=False) as _t:
+                _ruta = _t.name
+            if _ddl("BASE_DE_DATOS_PRODUCTOS.xlsx", _ruta):
+                _res = _imp(_ruta)
+                # importar_catalogo_desde_excel devuelve los nombres de lo que importó
+                # Leer directamente del Excel para tener lista real de nombres
+                import openpyxl as _oxl
+                _wb = _oxl.load_workbook(_ruta, read_only=True, data_only=True)
+                _ws = _wb.active
+                for _r in _ws.iter_rows(min_row=2, values_only=True):
+                    if _r[1]:  # col B = Nombre
+                        nombres_excel.add(str(_r[1]).strip().lower())
+                _wb.close()
+            import os as _os; _os.unlink(_ruta)
+        except Exception:
+            pass
+
+        agregados  = []
+        omitidos   = []
+        errores    = []
+
+        for key, prod in catalogo.items():
+            nombre = prod.get("nombre", "").strip()
+            if not nombre:
+                continue
+            if nombre.lower() in {n.lower() for n in nombres_excel}:
+                omitidos.append(nombre)
+                continue
+            resultado = agregar_producto_a_excel({
+                "codigo":          prod.get("codigo", key),
+                "nombre":          nombre,
+                "categoria":       prod.get("categoria", ""),
+                "precio_unidad":   int(prod.get("precio_unidad", 0)),
+                "unidad_medida":   prod.get("unidad_medida", "Unidad"),
+                "inventariable":   True,
+                "visible_facturas": True,
+                "stock_minimo":    0,
+                "codigo_dian":     "94",
+            })
+            if resultado.get("ok"):
+                agregados.append(nombre)
+            else:
+                errores.append({"nombre": nombre, "error": resultado.get("error", "desconocido")})
+
+        return {
+            "ok":       True,
+            "agregados": agregados,
+            "omitidos":  len(omitidos),
+            "errores":   errores,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/catalogo/{key:path}/agregar-a-excel")
+def agregar_producto_especifico_a_excel(key: str):
+    """
+    Escribe UN producto específico (por su key) en BASE_DE_DATOS_PRODUCTOS.xlsx.
+    Útil para sincronizar un producto puntual creado directamente en memoria.json.
+    """
+    try:
+        from precio_sync import agregar_producto_a_excel
+        import json
+
+        with open(config.MEMORIA_FILE, encoding="utf-8") as f:
+            mem = json.load(f)
+        catalogo = mem.get("catalogo", {})
+
+        if key not in catalogo:
+            raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado en catálogo")
+
+        prod   = catalogo[key]
+        nombre = prod.get("nombre", "").strip()
+
+        resultado = agregar_producto_a_excel({
+            "codigo":          prod.get("codigo", key),
+            "nombre":          nombre,
+            "categoria":       prod.get("categoria", ""),
+            "precio_unidad":   int(prod.get("precio_unidad", 0)),
+            "unidad_medida":   prod.get("unidad_medida", "Unidad"),
+            "inventariable":   True,
+            "visible_facturas": True,
+            "stock_minimo":    0,
+            "codigo_dian":     "94",
+        })
+
+        if not resultado.get("ok"):
+            raise HTTPException(status_code=500, detail=resultado.get("error", "Error al escribir en Excel"))
+
+        return {"ok": True, "nombre": nombre, "fila": resultado.get("fila"), "excel_subido": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ── Estado de Resultados ──────────────────────────────────────────────────────
 @router.patch("/catalogo/{key:path}/mayorista")
 def actualizar_mayorista(key: str, body: MayoristaUpdate):
@@ -523,6 +656,9 @@ def actualizar_mayorista(key: str, body: MayoristaUpdate):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class StockUpdate(BaseModel):
+    stock: Union[float, int, None]
 
 @router.patch("/inventario/{key:path}/stock")
 def actualizar_stock(key: str, body: StockUpdate):
@@ -729,5 +865,3 @@ def eliminar_producto(key: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-

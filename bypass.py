@@ -487,7 +487,7 @@ def _frac_a_decimal(clave: str) -> float:
     return mapa.get(clave, 0.5)
 
 def _precio_segun_cantidad(prod: dict, cantidad: float) -> int:
-    """Retorna el precio unitario correcto según cantidad (mayorista o normal)."""
+    """Retorna el precio unitario correcto según cantidad (mayorista, fracción o normal)."""
     ppc = prod.get("precio_por_cantidad")
     if ppc:
         umbral = ppc.get("umbral", 50)
@@ -495,6 +495,18 @@ def _precio_segun_cantidad(prod: dict, cantidad: float) -> int:
             return int(ppc["precio_sobre_umbral"])
         else:
             return int(ppc["precio_bajo_umbral"])
+    # Precio fraccionado: si la cantidad es una fracción conocida y el producto
+    # tiene precios_fraccion, devolver el precio de esa fracción
+    fracs = prod.get("precios_fraccion", {})
+    if fracs and 0 < cantidad < 1:
+        _DEC_A_FRAC = {
+            0.75: "3/4", 0.5: "1/2", 0.25: "1/4",
+            0.125: "1/8", 0.0625: "1/16", 0.1: "1/10",
+        }
+        clave = _DEC_A_FRAC.get(round(cantidad, 4))
+        if clave and clave in fracs:
+            fv = fracs[clave]
+            return int(fv["precio"] if isinstance(fv, dict) else fv)
     return int(prod.get("precio_unidad", 0))
 
 
@@ -513,7 +525,10 @@ _PALABRAS_MULTILINEA_OK = {
 _ENCABEZADOS = re.compile(
     r'^(ventas?|venta|productos?|items?|fecha|marzo|abril|mayo|junio|julio|'
     r'agosto|septiembre|octubre|noviembre|diciembre|enero|febrero|'
-    r'lunes|martes|miercoles|jueves|viernes|sabado|domingo|\d{1,2}/\d{1,2}|\d{4})',
+    r'lunes|martes|miercoles|jueves|viernes|sabado|domingo|'
+    # Fecha tipo "1/4", "12/3" — solo si va seguida de espacio+año o fin de línea
+    # NO si va seguida de texto alfabético (sería fracción de producto)
+    r'\d{1,2}/\d{1,2}(?:/\d{2,4})?(?:\s*$|\s+\d{4})|\d{4})',
     re.IGNORECASE
 )
 
@@ -551,13 +566,33 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
             if palabra in linea_norm:
                 return None
 
-        # Patrón: cantidad + nombre (con soporte docenas/gruesas)
-        m = re.match(r'^(\d+)\s+(.+)$', linea.strip())
+        # Patrón: cantidad + nombre
+        # Acepta: enteros (3), fracciones (1/4, 3/4) y mixtos (1-1/2, 2-1/4)
+        m = re.match(
+            r'^(\d+[\-−]\d+/\d+|\d+/\d+|\d+)\s+(.+)$',
+            linea.strip()
+        )
         if not m:
             return None
 
-        cantidad_raw = int(m.group(1))
+        cantidad_str = m.group(1).strip()
         nombre_txt   = _norm(m.group(2).strip())
+
+        # Parsear cantidad (entero, fracción o mixto)
+        _FRAC_MAP = {"1/2":0.5,"1/4":0.25,"3/4":0.75,"1/8":0.125,"1/16":0.0625,"2/3":0.667,"1/3":0.333}
+        if "/" in cantidad_str:
+            # Fracción mixta: "1-1/2" o "2-1/4"
+            _mf = re.match(r"^(\d+)[\-−](\d+/\d+)$", cantidad_str)
+            if _mf:
+                _frac_val = _FRAC_MAP.get(_mf.group(2), 0)
+                cantidad_raw = int(_mf.group(1)) + _frac_val
+            else:
+                cantidad_raw = _FRAC_MAP.get(cantidad_str, 0)
+        else:
+            cantidad_raw = int(cantidad_str)
+
+        if not cantidad_raw:
+            return None
 
         # Aplicar aliases dinámicos (corrige typos: drwayll→drywall, tiner→thinner, etc.)
         try:
@@ -618,6 +653,16 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
         if _total_grm_override is not None:
             total = _total_grm_override
             precio = int(_total_grm_override / cantidad) if cantidad > 0 else precio  # precio por gramo
+        elif 0 < cantidad < 1:
+            # Fracción: precio ya es el precio DE esa fracción (no multiplicar)
+            fracs = prod.get("precios_fraccion", {})
+            _DEC_A_FRAC = {0.75:"3/4", 0.5:"1/2", 0.25:"1/4", 0.125:"1/8", 0.0625:"1/16"}
+            clave = _DEC_A_FRAC.get(round(cantidad, 4))
+            if clave and clave in fracs:
+                fv = fracs[clave]
+                total = int(fv["precio"] if isinstance(fv, dict) else fv)
+            else:
+                total = round(cantidad * prod.get("precio_unidad", 0))
         else:
             total = cantidad * precio
         es_mayorista = (
