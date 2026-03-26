@@ -195,12 +195,17 @@ def _sync_historico_hoy() -> dict:
             }
             with open(_diario_file, "w", encoding="utf-8") as _fh:
                 _json.dump(_diario, _fh, ensure_ascii=False, indent=2)
-        # Drive upload fuera del lock (puede tardar)
-        try:
-            from drive import subir_a_drive_urgente
-            subir_a_drive_urgente(_diario_file)
-        except Exception:
-            pass
+        # Postgres write (datos enriquecidos del día)
+        _guardar_diario_postgres(hoy, {
+            "ventas":             monto,
+            "efectivo":           round(efectivo, 2),
+            "transferencia":      round(transferencia, 2),
+            "datafono":           round(datafono, 2),
+            "n_transacciones":    n_trans,
+            "gastos":             round(gastos_dia, 2),
+            "abonos_proveedores": round(abonos_dia, 2),
+        })
+        # ELIMINADO (HIS-04): ya no se sube historico_diario.json a Drive
     except Exception:
         pass
 
@@ -224,6 +229,102 @@ def _sync_historico_hoy() -> dict:
 
 
 # ── Helpers internos ──────────────────────────────────────────────────────────
+
+# ── Postgres helpers (HIS-01 a HIS-04) ───────────────────────────────────────
+
+def _leer_historico_postgres() -> dict:
+    """Lee historico_ventas desde Postgres. Retorna {fecha_str: monto} o {} si no disponible."""
+    try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            return {}
+        rows = _db.query_all("SELECT fecha, ventas FROM historico_ventas ORDER BY fecha")
+        return {str(row["fecha"]): int(row["ventas"]) for row in rows}
+    except Exception as e:
+        logger.warning("Error leyendo historico de Postgres: %s", e)
+        return {}
+
+
+def _leer_diario_postgres(año: int = 0, mes: int = 0) -> dict:
+    """Lee desglose diario desde historico_ventas en Postgres. Retorna {fecha_str: {ventas, efectivo, ...}}."""
+    try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            return {}
+        if año and mes:
+            rows = _db.query_all(
+                "SELECT * FROM historico_ventas WHERE fecha >= %s AND fecha < (%s::date + interval '1 month') ORDER BY fecha",
+                (f"{año}-{mes:02d}-01", f"{año}-{mes:02d}-01")
+            )
+        elif año:
+            rows = _db.query_all(
+                "SELECT * FROM historico_ventas WHERE fecha >= %s AND fecha < %s ORDER BY fecha",
+                (f"{año}-01-01", f"{año + 1}-01-01")
+            )
+        else:
+            rows = _db.query_all("SELECT * FROM historico_ventas ORDER BY fecha")
+        result = {}
+        for r in rows:
+            result[str(r["fecha"])] = {
+                "ventas":             int(r.get("ventas", 0)),
+                "efectivo":           int(r.get("efectivo", 0)),
+                "transferencia":      int(r.get("transferencia", 0)),
+                "datafono":           int(r.get("datafono", 0)),
+                "n_transacciones":    int(r.get("n_transacciones", 0)),
+                "gastos":             int(r.get("gastos", 0)),
+                "abonos_proveedores": int(r.get("abonos_proveedores", 0)),
+            }
+        return result
+    except Exception as e:
+        logger.warning("Error leyendo diario de Postgres: %s", e)
+        return {}
+
+
+def _guardar_historico_postgres(data: dict) -> None:
+    """UPSERT all historico entries to Postgres. Non-fatal."""
+    try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            return
+        for fecha, monto in data.items():
+            _db.execute(
+                """INSERT INTO historico_ventas (fecha, ventas)
+                   VALUES (%s, %s)
+                   ON CONFLICT (fecha) DO UPDATE SET
+                     ventas = EXCLUDED.ventas,
+                     updated_at = NOW()""",
+                (fecha, int(monto))
+            )
+    except Exception as e:
+        logger.warning("Error guardando historico en Postgres: %s", e)
+
+
+def _guardar_diario_postgres(fecha: str, datos: dict) -> None:
+    """UPSERT one day's enriched data to historico_ventas in Postgres. Non-fatal."""
+    try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            return
+        _db.execute(
+            """INSERT INTO historico_ventas (fecha, ventas, efectivo, transferencia, datafono, n_transacciones, gastos, abonos_proveedores)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (fecha) DO UPDATE SET
+                 ventas = EXCLUDED.ventas,
+                 efectivo = EXCLUDED.efectivo,
+                 transferencia = EXCLUDED.transferencia,
+                 datafono = EXCLUDED.datafono,
+                 n_transacciones = EXCLUDED.n_transacciones,
+                 gastos = EXCLUDED.gastos,
+                 abonos_proveedores = EXCLUDED.abonos_proveedores,
+                 updated_at = NOW()""",
+            (fecha, int(datos.get("ventas", 0)), int(datos.get("efectivo", 0)),
+             int(datos.get("transferencia", 0)), int(datos.get("datafono", 0)),
+             int(datos.get("n_transacciones", 0)), int(datos.get("gastos", 0)),
+             int(datos.get("abonos_proveedores", 0)))
+        )
+    except Exception as e:
+        logger.warning("Error guardando diario en Postgres: %s", e)
+
 
 def _excel_a_dict(ruta: str) -> dict:
     """
@@ -476,10 +577,15 @@ def _leer_historico_de_excel() -> dict:
 
 def _leer_historico() -> dict:
     """
-    Lee historial: primero intenta Excel de Drive (fuente de verdad),
-    luego JSON local como fallback.
+    Lee historial: primero Postgres (nueva fuente de verdad),
+    luego Excel de Drive (fuente legacy), luego JSON local como fallback.
     """
-    # 1. Excel en Drive (fuente de verdad)
+    # 1. Postgres (nueva fuente de verdad)
+    pg_data = _leer_historico_postgres()
+    if pg_data:
+        return pg_data
+
+    # 2. Excel en Drive (fuente legacy de verdad)
     data = _leer_historico_de_excel()
     if data:
         # Actualizar caché JSON local
@@ -490,7 +596,7 @@ def _leer_historico() -> dict:
             pass
         return data
 
-    # 2. JSON local como fallback
+    # 3. JSON local como fallback
     if os.path.exists(HISTORICO_FILE):
         try:
             with open(HISTORICO_FILE, encoding="utf-8") as f:
@@ -498,7 +604,7 @@ def _leer_historico() -> dict:
         except Exception:
             pass
 
-    # 3. JSON en Drive como último recurso
+    # 4. JSON en Drive como último recurso
     try:
         from drive import descargar_de_drive
         if descargar_de_drive(HISTORICO_FILE, HISTORICO_FILE):
@@ -510,25 +616,22 @@ def _leer_historico() -> dict:
 
 def _guardar_historico(data: dict) -> None:
     """
-    Guarda en JSON local + Excel local, y sube ambos a Drive.
-    Excel es la fuente de verdad — siempre se regenera completo.
+    Guarda en Postgres (nueva fuente de verdad) + JSON local (cache) + Excel local.
+    Drive uploads de historico JSON/Excel ELIMINADOS (HIS-04).
     Protegido con _historico_lock para evitar corrupción por escrituras concurrentes.
     """
+    # 1. Postgres (nueva fuente de verdad)
+    _guardar_historico_postgres(data)
+
     with _historico_lock:
-        # 1. JSON local (caché rápida para el API)
+        # 2. JSON local (caché rápida para fallback)
         with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-        # 2. Excel local (fuente de verdad editable)
+        # 3. Excel local (para descarga manual, NO se sube a Drive)
         _dict_a_excel(data, HISTORICO_EXCEL)
 
-    # 3. Subir ambos a Drive (fuera del lock — puede tardar sin bloquear lecturas)
-    try:
-        from drive import subir_a_drive_urgente
-        subir_a_drive_urgente(HISTORICO_FILE)
-        subir_a_drive_urgente(HISTORICO_EXCEL)
-    except Exception:
-        pass
+    # ELIMINADO (HIS-04): ya no se suben historico_ventas.json ni historico_ventas.xlsx a Drive
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
@@ -598,11 +701,7 @@ def historico_sincronizar_excel():
         with _historico_lock:
             with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        try:
-            from drive import subir_a_drive_urgente
-            subir_a_drive_urgente(HISTORICO_FILE)
-        except Exception:
-            pass
+        # ELIMINADO (HIS-04): ya no se sube historico_ventas.json a Drive
         return {"ok": True, "registros": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -629,13 +728,19 @@ def historico_resumen():
 def historico_diario_get(año: int = 0, mes: int = 0):
     """
     Retorna el desglose diario (efectivo, transferencia, datáfono, gastos, abonos).
-    Fuente: historico_diario.json local, con fallback desde Drive.
+    Fuente: primero Postgres, luego historico_diario.json local, con fallback desde Drive.
     """
     import json as _json
+
+    # 1. Postgres (nueva fuente de verdad)
+    pg_diario = _leer_diario_postgres(año, mes)
+    if pg_diario:
+        return pg_diario
+
     _diario_file = "historico_diario.json"
     diario = {}
 
-    # 1. Local
+    # 2. Local JSON
     if os.path.exists(_diario_file):
         try:
             with open(_diario_file, encoding="utf-8") as fh:
@@ -643,7 +748,7 @@ def historico_diario_get(año: int = 0, mes: int = 0):
         except Exception:
             pass
 
-    # 2. Fallback Drive
+    # 3. Fallback Drive
     if not diario:
         try:
             from drive import descargar_de_drive
@@ -728,11 +833,8 @@ def historico_corregir_dia(body: CorreccionDia):
                 }
                 with open(_diario_file, "w", encoding="utf-8") as fh:
                     _json.dump(diario, fh, ensure_ascii=False, indent=2)
-            try:
-                from drive import subir_a_drive_urgente
-                subir_a_drive_urgente(_diario_file)
-            except Exception:
-                pass
+            _guardar_diario_postgres(body.fecha, diario[body.fecha])
+            # ELIMINADO (HIS-04): ya no se sube historico_diario.json a Drive
         except Exception as e:
             logger.warning(f"[corregir-dia] No se pudo actualizar desglose: {e}")
 
@@ -844,12 +946,10 @@ def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
         with open(_diario_file, "w", encoding="utf-8") as fh:
             _json.dump(diario, fh, ensure_ascii=False, indent=2)
 
-    # Subir a Drive
-    try:
-        from drive import subir_a_drive_urgente
-        subir_a_drive_urgente(_diario_file)
-    except Exception:
-        pass
+    # Postgres write (datos enriquecidos por día reconstruido)
+    for fecha, vals in diario.items():
+        _guardar_diario_postgres(fecha, vals)
+    # ELIMINADO (HIS-04): ya no se sube historico_diario.json a Drive
 
     # Regenerar Excel del histórico con el desglose ya reconstruido
     try:
