@@ -101,7 +101,7 @@
       "nombre": "Rodillo Convencional",
       "nombre_lower": "rodillo convencional",
       "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 7000,
+      "precio_unidad": 8000,
       "unidad_medida": "Unidad",
       "codigo": "1rodilloconven"
     },
@@ -385,13 +385,21 @@
       "unidad_medida": "Unidad",
       "codigo": "1brocamuro5x8"
     },
-    "disco_de_corte_metal_7": {
-      "nombre": "Disco de Corte Metal 7\"",
-      "nombre_lower": "disco de corte metal 7\"",
+    "disco_de_corte_3-1/2_hierro": {
+      "nombre": "Disco de corte 3-1/2 Hierro",
+      "nombre_lower": "disco de corte 3-1/2 hierro",
       "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 7500,
+      "precio_unidad": 3500,
       "unidad_medida": "Unidad",
-      "codigo": "1discocortem7"
+      "codigo": "1discodecorte3-1/2hierro"
+    },
+    "disco_carboflash": {
+      "nombre": "disco carboflash",
+      "nombre_lower": "disco carboflash",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 3500,
+      "unidad_medida": "Unidad",
+      "codigo": "1carboflash"
     },
     "disco_de_corte_metal_4": {
       "nombre": "Disco de Corte Metal 4\"",
@@ -424,6 +432,22 @@
       "precio_unidad": 7500,
       "unidad_medida": "Unidad",
       "codigo": "1discodiamantecon4"
+    },
+    "plato_para_disco_de_pulidora": {
+      "nombre": "Plato para Disco de Pulidora",
+      "nombre_lower": "plato para disco de pulidora",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 16000,
+      "unidad_medida": "Unidad",
+      "codigo": "1platoparadiscodepulidora"
+    },
+    "disco_de_corte_metal_7": {
+      "nombre": "Disco de Corte Metal 7\"",
+      "nombre_lower": "disco de corte metal 7\"",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 7500,
+      "unidad_medida": "Unidad",
+      "codigo": "1discocortem7"
     },
     "cinta_pele_s": {
       "nombre": "Cinta Pele S",
@@ -551,7 +575,7 @@
       "categoria": "1 Artículos de Ferreteria",
       "precio_unidad": 2000,
       "unidad_medida": "Unidad",
-      "codigo": "3cintpegantepequeña"
+      "codigo": "1cintpegantepequeña"
     },
     "cinta_pegante_grande": {
       "nombre": "CINTA PEGANTE GRANDE",
@@ -641,13 +665,13 @@
       "unidad_medida": "Unidad",
       "codigo": "1fallebacadena3"
     },
-    "bisagraalmillar": {
-      "nombre": "BISAGRAALMILLAR",
-      "nombre_lower": "bisagraalmillar",
+    "bisagra_comun_1-1/2_latonada": {
+      "nombre": "BISAGRA COMUN 1-1/2 LATONADA",
+      "nombre_lower": "bisagra comun 1-1/2 latonada",
       "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 3000,
+      "precio_unidad": 2500,
       "unidad_medida": "Unidad",
-      "codigo": "1BISAGRAALMILLAR"
+      "codigo": "1bisagracomun1-1/2latonada"
     },
     "bisagras_2x2_par": {
       "nombre": "BISAGRAS 2X2 PAR",
@@ -681,6 +705,14 @@
       "unidad_medida": "Unidad",
       "codigo": "1bisagra3x3aceroinoxidable"
     },
+    "bisagra_omega_3-1/2_acero": {
+      "nombre": "BISAGRA OMEGA 3-1/2 ACERO",
+      "nombre_lower": "bisagra omega 3-1/2 acero",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 15000,
+      "unidad_medida": "Unidad",
+      "codigo": "1bisagraomega3-1/2acero"
+    },
     "bisagra_de_parche": {
       "nombre": "BISAGRA DE PARCHE",
       "nombre_lower": "bisagra de parche",
@@ -689,21 +721,13 @@
       "unidad_medida": "Unidad",
       "codigo": "1bisagradeparche"
     },
-    "bisagra_comun_1-1/2_latonada": {
-      "nombre": "BISAGRA COMUN 1-1/2 LATONADA",
-      "nombre_lower": "bisagra comun 1-1/2 latonada",
+    "bisagraalmillar": {
+      "nombre": "BISAGRAALMILLAR",
+      "nombre_lower": "bisagraalmillar",
       "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 2500,
+      "precio_unidad": 3000,
       "unidad_medida": "Unidad",
-      "codigo": "1bisagracomun1-1/2latonada"
-    },
-    "bisagra_omega_3-1/2_acero": {
-      "nombre": "BISAGRA OMEGA 3-1/2 ACERO",
-      "nombre_lower": "bisagra omega 3-1/2 acero",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 15000,
-      "unidad_medida": "Unidad",
-      "codigo": "1bisagraomega3-1/2acero"
+      "codigo": "1BISAGRAALMILLAR"
     },
     "curva_conduit": {
       "nombre": "Curva Conduit",
@@ -837,7 +861,7 @@
       "nombre": "Manguera de Jardín",
       "nombre_lower": "manguera de jardin",
       "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 1500,
+      "precio_unidad": 1800,
       "unidad_medida": "Unidad",
       "codigo": "1mangueradejardin"
     },
@@ -905,30 +929,6 @@
       "unidad_medida": "Unidad",
       "codigo": "1prielesx50"
     },
-    "brilla_metal_grande": {
-      "nombre": "Brilla Metal Grande",
-      "nombre_lower": "brilla metal grande",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 5000,
-      "unidad_medida": "Unidad",
-      "codigo": "1brillametalgr"
-    },
-    "brilla_metal_pequeno": {
-      "nombre": "Brilla Metal Pequeño",
-      "nombre_lower": "brilla metal pequeno",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 3000,
-      "unidad_medida": "Unidad",
-      "codigo": "1brillametalpeq"
-    },
-    "brilla_metal": {
-      "nombre": "BRILLA METAL",
-      "nombre_lower": "brilla metal",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 5500,
-      "unidad_medida": "Unidad",
-      "codigo": "1brillametal"
-    },
     "espatula_plastica_pequena": {
       "nombre": "Espatula Plastica Pequeña",
       "nombre_lower": "espatula plastica pequena",
@@ -952,6 +952,30 @@
       "precio_unidad": 2000,
       "unidad_medida": "Unidad",
       "codigo": "1espatulaplastgr"
+    },
+    "brilla_metal_pequeno": {
+      "nombre": "Brilla Metal Pequeño",
+      "nombre_lower": "brilla metal pequeno",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 3000,
+      "unidad_medida": "Unidad",
+      "codigo": "1brillametalpeq"
+    },
+    "brilla_metal_grande": {
+      "nombre": "Brilla Metal Grande",
+      "nombre_lower": "brilla metal grande",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 5000,
+      "unidad_medida": "Unidad",
+      "codigo": "1brillametalgr"
+    },
+    "brilla_metal": {
+      "nombre": "BRILLA METAL",
+      "nombre_lower": "brilla metal",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 5500,
+      "unidad_medida": "Unidad",
+      "codigo": "1brillametal"
     },
     "wayper_blanco": {
       "nombre": "WAYPER BLANCO",
@@ -1011,7 +1035,7 @@
       "categoria": "1 Artículos de Ferreteria",
       "precio_unidad": 18000,
       "unidad_medida": "Unidad",
-      "codigo": "1Soldadura6011"
+      "codigo": "3Soldadura6011"
     },
     "soldadura_60/11_delgada": {
       "nombre": "SOLDADURA 60/11 DELGADA",
@@ -1093,22 +1117,6 @@
       "unidad_medida": "Unidad",
       "codigo": "1machetel"
     },
-    "metro_de_3m": {
-      "nombre": "Metro de 3m",
-      "nombre_lower": "metro de 3m",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 5000,
-      "unidad_medida": "Unidad",
-      "codigo": "1metro3m"
-    },
-    "metro_de_5m": {
-      "nombre": "Metro de 5m",
-      "nombre_lower": "metro de 5m",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 8000,
-      "unidad_medida": "Unidad",
-      "codigo": "1metro5m"
-    },
     "llave_de_ducha_lavacabeza": {
       "nombre": "Llave de ducha (lavacabeza)",
       "nombre_lower": "llave de ducha (lavacabeza)",
@@ -1124,6 +1132,46 @@
       "precio_unidad": 11000,
       "unidad_medida": "Unidad",
       "codigo": "1llaveajustable"
+    },
+    "metro_de_3m": {
+      "nombre": "Metro de 3m",
+      "nombre_lower": "metro de 3m",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 5000,
+      "unidad_medida": "Unidad",
+      "codigo": "1metro3m"
+    },
+    "metro_de_3": {
+      "nombre": "Metro de 3",
+      "nombre_lower": "metro de 3",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 5500,
+      "unidad_medida": "Unidad",
+      "codigo": "1metrode3"
+    },
+    "metro_de_5m": {
+      "nombre": "Metro de 5m",
+      "nombre_lower": "metro de 5m",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 8000,
+      "unidad_medida": "Unidad",
+      "codigo": "1metro5m"
+    },
+    "metro_de_5_economico": {
+      "nombre": "Metro de 5 Economico",
+      "nombre_lower": "metro de 5 economico",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 8500,
+      "unidad_medida": "Unidad",
+      "codigo": "1metrode5eco"
+    },
+    "metro_de_8": {
+      "nombre": "Metro de 8",
+      "nombre_lower": "metro de 8",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 22000,
+      "unidad_medida": "Unidad",
+      "codigo": "1metrode8"
     },
     "carpincol_de_tetero": {
       "nombre": "Carpincol de Tetero",
@@ -1237,6 +1285,54 @@
       "unidad_medida": "Unidad",
       "codigo": "1simbra"
     },
+    "rodachina_de_1-1/2": {
+      "nombre": "Rodachina de 1-1/2",
+      "nombre_lower": "rodachina de 1-1/2",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 3500,
+      "unidad_medida": "Unidad",
+      "codigo": "1rodachinade1-1/2"
+    },
+    "rodachina_de_1-1/2_con_frenos": {
+      "nombre": "Rodachina de 1-1/2 Con Frenos",
+      "nombre_lower": "rodachina de 1-1/2 con frenos",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 4500,
+      "unidad_medida": "Unidad",
+      "codigo": "1rodachinade1-1/2confrenos"
+    },
+    "rodachina_de_2": {
+      "nombre": "Rodachina de 2",
+      "nombre_lower": "rodachina de 2",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 4000,
+      "unidad_medida": "Unidad",
+      "codigo": "1rodachinade2"
+    },
+    "rodachina_de_2_con_frenos": {
+      "nombre": "Rodachina de 2 Con Frenos",
+      "nombre_lower": "rodachina de 2 con frenos",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 5500,
+      "unidad_medida": "Unidad",
+      "codigo": "1rodachinade2confrenos"
+    },
+    "rodachina_de_3": {
+      "nombre": "Rodachina de 3",
+      "nombre_lower": "rodachina de 3",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 8000,
+      "unidad_medida": "Unidad",
+      "codigo": "1rodachinade3"
+    },
+    "rodachina_de_3_con_frenos": {
+      "nombre": "Rodachina de 3 con Frenos",
+      "nombre_lower": "rodachina de 3 con frenos",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 12000,
+      "unidad_medida": "Unidad",
+      "codigo": "1rodachinade3confrenos"
+    },
     "regadera": {
       "nombre": "Regadera",
       "nombre_lower": "regadera",
@@ -1276,6 +1372,46 @@
       "precio_unidad": 4000,
       "unidad_medida": "Unidad",
       "codigo": "1rollodepita"
+    },
+    "paquete_de_zunchos": {
+      "nombre": "Paquete de Zunchos",
+      "nombre_lower": "paquete de zunchos",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 3000,
+      "unidad_medida": "Unidad",
+      "codigo": "1paqzunchos"
+    },
+    "rollos_nylon": {
+      "nombre": "Rollos Nylon",
+      "nombre_lower": "rollos nylon",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 5000,
+      "unidad_medida": "Rollo",
+      "codigo": "1rollosnylon"
+    },
+    "boxer_x_botella_60cm": {
+      "nombre": "Boxer X Botella 60cm³",
+      "nombre_lower": "boxer x botella 60cm",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 3000,
+      "unidad_medida": "Unidad",
+      "codigo": "1boxerxbot60cm³"
+    },
+    "boxer_x_botella_120cm": {
+      "nombre": "Boxer X Botella 120cm³",
+      "nombre_lower": "boxer x botella 120cm",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 5000,
+      "unidad_medida": "Unidad",
+      "codigo": "1boxerxbot120cm³"
+    },
+    "boxer_x_botella_375cm": {
+      "nombre": "Boxer x Botella 375cm³",
+      "nombre_lower": "boxer x botella 375cm",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 12000,
+      "unidad_medida": "Botella",
+      "codigo": "1boxerbotella375"
     },
     "boxer_x_botella": {
       "nombre": "Boxer X Botella",
@@ -1389,43 +1525,61 @@
       "unidad_medida": "Unidad",
       "codigo": "1aguastop"
     },
-    "plafon_losa": {
-      "nombre": "PLAFON LOSA",
-      "nombre_lower": "plafon losa",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 5000,
+    "angulo_metalico_3/4": {
+      "nombre": "Angulo Metalico 3/4",
+      "nombre_lower": "angulo metalico 3/4",
+      "categoria": "4 Impermeabilizantes y Materiales de Construcción",
+      "precio_unidad": 300,
       "unidad_medida": "Unidad",
-      "codigo": "1plafonlosa"
+      "codigo": "1angulometalico3/4"
     },
-    "vinilo_davinci_t1_aguamarina": {
-      "nombre": "Vinilo Davinci T1 Aguamarina",
-      "nombre_lower": "vinilo davinci t1 aguamarina",
-      "categoria": "2 Pinturas y Disolventes",
-      "precio_unidad": 50000,
-      "unidad_medida": "Galón",
-      "codigo": "2vdavincit1aguamarina",
-      "precios_fraccion": {
-        "3/4": {
-          "precio": 40000,
-          "decimal": 0.75
-        },
-        "1/2": {
-          "precio": 26000,
-          "decimal": 0.5
-        },
-        "1/4": {
-          "precio": 15000,
-          "decimal": 0.25
-        },
-        "1/8": {
-          "precio": 9000,
-          "decimal": 0.125
-        },
-        "1/16": {
-          "precio": 5000,
-          "decimal": 0.0625
-        }
-      }
+    "racor_hembra_3/8": {
+      "nombre": "Racor Hembra 3/8",
+      "nombre_lower": "racor hembra 3/8",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 4000,
+      "unidad_medida": "Unidad",
+      "codigo": "1racorhembra3/8"
+    },
+    "adaptador_macho_1/2": {
+      "nombre": "Adaptador Macho 1/2",
+      "nombre_lower": "adaptador macho 1/2",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 1000,
+      "unidad_medida": "Unidad",
+      "codigo": "1adaptadormach12"
+    },
+    "sifon_manguera_de_lavaplatos": {
+      "nombre": "Sifon Manguera de Lavaplatos",
+      "nombre_lower": "sifon manguera de lavaplatos",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 15000,
+      "unidad_medida": "Unidad",
+      "codigo": "1sifonmangueralavaplatos"
+    },
+    "silicona_transparente_x_tubo": {
+      "nombre": "Silicona Transparente X Tubo",
+      "nombre_lower": "silicona transparente x tubo",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 14000,
+      "unidad_medida": "Unidad",
+      "codigo": "1siliconatransparentextubo"
+    },
+    "tapa_inodoro": {
+      "nombre": "Tapa Inodoro",
+      "nombre_lower": "tapa inodoro",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 27000,
+      "unidad_medida": "Unidad",
+      "codigo": "1tapainodoro"
+    },
+    "toma_doble_rojo": {
+      "nombre": "Toma Doble Rojo",
+      "nombre_lower": "toma doble rojo",
+      "categoria": "5 Materiales Electricos",
+      "precio_unidad": 10000,
+      "unidad_medida": "Unidad",
+      "codigo": "5tomadoblrojo"
     },
     "vinilo_davinci_t1_amarillo_oro": {
       "nombre": "Vinilo Davinci T1 Amarillo Oro",
@@ -6027,6 +6181,30 @@
         }
       }
     },
+    "p-7_1/4": {
+      "nombre": "P-7 1/4",
+      "nombre_lower": "p-7 1/4",
+      "categoria": "2 Pinturas y Disolventes",
+      "precio_unidad": 13500,
+      "unidad_medida": "Unidad",
+      "codigo": "2p-7-1/4"
+    },
+    "color_preparado_gris": {
+      "nombre": "Color Preparado Gris",
+      "nombre_lower": "color preparado gris",
+      "categoria": "2 Pinturas y Disolventes",
+      "precio_unidad": 30000,
+      "unidad_medida": "Galón",
+      "codigo": "2colorprepgris"
+    },
+    "p-7": {
+      "nombre": "P-7",
+      "nombre_lower": "p-7",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 13500,
+      "unidad_medida": "Unidad",
+      "codigo": "1p7"
+    },
     "tinte_caoba": {
       "nombre": "Tinte Caoba",
       "nombre_lower": "tinte caoba",
@@ -6119,7 +6297,7 @@
       "categoria": "2 Pinturas y Disolventes",
       "precio_unidad": 9000,
       "unidad_medida": "Unidad",
-      "codigo": "2aerosolvioleta"
+      "codigo": "2aerosolvioletajstools"
     },
     "aceite_penetrante_310_gr": {
       "nombre": "Aceite PENETRANTE 310 GR",
@@ -6134,7 +6312,7 @@
       "nombre_lower": "colbon",
       "categoria": "2 Pinturas y Disolventes",
       "precio_unidad": 40000,
-      "unidad_medida": "Unidad",
+      "unidad_medida": "Galón",
       "codigo": "2colbon"
     },
     "vinilico_blanco": {
@@ -7110,21 +7288,29 @@
       "unidad_medida": "GRM",
       "codigo": "3puntilla3/4pulgsin"
     },
-    "puntilla_1": {
-      "nombre": "PUNTILLA 1\"",
-      "nombre_lower": "puntilla 1\"",
+    "puntilla_1_con_cabeza": {
+      "nombre": "PUNTILLA 1\" CON CABEZA",
+      "nombre_lower": "puntilla 1\" con cabeza",
       "categoria": "3 Tornilleria",
       "precio_unidad": 7000,
       "unidad_medida": "GRM",
-      "codigo": "3puntilla1pulg"
+      "codigo": "3puntilla1pulgcon"
     },
     "puntilla_1_sin_cabeza": {
       "nombre": "PUNTILLA 1\" SIN CABEZA",
       "nombre_lower": "puntilla 1\" sin cabeza",
       "categoria": "3 Tornilleria",
-      "precio_unidad": 7500,
+      "precio_unidad": 7000,
       "unidad_medida": "GRM",
       "codigo": "3puntilla1pulgsin"
+    },
+    "puntilla_1-1/2_con_cabeza": {
+      "nombre": "PUNTILLA 1-1/2\" CON CABEZA",
+      "nombre_lower": "puntilla 1-1/2\" con cabeza",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 5000,
+      "unidad_medida": "Gramos",
+      "codigo": "3puntilla1-1/2pulgcon"
     },
     "puntilla_1-1/2_sin_cabeza": {
       "nombre": "PUNTILLA 1-1/2\" SIN CABEZA",
@@ -7190,6 +7376,46 @@
       "unidad_medida": "GRM",
       "codigo": "3puntilla5pulgcon"
     },
+    "clavo_de_acero_1-1/2": {
+      "nombre": "CLAVO DE ACERO 1-1/2\"",
+      "nombre_lower": "clavo de acero 1-1/2\"",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 100,
+      "unidad_medida": "Unidad",
+      "codigo": "3clavoacero15"
+    },
+    "clavo_de_acero_2": {
+      "nombre": "CLAVO DE ACERO 2\"",
+      "nombre_lower": "clavo de acero 2\"",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 200,
+      "unidad_medida": "Unidad",
+      "codigo": "3clavoacero2"
+    },
+    "tornillo_tirafondo_3/4": {
+      "nombre": "TORNILLO TIRAFONDO 3/4",
+      "nombre_lower": "tornillo tirafondo 3/4",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 72,
+      "unidad_medida": "Unidad",
+      "codigo": "3tirafondo34"
+    },
+    "tornillo_autoperforante_1/2": {
+      "nombre": "TORNILLO AUTOPERFORANTE 1/2",
+      "nombre_lower": "tornillo autoperforante 1/2",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 63,
+      "unidad_medida": "Unidad",
+      "codigo": "3tornautop12"
+    },
+    "tornillos_5x5_1/2": {
+      "nombre": "TORNILLOS 5X5 1/2\"",
+      "nombre_lower": "tornillos 5x5 1/2\"",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 1000,
+      "unidad_medida": "Unidad",
+      "codigo": "3tornillos5X51/2"
+    },
     "arandela_galv._5/32": {
       "nombre": "ARANDELA GALV. 5/32",
       "nombre_lower": "arandela galv. 5/32",
@@ -7206,13 +7432,13 @@
       "unidad_medida": "Unidad",
       "codigo": "3arandelas5/32"
     },
-    "arandelas_hex_3/4_galbanizada": {
-      "nombre": "ARANDELAS HEX 3/4 GALBANIZADA",
-      "nombre_lower": "arandelas hex 3/4 galbanizada",
+    "arandelas_hex_1/4_galvanizadas": {
+      "nombre": "Arandelas Hex 1/4 Galvanizadas",
+      "nombre_lower": "arandelas hex 1/4 galvanizadas",
       "categoria": "3 Tornilleria",
-      "precio_unidad": 800,
+      "precio_unidad": 200,
       "unidad_medida": "Unidad",
-      "codigo": "3arandelasgalbanizada3/4"
+      "codigo": "3arandelashex1/4galvanizadas"
     },
     "arandelas_hex_5/16_galbanizada": {
       "nombre": "ARANDELAS HEX 5/16 GALBANIZADA",
@@ -7222,6 +7448,14 @@
       "unidad_medida": "Unidad",
       "codigo": "3arandelasgalbanizada5/16"
     },
+    "arandelas_hex_5/16_galvanizada": {
+      "nombre": "ARANDELAS HEX 5/16 GALVANIZADA",
+      "nombre_lower": "arandelas hex 5/16 galvanizada",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 200,
+      "unidad_medida": "Unidad",
+      "codigo": "3arandelasgalva5/16"
+    },
     "arandelas_1/2": {
       "nombre": "ARANDELAS 1/2",
       "nombre_lower": "arandelas 1/2",
@@ -7230,13 +7464,13 @@
       "unidad_medida": "Unidad",
       "codigo": "3arandelas1/2"
     },
-    "arandelas_hex_5/16_galvanizada": {
-      "nombre": "ARANDELAS HEX 5/16 GALVANIZADA",
-      "nombre_lower": "arandelas hex 5/16 galvanizada",
+    "arandelas_hex_3/4_galbanizada": {
+      "nombre": "ARANDELAS HEX 3/4 GALBANIZADA",
+      "nombre_lower": "arandelas hex 3/4 galbanizada",
       "categoria": "3 Tornilleria",
-      "precio_unidad": 200,
+      "precio_unidad": 800,
       "unidad_medida": "Unidad",
-      "codigo": "3arandelasgalva5/16"
+      "codigo": "3arandelasgalbanizada3/4"
     },
     "arandelas_hex_3/4_galvanizada": {
       "nombre": "ARANDELAS HEX 3/4 GALVANIZADA",
@@ -7246,38 +7480,6 @@
       "unidad_medida": "Unidad",
       "codigo": "3arandelasgalv3/4"
     },
-    "tuercas_hex_7/16_galbanizada": {
-      "nombre": "TUERCAS HEX 7/16 GALBANIZADA",
-      "nombre_lower": "tuercas hex 7/16 galbanizada",
-      "categoria": "3 Tornilleria",
-      "precio_unidad": 600,
-      "unidad_medida": "Unidad",
-      "codigo": "3tuercashexgalbanizada7/16"
-    },
-    "tuercas_hex_3/8_galbanizada": {
-      "nombre": "TUERCAS HEX 3/8 GALBANIZADA",
-      "nombre_lower": "tuercas hex 3/8 galbanizada",
-      "categoria": "3 Tornilleria",
-      "precio_unidad": 400,
-      "unidad_medida": "Unidad",
-      "codigo": "3tuercashexgalbanizada3/8"
-    },
-    "tuercas_hex_5/8_galbanizada": {
-      "nombre": "TUERCAS HEX 5/8 GALBANIZADA",
-      "nombre_lower": "tuercas hex 5/8 galbanizada",
-      "categoria": "3 Tornilleria",
-      "precio_unidad": 800,
-      "unidad_medida": "Unidad",
-      "codigo": "3tuercashexgalbanizada5/8"
-    },
-    "tuercas_hex_3/4_galbanizada": {
-      "nombre": "TUERCAS HEX 3/4 GALBANIZADA",
-      "nombre_lower": "tuercas hex 3/4 galbanizada",
-      "categoria": "3 Tornilleria",
-      "precio_unidad": 1000,
-      "unidad_medida": "Unidad",
-      "codigo": "3tuercashexgalbanizada3/4"
-    },
     "tuerca_una_1/4": {
       "nombre": "TUERCA UÑA 1/4",
       "nombre_lower": "tuerca una 1/4",
@@ -7285,14 +7487,6 @@
       "precio_unidad": 150,
       "unidad_medida": "Unidad",
       "codigo": "3tuercauña1/4"
-    },
-    "tuercas_1/2": {
-      "nombre": "TUERCAS 1/2",
-      "nombre_lower": "tuercas 1/2",
-      "categoria": "3 Tornilleria",
-      "precio_unidad": 1000,
-      "unidad_medida": "Unidad",
-      "codigo": "3tuercas1/2"
     },
     "tuercas_hex_5/16_galbanizada": {
       "nombre": "TUERCAS HEX 5/16 GALBANIZADA",
@@ -7302,13 +7496,21 @@
       "unidad_medida": "Unidad",
       "codigo": "3tuercashexgalbanizada5/16"
     },
-    "tuercas_hex_7/16_galvanizada": {
-      "nombre": "TUERCAS HEX 7/16 GALVANIZADA",
-      "nombre_lower": "tuercas hex 7/16 galvanizada",
+    "tuercas_hex_5/16_galvanizada": {
+      "nombre": "TUERCAS HEX 5/16 GALVANIZADA",
+      "nombre_lower": "tuercas hex 5/16 galvanizada",
       "categoria": "3 Tornilleria",
-      "precio_unidad": 600,
+      "precio_unidad": 200,
       "unidad_medida": "Unidad",
-      "codigo": "3tuercashexgalv7/16"
+      "codigo": "3tuercashexgalv5/16"
+    },
+    "tuercas_hex_3/8_galbanizada": {
+      "nombre": "TUERCAS HEX 3/8 GALBANIZADA",
+      "nombre_lower": "tuercas hex 3/8 galbanizada",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 400,
+      "unidad_medida": "Unidad",
+      "codigo": "3tuercashexgalbanizada3/8"
     },
     "tuercas_hex_3/8_galvanizada": {
       "nombre": "TUERCAS HEX 3/8 GALVANIZADA",
@@ -7318,6 +7520,38 @@
       "unidad_medida": "Unidad",
       "codigo": "3tuercashexgalv3/8"
     },
+    "tuercas_hex_7/16_galbanizada": {
+      "nombre": "TUERCAS HEX 7/16 GALBANIZADA",
+      "nombre_lower": "tuercas hex 7/16 galbanizada",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 600,
+      "unidad_medida": "Unidad",
+      "codigo": "3tuercashexgalbanizada7/16"
+    },
+    "tuercas_hex_7/16_galvanizada": {
+      "nombre": "TUERCAS HEX 7/16 GALVANIZADA",
+      "nombre_lower": "tuercas hex 7/16 galvanizada",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 600,
+      "unidad_medida": "Unidad",
+      "codigo": "3tuercashexgalv7/16"
+    },
+    "tuercas_1/2": {
+      "nombre": "TUERCAS 1/2",
+      "nombre_lower": "tuercas 1/2",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 1000,
+      "unidad_medida": "Unidad",
+      "codigo": "3tuercas1/2"
+    },
+    "tuercas_hex_5/8_galbanizada": {
+      "nombre": "TUERCAS HEX 5/8 GALBANIZADA",
+      "nombre_lower": "tuercas hex 5/8 galbanizada",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 800,
+      "unidad_medida": "Unidad",
+      "codigo": "3tuercashexgalbanizada5/8"
+    },
     "tuercas_hex_5/8_galvanizada": {
       "nombre": "TUERCAS HEX 5/8 GALVANIZADA",
       "nombre_lower": "tuercas hex 5/8 galvanizada",
@@ -7326,6 +7560,14 @@
       "unidad_medida": "Unidad",
       "codigo": "3tuercashexgalv5/8"
     },
+    "tuercas_hex_3/4_galbanizada": {
+      "nombre": "TUERCAS HEX 3/4 GALBANIZADA",
+      "nombre_lower": "tuercas hex 3/4 galbanizada",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 1000,
+      "unidad_medida": "Unidad",
+      "codigo": "3tuercashexgalbanizada3/4"
+    },
     "tuercas_hex_3/4_galvanizada": {
       "nombre": "TUERCAS HEX 3/4 GALVANIZADA",
       "nombre_lower": "tuercas hex 3/4 galvanizada",
@@ -7333,22 +7575,6 @@
       "precio_unidad": 1000,
       "unidad_medida": "Unidad",
       "codigo": "3tuercashexgalv3/4"
-    },
-    "tuercas_hex_5/16_galvanizada": {
-      "nombre": "TUERCAS HEX 5/16 GALVANIZADA",
-      "nombre_lower": "tuercas hex 5/16 galvanizada",
-      "categoria": "3 Tornilleria",
-      "precio_unidad": 200,
-      "unidad_medida": "Unidad",
-      "codigo": "3tuercashexgalv5/16"
-    },
-    "tornillos_5x5_1/2": {
-      "nombre": "TORNILLOS 5X5 1/2\"",
-      "nombre_lower": "tornillos 5x5 1/2\"",
-      "categoria": "3 Tornilleria",
-      "precio_unidad": 1000,
-      "unidad_medida": "Unidad",
-      "codigo": "3tornillos5X51/2"
     },
     "cemente_gris": {
       "nombre": "Cemente Gris",
@@ -7372,7 +7598,7 @@
       "categoria": "4 Impermeabilizantes y Materiales de construcción",
       "precio_unidad": 26000,
       "unidad_medida": "Kg",
-      "codigo": "4Carbonato"
+      "codigo": "4Carbonatox25kg"
     },
     "yeso": {
       "nombre": "Yeso",
@@ -7420,7 +7646,7 @@
       "categoria": "4 Impermeabilizantes y Materiales de construcción",
       "precio_unidad": 60000,
       "unidad_medida": "Unidad",
-      "codigo": "4cuñetemasilla"
+      "codigo": "2cuñetemasilla"
     },
     "masilla_mastick": {
       "nombre": "Masilla Mastick",
@@ -7564,7 +7790,13 @@
       "categoria": "4 Impermeabilizantes y Materiales de construcción",
       "precio_unidad": 13000,
       "unidad_medida": "Kg",
-      "codigo": "4acronal"
+      "codigo": "4acronal",
+      "precios_fraccion": {
+        "1/2": {
+          "precio": 7000,
+          "decimal": 0.5
+        }
+      }
     },
     "amoniaco_sin_olor_base": {
       "nombre": "Amoniaco sin Olor (Base)",
@@ -7593,10 +7825,10 @@
     "canaleta_electrica": {
       "nombre": "CANALETA ELECTRICA",
       "nombre_lower": "canaleta electrica",
-      "categoria": "5 Materiales Electricos",
+      "categoria": "4 Impermeabilizantes y Materiales de construcción",
       "precio_unidad": 4500,
       "unidad_medida": "Unidad",
-      "codigo": "5canaletaelectrica"
+      "codigo": "4canaletaelectrica"
     },
     "paraguita": {
       "nombre": "Paragüita",
@@ -7629,6 +7861,14 @@
       "precio_unidad": 2500,
       "unidad_medida": "Mts",
       "codigo": "5cablen12"
+    },
+    "interruptor_+_toma": {
+      "nombre": "INTERRUPTOR + TOMA",
+      "nombre_lower": "interruptor + toma",
+      "categoria": "5 Materiales Electricos",
+      "precio_unidad": 6000,
+      "unidad_medida": "Unidad",
+      "codigo": "5interruptor+toma"
     },
     "interruptor_s/p": {
       "nombre": "INTERRUPTOR S/P",
@@ -7690,7 +7930,7 @@
       "nombre": "Enchufe de Caucho M",
       "nombre_lower": "enchufe de caucho m",
       "categoria": "5 Materiales Electricos",
-      "precio_unidad": 5000,
+      "precio_unidad": 5500,
       "unidad_medida": "Unidad",
       "codigo": "5enchufedecauchomed"
     },
@@ -7798,6 +8038,260 @@
       "unidad_medida": "Unidad",
       "codigo": "5cuña50amp"
     },
+    "varsol": {
+      "nombre": "Varsol",
+      "nombre_lower": "varsol",
+      "categoria": "2 Pinturas y Disolventes",
+      "precio_unidad": 26000,
+      "unidad_medida": "Galón",
+      "codigo": "2varsol",
+      "precios_fraccion": {
+        "3/4": {
+          "precio": 15000,
+          "decimal": 0.75
+        },
+        "1/2": {
+          "precio": 6500,
+          "decimal": 0.5
+        },
+        "1/4": {
+          "precio": 2000,
+          "decimal": 0.25
+        },
+        "1/8": {
+          "precio": 625,
+          "decimal": 0.125
+        },
+        "1/16": {
+          "precio": 156,
+          "decimal": 0.0625
+        }
+      }
+    },
+    "test_dashboard_2": {
+      "nombre": "test dashboard 2",
+      "nombre_lower": "test dashboard 2",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 500,
+      "unidad_medida": "Unidad",
+      "codigo": "1testdashboard2"
+    },
+    "boton_de_madera": {
+      "nombre": "boton de madera",
+      "nombre_lower": "boton de madera",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 1000,
+      "unidad_medida": "Unidad",
+      "codigo": "1botondemadera"
+    },
+    "broca_3/8": {
+      "nombre": "broca 3/8",
+      "nombre_lower": "broca 3/8",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 10000,
+      "unidad_medida": "Unidad",
+      "codigo": "1broca3/8"
+    },
+    "pita_atafacil": {
+      "nombre": "Pita Atafacil",
+      "nombre_lower": "pita atafacil",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 200,
+      "unidad_medida": "Mts",
+      "codigo": "1pitaatafacil"
+    },
+    "manija_pequena": {
+      "nombre": "Manija Pequeña",
+      "nombre_lower": "manija pequena",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 2000,
+      "unidad_medida": "Unidad",
+      "codigo": "1manijapequeña"
+    },
+    "pegante_pvc": {
+      "nombre": "Pegante PVC",
+      "nombre_lower": "pegante pvc",
+      "categoria": "4 Impermeabilizantes y Materiales de Construcción",
+      "precio_unidad": 3000,
+      "unidad_medida": "Unidad",
+      "codigo": "4pegantepvc"
+    },
+    "union_1/4": {
+      "nombre": "Union 1/4",
+      "nombre_lower": "union 1/4",
+      "categoria": "4 Impermeabilizantes y Materiales de Construcción",
+      "precio_unidad": 1000,
+      "unidad_medida": "Unidad",
+      "codigo": "4union1/4"
+    },
+    "union_pvc_1/2": {
+      "nombre": "Union PVC 1/2",
+      "nombre_lower": "union pvc 1/2",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 1000,
+      "unidad_medida": "Unidad",
+      "codigo": "1unionpvc12"
+    },
+    "pegante_ceramico_x_bolsa": {
+      "nombre": "Pegante Ceramico X bolsa",
+      "nombre_lower": "pegante ceramico x bolsa",
+      "categoria": "4 Impermeabilizantes y Materiales de Construcción",
+      "precio_unidad": 20000,
+      "unidad_medida": "Unidad",
+      "codigo": "4peganteceramicoxbolsa"
+    },
+    "espatula_metalica": {
+      "nombre": "Espátula Metalica",
+      "nombre_lower": "espatula metalica",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 3000,
+      "unidad_medida": "Unidad",
+      "codigo": "1espatulametalica"
+    },
+    "racor_de_manguera": {
+      "nombre": "Racor de Manguera",
+      "nombre_lower": "racor de manguera",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 1000,
+      "unidad_medida": "Unidad",
+      "codigo": "1racordemanguera"
+    },
+    "hilo_nailo": {
+      "nombre": "Hilo Nailo",
+      "nombre_lower": "hilo nailo",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 5000,
+      "unidad_medida": "Unidad",
+      "codigo": "1hilonailo"
+    },
+    "removedor": {
+      "nombre": "Removedor",
+      "nombre_lower": "removedor",
+      "categoria": "2 Pinturas y Disolventes",
+      "precio_unidad": 80000,
+      "unidad_medida": "Galón",
+      "codigo": "2removedor"
+    },
+    "enchufe_cofelca": {
+      "nombre": "Enchufe Cofelca",
+      "nombre_lower": "enchufe cofelca",
+      "categoria": "5 Materiales Electricos",
+      "precio_unidad": 5500,
+      "unidad_medida": "Unidad",
+      "codigo": "5enchufecofelca"
+    },
+    "carbonato_x_kg": {
+      "nombre": "Carbonato x Kg",
+      "nombre_lower": "carbonato x kg",
+      "categoria": "4 Impermeabilizantes y Materiales de Construcción",
+      "precio_unidad": 2000,
+      "unidad_medida": "Kg",
+      "codigo": "4carbonatoxkg"
+    },
+    "gafas_oscuras": {
+      "nombre": "Gafas Oscuras",
+      "nombre_lower": "gafas oscuras",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 3000,
+      "unidad_medida": "Unidad",
+      "codigo": "1gafasoscuras"
+    },
+    "tornillo_de_lamina_8x3/4": {
+      "nombre": "Tornillo de Lámina 8x3/4",
+      "nombre_lower": "tornillo de lamina 8x3/4",
+      "categoria": "3 Tornilleria",
+      "precio_unidad": 83,
+      "unidad_medida": "Unidad",
+      "codigo": "3tornillodelamina8x3/4"
+    },
+    "juego_de_carbon": {
+      "nombre": "Juego de Carbon",
+      "nombre_lower": "juego de carbon",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 9000,
+      "unidad_medida": "Unidad",
+      "codigo": "1juegodecarbon"
+    },
+    "manguera_de_estufa": {
+      "nombre": "Manguera de Estufa",
+      "nombre_lower": "manguera de estufa",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 15000,
+      "unidad_medida": "Unidad",
+      "codigo": "1mangueraestufa"
+    },
+    "rollo_teflon": {
+      "nombre": "Rollo Teflon",
+      "nombre_lower": "rollo teflon",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 1000,
+      "unidad_medida": "Unidad",
+      "codigo": "1rolloteflon"
+    },
+    "codo_galvanizado_3/8": {
+      "nombre": "Codo Galvanizado 3/8",
+      "nombre_lower": "codo galvanizado 3/8",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 3500,
+      "unidad_medida": "Unidad",
+      "codigo": "1codogalvanizado3/8"
+    },
+    "codo_galvanizado_1/2": {
+      "nombre": "Codo Galvanizado 1/2",
+      "nombre_lower": "codo galvanizado 1/2",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 4000,
+      "unidad_medida": "Unidad",
+      "codigo": "1codogalv12"
+    },
+    "manguera_de_1/2": {
+      "nombre": "Manguera de 1/2",
+      "nombre_lower": "manguera de 1/2",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 1700,
+      "unidad_medida": "Mts",
+      "codigo": "1manguerade1/2"
+    },
+    "base_catalizada_blanco": {
+      "nombre": "Base catalizada blanco",
+      "nombre_lower": "base catalizada blanco",
+      "categoria": "2 Pinturas y Disolventes",
+      "precio_unidad": 80000,
+      "unidad_medida": "Galón",
+      "codigo": "2basecatalizadablanco"
+    },
+    "tirador_de_boton": {
+      "nombre": "Tirador de boton",
+      "nombre_lower": "tirador de boton",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 2000,
+      "unidad_medida": "Unidad",
+      "codigo": "1tiradordeboton"
+    },
+    "rally": {
+      "nombre": "rally",
+      "nombre_lower": "rally",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 4000,
+      "unidad_medida": "Unidad",
+      "codigo": "1rally"
+    },
+    "silicona_en_aerosol": {
+      "nombre": "Silicona en Aerosol",
+      "nombre_lower": "silicona en aerosol",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 9000,
+      "unidad_medida": "Unidad",
+      "codigo": "1siliconaenaerosoltransparente"
+    },
+    "cancamo": {
+      "nombre": "cancamo",
+      "nombre_lower": "cancamo",
+      "categoria": "1 Artículos de Ferreteria",
+      "precio_unidad": 300,
+      "unidad_medida": "Unidad",
+      "codigo": "1cancamo"
+    },
     "cepillo_de_acero": {
       "nombre": "cepillo de acero",
       "nombre_lower": "cepillo de acero",
@@ -7814,92 +8308,13 @@
       "unidad_medida": "Unidad",
       "codigo": "1exactoeconomico"
     },
-    "codo_galvanizado_de_1/2": {
-      "nombre": "Codo Galvanizado de 1/2",
-      "nombre_lower": "codo galvanizado de 1/2",
+    "test_1_bot": {
+      "nombre": "test 1 bot",
+      "nombre_lower": "test 1 bot",
       "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 4000,
+      "precio_unidad": 999,
       "unidad_medida": "Unidad",
-      "codigo": "1codogalvanizado1/2"
-    },
-    "racos_p/p_macho": {
-      "nombre": "Racos P/P Macho",
-      "nombre_lower": "racos p/p macho",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 7500,
-      "unidad_medida": "Unidad",
-      "codigo": "1racosp/pmacho"
-    },
-    "cancamos": {
-      "nombre": "Cancamos",
-      "nombre_lower": "cancamos",
-      "categoria": "3 Tornilleria",
-      "precio_unidad": 300,
-      "unidad_medida": "Unidad",
-      "codigo": "2cancamos"
-    },
-    "angulo_metalico_3/4": {
-      "nombre": "Angulo Metalico 3/4",
-      "nombre_lower": "angulo metalico 3/4",
-      "categoria": "4 Impermeabilizantes y Materiales de Construcción",
-      "precio_unidad": 300,
-      "unidad_medida": "Unidad"
-    },
-    "racor_hembra_3/8": {
-      "nombre": "Racor Hembra 3/8",
-      "nombre_lower": "racor hembra 3/8",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 4000,
-      "unidad_medida": "Unidad"
-    },
-    "rodachina_de_3": {
-      "nombre": "Rodachina de 3",
-      "nombre_lower": "rodachina de 3",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 8000,
-      "unidad_medida": "Unidad"
-    },
-    "rodachina_de_3_con_frenos": {
-      "nombre": "Rodachina de 3 con Frenos",
-      "nombre_lower": "rodachina de 3 con frenos",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 12000,
-      "unidad_medida": "Unidad"
-    },
-    "sifon_manguera_de_lavaplatos": {
-      "nombre": "Sifon Manguera de Lavaplatos",
-      "nombre_lower": "sifon manguera de lavaplatos",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 15000,
-      "unidad_medida": "Unidad"
-    },
-    "silicona_transparente_x_tubo": {
-      "nombre": "Silicona Transparente X Tubo",
-      "nombre_lower": "silicona transparente x tubo",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 14000,
-      "unidad_medida": "Unidad"
-    },
-    "tapa_inodoro": {
-      "nombre": "Tapa Inodoro",
-      "nombre_lower": "tapa inodoro",
-      "categoria": "1 Artículos de Ferreteria",
-      "precio_unidad": 27000,
-      "unidad_medida": "Unidad"
-    },
-    "toma_doble_rojo": {
-      "nombre": "Toma Doble Rojo",
-      "nombre_lower": "toma doble rojo",
-      "categoria": "5 Materiales Electricos",
-      "precio_unidad": 10000,
-      "unidad_medida": "Unidad"
-    },
-    "interruptor_+_toma": {
-      "nombre": "Interruptor + Toma",
-      "nombre_lower": "interruptor + toma",
-      "categoria": "5 Materiales Electricos",
-      "precio_unidad": 6000,
-      "unidad_medida": "Unidad"
+      "codigo": "test1bot"
     }
   },
   "negocio": {},
@@ -8078,6 +8493,56 @@
       "nombre": "cerradura de golpe",
       "fecha": "2026-03-15",
       "hora": "07:38"
+    },
+    {
+      "nombre": "puntilla 1-1/2\" con cabeza (solo tengo sin cabeza en ese tamaño)",
+      "fecha": "2026-03-24",
+      "hora": "15:19"
+    },
+    {
+      "nombre": "juego de carbon",
+      "fecha": "2026-03-24",
+      "hora": "15:23"
+    },
+    {
+      "nombre": "disco de corte 3-1/2\" hierro",
+      "fecha": "2026-03-24",
+      "hora": "15:32"
+    },
+    {
+      "nombre": "manguera de estufa",
+      "fecha": "2026-03-24",
+      "hora": "17:15"
+    },
+    {
+      "nombre": "rollo teflón",
+      "fecha": "2026-03-24",
+      "hora": "17:15"
+    },
+    {
+      "nombre": "codo galvanizado de 3/8",
+      "fecha": "2026-03-24",
+      "hora": "17:15"
+    },
+    {
+      "nombre": "p-7",
+      "fecha": "2026-03-24",
+      "hora": "19:09"
+    },
+    {
+      "nombre": "manguera de 1/2",
+      "fecha": "2026-03-24",
+      "hora": "19:09"
+    },
+    {
+      "nombre": "puntilla 1-1/2 con cabeza",
+      "fecha": "2026-03-24",
+      "hora": "19:16"
+    },
+    {
+      "nombre": "adaptador macho 1/2",
+      "fecha": "2026-03-24",
+      "hora": "21:04"
     }
   ]
 }
