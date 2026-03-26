@@ -152,6 +152,84 @@ def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list
     return resultado
 
 
+# ── Helper: leer ventas desde Postgres ────────────────────────────────────────
+def _leer_ventas_postgres(dias: int | None = None, mes_actual: bool = False) -> list[dict] | None:
+    """
+    Lee ventas desde PostgreSQL (ventas + ventas_detalle) y devuelve el mismo
+    formato de dicts que _leer_excel_rango().
+
+    Retorna None si Postgres no está disponible o falla, para que el caller
+    pueda recurrir a Excel como fallback.
+    """
+    try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            return None
+
+        ahora = datetime.now(config.COLOMBIA_TZ)
+
+        sql = """
+            SELECT
+                v.consecutivo AS num,
+                v.fecha::text AS fecha,
+                COALESCE(v.hora::text, '') AS hora,
+                COALESCE(v.cliente_nombre, 'Consumidor Final') AS cliente,
+                CASE WHEN v.cliente_id IS NULL THEN 'CF' ELSE v.cliente_id::text END AS id_cliente,
+                d.producto_nombre AS producto,
+                d.cantidad::text AS cantidad,
+                COALESCE(d.unidad_medida, 'Unidad') AS unidad_medida,
+                COALESCE(d.precio_unitario, 0)::float AS precio_unitario,
+                COALESCE(d.total, 0)::float AS total,
+                COALESCE(d.alias_usado, '') AS alias,
+                COALESCE(v.vendedor, '') AS vendedor,
+                COALESCE(v.metodo_pago, '') AS metodo
+            FROM ventas v
+            JOIN ventas_detalle d ON d.venta_id = v.id
+            WHERE 1=1
+        """
+        params: list = []
+
+        if dias is not None:
+            fecha_limite = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d")
+            sql += " AND v.fecha >= %s"
+            params.append(fecha_limite)
+
+        if mes_actual:
+            primer_dia = ahora.replace(day=1).strftime("%Y-%m-%d")
+            hoy_str = ahora.strftime("%Y-%m-%d")
+            sql += " AND v.fecha >= %s AND v.fecha <= %s"
+            params.append(primer_dia)
+            params.append(hoy_str)
+
+        sql += " ORDER BY v.fecha, v.consecutivo, d.id"
+
+        rows = _db.query_all(sql, params if params else None)
+
+        result = []
+        for r in rows:
+            result.append({
+                "num":             r["num"],
+                "fecha":           str(r["fecha"])[:10],
+                "hora":            str(r.get("hora", "")),
+                "id_cliente":      str(r.get("id_cliente", "CF")),
+                "cliente":         str(r.get("cliente", "Consumidor Final")),
+                "codigo_producto": "",
+                "producto":        str(r.get("producto", "")),
+                "cantidad":        str(r.get("cantidad", "")),
+                "unidad_medida":   str(r.get("unidad_medida", "Unidad")) or "Unidad",
+                "precio_unitario": float(r.get("precio_unitario", 0)),
+                "total":           float(r.get("total", 0)),
+                "alias":           str(r.get("alias", "")),
+                "vendedor":        str(r.get("vendedor", "")),
+                "metodo":          str(r.get("metodo", "")),
+            })
+        return result
+
+    except Exception as e:
+        logger.warning(f"Postgres ventas read failed: {e}")
+        return None
+
+
 # ── Redirección de inventario: productos que se almacenan bajo otra clave ─────
 # Formato: clave_producto → (clave_inventario_real, divisor_para_mostrar_stock)
 #   Waypers: inventario en UNIDADES, se muestra en kg  (divisor = 12)
