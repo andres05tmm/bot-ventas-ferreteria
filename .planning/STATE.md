@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 1 planned — 3 plans, 2 waves ready to execute
-last_updated: "2026-03-26T06:17:56.370Z"
-last_activity: 2026-03-25 — Roadmap created, phases derived from MIGRATION.md
+status: executing
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-03-26T06:23:32.099Z"
+last_activity: 2026-03-26
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-25)
 
 **Core value:** El bot debe registrar ventas sin interrupciones — si la DB falla, el bot no puede caer.
-**Current focus:** Phase 1 — DB Infra + Catálogo + Inventario
+**Current focus:** Phase 01 — db-infra-cat-logo-inventario
 
 ## Current Position
 
-Phase: 1 of 5 (DB Infra + Catálogo + Inventario)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-25 — Roadmap created, phases derived from MIGRATION.md
+Phase: 01 (db-infra-cat-logo-inventario) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-03-26
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01 P01 | 2 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,9 @@ Recent decisions affecting current work:
 - Migración por fases (no big-bang): cada fase funciona end-to-end antes de avanzar
 - Mantener interfaz de memoria.py: ~151 referencias en código; no cambiar firmas
 - Mantener Sheets durante Fase 3: fallback si Postgres falla; eliminar en Fase 5
+- [Phase 01]: db.py uses ThreadedConnectionPool with lazy psycopg2 import inside init_db() — prevents import errors and is thread-safe
+- [Phase 01]: DATABASE_URL not added to _CLAVES_REQUERIDAS — optional env var, bot runs in JSON mode if absent (D-05)
+- [Phase 01]: init_db() called before _restaurar_memoria() in start.py — ensures DB_DISPONIBLE set before first cargar_memoria() call (D-03)
 
 ### Pending Todos
 
@@ -76,6 +80,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T06:17:56.363Z
-Stopped at: Phase 1 planned — 3 plans, 2 waves ready to execute
-Resume file: .planning/phases/01-db-infra-cat-logo-inventario/01-01-PLAN.md
+Last session: 2026-03-26T06:23:32.088Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None
