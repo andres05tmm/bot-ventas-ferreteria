@@ -149,6 +149,7 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
 
     confirmaciones    = []
     total_transaccion = 0
+    items_para_pg     = []
 
     # Resolver cliente (del primer producto que lo mencione)
     id_c, nombre_c = "CF", "Consumidor Final"
@@ -194,6 +195,17 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         total_transaccion += valor_final
         cantidad_legible   = decimal_a_fraccion_legible(cantidad)
 
+        # Recopilar datos para Postgres (se insertan después del loop)
+        precio_u_pg = round(valor_final / cantidad) if cantidad > 0 else valor_final
+        items_para_pg.append({
+            "producto":    producto,
+            "cantidad":    cantidad,
+            "unidad":      unidad,
+            "precio_u":    precio_u_pg,
+            "valor_final": valor_final,
+            "alias":       venta.get("alias"),
+        })
+
         precio_u_excel = valor_final / cantidad if cantidad > 0 else valor_final
 
         guardar_venta_excel(
@@ -218,6 +230,50 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         campo        = {"efectivo": "efectivo", "transferencia": "transferencias", "datafono": "datafono"}.get(metodo, "efectivo")
         caja[campo]  = caja.get(campo, 0) + total_transaccion
         guardar_caja(caja)
+
+    # ── Postgres write (non-fatal, additive) ─────────────────────────────────
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            from datetime import datetime as _dt
+            _logger = logging.getLogger("ferrebot.ventas_state")
+            fecha_hoy   = _dt.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+            hora_actual = _dt.now(config.COLOMBIA_TZ).strftime("%H:%M:%S")
+            # Resolver cliente_id desde tabla clientes si no es CF
+            cliente_id_pg = None
+            if id_c != "CF":
+                cliente_row = _db.query_one(
+                    "SELECT id FROM clientes WHERE LOWER(nombre) = LOWER(%s)",
+                    (nombre_c,)
+                )
+                if cliente_row:
+                    cliente_id_pg = cliente_row["id"]
+            row = _db.execute_returning(
+                """INSERT INTO ventas
+                       (consecutivo, fecha, hora, cliente_id, cliente_nombre,
+                        vendedor, metodo_pago, total)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   RETURNING id""",
+                (consecutivo, fecha_hoy, hora_actual, cliente_id_pg,
+                 nombre_c, vendedor, metodo, total_transaccion)
+            )
+            if row:
+                venta_id = row["id"]
+                for item in items_para_pg:
+                    _db.execute(
+                        """INSERT INTO ventas_detalle
+                               (venta_id, producto_nombre, cantidad, unidad_medida,
+                                precio_unitario, total, alias_usado)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                        (venta_id, item["producto"], item["cantidad"],
+                         item["unidad"], item["precio_u"], item["valor_final"],
+                         item.get("alias"))
+                    )
+    except Exception as e:
+        logging.getLogger("ferrebot.ventas_state").warning(
+            f"Postgres ventas write failed: {e}"
+        )
+    # ─────────────────────────────────────────────────────────────────────────
 
     confirmaciones.insert(0, f"🧾 Consecutivo #{consecutivo}")
     confirmaciones.append(f"💰 Total: ${total_transaccion:,.0f}")
