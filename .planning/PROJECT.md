@@ -12,6 +12,9 @@ El bot debe registrar ventas sin interrupciones — si la DB falla, el bot no pu
 
 ### Validated
 
+- ✓ Capa de acceso a PostgreSQL (`db.py`) con ThreadedConnectionPool + 18-table schema — Validated in Phase 01: db-infra-cat-logo-inventario
+- ✓ Script de migración `migrate_memoria.py` (idempotent UPSERT, ~576 productos) — Validated in Phase 01: db-infra-cat-logo-inventario
+- ✓ `memoria.py` dual-write (cargar desde Postgres + guardar a JSON+Postgres, interfaz pública intacta) — Validated in Phase 01: db-infra-cat-logo-inventario
 - ✓ Registro de ventas por texto y audio en Telegram — existing
 - ✓ Interpretación de lenguaje natural con Claude AI (`ai.py`) — existing
 - ✓ Dashboard React con 12 tabs (Resumen, Ventas Rápidas, Historial, Inventario, Caja, Gastos, Compras, Proveedores, Kardex, Resultados, Top Productos, Histórico) — existing
@@ -24,10 +27,6 @@ El bot debe registrar ventas sin interrupciones — si la DB falla, el bot no pu
 
 ### Active
 
-- [ ] Capa de acceso a PostgreSQL (`db.py`) con pool de conexiones psycopg2
-- [ ] Schema PostgreSQL completo desplegado en Railway (productos, inventario, ventas, gastos, caja, fiados, facturas, histórico)
-- [ ] Script de migración inicial de `memoria.json` → Postgres (catálogo + inventario)
-- [ ] `memoria.py` refactorizada para leer/escribir catálogo e inventario desde Postgres manteniendo la interfaz pública
 - [ ] `fuzzy_match.py` cargando el índice desde Postgres
 - [ ] Histórico de ventas diarias (`historico_ventas`, `historico_diario`) migrado a Postgres
 - [ ] Gastos y caja migrados a Postgres
@@ -100,4 +99,4 @@ Este documento evoluciona en cada transición de fase y milestone.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-25 after initialization*
+*Last updated: 2026-03-26 — Phase 01 complete (DB infra + memoria.py dual-write)*
