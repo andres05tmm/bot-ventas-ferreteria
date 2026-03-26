@@ -5,6 +5,12 @@ Usa cache en RAM para evitar lecturas repetidas del JSON.
 CORRECCIONES v2:
   - Docstring movido ANTES del import (antes estaba después, Python no lo reconocía)
   - _normalizar eliminada de aquí — se importa de utils (era duplicado con lógica distinta)
+
+CORRECCIONES v3:
+  - cargar_memoria() lee catálogo e inventario desde Postgres cuando DB_DISPONIBLE=True (CAT-04)
+  - guardar_memoria() dual-write: JSON+Drive Y Postgres (D-06, D-07)
+  - Lazy import de db dentro de funciones para evitar importación circular (Pitfall 1 en RESEARCH.md)
+  - Firmas públicas cargar_memoria() y guardar_memoria() sin cambios (151 referencias externas)
 """
 
 import logging
@@ -26,20 +32,123 @@ def bloquear_subida_drive(bloquear: bool):
     _bloquear_subida_drive = bloquear
 
 
+def _leer_catalogo_postgres(db_module) -> dict:
+    """Reconstruye memoria["catalogo"] desde Postgres.
+    La estructura dict es IDENTICA a la que tenia el JSON."""
+    productos = db_module.query_all("SELECT * FROM productos WHERE activo = TRUE")
+    fracciones = db_module.query_all("SELECT * FROM productos_fracciones")
+    precios_cant = db_module.query_all("SELECT * FROM productos_precio_cantidad")
+    aliases = db_module.query_all("SELECT * FROM productos_alias")
+
+    # Indexar por producto_id para joins eficientes en Python
+    frac_by_prod = {}
+    for f in fracciones:
+        frac_by_prod.setdefault(f["producto_id"], []).append(f)
+
+    pxc_by_prod = {}
+    for p in precios_cant:
+        pxc_by_prod[p["producto_id"]] = p
+
+    alias_by_prod = {}
+    for a in aliases:
+        alias_by_prod.setdefault(a["producto_id"], []).append(a["alias"])
+
+    catalogo = {}
+    for p in productos:
+        prod_dict = {
+            "nombre": p["nombre"],
+            "nombre_lower": p["nombre_lower"],
+            "categoria": p["categoria"] or "",
+            "precio_unidad": p["precio_unidad"],
+            "unidad_medida": p["unidad_medida"] or "Unidad",
+        }
+        # Codigo (si existe)
+        if p.get("codigo"):
+            prod_dict["codigo"] = p["codigo"]
+        # Fracciones
+        if p["id"] in frac_by_prod:
+            prod_dict["precios_fraccion"] = {
+                f["fraccion"]: {
+                    "precio": f["precio_total"],
+                    "precio_unitario": f["precio_unitario"],
+                }
+                for f in frac_by_prod[p["id"]]
+            }
+        # Precio por cantidad
+        if p["id"] in pxc_by_prod:
+            pxc = pxc_by_prod[p["id"]]
+            prod_dict["precio_por_cantidad"] = {
+                "umbral": pxc["umbral"],
+                "precio_bajo_umbral": pxc["precio_bajo_umbral"],
+                "precio_sobre_umbral": pxc["precio_sobre_umbral"],
+            }
+        # Alias
+        if p["id"] in alias_by_prod:
+            prod_dict["alias"] = alias_by_prod[p["id"]]
+
+        catalogo[p["clave"]] = prod_dict
+
+    return catalogo
+
+
+def _leer_inventario_postgres(db_module) -> dict:
+    """Reconstruye memoria["inventario"] desde Postgres."""
+    rows = db_module.query_all("""
+        SELECT i.cantidad, i.minimo, i.unidad, p.clave
+        FROM inventario i
+        JOIN productos p ON p.id = i.producto_id
+    """)
+    inventario = {}
+    for r in rows:
+        inventario[r["clave"]] = {
+            "cantidad": float(r["cantidad"]) if r["cantidad"] is not None else 0,
+            "minimo": float(r["minimo"]) if r["minimo"] is not None else 0,
+            "unidad": r["unidad"] or "Unidad",
+        }
+    return inventario
+
+
+def _cargar_desde_postgres() -> dict:
+    """Construye el dict de memoria con catalogo e inventario desde Postgres.
+    Campos no migrados (gastos, caja, notas, negocio) se cargan del JSON local."""
+    import db as _db
+    # Cargar estructura base desde JSON si existe (para campos que aun no migran)
+    if os.path.exists(config.MEMORIA_FILE):
+        with open(config.MEMORIA_FILE, "r", encoding="utf-8") as f:
+            base = json.load(f)
+    else:
+        base = {
+            "precios": {}, "catalogo": {}, "negocio": {},
+            "notas": [], "inventario": {}, "gastos": {},
+            "caja_actual": {"abierta": False},
+        }
+
+    # Sobreescribir catalogo e inventario con datos de Postgres
+    base["catalogo"] = _leer_catalogo_postgres(_db)
+    base["inventario"] = _leer_inventario_postgres(_db)
+    return base
+
+
 def cargar_memoria() -> dict:
     global _cache
     with _cache_lock:
         if _cache is not None:
             return _cache
-        if os.path.exists(config.MEMORIA_FILE):
-            with open(config.MEMORIA_FILE, "r", encoding="utf-8") as f:
-                _cache = json.load(f)
+        # Intentar cargar desde Postgres si disponible
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            _cache = _cargar_desde_postgres()
         else:
-            _cache = {
-                "precios": {}, "catalogo": {}, "negocio": {},
-                "notas": [], "inventario": {}, "gastos": {},
-                "caja_actual": {"abierta": False},
-            }
+            # Fallback: comportamiento anterior exacto
+            if os.path.exists(config.MEMORIA_FILE):
+                with open(config.MEMORIA_FILE, "r", encoding="utf-8") as f:
+                    _cache = json.load(f)
+            else:
+                _cache = {
+                    "precios": {}, "catalogo": {}, "negocio": {},
+                    "notas": [], "inventario": {}, "gastos": {},
+                    "caja_actual": {"abierta": False},
+                }
         return _cache
 
 
