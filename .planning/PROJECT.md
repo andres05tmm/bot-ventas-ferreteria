@@ -28,8 +28,8 @@ El bot debe registrar ventas sin interrupciones — si la DB falla, el bot no pu
 ### Active
 
 - [ ] `fuzzy_match.py` cargando el índice desde Postgres
-- [ ] Histórico de ventas diarias (`historico_ventas`, `historico_diario`) migrado a Postgres
-- [ ] Gastos y caja migrados a Postgres
+- ✓ Histórico de ventas diarias (`historico_ventas`, `historico_diario`) migrado a Postgres — Validated in Phase 02: hist-rico-gastos-caja
+- ✓ Gastos y caja migrados a Postgres — Validated in Phase 02: hist-rico-gastos-caja
 - [ ] Ventas registradas en Postgres (tabla `ventas` + `ventas_detalle`) en paralelo con Sheets
 - [ ] Endpoints `/ventas/*` y `_leer_excel_rango()` leyendo desde Postgres
 - [ ] Proveedores, fiados y compras migrados a Postgres
