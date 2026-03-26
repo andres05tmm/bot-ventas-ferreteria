@@ -91,7 +91,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. DB Infra + Catálogo + Inventario | 3/3 | Complete   | 2026-03-26 |
-| 2. Histórico + Gastos + Caja | 1/1 | Complete   | 2026-03-26 |
+| 2. Histórico + Gastos + Caja | 2/2 | Complete   | 2026-03-26 |
 | 3. Ventas | 0/TBD | Not started | - |
 | 4. Proveedores + Fiados + Compras | 0/TBD | Not started | - |
 | 5. Limpieza | 0/TBD | Not started | - |

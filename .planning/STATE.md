@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-03-26T18:15:53.563Z"
+status: executing
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-03-26T19:48:16.416Z"
 last_activity: 2026-03-26
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 5
+  completed_plans: 5
   percent: 0
 ---
 
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 ## Current Position
 
 Phase: 02 (hist-rico-gastos-caja) — EXECUTING
-Plan: 1 of 1
-Status: Phase complete — ready for verification
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-03-26
 
 Progress: [░░░░░░░░░░] 0%
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P02 | 180 | 2 tasks | 1 files |
 | Phase 01-db-infra-cat-logo-inventario P03 | 1 | 1 tasks | 1 files |
 | Phase 02 P01 | 600 | 2 tasks | 3 files |
+| Phase 02 P02 | 3 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,8 @@ Recent decisions affecting current work:
 - [Phase 01]: [Phase 01]: Alias conflicts in migration logged as WARNING (DO NOTHING + rowcount==0) not errors — preserves first-registered alias owner
 - [Phase 02]: lazy import db inside helpers (not top-level) — same pattern as 01-02, prevents circular import
 - [Phase 02]: migrate_gastos_caja.py deduplicates gastos by fecha+concepto+monto (no unique constraint in gastos table)
+- [Phase 02]: Drive uploads of historico JSON/Excel eliminated: Postgres replaces Drive as source of truth for historico data
+- [Phase 02]: migrate_historico.py merges historico_ventas.json totals + historico_diario.json enriched breakdown into historico_ventas table
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T18:15:53.547Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-03-26T19:48:16.407Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
