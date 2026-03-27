@@ -304,12 +304,12 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
                 if _db.DB_DISPONIBLE:
                     rows = await asyncio.to_thread(
                         _db.execute,
-                        "DELETE FROM ventas_detalle WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s)",
+                        "DELETE FROM ventas_detalle WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s AND fecha::date = CURRENT_DATE)",
                         [numero],
                     )
                     await asyncio.to_thread(
                         _db.execute,
-                        "DELETE FROM ventas WHERE consecutivo = %s",
+                        "DELETE FROM ventas WHERE consecutivo = %s AND fecha::date = CURRENT_DATE",
                         [numero],
                     )
                     pg_borradas = 1

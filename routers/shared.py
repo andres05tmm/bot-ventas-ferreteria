@@ -19,7 +19,6 @@ import openpyxl
 from fastapi import HTTPException
 
 import config
-from sheets import sheets_leer_ventas_del_dia
 
 logger = logging.getLogger("ferrebot.api")
 

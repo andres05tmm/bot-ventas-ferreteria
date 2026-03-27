@@ -69,7 +69,7 @@ def _run_historico_safety_net() -> None:
         try:
             ahora = _dt.now(config.COLOMBIA_TZ)
             if ahora.hour >= 21:  # 9pm+
-                from api import _leer_historico, _sync_historico_hoy
+                from routers.historico import _leer_historico, _sync_historico_hoy
                 hoy = ahora.strftime("%Y-%m-%d")
                 historico = _leer_historico()
                 if hoy not in historico:
