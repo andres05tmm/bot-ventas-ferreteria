@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-27T03:20:08.079Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-03-27T03:24:52.427Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 ## Current Position
 
 Phase: 04 (proveedores-fiados-compras) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-27
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P02 | 142 | 2 tasks | 2 files |
 | Phase 03-ventas P01 | 3 | 2 tasks | 2 files |
 | Phase 04 P01 | 2 | 2 tasks | 1 files |
+| Phase 04 P03 | 2 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,9 @@ Recent decisions affecting current work:
 - [Phase 03-ventas]: check-then-insert pattern in /cerrar (not UPSERT) because ventas schema lacks UNIQUE constraint on consecutivo
 - [Phase 04]: registrar_factura_proveedor uses ON CONFLICT (id) DO NOTHING — idempotent if same fac_id re-registered
 - [Phase 04]: guardar_fiado_movimiento uses application-level upsert (query_one + branch) since fiados.nombre has no UNIQUE constraint
+- [Phase 04]: migrate_proveedores.py uses ON CONFLICT (id) DO NOTHING — facturas have VARCHAR PK like 'FAC-001'
+- [Phase 04]: migrate_fiados.py uses application-level upsert (SELECT-then-branch) since fiados.nombre has no UNIQUE constraint
+- [Phase 04]: migrate_compras.py handles both 'total' and 'costo_total' key names from JSON source
 
 ### Pending Todos
 
@@ -105,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T03:20:08.063Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-27T03:24:52.397Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None

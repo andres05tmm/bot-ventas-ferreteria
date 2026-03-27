@@ -46,9 +46,9 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 
 ### Proveedores, Fiados y Compras (Fase 4)
 
-- [ ] **PROV-01**: `memoria.json["cuentas_por_pagar"]` migrado a tabla `facturas_proveedores` + `facturas_abonos`
-- [ ] **PROV-02**: `memoria.json["fiados"]` migrado a tablas `fiados` + `fiados_historial`
-- [ ] **PROV-03**: Compras del Excel migradas a tabla `compras`
+- [x] **PROV-01**: `memoria.json["cuentas_por_pagar"]` migrado a tabla `facturas_proveedores` + `facturas_abonos`
+- [x] **PROV-02**: `memoria.json["fiados"]` migrado a tablas `fiados` + `fiados_historial`
+- [x] **PROV-03**: Compras del Excel migradas a tabla `compras`
 - [x] **PROV-04**: Routers de proveedores, fiados y compras leen/escriben en Postgres
 - [ ] **PROV-05**: Fotos de facturas siguen en Google Drive sin cambios
 - [ ] **PROV-06**: Tab Proveedores funciona desde Postgres
@@ -115,9 +115,9 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 | VEN-04 | Phase 3 | Complete |
 | VEN-05 | Phase 3 | Complete |
 | VEN-06 | Phase 3 | Complete |
-| PROV-01 | Phase 4 | Pending |
-| PROV-02 | Phase 4 | Pending |
-| PROV-03 | Phase 4 | Pending |
+| PROV-01 | Phase 4 | Complete |
+| PROV-02 | Phase 4 | Complete |
+| PROV-03 | Phase 4 | Complete |
 | PROV-04 | Phase 4 | Complete |
 | PROV-05 | Phase 4 | Pending |
 | PROV-06 | Phase 4 | Pending |
