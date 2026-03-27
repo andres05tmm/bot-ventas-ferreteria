@@ -96,17 +96,29 @@ def _leer_catalogo_postgres(db_module) -> dict:
 def _leer_inventario_postgres(db_module) -> dict:
     """Reconstruye memoria["inventario"] desde Postgres."""
     rows = db_module.query_all("""
-        SELECT i.cantidad, i.minimo, i.unidad, p.clave
+        SELECT p.clave,
+               i.cantidad, i.minimo, i.unidad,
+               i.nombre_original, i.costo_promedio, i.ultimo_costo,
+               i.ultimo_proveedor, i.ultima_compra, i.ultima_venta,
+               i.ultimo_ajuste, i.fecha_conteo
         FROM inventario i
         JOIN productos p ON p.id = i.producto_id
     """)
     inventario = {}
     for r in rows:
-        inventario[r["clave"]] = {
-            "cantidad": float(r["cantidad"]) if r["cantidad"] is not None else 0,
-            "minimo": float(r["minimo"]) if r["minimo"] is not None else 0,
-            "unidad": r["unidad"] or "Unidad",
+        entrada = {
+            "cantidad":         float(r["cantidad"])       if r["cantidad"]       is not None else 0,
+            "minimo":           float(r["minimo"])         if r["minimo"]         is not None else 0,
+            "unidad":           r["unidad"]                or "Unidad",
+            "nombre_original":  r["nombre_original"]       or "",
+            "costo_promedio":   float(r["costo_promedio"]) if r["costo_promedio"] is not None else None,
+            "ultimo_costo":     float(r["ultimo_costo"])   if r["ultimo_costo"]   is not None else None,
+            "ultimo_proveedor": r["ultimo_proveedor"]      or "",
         }
+        for ts_field in ("ultima_compra", "ultima_venta", "ultimo_ajuste", "fecha_conteo"):
+            val = r[ts_field]
+            entrada[ts_field] = val.strftime("%Y-%m-%d %H:%M") if val else ""
+        inventario[r["clave"]] = entrada
     return inventario
 
 
@@ -214,26 +226,115 @@ def _sincronizar_catalogo_postgres(catalogo: dict, db_module):
                 """, (prod_id, alias_str.strip()))
 
 
-def _sincronizar_inventario_postgres(inventario: dict, db_module):
-    """Sincroniza inventario dict a Postgres via UPSERT (D-06, D-07)."""
-    for clave, datos in inventario.items():
-        prod_row = db_module.query_one("SELECT id FROM productos WHERE clave = %s", (clave,))
-        if not prod_row:
-            continue
-        db_module.execute("""
-            INSERT INTO inventario (producto_id, cantidad, minimo, unidad, updated_at)
-            VALUES (%s, %s, %s, %s, NOW())
+def _upsert_precio_producto_postgres(clave: str, datos_prod: dict, fraccion: str = None):
+    """Upsert quirúrgico de precios de un producto.
+    Solo toca las filas que cambiaron — no hace sync completo del catálogo.
+    Raises si PG falla.
+    """
+    import db as _db
+    prod_row = _db.query_one("SELECT id FROM productos WHERE clave = %s", (clave,))
+    if not prod_row:
+        raise ValueError(f"Producto con clave '{clave}' no existe en productos")
+    prod_id = prod_row["id"]
+
+    # Actualizar precio_unidad en productos si cambió
+    _db.execute(
+        "UPDATE productos SET precio_unidad = %s, updated_at = NOW() WHERE id = %s",
+        (datos_prod.get("precio_unidad", 0), prod_id)
+    )
+
+    # Actualizar fracción específica si se proporcionó
+    if fraccion:
+        datos_frac = datos_prod.get("precios_fraccion", {}).get(fraccion, {})
+        if datos_frac:
+            _db.execute("""
+                INSERT INTO productos_fracciones (producto_id, fraccion, precio_total, precio_unitario)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (producto_id, fraccion) DO UPDATE SET
+                    precio_total    = EXCLUDED.precio_total,
+                    precio_unitario = EXCLUDED.precio_unitario
+            """, (
+                prod_id,
+                fraccion,
+                datos_frac.get("precio", 0),
+                datos_frac.get("precio_unitario", 0),
+            ))
+
+    # Actualizar precio_por_cantidad si existe en el producto
+    pxc = datos_prod.get("precio_por_cantidad", {})
+    if pxc:
+        _db.execute("""
+            INSERT INTO productos_precio_cantidad
+                (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT (producto_id) DO UPDATE SET
-                cantidad = EXCLUDED.cantidad,
-                minimo = EXCLUDED.minimo,
-                unidad = EXCLUDED.unidad,
-                updated_at = NOW()
+                precio_bajo_umbral  = EXCLUDED.precio_bajo_umbral,
+                precio_sobre_umbral = EXCLUDED.precio_sobre_umbral
         """, (
-            prod_row["id"],
-            datos.get("cantidad", 0),
-            datos.get("minimo", 0),
-            datos.get("unidad", "Unidad"),
+            prod_id,
+            pxc.get("umbral", 50),
+            pxc.get("precio_bajo_umbral", datos_prod.get("precio_unidad", 0)),
+            pxc.get("precio_sobre_umbral", 0),
         ))
+
+
+def _sincronizar_inventario_postgres(inventario: dict, db_module):
+    """DEPRECADO — usar _upsert_inventario_producto_postgres para escrituras."""
+    for clave, datos in inventario.items():
+        _upsert_inventario_producto_postgres(clave, datos)
+
+
+def _upsert_inventario_producto_postgres(clave: str, datos: dict):
+    """Upsert quirúrgico de un solo producto en inventario. Raises si PG falla."""
+    import db as _db
+
+    def _parse_ts(val):
+        """Convierte string 'YYYY-MM-DD HH:MM' a datetime, o None si vacío."""
+        if not val:
+            return None
+        try:
+            return datetime.strptime(val, "%Y-%m-%d %H:%M")
+        except (ValueError, TypeError):
+            return None
+
+    prod_row = _db.query_one("SELECT id FROM productos WHERE clave = %s", (clave,))
+    if not prod_row:
+        raise ValueError(f"Producto con clave '{clave}' no existe en productos")
+    _db.execute("""
+        INSERT INTO inventario (
+            producto_id, cantidad, minimo, unidad,
+            nombre_original, costo_promedio, ultimo_costo, ultimo_proveedor,
+            ultima_compra, ultima_venta, ultimo_ajuste, fecha_conteo,
+            updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        ON CONFLICT (producto_id) DO UPDATE SET
+            cantidad        = EXCLUDED.cantidad,
+            minimo          = EXCLUDED.minimo,
+            unidad          = EXCLUDED.unidad,
+            nombre_original = EXCLUDED.nombre_original,
+            costo_promedio  = EXCLUDED.costo_promedio,
+            ultimo_costo    = EXCLUDED.ultimo_costo,
+            ultimo_proveedor= EXCLUDED.ultimo_proveedor,
+            ultima_compra   = EXCLUDED.ultima_compra,
+            ultima_venta    = EXCLUDED.ultima_venta,
+            ultimo_ajuste   = EXCLUDED.ultimo_ajuste,
+            fecha_conteo    = EXCLUDED.fecha_conteo,
+            updated_at      = NOW()
+    """, (
+        prod_row["id"],
+        datos.get("cantidad", 0),
+        datos.get("minimo", 0),
+        datos.get("unidad", "Unidad"),
+        datos.get("nombre_original") or None,
+        datos.get("costo_promedio")  or None,
+        datos.get("ultimo_costo")    or None,
+        datos.get("ultimo_proveedor") or None,
+        _parse_ts(datos.get("ultima_compra")),
+        _parse_ts(datos.get("ultima_venta")),
+        _parse_ts(datos.get("ultimo_ajuste")),
+        _parse_ts(datos.get("fecha_conteo")),
+    ))
 
 
 def guardar_memoria(memoria: dict, urgente: bool = False):
@@ -247,14 +348,14 @@ def guardar_memoria(memoria: dict, urgente: bool = False):
         _cache = memoria
         with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
             json.dump(memoria, f, ensure_ascii=False, indent=2)
-    # Sincronizacion adicional a Postgres (si disponible) — D-06
+    # Sincronizacion de catalogo a Postgres (si disponible) — D-06
+    # Inventario ya no se sincroniza aquí: guardar_inventario() hace upsert directo
     import db as _db
     if _db.DB_DISPONIBLE:
         try:
             _sincronizar_catalogo_postgres(memoria.get("catalogo", {}), _db)
-            _sincronizar_inventario_postgres(memoria.get("inventario", {}), _db)
         except Exception as e:
-            logger.warning(f"Error sincronizando a Postgres (no critico): {e}")
+            logger.warning(f"Error sincronizando catalogo a Postgres (no critico): {e}")
 
 
 def invalidar_cache_memoria():
@@ -611,10 +712,16 @@ def cargar_inventario() -> dict:
     return cargar_memoria().get("inventario", {})
 
 
-def guardar_inventario(inventario: dict):
-    mem = cargar_memoria()
-    mem["inventario"] = inventario
-    guardar_memoria(mem)
+def guardar_inventario(clave: str, datos: dict):
+    """Escribe un producto al inventario. PG es fuente de verdad.
+    Actualiza el cache en memoria para que lecturas posteriores sean consistentes.
+    Raises en caso de error — el caller debe manejar el fallo visiblemente.
+    """
+    _upsert_inventario_producto_postgres(clave, datos)
+    global _cache
+    with _cache_lock:
+        if _cache is not None:
+            _cache.setdefault("inventario", {})[clave] = datos
 
 
 def verificar_alertas_inventario() -> list[str]:
@@ -656,14 +763,14 @@ def registrar_conteo_inventario(nombre_producto: str, cantidad: float, minimo: f
         clave = clave_existente
         nombre_oficial = inventario[clave].get("nombre_original", nombre_oficial)
     
-    inventario[clave] = {
+    datos_nuevos = {
         "nombre_original": nombre_oficial,
         "cantidad": round(cantidad, 4),
         "minimo": minimo,
         "unidad": unidad,
         "fecha_conteo": datetime.now().strftime("%Y-%m-%d %H:%M"),
     }
-    guardar_inventario(inventario)
+    guardar_inventario(clave, datos_nuevos)
     
     return True, f"✅ Registrado: {nombre_oficial} — {cantidad} {unidad}"
 
@@ -762,7 +869,7 @@ def descontar_inventario(nombre_producto: str, cantidad: float) -> tuple[bool, s
                 cantidad_nueva  = max(0, round(cantidad_actual - cantidad, 4))
                 datos["cantidad"]     = cantidad_nueva
                 datos["ultima_venta"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                guardar_inventario(inventario)
+                guardar_inventario(clave_wayper, datos)
                 minimo = datos.get("minimo", 5)
                 nombre = datos.get("nombre_original", clave_wayper)
                 unidad = datos.get("unidad", "unidades")
@@ -787,7 +894,7 @@ def descontar_inventario(nombre_producto: str, cantidad: float) -> tuple[bool, s
     datos["cantidad"] = cantidad_nueva
     datos["ultima_venta"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     
-    guardar_inventario(inventario)
+    guardar_inventario(clave, datos)
     
     minimo = datos.get("minimo", 5)
     nombre = datos.get("nombre_original", clave)
@@ -818,7 +925,7 @@ def ajustar_inventario(nombre_producto: str, ajuste: float) -> tuple[bool, str]:
     datos["cantidad"] = cantidad_nueva
     datos["ultimo_ajuste"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     
-    guardar_inventario(inventario)
+    guardar_inventario(clave, datos)
     
     nombre = datos.get("nombre_original", clave)
     unidad = datos.get("unidad", "unidades")
@@ -922,8 +1029,7 @@ def registrar_compra(nombre_producto: str, cantidad: float, costo_unitario: floa
     if "unidad" not in datos:
         datos["unidad"] = "unidades"
     
-    inventario[clave] = datos
-    guardar_inventario(inventario)
+    guardar_inventario(clave, datos)
     
     # Registrar en historial de compras (para reportes)
     _registrar_historial_compra(nombre_oficial, cantidad, costo_unitario, proveedor_final)
@@ -1172,13 +1278,15 @@ def cargar_caja() -> dict:
 
 
 def guardar_caja(caja: dict):
+    if _db.DB_DISPONIBLE:
+        try:
+            _guardar_caja_postgres(caja)
+            return
+        except Exception as e:
+            logger.warning("Error escribiendo caja en Postgres, usando JSON como fallback: %s", e)
     mem = cargar_memoria()
     mem["caja_actual"] = caja
     guardar_memoria(mem)
-    try:
-        _guardar_caja_postgres(caja)
-    except Exception as e:
-        logger.warning("Error dual-write caja Postgres: %s", e)
 
 
 def obtener_resumen_caja() -> str:
@@ -1223,14 +1331,16 @@ def cargar_gastos_hoy() -> list:
 
 
 def guardar_gasto(gasto: dict):
-    mem = cargar_memoria()
+    if _db.DB_DISPONIBLE:
+        try:
+            _guardar_gasto_postgres(gasto)
+            return
+        except Exception as e:
+            logger.warning("Error escribiendo gasto en Postgres, usando JSON como fallback: %s", e)
     hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+    mem = cargar_memoria()
     mem.setdefault("gastos", {}).setdefault(hoy, []).append(gasto)
     guardar_memoria(mem)
-    try:
-        _guardar_gasto_postgres(gasto)
-    except Exception as e:
-        logger.warning("Error dual-write gasto Postgres: %s", e)
 
 
 # ─────────────────────────────────────────────
@@ -1321,15 +1431,9 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
         "abono":    abono,
         "saldo":    saldo_nuevo,
     })
-    guardar_memoria(mem)
-    # Postgres dual-write: upsert fiado + insert historial (non-fatal — D-01/D-02)
-    try:
-        import db as _db
-        if _db.DB_DISPONIBLE:
-            # Get or create the fiado record
-            existing = _db.query_one(
-                "SELECT id FROM fiados WHERE nombre = %s", (cliente,)
-            )
+    if _db.DB_DISPONIBLE:
+        try:
+            existing = _db.query_one("SELECT id FROM fiados WHERE nombre = %s", (cliente,))
             if existing:
                 fiado_id = existing["id"]
                 _db.execute(
@@ -1342,8 +1446,7 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
                     (cliente, int(saldo_nuevo))
                 )
                 fiado_id = row["id"]
-            # Derive tipo from cargo/abono values
-            tipo = "cargo" if cargo > 0 else "abono"
+            tipo     = "cargo" if cargo > 0 else "abono"
             monto_pg = int(cargo if cargo > 0 else abono)
             _db.execute(
                 """INSERT INTO fiados_historial
@@ -1353,8 +1456,11 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
                  datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
                  datetime.now(config.COLOMBIA_TZ).strftime("%H:%M"))
             )
-    except Exception as e:
-        logger.warning("Postgres write fiados failed: %s", e)
+            return saldo_nuevo
+        except Exception as e:
+            logger.warning("Error escribiendo fiado en Postgres, usando JSON como fallback: %s", e)
+    # Fallback JSON
+    guardar_memoria(mem)
     return saldo_nuevo
 
 
@@ -1520,22 +1626,37 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
         if catalogo[clave].get("precio_por_cantidad"):
             catalogo[clave]["precio_por_cantidad"]["precio_bajo_umbral"] = round(nuevo_precio)
 
-    mem["catalogo"] = catalogo
+    precio_antes = catalogo[clave].get("precio_unidad") if clave else None
 
-    # Limpiar precio viejo de "precios" simples si existe
+    if _db.DB_DISPONIBLE:
+        try:
+            _upsert_precio_producto_postgres(clave, catalogo[clave], fraccion)
+            # Actualizar cache directamente — sin guardar_memoria ni invalidar_cache_memoria
+            global _cache
+            with _cache_lock:
+                if _cache is not None:
+                    _cache.setdefault("catalogo", {})[clave] = catalogo[clave]
+                    # Limpiar precio viejo de "precios" simples del cache
+                    nombre_lower = prod.get("nombre_lower", nombre_producto.lower())
+                    precios_cache = _cache.get("precios", {})
+                    for k in [k for k in precios_cache if k == nombre_lower or nombre_lower in k or k in nombre_lower]:
+                        del precios_cache[k]
+            _log.info("[PRECIO_CAT] ✅ %s: $%s → $%s (fraccion=%s)", clave, precio_antes, nuevo_precio, fraccion)
+            return True
+        except Exception as e:
+            logger.warning("Error escribiendo precio en Postgres, usando JSON como fallback: %s", e)
+
+    # Fallback JSON
+    mem["catalogo"] = catalogo
     precios = mem.get("precios", {})
     nombre_lower = prod.get("nombre_lower", nombre_producto.lower())
     claves_borrar = [k for k in precios if k == nombre_lower or nombre_lower in k or k in nombre_lower]
     for k in claves_borrar:
         del precios[k]
     mem["precios"] = precios
-
-    # urgente=True: sube a Drive sin debounce para evitar pérdida si el container
-    # se reinicia antes de que expire el timer de 2s del debounce normal.
-    precio_antes = catalogo[clave].get("precio_unidad") if clave else None
     guardar_memoria(mem, urgente=True)
     invalidar_cache_memoria()
-    _log.info("[PRECIO_CAT] ✅ %s: $%s → $%s (fraccion=%s)", clave, precio_antes, nuevo_precio, fraccion)
+    _log.info("[PRECIO_CAT] ✅ %s: $%s → $%s (fraccion=%s) [JSON fallback]", clave, precio_antes, nuevo_precio, fraccion)
     return True
 
 
@@ -1621,12 +1742,8 @@ def registrar_factura_proveedor(
         "foto_nombre": foto_nombre,
         "abonos":      [],             # historial de abonos
     }
-    mem["cuentas_por_pagar"].append(factura)
-    guardar_memoria(mem, urgente=True)
-    # Postgres dual-write (non-fatal, inline — D-01/D-02)
-    try:
-        import db as _db
-        if _db.DB_DISPONIBLE:
+    if _db.DB_DISPONIBLE:
+        try:
             _db.execute(
                 """INSERT INTO facturas_proveedores
                    (id, proveedor, descripcion, total, pagado, pendiente, estado, fecha, foto_url, foto_nombre)
@@ -1636,8 +1753,12 @@ def registrar_factura_proveedor(
                  int(float(total)), 0, int(float(total)), "pendiente", hoy,
                  foto_url, foto_nombre)
             )
-    except Exception as e:
-        logger.warning("Postgres write facturas_proveedores failed: %s", e)
+            return factura
+        except Exception as e:
+            logger.warning("Error escribiendo factura en Postgres, usando JSON como fallback: %s", e)
+    # Fallback JSON
+    mem["cuentas_por_pagar"].append(factura)
+    guardar_memoria(mem, urgente=True)
     return factura
 
 
@@ -1679,9 +1800,8 @@ def registrar_abono_factura(
     elif factura["pagado"] > 0:
         factura["estado"] = "parcial"
 
-    # También registrar en gastos del día como abono a proveedor
-    hoy_gastos = mem.setdefault("gastos", {}).setdefault(hoy, [])
-    hoy_gastos.append({
+    # Registrar el gasto del abono via guardar_gasto (ya es PG-first)
+    guardar_gasto({
         "concepto":  f"Abono {fac_id} - {factura['proveedor']}",
         "monto":     float(monto),
         "categoria": "abono_proveedor",
@@ -1690,11 +1810,8 @@ def registrar_abono_factura(
         "fac_id":    fac_id,
     })
 
-    guardar_memoria(mem, urgente=True)
-    # Postgres dual-write: INSERT abono + UPDATE factura (non-fatal — D-01/D-02)
-    try:
-        import db as _db
-        if _db.DB_DISPONIBLE:
+    if _db.DB_DISPONIBLE:
+        try:
             _db.execute(
                 """INSERT INTO facturas_abonos (factura_id, monto, fecha, foto_url, foto_nombre)
                    VALUES (%s, %s, %s, %s, %s)""",
@@ -1707,8 +1824,20 @@ def registrar_abono_factura(
                 (int(round(factura["pagado"])), int(round(max(factura["pendiente"], 0))),
                  factura["estado"], fac_id.upper())
             )
-    except Exception as e:
-        logger.warning("Postgres write registrar_abono_factura failed: %s", e)
+            return {"ok": True, "factura": factura}
+        except Exception as e:
+            logger.warning("Error escribiendo abono en Postgres, usando JSON como fallback: %s", e)
+    # Fallback JSON
+    hoy_gastos = mem.setdefault("gastos", {}).setdefault(hoy, [])
+    hoy_gastos.append({
+        "concepto":  f"Abono {fac_id} - {factura['proveedor']}",
+        "monto":     float(monto),
+        "categoria": "abono_proveedor",
+        "origen":    "proveedor",
+        "hora":      _dt.now(import_config_tz()).strftime("%H:%M"),
+        "fac_id":    fac_id,
+    })
+    guardar_memoria(mem, urgente=True)
     return {"ok": True, "factura": factura}
 
 

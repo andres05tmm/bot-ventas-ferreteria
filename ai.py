@@ -2396,18 +2396,18 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 cantidad = convertir_fraccion_a_decimal(datos.get("cantidad", 0))
                 minimo   = convertir_fraccion_a_decimal(datos.get("minimo", 0.5))
                 unidad   = datos.get("unidad", "unidades")
-                inventario[producto] = {
+                datos_inv = {
                     "cantidad": cantidad, "minimo": minimo, "unidad": unidad,
                     "nombre_original": datos.get("producto", producto),
                 }
                 from memoria import guardar_inventario as _guardar_inv
-                _guardar_inv(inventario)
+                _guardar_inv(producto, datos_inv)
                 acciones.append(f"Inventario: {datos['producto']} — {decimal_a_fraccion_legible(cantidad)} {unidad}")
             elif accion == "descontar" and producto in inventario:
                 descuento = convertir_fraccion_a_decimal(datos.get("cantidad", 0))
                 inventario[producto]["cantidad"] = max(0, inventario[producto]["cantidad"] - descuento)
                 from memoria import guardar_inventario as _guardar_inv
-                _guardar_inv(inventario)
+                _guardar_inv(producto, inventario[producto])
             from memoria import verificar_alertas_inventario
             acciones.extend(verificar_alertas_inventario())
         except Exception as e:

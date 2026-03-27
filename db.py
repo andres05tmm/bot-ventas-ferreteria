@@ -147,6 +147,15 @@ CREATE TABLE IF NOT EXISTS inventario (
     unidad      VARCHAR(50) DEFAULT 'Unidad',
     updated_at  TIMESTAMP DEFAULT NOW()
 );
+-- Columnas de metadata añadidas post-v1; idempotentes en DBs ya existentes
+ALTER TABLE inventario ADD COLUMN IF NOT EXISTS nombre_original  VARCHAR(300);
+ALTER TABLE inventario ADD COLUMN IF NOT EXISTS costo_promedio   NUMERIC(12,2);
+ALTER TABLE inventario ADD COLUMN IF NOT EXISTS ultimo_costo     NUMERIC(12,2);
+ALTER TABLE inventario ADD COLUMN IF NOT EXISTS ultimo_proveedor VARCHAR(200);
+ALTER TABLE inventario ADD COLUMN IF NOT EXISTS ultima_compra    TIMESTAMP;
+ALTER TABLE inventario ADD COLUMN IF NOT EXISTS ultima_venta     TIMESTAMP;
+ALTER TABLE inventario ADD COLUMN IF NOT EXISTS ultimo_ajuste    TIMESTAMP;
+ALTER TABLE inventario ADD COLUMN IF NOT EXISTS fecha_conteo     TIMESTAMP;
 
 -- ───────────────────────────────────────────────────────────────
 -- CLIENTES

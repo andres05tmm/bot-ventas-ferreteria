@@ -213,10 +213,10 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
     try:
         compras_rec = _leer_excel_compras(dias=30)
         if compras_rec:
-            total_compras = sum(_to_float(c.get("total", 0)) for c in compras_rec)
+            total_compras = sum(_to_float(c.get("costo_total", 0)) for c in compras_rec)
             items_compras = "\n".join(
                 "  " + str(c.get("fecha", "?"))[:10] + " " + str(c.get("proveedor", "?")) +
-                " — " + str(c.get("producto", "?")) + " $" + f"{_to_float(c.get('total', 0)):,.0f}"
+                " — " + str(c.get("producto", "?")) + " $" + f"{_to_float(c.get('costo_total', 0)):,.0f}"
                 for c in compras_rec[-10:]
             )
             compras_texto = (
