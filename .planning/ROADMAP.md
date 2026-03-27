@@ -108,7 +108,10 @@ Plans:
   2. `/borrar N` en Telegram solo elimina la venta del día actual — DELETE incluye `AND fecha::date = CURRENT_DATE`
   3. `routers/shared.py` no importa `sheets_leer_ventas_del_dia` — import muerto eliminado
   4. `test_suite.py` pasa 1096+ tests tras los cambios
-**Plans:** TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 06-01-PLAN.md — Fix 3 integration bugs: safety-net import, /borrar date scope, dead Sheets import
 
 ## Progress
 
