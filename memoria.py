@@ -238,22 +238,15 @@ def _sincronizar_inventario_postgres(inventario: dict, db_module):
 
 def guardar_memoria(memoria: dict, urgente: bool = False):
     """
-    Guarda memoria en disco y sube a Drive.
-    urgente=True: sube inmediatamente sin debounce (para cambios de precio/catálogo).
-    urgente=False: sube con debounce 2s (para ventas, que pueden ser ráfagas).
+    Guarda memoria en disco y sincroniza a Postgres.
+    urgente=True: parámetro mantenido por compatibilidad con callers existentes.
+    urgente=False: comportamiento idéntico (Drive eliminado en Fase 5).
     """
     global _cache
     with _cache_lock:
         _cache = memoria
         with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
             json.dump(memoria, f, ensure_ascii=False, indent=2)
-    if not _bloquear_subida_drive:
-        if urgente:
-            from drive import subir_a_drive_urgente
-            subir_a_drive_urgente(config.MEMORIA_FILE)
-        else:
-            from drive import subir_a_drive
-            subir_a_drive(config.MEMORIA_FILE)
     # Sincronizacion adicional a Postgres (si disponible) — D-06
     import db as _db
     if _db.DB_DISPONIBLE:
