@@ -102,14 +102,14 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 | CAT-06 | Phase 1 | Complete |
 | CAT-07 | Phase 1 | Complete |
 | HIS-01 | Phase 2 | Complete |
-| HIS-02 | Phase 2 | Complete |
-| HIS-03 | Phase 2 | Complete |
+| HIS-02 | Phase 2 → Phase 6 | Pending (bug fix) |
+| HIS-03 | Phase 2 → Phase 6 | Pending (bug fix) |
 | HIS-04 | Phase 2 | Complete |
 | GAS-01 | Phase 2 | Complete |
 | GAS-02 | Phase 2 | Complete |
 | CAJ-01 | Phase 2 | Complete |
 | CAJ-02 | Phase 2 | Complete |
-| VEN-01 | Phase 3 | Complete |
+| VEN-01 | Phase 3 → Phase 6 | Pending (bug fix) |
 | VEN-02 | Phase 3 | Complete |
 | VEN-03 | Phase 3 | Complete |
 | VEN-04 | Phase 3 | Complete |
@@ -123,9 +123,9 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 | PROV-06 | Phase 4 | Complete |
 | CLEAN-01 | Phase 5 | Complete |
 | CLEAN-02 | Phase 5 | Complete |
-| CLEAN-03 | Phase 5 | Complete |
+| CLEAN-03 | Phase 5 → Phase 6 | Pending (bug fix) |
 | CLEAN-04 | Phase 5 | Complete |
-| CLEAN-05 | Phase 5 | Complete |
+| CLEAN-05 | Phase 5 → Phase 6 | Pending (bug fix) |
 | CLEAN-06 | Phase 5 | Complete |
 
 **Coverage:**

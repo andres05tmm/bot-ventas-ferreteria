@@ -17,6 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 3: Ventas** - Migrar la escritura y lectura de ventas desde Sheets/Excel a Postgres
 - [x] **Phase 4: Proveedores + Fiados + Compras** - Migrar cuentas por pagar, fiados y compras a Postgres (completed 2026-03-27)
 - [ ] **Phase 5: Limpieza** - Export Excel on-demand, eliminar dependencias de Drive y Sheets para datos estructurados
+- [ ] **Phase 6: Corregir Bugs de Integración** - Corregir los 3 bugs de integración detectados en el audit de v1.0: import incorrecto en start.py (safety-net roto), DELETE sin filtro de fecha en callbacks.py, import muerto en shared.py
 
 ## Phase Details
 
@@ -97,15 +98,28 @@ Plans:
 - [x] 05-01-PLAN.md — Drive & Sheets cutover: eliminar uploads a Drive y writes a Sheets en excel.py, memoria.py, start.py, routers/ventas.py, handlers/callbacks.py
 - [ ] 05-02-PLAN.md — Export endpoint + test run: GET /export/ventas.xlsx desde Postgres + confirmar test_suite 1096+ tests
 
+### Phase 6: Corregir Bugs de Integración
+**Goal**: Corregir los 3 bugs de integración encontrados en el audit de v1.0 que afectan la correctness en producción
+**Depends on**: Phase 5
+**Requirements**: HIS-02, HIS-03, VEN-01, CLEAN-03, CLEAN-05
+**Gap Closure**: Cierra bugs detectados en v1.0-MILESTONE-AUDIT.md
+**Success Criteria** (what must be TRUE):
+  1. El safety-net nocturno (9pm) ejecuta `_sync_historico_hoy()` correctamente — `start.py` importa desde `routers.historico`, no desde `api`
+  2. `/borrar N` en Telegram solo elimina la venta del día actual — DELETE incluye `AND fecha::date = CURRENT_DATE`
+  3. `routers/shared.py` no importa `sheets_leer_ventas_del_dia` — import muerto eliminado
+  4. `test_suite.py` pasa 1096+ tests tras los cambios
+**Plans:** TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. DB Infra + Catálogo + Inventario | 3/3 | Complete   | 2026-03-26 |
 | 2. Histórico + Gastos + Caja | 2/2 | Complete   | 2026-03-26 |
-| 3. Ventas | 2/3 | In Progress|  |
+| 3. Ventas | 3/3 | Complete   | 2026-03-27 |
 | 4. Proveedores + Fiados + Compras | 3/3 | Complete   | 2026-03-27 |
-| 5. Limpieza | 1/2 | In Progress|  |
+| 5. Limpieza | 2/2 | Complete   | 2026-03-27 |
+| 6. Corregir Bugs de Integración | 0/1 | Pending    |  |
