@@ -170,9 +170,7 @@ def inicializar_excel():
         ws.title = obtener_nombre_hoja()
         inicializar_hoja(ws)
         wb.save(config.EXCEL_FILE)
-        from drive import subir_a_drive
-        subir_a_drive(config.EXCEL_FILE)
-        print("✅ Archivo Excel creado y subido a Drive.")
+        print("✅ Archivo Excel creado.")
 
 
 def detectar_columnas(ws) -> dict:
@@ -222,22 +220,18 @@ def obtener_siguiente_consecutivo() -> int:
     """
     hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
 
-    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
-        try:
-            from sheets import sheets_leer_ventas_del_dia
-            ventas_hoy = sheets_leer_ventas_del_dia()
-            if ventas_hoy:
-                numeros = []
-                for v in ventas_hoy:
-                    try:
-                        numeros.append(int(float(str(v.get("num", 0)))))
-                    except (TypeError, ValueError):
-                        pass
-                if numeros:
-                    return max(numeros) + 1
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            row = _db.query_one(
+                "SELECT MAX(consecutivo) AS max_consec FROM ventas WHERE fecha::date = %s::date",
+                (hoy,),
+            )
+            if row and row.get("max_consec") is not None:
+                return int(row["max_consec"]) + 1
             return 1
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     if not os.path.exists(config.EXCEL_FILE):
         return 1
@@ -457,8 +451,6 @@ def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural
         ws_c.cell(row=fila, column=10, value=datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d %H:%M"))
 
         wb.save(config.EXCEL_FILE)
-        from drive import subir_a_drive
-        subir_a_drive(config.EXCEL_FILE)
         _invalidar_cache_clientes()
         return True
     except Exception as e:
@@ -493,8 +485,6 @@ def borrar_cliente(termino: str) -> tuple[bool, str]:
             return False, f"No encontré un cliente que coincida con '{termino}'."
         ws.delete_rows(fila_borrar)
         wb.save(config.EXCEL_FILE)
-        from drive import subir_a_drive
-        subir_a_drive(config.EXCEL_FILE)
         _invalidar_cache_clientes()
         return True, f"✅ Cliente '{nombre_borrado}' borrado del sistema."
     except Exception as e:
@@ -510,8 +500,6 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
                         observaciones="", cliente_nombre=None, cliente_id=None,
                         codigo_producto=None, consecutivo=None, metodo_pago=None,
                         unidad_medida=None) -> int:
-    from drive import subir_a_drive
-    from sheets import sheets_agregar_venta
     from memoria import cargar_memoria
 
     inicializar_excel()
@@ -601,15 +589,6 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
                 ws.cell(row=fila, column=col).fill = PatternFill("solid", fgColor="EFF6FF")
 
     wb.save(config.EXCEL_FILE)
-    subir_a_drive(config.EXCEL_FILE)
-
-    sheets_agregar_venta(
-        consecutivo_final, producto, cantidad, precio_unitario, total, vendedor,
-        metodo_pago if metodo_pago else observaciones,
-        id_cliente=id_cliente_final, nombre_cliente=nombre_cliente_final,
-        codigo_producto=cod_producto_final,
-        unidad_medida=datos_base.get("unidad_medida", "Unidad"),
-    )
 
     return consecutivo_final
 
@@ -617,8 +596,6 @@ def guardar_venta_excel(producto, cantidad, precio_unitario, total, vendedor,
 def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
     import logging
     log = logging.getLogger("ferrebot.excel")
-    from drive import subir_a_drive
-    from sheets import sheets_borrar_fila
     from memoria import cargar_caja, guardar_caja
 
     inicializar_excel()
@@ -696,8 +673,6 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
 
     if total_borradas:
         wb.save(config.EXCEL_FILE)
-        subir_a_drive(config.EXCEL_FILE)
-        sheets_borrar_fila(numero_venta)
 
         if totales_por_metodo:
             caja = cargar_caja()
@@ -709,7 +684,7 @@ def borrar_venta_excel(numero_venta) -> tuple[bool, str]:
                     caja[campo] = max(0, caja.get(campo, 0) - monto)
                 guardar_caja(caja)
 
-        return True, f"✅ Consecutivo #{numero_venta} borrado — {total_borradas} fila(s) eliminadas del Excel y del Sheets."
+        return True, f"✅ Consecutivo #{numero_venta} borrado — {total_borradas} fila(s) eliminadas del Excel."
 
     return False, f"No encontré el consecutivo #{numero_venta}. Hojas revisadas: {hojas_buscar}"
 
@@ -1030,8 +1005,6 @@ def registrar_fiado_en_excel(cliente: str, concepto: str, cargo: float, abono: f
             celda.fill = PatternFill("solid", fgColor="EFF6FF")
 
     wb.save(config.EXCEL_FILE)
-    from drive import subir_a_drive
-    subir_a_drive(config.EXCEL_FILE)
 
 
 # ─────────────────────────────────────────────
@@ -1077,10 +1050,8 @@ def registrar_compra_en_excel(producto: str, cantidad: float, costo_unitario: fl
             celda.number_format = "$#,##0"
         if fila_datos % 2 == 0:
             celda.fill = PatternFill("solid", fgColor="FEF3C7")  # Amarillo claro
-    
+
     wb.save(config.EXCEL_FILE)
-    from drive import subir_a_drive
-    subir_a_drive(config.EXCEL_FILE)
 
 
 def actualizar_hoja_inventario():
@@ -1157,9 +1128,7 @@ def actualizar_hoja_inventario():
             if fila % 2 == 0:
                 if col != 5 or val == "—":  # No sobreescribir color de margen
                     celda.fill = PatternFill("solid", fgColor="F0FDF4")
-        
+
         fila += 1
-    
+
     wb.save(config.EXCEL_FILE)
-    from drive import subir_a_drive
-    subir_a_drive(config.EXCEL_FILE)

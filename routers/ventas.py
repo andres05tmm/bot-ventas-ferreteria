@@ -17,7 +17,6 @@ from pydantic import BaseModel
 from typing import Optional, Union
 
 import config
-from sheets import sheets_leer_ventas_del_dia
 from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_ventas_postgres, _leer_excel_compras,
     _to_float, _cantidad_a_float, _stock_wayper,
@@ -34,34 +33,22 @@ router = APIRouter()
 def ventas_hoy():
     try:
         hoy = _hoy()
-
-        # ── Fuente principal: Google Sheets (datos en tiempo real) ────────────
         filtradas = []
-        fuente    = "sheets"
-        try:
-            ventas    = sheets_leer_ventas_del_dia()
-            filtradas = [v for v in ventas if str(v.get("fecha", ""))[:10] == hoy]
-        except Exception as e_sheets:
-            logging.getLogger("ferrebot.api").warning(
-                f"Sheets no disponible, usando Excel como fallback: {e_sheets}"
-            )
-            fuente = "excel_fallback"
+        fuente = "postgres"
 
-        # ── Fallback a Postgres si Sheets devuelve vacío o falló ─────────────
-        if not filtradas:
-            try:
-                pg_ventas = _leer_ventas_postgres(dias=1)
-                if pg_ventas is not None:
-                    filtradas = [v for v in pg_ventas if str(v.get("fecha", ""))[:10] == hoy]
-                    if filtradas:
-                        fuente = "postgres_fallback"
-            except Exception:
-                pass
-        # ── Fallback al Excel como último recurso ─────────────────────────────
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        try:
+            pg_ventas = _leer_ventas_postgres(dias=1)
+            if pg_ventas is not None:
+                filtradas = [v for v in pg_ventas if str(v.get("fecha", ""))[:10] == hoy]
+        except Exception as e_pg:
+            logger.warning(f"Postgres no disponible en /ventas/hoy: {e_pg}")
+
+        # ── Fallback: Excel local ─────────────────────────────────────────────
         if not filtradas:
             try:
                 ventas_xls = _leer_excel_rango(dias=1)
-                filtradas  = [v for v in ventas_xls if str(v.get("fecha", ""))[:10] == hoy]
+                filtradas = [v for v in ventas_xls if str(v.get("fecha", ""))[:10] == hoy]
                 if filtradas:
                     fuente = "excel_fallback"
             except Exception:
@@ -69,7 +56,6 @@ def ventas_hoy():
 
         # ── Enriquecer con unidad_medida desde el catálogo (solo si falta) ────
         try:
-            # Sheets ahora trae unidad_medida nativo; solo rellenar filas antiguas
             necesitan = [v for v in filtradas if not v.get("unidad_medida") or v["unidad_medida"] == "Unidad"]
             if necesitan and os.path.exists(config.MEMORIA_FILE):
                 with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
@@ -165,10 +151,14 @@ def ventas_resumen():
     try:
         hoy = _hoy()
 
-        # Sheets — tolerante a fallo
+        # Postgres — fuente primaria para hoy; tolerante a fallo
         try:
-            ventas_hoy_list = sheets_leer_ventas_del_dia()
-            ventas_hoy_list = [v for v in ventas_hoy_list if str(v.get("fecha", ""))[:10] == hoy]
+            pg_hoy = _leer_ventas_postgres(dias=1)
+            if pg_hoy is not None:
+                ventas_hoy_list = [v for v in pg_hoy if str(v.get("fecha", ""))[:10] == hoy]
+            else:
+                ventas_hoy_list = _leer_excel_rango(dias=1)
+                ventas_hoy_list = [v for v in ventas_hoy_list if str(v.get("fecha", ""))[:10] == hoy]
         except Exception:
             ventas_hoy_list = []
 
@@ -460,12 +450,11 @@ def eliminar_venta(numero: int):
 def eliminar_linea_venta(numero: int, producto: str = Query(...)):
     """
     Elimina UNA sola línea (producto) de un consecutivo multi-producto.
-    Busca por consecutivo + nombre de producto exacto en Excel y Sheets.
+    Busca por consecutivo + nombre de producto exacto en Excel.
     """
     try:
         import openpyxl
         from excel import inicializar_excel, obtener_nombre_hoja, detectar_columnas, recalcular_caja_desde_excel
-        from drive import subir_a_drive
 
         inicializar_excel()
         wb    = openpyxl.load_workbook(config.EXCEL_FILE)
@@ -499,41 +488,7 @@ def eliminar_linea_venta(numero: int, producto: str = Query(...)):
 
         if total_borradas:
             wb.save(config.EXCEL_FILE)
-            try:
-                subir_a_drive(config.EXCEL_FILE)
-            except Exception:
-                pass
             recalcular_caja_desde_excel()
-
-            # Borrar de Sheets también
-            try:
-                from sheets import _obtener_hoja_sheets, _invalidar_ws_cache
-                ws_sh = _obtener_hoja_sheets()
-                if ws_sh:
-                    todas = ws_sh.get_all_values()
-                    headers = [h.upper().strip() for h in todas[0]] if todas else []
-                    col_consec = None
-                    col_prod_sh = None
-                    for i, h in enumerate(headers):
-                        if "CONSECUTIVO" in h or h == "#":
-                            col_consec = i
-                        if h == "PRODUCTO":
-                            col_prod_sh = i
-                    if col_consec is not None and col_prod_sh is not None:
-                        filas_sh = []
-                        for idx, fila in enumerate(todas[1:], start=2):
-                            try:
-                                if int(float(str(fila[col_consec]).strip())) == numero:
-                                    if fila[col_prod_sh].strip().lower() == producto.lower():
-                                        filas_sh.append(idx)
-                            except (ValueError, IndexError):
-                                pass
-                        for fila_idx in reversed(filas_sh):
-                            ws_sh.delete_rows(fila_idx)
-                        if filas_sh:
-                            _invalidar_ws_cache()
-            except Exception:
-                pass
 
             return {"ok": True, "borradas": total_borradas, "mensaje": f"'{producto}' eliminado del consecutivo #{numero}"}
 
@@ -560,14 +515,12 @@ class EditarVentaBody(BaseModel):
 def editar_venta(numero: int, body: EditarVentaBody):
     """
     Edita los campos de un consecutivo en el Excel (hoja mensual + Acumulado)
-    y sincroniza los cambios a Google Sheets.
+    y sincroniza los cambios a Postgres.
     Si producto_original viene, solo actualiza la fila con ese producto (multi-producto).
     """
     try:
         import openpyxl
         from excel import inicializar_excel, obtener_nombre_hoja, detectar_columnas, recalcular_caja_desde_excel
-        from drive import subir_a_drive
-        from sheets import sheets_editar_consecutivo
 
         inicializar_excel()
         wb          = openpyxl.load_workbook(config.EXCEL_FILE)
@@ -629,16 +582,52 @@ def editar_venta(numero: int, body: EditarVentaBody):
 
         if actualizadas:
             wb.save(config.EXCEL_FILE)
-            try:
-                subir_a_drive(config.EXCEL_FILE)
-            except Exception:
-                pass
             recalcular_caja_desde_excel()
-            # ── Sincronizar a Google Sheets ───────────────────────────────
+            # ── Sincronizar a Postgres ────────────────────────────────────
             try:
-                sheets_editar_consecutivo(numero, cambios, producto_original=body.producto_original)
-            except Exception:
-                pass   # No fallar la respuesta si Sheets falla
+                import db as _db
+                if _db.DB_DISPONIBLE and cambios:
+                    set_parts = []
+                    params = []
+                    campo_col_pg = {
+                        "producto":        "producto_nombre",
+                        "cantidad":        "cantidad",
+                        "precio_unitario": "precio_unitario",
+                        "total":           "total",
+                    }
+                    cabecera_col_pg = {
+                        "metodo_pago": "metodo_pago",
+                        "cliente":     "cliente_nombre",
+                        "vendedor":    "vendedor",
+                    }
+                    # Actualizar ventas_detalle
+                    det_parts = []
+                    det_params = []
+                    for campo, col in campo_col_pg.items():
+                        if campo in cambios:
+                            det_parts.append(f"{col} = %s")
+                            det_params.append(cambios[campo])
+                    if det_parts:
+                        det_params.append(numero)
+                        _db.execute(
+                            f"UPDATE ventas_detalle SET {', '.join(det_parts)} WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s LIMIT 1)",
+                            det_params,
+                        )
+                    # Actualizar ventas (cabecera)
+                    cab_parts = []
+                    cab_params = []
+                    for campo, col in cabecera_col_pg.items():
+                        if campo in cambios:
+                            cab_parts.append(f"{col} = %s")
+                            cab_params.append(cambios[campo])
+                    if cab_parts:
+                        cab_params.append(numero)
+                        _db.execute(
+                            f"UPDATE ventas SET {', '.join(cab_parts)} WHERE consecutivo = %s",
+                            cab_params,
+                        )
+            except Exception as e_pg:
+                logger.warning(f"No se pudo sincronizar edición a Postgres (no crítico): {e_pg}")
             return {"ok": True, "actualizadas": actualizadas, "mensaje": f"Venta #{numero} actualizada"}
 
         return {"ok": False, "mensaje": f"No se encontró el consecutivo #{numero}"}

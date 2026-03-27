@@ -297,20 +297,31 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             numero = borrados_pendientes.pop(chat_id, None)
 
         if confirm == "si" and numero:
-            # Borrar de Sheets primero (si está disponible)
-            sheets_borradas = 0
-            if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
-                from sheets import sheets_borrar_consecutivo
-                sheets_borradas, _ = await asyncio.to_thread(sheets_borrar_consecutivo, numero)
-            
-            # También borrar del Excel local
+            # Borrar de Postgres
+            pg_borradas = 0
+            try:
+                import db as _db
+                if _db.DB_DISPONIBLE:
+                    rows = await asyncio.to_thread(
+                        _db.execute,
+                        "DELETE FROM ventas_detalle WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s)",
+                        [numero],
+                    )
+                    await asyncio.to_thread(
+                        _db.execute,
+                        "DELETE FROM ventas WHERE consecutivo = %s",
+                        [numero],
+                    )
+                    pg_borradas = 1
+            except Exception as e_pg:
+                import logging as _log
+                _log.getLogger("ferrebot.callbacks").warning(f"Error borrando de Postgres: {e_pg}")
+
+            # Borrar del Excel local también
             exito, msg = await asyncio.to_thread(borrar_venta_excel, numero)
-            
-            # Mensaje de confirmación
-            if sheets_borradas > 0:
-                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado ({sheets_borradas} productos borrados de Sheets).")
-            elif exito:
-                await query.edit_message_text(msg)
+
+            if pg_borradas > 0 or exito:
+                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
             else:
                 await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
         else:
