@@ -74,10 +74,10 @@ Plans:
   2. Registrar un abono a proveedor escribe en facturas_abonos de Postgres
   3. Los fiados de clientes se leen y escriben desde las tablas fiados y fiados_historial
   4. Las fotos de facturas siguen almacenadas en Drive sin cambios
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
-- [ ] 04-01-PLAN.md — Dual-write Postgres in 4 memoria.py write functions (facturas, abonos, fiados, compras)
+- [x] 04-01-PLAN.md — Dual-write Postgres in 4 memoria.py write functions (facturas, abonos, fiados, compras)
 - [ ] 04-02-PLAN.md — Postgres-first reads in listar_facturas, cargar_fiados, GET /compras + photo URL sync
 - [ ] 04-03-PLAN.md — Create migrate_proveedores.py, migrate_fiados.py, migrate_compras.py
 
@@ -103,5 +103,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. DB Infra + Catálogo + Inventario | 3/3 | Complete   | 2026-03-26 |
 | 2. Histórico + Gastos + Caja | 2/2 | Complete   | 2026-03-26 |
 | 3. Ventas | 2/3 | In Progress|  |
-| 4. Proveedores + Fiados + Compras | 0/3 | Not started | - |
+| 4. Proveedores + Fiados + Compras | 1/3 | In Progress|  |
 | 5. Limpieza | 0/TBD | Not started | - |

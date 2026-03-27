@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Phase 4 context gathered (assumptions mode)
-last_updated: "2026-03-26T23:14:41.756Z"
-last_activity: 2026-03-26
+status: executing
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-27T03:20:08.079Z"
+last_activity: 2026-03-27
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 11
+  completed_plans: 9
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-25)
 
 **Core value:** El bot debe registrar ventas sin interrupciones — si la DB falla, el bot no puede caer.
-**Current focus:** Phase 03 — ventas
+**Current focus:** Phase 04 — proveedores-fiados-compras
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-26
+Phase: 04 (proveedores-fiados-compras) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-03-27
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P03 | 80 | 1 tasks | 1 files |
 | Phase 03 P02 | 142 | 2 tasks | 2 files |
 | Phase 03-ventas P01 | 3 | 2 tasks | 2 files |
+| Phase 04 P01 | 2 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Recent decisions affecting current work:
 - [Phase 03]: ventas_hoy uses three-tier fallback: Sheets (primary) -> Postgres -> Excel (last resort); all other read endpoints use two-tier: Postgres -> Excel
 - [Phase 03-ventas]: items_para_pg collected during existing for loop in registrar_ventas_con_metodo to avoid re-iterating ventas list
 - [Phase 03-ventas]: check-then-insert pattern in /cerrar (not UPSERT) because ventas schema lacks UNIQUE constraint on consecutivo
+- [Phase 04]: registrar_factura_proveedor uses ON CONFLICT (id) DO NOTHING — idempotent if same fac_id re-registered
+- [Phase 04]: guardar_fiado_movimiento uses application-level upsert (query_one + branch) since fiados.nombre has no UNIQUE constraint
 
 ### Pending Todos
 
@@ -102,6 +105,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T23:14:41.743Z
-Stopped at: Phase 4 context gathered (assumptions mode)
-Resume file: .planning/phases/04-proveedores-fiados-compras/04-CONTEXT.md
+Last session: 2026-03-27T03:20:08.063Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None
