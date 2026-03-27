@@ -8,8 +8,6 @@ import logging
 import os
 from collections import defaultdict
 from datetime import datetime, timedelta
-from pathlib import Path
-
 import openpyxl
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
@@ -17,7 +15,6 @@ from pydantic import BaseModel
 from typing import Optional, Union
 
 import config
-from sheets import sheets_leer_ventas_del_dia
 from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
     _to_float, _cantidad_a_float, _stock_wayper,
@@ -72,16 +69,16 @@ def _total_ventas_hoy_sheets() -> float:
         ):
             return _cache_hoy_valor
 
-    # ── Consulta real a Sheets ────────────────────────────────────────────
+    # ── Consulta real a Postgres ─────────────────────────────────────────
     total = 0.0
     try:
-        ventas = sheets_leer_ventas_del_dia()
-        for v in ventas:
-            if str(v.get("fecha", ""))[:10] == hoy:
-                try:
-                    total += float(str(v.get("total", 0)).replace(",", ".") or 0)
-                except (ValueError, TypeError):
-                    pass
+        from db import query_all
+        rows = query_all(
+            "SELECT COALESCE(SUM(total), 0) AS total FROM ventas WHERE fecha = %s",
+            (hoy,),
+        )
+        if rows:
+            total = float(rows[0].get("total", 0) or 0)
     except Exception:
         pass
 

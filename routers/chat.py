@@ -8,16 +8,13 @@ import logging
 import os
 from collections import defaultdict
 from datetime import datetime, timedelta
-from pathlib import Path
 
-import openpyxl
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
 
 import config
-from sheets import sheets_leer_ventas_del_dia
 from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
     _to_float, _cantidad_a_float, _stock_wayper,
@@ -105,11 +102,29 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
 
     # ── Ventas del día (detalle completo) ────────────────────────────────────
     try:
-        from sheets import sheets_leer_ventas_del_dia
+        from db import query_all
         ventas_hoy_list = []
         try:
-            ventas_hoy_list = [v for v in sheets_leer_ventas_del_dia()
-                               if str(v.get("fecha", ""))[:10] == hoy_str]
+            rows = query_all(
+                """
+                SELECT v.consecutivo     AS num,
+                       v.fecha::text     AS fecha,
+                       v.hora::text      AS hora,
+                       v.cliente_nombre  AS cliente,
+                       v.metodo_pago     AS metodo_pago,
+                       d.producto_nombre AS producto,
+                       d.cantidad,
+                       d.unidad_medida,
+                       d.precio_unitario,
+                       d.total
+                FROM ventas v
+                JOIN ventas_detalle d ON d.venta_id = v.id
+                WHERE v.fecha = %s
+                ORDER BY v.consecutivo, d.id
+                """,
+                (hoy_str,),
+            )
+            ventas_hoy_list = [dict(r) for r in rows]
         except Exception:
             pass
         if not ventas_hoy_list:
