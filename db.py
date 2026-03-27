@@ -175,7 +175,8 @@ CREATE TABLE IF NOT EXISTS ventas (
     vendedor        VARCHAR(100),
     metodo_pago     VARCHAR(50),
     total           INTEGER NOT NULL DEFAULT 0,
-    created_at      TIMESTAMP DEFAULT NOW()
+    created_at      TIMESTAMP DEFAULT NOW(),
+    UNIQUE (consecutivo, fecha)
 );
 
 -- Lineas de cada venta
