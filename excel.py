@@ -290,12 +290,44 @@ def obtener_consecutivo_actual() -> int:
 # CLIENTES (dentro del Excel)
 # ─────────────────────────────────────────────
 
+def _pg_row_to_cliente(row: dict) -> dict:
+    """Convierte una fila de la tabla `clientes` al formato Excel-dict que el resto del código espera."""
+    return {
+        "Nombre tercero":          str(row.get("nombre") or ""),
+        "Es Juridica o Persona":   str(row.get("tipo_persona") or "Natural"),
+        "Tipo de identificacion":  str(row.get("tipo_id") or "CC"),
+        "Identificacion":          str(row.get("identificacion") or ""),
+        "Digito verificacion":     "0",
+        "Correo electronico":      str(row.get("correo") or ""),
+        "Direccion":               str(row.get("direccion") or "No aplica"),
+        "Telefono":                str(row.get("telefono") or "000-0000000-"),
+        "Nombres contacto":        str(row.get("nombre") or ""),
+        "Fecha registro":          str(row.get("created_at") or ""),
+        "_pg_id":                  row.get("id"),   # para borrado PG interno
+    }
+
+
 def cargar_clientes() -> list:
     global _clientes_cache, _clientes_cache_ts
     # Retornar caché si aún es válida (TTL 5 min)
     if _clientes_cache and (time.time() - _clientes_cache_ts) < _CLIENTES_CACHE_TTL:
         return _clientes_cache
 
+    # ── Fuente primaria: PostgreSQL ──────────────────────────────────────────
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            rows = _db.query_all(
+                "SELECT * FROM clientes ORDER BY nombre ASC"
+            )
+            clientes = [_pg_row_to_cliente(dict(r)) for r in rows]
+            _clientes_cache    = clientes
+            _clientes_cache_ts = time.time()
+            return clientes
+    except Exception as e:
+        print(f"Error cargando clientes desde PG: {e}")
+
+    # ── Fallback: Excel ──────────────────────────────────────────────────────
     if not os.path.exists(config.EXCEL_FILE):
         return []
     try:
@@ -304,7 +336,6 @@ def cargar_clientes() -> list:
             wb.close()
             return []
         ws = wb["Clientes"]
-        # En read_only ws.max_column puede ser None — usar iter_rows para headers
         headers = []
         try:
             for fila_hdr in ws.iter_rows(min_row=1, max_row=1):
@@ -324,12 +355,11 @@ def cargar_clientes() -> list:
             if cliente:
                 clientes.append(cliente)
         wb.close()
-        # Guardar en caché con timestamp
         _clientes_cache    = clientes
         _clientes_cache_ts = time.time()
         return clientes
     except Exception as e:
-        print(f"Error cargando clientes: {e}")
+        print(f"Error cargando clientes desde Excel: {e}")
         return []
 
 
@@ -421,6 +451,32 @@ def obtener_nombre_id_cliente(termino: str) -> tuple[str, str]:
 
 
 def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural", correo="", telefono="", direccion="") -> bool:
+    # ── Fuente primaria: PostgreSQL ──────────────────────────────────────────
+    pg_ok = False
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            _db.execute(
+                """INSERT INTO clientes
+                       (nombre, tipo_id, identificacion, tipo_persona, correo, telefono, direccion)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT DO NOTHING""",
+                (
+                    nombre.upper().strip(),
+                    tipo_id,
+                    identificacion.strip() or None,
+                    tipo_persona,
+                    correo.strip() or None,
+                    telefono.strip() or None,
+                    direccion.strip() or None,
+                ),
+            )
+            pg_ok = True
+            _invalidar_cache_clientes()
+    except Exception as e:
+        print(f"Error guardando cliente en PG: {e}")
+
+    # ── Dual-write: Excel (backup) ───────────────────────────────────────────
     try:
         inicializar_excel()
         wb = openpyxl.load_workbook(config.EXCEL_FILE)
@@ -449,23 +505,57 @@ def guardar_cliente_nuevo(nombre, tipo_id, identificacion, tipo_persona="Natural
         ws_c.cell(row=fila, column=8, value=telefono or "000-0000000-")
         ws_c.cell(row=fila, column=9, value=nombre.upper())
         ws_c.cell(row=fila, column=10, value=datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d %H:%M"))
-
         wb.save(config.EXCEL_FILE)
         _invalidar_cache_clientes()
         return True
     except Exception as e:
-        print(f"Error guardando cliente: {e}")
-        return False
+        print(f"Error guardando cliente en Excel: {e}")
+        return pg_ok  # PG tuvo éxito aunque el Excel falló
 
 
 def borrar_cliente(termino: str) -> tuple[bool, str]:
+    termino_norm = _normalizar(termino)
+
+    # ── Fuente primaria: PostgreSQL ──────────────────────────────────────────
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            # Buscar por identificación exacta o nombre flexible
+            row = _db.query_one(
+                "SELECT id, nombre FROM clientes WHERE identificacion = %s", (termino.strip(),)
+            )
+            if not row:
+                # Búsqueda por palabras en nombre
+                palabras = [p for p in termino_norm.split() if len(p) > 2]
+                if palabras:
+                    todos = _db.query_all("SELECT id, nombre FROM clientes")
+                    for r in todos:
+                        nombre_n = _normalizar(r["nombre"])
+                        if _normalizar(nombre_n) == termino_norm or all(p in nombre_n for p in palabras):
+                            row = r
+                            break
+            if row:
+                _db.execute("DELETE FROM clientes WHERE id = %s", (row["id"],))
+                _invalidar_cache_clientes()
+                # También borrar del Excel para mantener sincronía
+                _borrar_cliente_excel(termino_norm)
+                return True, f"✅ Cliente '{row['nombre']}' borrado del sistema."
+            return False, f"No encontré un cliente que coincida con '{termino}'."
+    except Exception as e:
+        print(f"Error borrando cliente de PG: {e}")
+
+    # ── Fallback: solo Excel ─────────────────────────────────────────────────
+    return _borrar_cliente_excel(termino_norm)
+
+
+def _borrar_cliente_excel(termino_norm: str) -> tuple[bool, str]:
+    """Borra un cliente de la hoja Clientes del Excel. Uso interno."""
     try:
         inicializar_excel()
         wb = openpyxl.load_workbook(config.EXCEL_FILE)
         if "Clientes" not in wb.sheetnames:
             return False, "No hay clientes registrados."
         ws           = wb["Clientes"]
-        termino_norm = _normalizar(termino)
         fila_borrar  = None
         nombre_borrado = None
         for fila in range(2, ws.max_row + 1):
@@ -482,13 +572,13 @@ def borrar_cliente(termino: str) -> tuple[bool, str]:
                 break
 
         if not fila_borrar:
-            return False, f"No encontré un cliente que coincida con '{termino}'."
+            return False, f"No encontré un cliente que coincida."
         ws.delete_rows(fila_borrar)
         wb.save(config.EXCEL_FILE)
         _invalidar_cache_clientes()
         return True, f"✅ Cliente '{nombre_borrado}' borrado del sistema."
     except Exception as e:
-        print(f"Error borrando cliente: {e}")
+        print(f"Error borrando cliente del Excel: {e}")
         return False, "Hubo un error borrando el cliente."
 
 

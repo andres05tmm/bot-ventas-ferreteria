@@ -953,39 +953,33 @@ def registrar_compra(nombre_producto: str, cantidad: float, costo_unitario: floa
 
 
 def _registrar_historial_compra(producto: str, cantidad: float, costo_unitario: float, proveedor: str = "—"):
-    """Guarda la compra en el historial para reportes."""
-    mem = cargar_memoria()
-    if "historial_compras" not in mem:
-        mem["historial_compras"] = []
-    
-    mem["historial_compras"].append({
-        "fecha": datetime.now().strftime("%Y-%m-%d"),
-        "hora": datetime.now().strftime("%H:%M"),
-        "proveedor": proveedor,
-        "producto": producto,
-        "cantidad": cantidad,
-        "costo_unitario": costo_unitario,
-        "total": round(cantidad * costo_unitario),
-    })
-    
-    # Mantener solo últimos 500 registros
-    if len(mem["historial_compras"]) > 500:
-        mem["historial_compras"] = mem["historial_compras"][-500:]
-
-    guardar_memoria(mem)
-    # Postgres dual-write (non-fatal — D-01/D-02)
+    """Persiste la compra en PostgreSQL (fuente única de verdad)."""
     try:
         import db as _db
         if _db.DB_DISPONIBLE:
+            ahora = datetime.now(config.COLOMBIA_TZ)
             _db.execute(
                 """INSERT INTO compras
                    (fecha, hora, proveedor, producto_nombre, cantidad, costo_unitario, costo_total)
                    VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                (datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
-                 datetime.now(config.COLOMBIA_TZ).strftime("%H:%M"),
+                (ahora.strftime("%Y-%m-%d"),
+                 ahora.strftime("%H:%M"),
                  proveedor, producto, cantidad,
                  int(costo_unitario), round(cantidad * costo_unitario))
             )
+        else:
+            # Sin PG: fallback temporal a JSON para no perder el registro
+            mem = cargar_memoria()
+            mem.setdefault("historial_compras", []).append({
+                "fecha":          datetime.now().strftime("%Y-%m-%d"),
+                "hora":           datetime.now().strftime("%H:%M"),
+                "proveedor":      proveedor,
+                "producto":       producto,
+                "cantidad":       cantidad,
+                "costo_unitario": costo_unitario,
+                "total":          round(cantidad * costo_unitario),
+            })
+            guardar_memoria(mem)
     except Exception as e:
         logger.warning("Postgres write compras failed: %s", e)
 

@@ -260,8 +260,42 @@ def _stock_wayper(key: str, inventario: dict):
     return raw.get("cantidad") if isinstance(raw, dict) else raw
 
 
-def _leer_excel_compras(dias: int | None = None) -> list[dict]:
-    """Lee la hoja 'Compras' del Excel de ventas."""
+def _leer_compras(dias: int | None = None) -> list[dict]:
+    """
+    Lee compras recientes. PG-first; fallback a la hoja 'Compras' del Excel.
+
+    Columnas devueltas (siempre presentes):
+        fecha, hora, proveedor, producto, cantidad, costo_unitario, costo_total
+    """
+    import db as _db
+
+    # ── Fuente primaria: PostgreSQL ──────────────────────────────────────────
+    if _db.DB_DISPONIBLE:
+        try:
+            desde = (
+                (datetime.now(config.COLOMBIA_TZ) - timedelta(days=dias)).strftime("%Y-%m-%d")
+                if dias
+                else None
+            )
+            sql = """
+                SELECT fecha::text,
+                       COALESCE(hora::text, '')   AS hora,
+                       COALESCE(proveedor, '—')   AS proveedor,
+                       producto_nombre             AS producto,
+                       cantidad,
+                       COALESCE(costo_unitario, 0) AS costo_unitario,
+                       COALESCE(costo_total,    0) AS costo_total
+                FROM compras
+                {where}
+                ORDER BY fecha ASC, id ASC
+            """.format(where="WHERE fecha >= %s" if desde else "")
+            params = (desde,) if desde else None
+            rows = _db.query_all(sql, params)
+            return [dict(r) for r in rows]
+        except Exception as _e:
+            logger.warning("_leer_compras PG falló, usando Excel: %s", _e)
+
+    # ── Fallback: Excel ──────────────────────────────────────────────────────
     if not os.path.exists(config.EXCEL_FILE):
         return []
     try:
@@ -292,6 +326,11 @@ def _leer_excel_compras(dias: int | None = None) -> list[dict]:
         })
     wb.close()
     return sorted(resultado, key=lambda x: x["fecha"])
+
+
+# Alias de compatibilidad — los 4 routers la importan con este nombre.
+# Redirige a _leer_compras (PG-first) sin necesidad de tocar los imports.
+_leer_excel_compras = _leer_compras
 
 
 def _to_float(val) -> float:

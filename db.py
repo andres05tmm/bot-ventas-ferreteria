@@ -159,8 +159,11 @@ CREATE TABLE IF NOT EXISTS clientes (
     tipo_persona    VARCHAR(20),
     correo          VARCHAR(200),
     telefono        VARCHAR(50),
+    direccion       VARCHAR(300),
     created_at      TIMESTAMP DEFAULT NOW()
 );
+-- Columna añadida post-v1; idempotente en DBs ya existentes
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS direccion VARCHAR(300);
 
 -- ───────────────────────────────────────────────────────────────
 -- VENTAS
