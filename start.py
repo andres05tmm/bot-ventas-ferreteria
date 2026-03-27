@@ -34,33 +34,11 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("start")
 
 # ── Importar config AQUÍ — después de fijar WEBHOOK_URL y antes de arrancar hilos
-# FIX: antes estaba en la línea 112, después de iniciar el excel_watcher_thread.
-# _get_excel_modified_time() usa config.get_drive_service(); el hilo sobrevivía
-# solo gracias al time.sleep(30) inicial. Ahora el import está en el lugar correcto.
 import config  # noqa: E402
 
 # ── Inicializar PostgreSQL (si DATABASE_URL esta configurado) ──────────────────
 import db as _db  # noqa: E402
 _db.init_db()  # determina DB_DISPONIBLE una vez; no falla si DATABASE_URL ausente
-
-# ── Restaurar memoria.json desde Drive al arrancar ────────────────────────────
-# El archivo NO vive en el repo (está en .gitignore). En cada deploy Railway
-# arranca sin él, así que lo descargamos de Drive antes de levantar cualquier
-# hilo. Si falla (primer deploy, Drive vacío) el bot arranca con estado vacío
-# y el usuario puede ejecutar /catalogo para importar el catálogo desde Excel.
-def _restaurar_memoria() -> None:
-    from drive import descargar_de_drive
-    ruta = config.MEMORIA_FILE
-    try:
-        ok = descargar_de_drive("memoria.json", ruta)
-        if ok:
-            log.info("✅ memoria.json restaurado desde Drive")
-        else:
-            log.warning("⚠️  memoria.json no encontrado en Drive — arrancando vacío")
-    except Exception as e:
-        log.warning(f"⚠️  No se pudo restaurar memoria.json: {e} — arrancando vacío")
-
-_restaurar_memoria()
 
 # ── API en hilo SECUNDARIO (daemon) ────────────────────────────────────────────
 def _run_api() -> None:
@@ -72,98 +50,6 @@ def _run_api() -> None:
 api_thread = threading.Thread(target=_run_api, name="ferreapi", daemon=True)
 api_thread.start()
 log.info("🧵 Hilo de la API iniciado")
-
-# ── Watcher de Excel: sincroniza memoria.json si el Excel cambia en Drive ──────
-EXCEL_WATCH_INTERVAL = 2 * 60 * 60  # cada 2 horas
-EXCEL_NOMBRE         = "BASE_DE_DATOS_PRODUCTOS.xlsx"
-
-def _get_excel_modified_time() -> str | None:
-    """Retorna el modifiedTime del Excel en Drive, o None si falla."""
-    try:
-        service = config.get_drive_service()
-        query   = (
-            f"name='{EXCEL_NOMBRE}' "
-            f"and '{config.GOOGLE_FOLDER_ID}' in parents "
-            f"and trashed=false"
-        )
-        res   = service.files().list(q=query, fields="files(id,modifiedTime)").execute()
-        files = res.get("files", [])
-        return files[0]["modifiedTime"] if files else None
-    except Exception as e:
-        log.warning(f"[excel-watcher] No pudo leer modifiedTime: {e}")
-        return None
-
-def _run_excel_watcher() -> None:
-    """
-    Hilo daemon que cada EXCEL_WATCH_INTERVAL segundos compara el
-    modifiedTime del Excel en Drive con el último conocido.
-    Si cambió, reimporta todos los precios a memoria.json.
-    """
-    import time, tempfile, os as _os
-    last_modified = None
-
-    # Esperar 30s al arranque para que la API ya esté lista
-    time.sleep(30)
-    last_modified = _get_excel_modified_time()
-    log.info(f"[excel-watcher] Iniciado. modifiedTime inicial: {last_modified}")
-
-    while True:
-        time.sleep(EXCEL_WATCH_INTERVAL)
-        try:
-            current = _get_excel_modified_time()
-            if current is None or current == last_modified:
-                continue
-
-            log.info(f"[excel-watcher] Excel cambió ({last_modified} → {current}). Reimportando…")
-            from drive import descargar_de_drive
-            from precio_sync import importar_catalogo_desde_excel
-
-            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-                ruta_tmp = tmp.name
-
-            try:
-                ok = descargar_de_drive(EXCEL_NOMBRE, ruta_tmp)
-                if not ok:
-                    log.warning("[excel-watcher] No pudo descargar Excel de Drive")
-                    continue
-                resultado = importar_catalogo_desde_excel(ruta_tmp)
-                last_modified = current
-                log.info(
-                    f"[excel-watcher] Reimportados {resultado['importados']} productos. "
-                    f"Errores: {len(resultado.get('errores', []))}"
-                )
-                # Notificar en Telegram si hay ADMIN_CHAT_ID configurado
-                admin_chat = getattr(config, "ADMIN_CHAT_ID", None) or os.getenv("ADMIN_CHAT_ID")
-                if admin_chat:
-                    try:
-                        import requests as _req
-                        _req.post(
-                            f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage",
-                            json={
-                                "chat_id": admin_chat,
-                                "text": (
-                                    f"📊 *Catálogo actualizado desde Excel*\n"
-                                    f"✅ {resultado['importados']} productos importados\n"
-                                    f"⚠️ {len(resultado.get('errores', []))} errores\n"
-                                    f"_Usa /precios para verificar_"
-                                ),
-                                "parse_mode": "Markdown",
-                            },
-                            timeout=5,
-                        )
-                    except Exception as e_tg:
-                        log.warning(f"[excel-watcher] No pudo notificar Telegram: {e_tg}")
-            finally:
-                try:
-                    _os.unlink(ruta_tmp)
-                except Exception:
-                    pass
-        except Exception as e:
-            log.warning(f"[excel-watcher] Error en ciclo: {e}")
-
-excel_watcher_thread = threading.Thread(target=_run_excel_watcher, name="excel-watcher", daemon=True)
-excel_watcher_thread.start()
-log.info("👀 Excel watcher iniciado (intervalo: 2 horas)")
 
 # ── Safety net histórico: si /cerrar no se ejecutó, persiste a las 9pm ────────
 def _run_historico_safety_net() -> None:
