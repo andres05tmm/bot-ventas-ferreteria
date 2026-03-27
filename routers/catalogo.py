@@ -222,7 +222,8 @@ class NuevoProducto(BaseModel):
 @router.post("/catalogo")
 def crear_producto(body: NuevoProducto):
     """
-    Crea un producto nuevo en memoria.json y en BASE_DE_DATOS_PRODUCTOS.xlsx.
+    Crea un producto nuevo.
+    PG primero, memoria.json + Excel como backup.
     """
     try:
         from utils import _normalizar
@@ -257,10 +258,56 @@ def crear_producto(body: NuevoProducto):
         if body.codigo.strip():
             nuevo["codigo"] = body.codigo.strip()
 
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                row_pg = _db.execute_returning(
+                    """
+                    INSERT INTO productos
+                        (clave, nombre, nombre_lower, codigo, categoria,
+                         precio_unidad, unidad_medida)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (clave) DO UPDATE SET
+                        nombre        = EXCLUDED.nombre,
+                        nombre_lower  = EXCLUDED.nombre_lower,
+                        codigo        = EXCLUDED.codigo,
+                        categoria     = EXCLUDED.categoria,
+                        precio_unidad = EXCLUDED.precio_unidad,
+                        unidad_medida = EXCLUDED.unidad_medida,
+                        updated_at    = NOW()
+                    RETURNING id
+                    """,
+                    (
+                        key,
+                        nuevo["nombre"],
+                        nuevo["nombre_lower"],
+                        body.codigo.strip() or None,
+                        nuevo["categoria"],
+                        nuevo["precio_unidad"],
+                        unidad_norm,
+                    ),
+                )
+                if row_pg and body.stock_inicial is not None:
+                    _db.execute(
+                        """
+                        INSERT INTO inventario (producto_id, cantidad, minimo, unidad)
+                        VALUES (%s, %s, %s, 'und')
+                        ON CONFLICT (producto_id) DO UPDATE
+                            SET cantidad = EXCLUDED.cantidad
+                        """,
+                        (row_pg["id"], float(body.stock_inicial), body.stock_minimo or 0),
+                    )
+                pg_ok = True
+        except Exception as e_pg:
+            logging.getLogger("ferrebot.api").warning(
+                f"[crear_producto] PG write falló para '{body.nombre}': {e_pg}"
+            )
+
+        # ── Backup: memoria.json + Drive ──────────────────────────────────────
         catalogo[key] = nuevo
 
-        # Stock inicial — guardar en formato dict igual al que usa el bot
-        # (float plano hace que descontar_inventario() retorne False silenciosamente)
         if body.stock_inicial is not None:
             from datetime import datetime as _dt
             inventario[key] = {
@@ -274,43 +321,43 @@ def crear_producto(body: NuevoProducto):
         mem["catalogo"]   = catalogo
         mem["inventario"] = inventario
 
-        # Guardar en disco primero (nunca falla)
-        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
-            json.dump(mem, f, ensure_ascii=False, indent=2)
-
-        # Subida a Drive SINCRÓNICA para confirmar que no se pierde en reinicios
         drive_ok = False
         try:
-            from drive import _subir_con_service
-            import config as _cfg
-            service = _cfg.get_drive_service()
-            drive_ok = _subir_con_service(service, config.MEMORIA_FILE)
-        except Exception as e_drive:
+            with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=2)
+            try:
+                from drive import _subir_con_service
+                import config as _cfg
+                service = _cfg.get_drive_service()
+                drive_ok = _subir_con_service(service, config.MEMORIA_FILE)
+            except Exception as e_drive:
+                logging.getLogger("ferrebot.api").warning(
+                    f"[crear_producto] Drive upload falló para '{body.nombre}': {e_drive}"
+                )
+            try:
+                from memoria import guardar_memoria, invalidar_cache_memoria
+                guardar_memoria(mem, urgente=False)
+                invalidar_cache_memoria()
+            except Exception:
+                pass
+        except Exception as e_mem:
             logging.getLogger("ferrebot.api").warning(
-                f"[crear_producto] Drive upload falló para '{body.nombre}': {e_drive}"
+                f"[crear_producto] memoria.json falló para '{body.nombre}': {e_mem}"
             )
 
-        # Actualizar caché RAM e índice fuzzy
-        try:
-            from memoria import guardar_memoria, invalidar_cache_memoria
-            guardar_memoria(mem, urgente=False)  # disco ya escrito, solo actualiza cache RAM
-            invalidar_cache_memoria()
-        except Exception:
-            pass
-
-        # Intentar escribir en el Excel de productos (no bloquea si falla)
+        # ── Backup: Excel ─────────────────────────────────────────────────────
         excel_resultado = {"ok": False, "error": "no intentado"}
         try:
             excel_resultado = agregar_producto_a_excel({
-                "codigo":          body.codigo.strip() or key,
-                "nombre":          body.nombre.strip(),
-                "categoria":       body.categoria.strip(),
-                "precio_unidad":   int(body.precio_unidad),
-                "unidad_medida":   unidad_norm,
-                "inventariable":   body.inventariable,
-                "visible_facturas":body.visible_facturas,
-                "stock_minimo":    body.stock_minimo,
-                "codigo_dian":     body.codigo_dian,
+                "codigo":           body.codigo.strip() or key,
+                "nombre":           body.nombre.strip(),
+                "categoria":        body.categoria.strip(),
+                "precio_unidad":    int(body.precio_unidad),
+                "unidad_medida":    unidad_norm,
+                "inventariable":    body.inventariable,
+                "visible_facturas": body.visible_facturas,
+                "stock_minimo":     body.stock_minimo,
+                "codigo_dian":      body.codigo_dian,
             })
         except Exception as e_excel:
             excel_resultado = {"ok": False, "error": str(e_excel)}
@@ -323,6 +370,7 @@ def crear_producto(body: NuevoProducto):
             "precio_unidad":  nuevo["precio_unidad"],
             "unidad_medida":  unidad_norm,
             "stock_inicial":  body.stock_inicial,
+            "pg_guardado":    pg_ok,
             "drive_guardado": drive_ok,
             "excel_guardado": excel_resultado.get("ok", False),
             "excel_detalle":  excel_resultado,
@@ -337,8 +385,7 @@ def crear_producto(body: NuevoProducto):
 def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
     """
     Actualiza precio_unidad de un producto.
-    1. Guarda en memoria.json (inmediato).
-    2. Encola actualización en BASE_DE_DATOS_PRODUCTOS.xlsx via precio_sync.
+    PG primero, memoria.json + Excel como backup.
     """
     try:
         with open(config.MEMORIA_FILE, encoding="utf-8") as f:
@@ -351,7 +398,22 @@ def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
         precio_anterior = catalogo[key].get("precio_unidad", 0)
         nuevo_precio    = int(body.precio)
 
-        # 1 ── memoria.json + Drive (guardar_memoria sincroniza ambos)
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                _db.execute(
+                    "UPDATE productos SET precio_unidad = %s, updated_at = NOW() WHERE clave = %s",
+                    [nuevo_precio, key],
+                )
+                pg_ok = True
+        except Exception as e_pg:
+            logging.getLogger("ferrebot.api").warning(
+                f"PG precio update falló para '{key}': {e_pg}"
+            )
+
+        # ── Backup: memoria.json + Drive ──────────────────────────────────────
         catalogo[key]["precio_unidad"] = nuevo_precio
         mem["catalogo"] = catalogo
         try:
@@ -362,23 +424,23 @@ def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
             with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
                 json.dump(mem, f, ensure_ascii=False, indent=2)
 
-        # 2 ── Excel BASE_DE_DATOS_PRODUCTOS (via precio_sync, cola FIFO)
+        # ── Backup: Excel BASE_DE_DATOS_PRODUCTOS ─────────────────────────────
         try:
             from precio_sync import actualizar_precio as _sync_precio
             _sync_precio(nombre_prod, nuevo_precio, None)
         except Exception as e_sync:
-            import logging
             logging.getLogger("ferrebot.api").warning(
                 f"precio_sync falló para '{nombre_prod}': {e_sync}"
             )
 
         return {
-            "ok":            True,
-            "key":           key,
-            "nombre":        nombre_prod,
+            "ok":              True,
+            "key":             key,
+            "nombre":          nombre_prod,
             "precio_anterior": precio_anterior,
-            "precio_nuevo":  nuevo_precio,
-            "excel_encolado": True,
+            "precio_nuevo":    nuevo_precio,
+            "pg_actualizado":  pg_ok,
+            "excel_encolado":  True,
         }
     except HTTPException:
         raise
@@ -389,8 +451,7 @@ def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
 def actualizar_fracciones(key: str, body: FraccionesUpdate):
     """
     Actualiza precios_fraccion de un producto.
-    1. Guarda en memoria.json (inmediato).
-    2. Encola cada fracción en BASE_DE_DATOS_PRODUCTOS.xlsx via precio_sync.
+    PG primero (productos_fracciones), memoria.json + Excel como backup.
     """
     try:
         with open(config.MEMORIA_FILE, encoding="utf-8") as f:
@@ -409,15 +470,48 @@ def actualizar_fracciones(key: str, body: FraccionesUpdate):
             else:
                 fracs_formateadas[k] = {"precio": int(v)}
 
-        # 1 ── memoria.json + Drive
-        catalogo[key]["precios_fraccion"] = fracs_formateadas
-
         # Si fracción "1" (unidad completa) cambió, sincronizar precio_unidad para que la IA cotice bien
+        precio_unidad_nuevo = None
         if "1" in fracs_formateadas:
             precio_unidad_nuevo = fracs_formateadas["1"].get("precio") if isinstance(fracs_formateadas["1"], dict) else int(fracs_formateadas["1"])
-            if precio_unidad_nuevo:
-                catalogo[key]["precio_unidad"] = precio_unidad_nuevo
 
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                row_prod = _db.query_one("SELECT id FROM productos WHERE clave = %s", [key])
+                if row_prod:
+                    prod_id = row_prod["id"]
+                    for frac_key, frac_val in fracs_formateadas.items():
+                        precio_frac = frac_val["precio"] if isinstance(frac_val, dict) else int(frac_val)
+                        precio_unit = round(precio_frac / float(frac_key), 2) if float(frac_key) != 0 else precio_frac
+                        _db.execute(
+                            """
+                            INSERT INTO productos_fracciones
+                                (producto_id, fraccion, precio_total, precio_unitario)
+                            VALUES (%s, %s, %s, %s)
+                            ON CONFLICT DO UPDATE
+                            SET precio_total = EXCLUDED.precio_total,
+                                precio_unitario = EXCLUDED.precio_unitario
+                            """,
+                            (prod_id, frac_key, precio_frac, int(precio_unit)),
+                        )
+                    if precio_unidad_nuevo:
+                        _db.execute(
+                            "UPDATE productos SET precio_unidad = %s, updated_at = NOW() WHERE id = %s",
+                            [precio_unidad_nuevo, prod_id],
+                        )
+                    pg_ok = True
+        except Exception as e_pg:
+            logging.getLogger("ferrebot.api").warning(
+                f"PG fracciones update falló para '{key}': {e_pg}"
+            )
+
+        # ── Backup: memoria.json + Drive ──────────────────────────────────────
+        catalogo[key]["precios_fraccion"] = fracs_formateadas
+        if precio_unidad_nuevo:
+            catalogo[key]["precio_unidad"] = precio_unidad_nuevo
         mem["catalogo"] = catalogo
         try:
             from memoria import guardar_memoria as _gm, invalidar_cache_memoria
@@ -427,7 +521,7 @@ def actualizar_fracciones(key: str, body: FraccionesUpdate):
             with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
                 json.dump(mem, f, ensure_ascii=False, indent=2)
 
-        # 2 ── Excel: encolar cada fracción via precio_sync
+        # ── Backup: Excel ─────────────────────────────────────────────────────
         try:
             from precio_sync import actualizar_precio as _sync_precio
             for frac_key, frac_val in fracs_formateadas.items():
@@ -435,12 +529,17 @@ def actualizar_fracciones(key: str, body: FraccionesUpdate):
                 if precio_frac > 0:
                     _sync_precio(nombre_prod, precio_frac, frac_key)
         except Exception as e_sync:
-            import logging
             logging.getLogger("ferrebot.api").warning(
                 f"precio_sync fracciones falló para '{nombre_prod}': {e_sync}"
             )
 
-        return {"ok": True, "key": key, "nombre": nombre_prod, "fracciones": fracs_formateadas}
+        return {
+            "ok":             True,
+            "key":            key,
+            "nombre":         nombre_prod,
+            "fracciones":     fracs_formateadas,
+            "pg_actualizado": pg_ok,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -614,7 +713,7 @@ def agregar_producto_especifico_a_excel(key: str):
 def actualizar_mayorista(key: str, body: MayoristaUpdate):
     """
     Actualiza el precio mayorista (precio_por_cantidad) de un producto.
-    Guarda precio_sobre_umbral en memoria.json y sincroniza al Excel.
+    PG primero (productos_precio_cantidad), memoria.json como backup.
     """
     try:
         with open(config.MEMORIA_FILE, encoding="utf-8") as f:
@@ -627,30 +726,58 @@ def actualizar_mayorista(key: str, body: MayoristaUpdate):
         nombre_prod = prod.get("nombre", key)
         ppc_actual  = prod.get("precio_por_cantidad")
 
-        # Preservar umbral existente si no se manda uno nuevo
-        umbral = body.umbral if body.umbral else (ppc_actual.get("umbral", 50) if ppc_actual else 50)
+        umbral           = body.umbral if body.umbral else (ppc_actual.get("umbral", 50) if ppc_actual else 50)
+        precio_bajo      = ppc_actual.get("precio_bajo_umbral", prod.get("precio_unidad", 0)) if ppc_actual else prod.get("precio_unidad", 0)
+        precio_sobre     = int(body.precio)
 
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                row_prod = _db.query_one("SELECT id FROM productos WHERE clave = %s", [key])
+                if row_prod:
+                    _db.execute(
+                        """
+                        INSERT INTO productos_precio_cantidad
+                            (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (producto_id) DO UPDATE
+                        SET umbral               = EXCLUDED.umbral,
+                            precio_bajo_umbral   = EXCLUDED.precio_bajo_umbral,
+                            precio_sobre_umbral  = EXCLUDED.precio_sobre_umbral
+                        """,
+                        (row_prod["id"], umbral, precio_bajo, precio_sobre),
+                    )
+                    pg_ok = True
+        except Exception as e_pg:
+            logging.getLogger("ferrebot.api").warning(
+                f"PG mayorista update falló para '{key}': {e_pg}"
+            )
+
+        # ── Backup: memoria.json + Drive ──────────────────────────────────────
         prod["precio_por_cantidad"] = {
             "umbral":              umbral,
-            "precio_bajo_umbral":  ppc_actual.get("precio_bajo_umbral", prod.get("precio_unidad", 0)) if ppc_actual else prod.get("precio_unidad", 0),
-            "precio_sobre_umbral": int(body.precio),
+            "precio_bajo_umbral":  precio_bajo,
+            "precio_sobre_umbral": precio_sobre,
         }
         catalogo[key] = prod
         mem["catalogo"] = catalogo
-
-        # Usar guardar_memoria() para que también suba a Drive (antes solo hacía open+write)
         try:
             from memoria import guardar_memoria as _gm, invalidar_cache_memoria
             _gm(mem, urgente=True)
             invalidar_cache_memoria()
         except Exception:
-            # Fallback: al menos guardar en disco si memoria.py falla
             with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
                 json.dump(mem, f, ensure_ascii=False, indent=2)
 
         return {
-            "ok": True, "key": key, "nombre": nombre_prod,
-            "precio_mayorista": int(body.precio), "umbral": umbral,
+            "ok":              True,
+            "key":             key,
+            "nombre":          nombre_prod,
+            "precio_mayorista": precio_sobre,
+            "umbral":          umbral,
+            "pg_actualizado":  pg_ok,
         }
     except HTTPException:
         raise
@@ -663,9 +790,8 @@ class StockUpdate(BaseModel):
 @router.patch("/inventario/{key:path}/stock")
 def actualizar_stock(key: str, body: StockUpdate):
     """
-    Actualiza cantidad en inventario de un producto (memoria.json).
-    Guarda en el mismo formato que usa el bot: {"cantidad": X, "nombre_original": ..., "minimo": N}
-    para mantener sincronía completa bot <-> dashboard.
+    Actualiza cantidad en inventario de un producto.
+    PG primero (tabla inventario), memoria.json como backup.
     """
     try:
         with open(config.MEMORIA_FILE, encoding="utf-8") as f:
@@ -678,7 +804,6 @@ def actualizar_stock(key: str, body: StockUpdate):
         nombre_prod    = catalogo[key].get("nombre", key)
         entrada_actual = inventario.get(key)
 
-        # Extraer stock_anterior independientemente del formato (dict o número)
         if isinstance(entrada_actual, dict):
             stock_anterior = entrada_actual.get("cantidad")
         elif entrada_actual is not None:
@@ -686,14 +811,42 @@ def actualizar_stock(key: str, body: StockUpdate):
         else:
             stock_anterior = None
 
+        minimo_actual = 0
+        if isinstance(entrada_actual, dict):
+            minimo_actual = entrada_actual.get("minimo", 0)
+
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                row_prod = _db.query_one("SELECT id FROM productos WHERE clave = %s", [key])
+                if row_prod:
+                    if body.stock is None:
+                        _db.execute(
+                            "DELETE FROM inventario WHERE producto_id = %s",
+                            [row_prod["id"]],
+                        )
+                    else:
+                        _db.execute(
+                            """
+                            INSERT INTO inventario (producto_id, cantidad, minimo, unidad)
+                            VALUES (%s, %s, %s, 'und')
+                            ON CONFLICT (producto_id) DO UPDATE
+                            SET cantidad = EXCLUDED.cantidad, updated_at = NOW()
+                            """,
+                            (row_prod["id"], float(body.stock), minimo_actual),
+                        )
+                    pg_ok = True
+        except Exception as e_pg:
+            logging.getLogger("ferrebot.api").warning(
+                f"PG stock update falló para '{key}': {e_pg}"
+            )
+
+        # ── Backup: memoria.json + Drive ──────────────────────────────────────
         if body.stock is None:
             inventario.pop(key, None)
         else:
-            # Preservar minimo si ya existe, sino usar 0
-            minimo_actual = 0
-            if isinstance(entrada_actual, dict):
-                minimo_actual = entrada_actual.get("minimo", 0)
-
             from datetime import datetime
             inventario[key] = {
                 "nombre_original": nombre_prod,
@@ -713,10 +866,12 @@ def actualizar_stock(key: str, body: StockUpdate):
                 json.dump(mem, f, ensure_ascii=False, indent=2)
 
         return {
-            "ok": True, "key": key,
+            "ok":             True,
+            "key":            key,
             "nombre":         nombre_prod,
             "stock_anterior": stock_anterior,
             "stock_nuevo":    body.stock,
+            "pg_actualizado": pg_ok,
         }
     except HTTPException:
         raise
@@ -735,7 +890,7 @@ class EditarProductoBody(BaseModel):
 
 @router.patch("/catalogo/{key:path}")
 def editar_producto(key: str, body: EditarProductoBody):
-    """Edita nombre, categoría, precio, unidad_medida o código de un producto."""
+    """Edita nombre, categoría, precio, unidad_medida o código de un producto. PG primero."""
     try:
         from utils import _normalizar
         from precio_sync import actualizar_precio as _sync_precio, _normalizar_unidad
@@ -763,7 +918,33 @@ def editar_producto(key: str, body: EditarProductoBody):
         if "codigo"        in cambios: prod["codigo"]        = cambios["codigo"].strip()
         if "unidad_medida" in cambios: prod["unidad_medida"] = _normalizar_unidad(cambios["unidad_medida"])
 
-        # Si cambió el nombre → mover a nueva clave
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                pg_parts, pg_params = [], []
+                if "nombre"        in cambios: pg_parts.append("nombre = %s");        pg_params.append(prod["nombre"])
+                if "nombre"        in cambios: pg_parts.append("nombre_lower = %s");  pg_params.append(prod["nombre_lower"])
+                if "nombre"        in cambios: pg_parts.append("clave = %s");          pg_params.append(nueva_clave)
+                if "categoria"     in cambios: pg_parts.append("categoria = %s");      pg_params.append(prod["categoria"])
+                if "precio_unidad" in cambios: pg_parts.append("precio_unidad = %s");  pg_params.append(prod["precio_unidad"])
+                if "codigo"        in cambios: pg_parts.append("codigo = %s");         pg_params.append(prod["codigo"])
+                if "unidad_medida" in cambios: pg_parts.append("unidad_medida = %s");  pg_params.append(prod["unidad_medida"])
+                if pg_parts:
+                    pg_parts.append("updated_at = NOW()")
+                    pg_params.append(key)
+                    _db.execute(
+                        f"UPDATE productos SET {', '.join(pg_parts)} WHERE clave = %s",
+                        pg_params,
+                    )
+                    pg_ok = True
+        except Exception as e_pg:
+            logging.getLogger("ferrebot.api").warning(
+                f"PG editar_producto falló para '{key}': {e_pg}"
+            )
+
+        # ── Backup: memoria.json + Drive ──────────────────────────────────────
         if nueva_clave != key:
             inv = mem.get("inventario", {})
             catalogo[nueva_clave] = prod
@@ -783,15 +964,13 @@ def editar_producto(key: str, body: EditarProductoBody):
             with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
                 json.dump(mem, f, ensure_ascii=False, indent=2)
 
-        # Sync al Excel BASE_DE_DATOS_PRODUCTOS
-        # — precio si cambió
+        # ── Backup: Excel ─────────────────────────────────────────────────────
         if "precio_unidad" in cambios:
             try:
                 _sync_precio(prod["nombre"], int(cambios["precio_unidad"]), None)
             except Exception:
                 pass
 
-        # — nombre, categoría o unidad_medida: actualizar fila completa en el Excel
         if any(c in cambios for c in ("nombre", "categoria", "unidad_medida", "codigo")):
             try:
                 from precio_sync import _actualizar_metadatos_en_excel
@@ -809,7 +988,7 @@ def editar_producto(key: str, body: EditarProductoBody):
                     f"_actualizar_metadatos_en_excel falló para '{prod.get('nombre')}': {e_meta}"
                 )
 
-        return {"ok": True, "key_nueva": nueva_clave, "producto": prod}
+        return {"ok": True, "key_nueva": nueva_clave, "producto": prod, "pg_actualizado": pg_ok}
 
     except HTTPException:
         raise
@@ -819,7 +998,7 @@ def editar_producto(key: str, body: EditarProductoBody):
 
 @router.delete("/catalogo/{key:path}")
 def eliminar_producto(key: str):
-    """Elimina un producto del catálogo e inventario en memoria.json."""
+    """Elimina un producto del catálogo. PG primero, memoria.json + Excel como backup."""
     try:
         from memoria import invalidar_cache_memoria
         with open(config.MEMORIA_FILE, encoding="utf-8") as f:
@@ -830,11 +1009,25 @@ def eliminar_producto(key: str):
             raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
 
         nombre = catalogo[key].get("nombre", key)
+
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                # CASCADE borra fracciones, alias, inventario, precio_cantidad
+                _db.execute("DELETE FROM productos WHERE clave = %s", [key])
+                pg_ok = True
+        except Exception as e_pg:
+            logging.getLogger("ferrebot.api").warning(
+                f"PG eliminar_producto falló para '{key}': {e_pg}"
+            )
+
+        # ── Backup: memoria.json + Drive ──────────────────────────────────────
         del catalogo[key]
         inventario.pop(key, None)
         mem["catalogo"]   = catalogo
         mem["inventario"] = inventario
-
         try:
             from memoria import guardar_memoria as _gm, invalidar_cache_memoria
             _gm(mem, urgente=True)
@@ -843,8 +1036,7 @@ def eliminar_producto(key: str):
             with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
                 json.dump(mem, f, ensure_ascii=False, indent=2)
 
-        # Eliminar también de BASE_DE_DATOS_PRODUCTOS.xlsx para evitar que
-        # un sync-desde-excel resucite el producto eliminado
+        # ── Backup: Excel ─────────────────────────────────────────────────────
         excel_resultado = {"ok": False, "error": "no intentado"}
         try:
             from precio_sync import eliminar_producto_de_excel as _del_xls
@@ -855,11 +1047,12 @@ def eliminar_producto(key: str):
             )
 
         return {
-            "ok":             True,
-            "nombre":         nombre,
-            "mensaje":        f"'{nombre}' eliminado del catálogo",
-            "excel_borrado":  excel_resultado.get("ok", False),
-            "excel_detalle":  excel_resultado,
+            "ok":            True,
+            "nombre":        nombre,
+            "mensaje":       f"'{nombre}' eliminado del catálogo",
+            "pg_borrado":    pg_ok,
+            "excel_borrado": excel_resultado.get("ok", False),
+            "excel_detalle": excel_resultado,
         }
     except HTTPException:
         raise

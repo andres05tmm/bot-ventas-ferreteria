@@ -241,7 +241,6 @@ def venta_rapida(payload: VentaRapidaPayload):
             """Devuelve la unidad_medida del item: primero la del payload, si no la del catálogo."""
             if item.unidad_medida and item.unidad_medida not in ("", "Unidad"):
                 return item.unidad_medida
-            # Buscar en catálogo por nombre normalizado
             nombre_norm = item.nombre.lower().strip()
             for prod_key, prod_val in _catalogo_cache.items():
                 if prod_val.get("nombre", "").lower().strip() == nombre_norm or prod_key == nombre_norm.replace(" ", "_"):
@@ -251,7 +250,8 @@ def venta_rapida(payload: VentaRapidaPayload):
         # Un solo consecutivo para toda la venta
         consecutivo = obtener_siguiente_consecutivo()
 
-        filas = []
+        # Pre-calcular items una sola vez (se reusan en PG y en Excel)
+        items_calc = []
         for item in payload.productos:
             try:
                 from utils import convertir_fraccion_a_decimal
@@ -259,38 +259,17 @@ def venta_rapida(payload: VentaRapidaPayload):
             except (ValueError, TypeError):
                 cant_num = 1.0
             # Bug fix: cant_num <= 0 causaba precio_unitario=total (incorrecto).
-            # Si la cantidad es 0 o invalida, forzamos 1 para que precio_unitario = total.
             if not cant_num or cant_num <= 0:
                 cant_num = 1.0
-            precio_unitario = round(item.total / cant_num, 2)
+            items_calc.append({
+                "item":            item,
+                "cant_num":        cant_num,
+                "precio_unitario": round(item.total / cant_num, 2),
+                "unidad":          _resolver_unidad(item),
+            })
 
-            unidad = _resolver_unidad(item)
-
-            fila = guardar_venta_excel(
-                producto        = item.nombre,
-                cantidad        = cant_num,
-                precio_unitario = precio_unitario,
-                total           = item.total,
-                vendedor        = payload.vendedor,
-                observaciones   = "venta-rapida",
-                metodo_pago     = payload.metodo,
-                consecutivo     = consecutivo,
-                unidad_medida   = unidad,
-                cliente_nombre  = payload.cliente_nombre or None,
-                cliente_id      = payload.cliente_id     or None,
-            )
-            filas.append(fila)
-
-            # Descontar inventario (igual que hace el bot por Telegram)
-            try:
-                from memoria import descontar_inventario
-                descontar_inventario(item.nombre, cant_num)
-            except Exception:
-                pass
-
-        recalcular_caja_desde_excel()
-
-        # Escribir en Postgres (no fatal — si falla, Excel ya quedó guardado)
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
         try:
             from db import DB_DISPONIBLE, _get_conn
             import datetime as _dt
@@ -312,21 +291,15 @@ def venta_rapida(payload: VentaRapidaPayload):
                                 ahora,
                                 payload.vendedor,
                                 payload.metodo,
-                                sum(i.total for i in payload.productos),
+                                sum(i["item"].total for i in items_calc),
                                 payload.cliente_nombre or None,
-                                payload.cliente_id or None,
+                                payload.cliente_id     or None,
                             ),
                         )
                         row = _cur.fetchone()
                         if row:
                             venta_id = row["id"]
-                            for item in payload.productos:
-                                try:
-                                    cant_num = float(item.cantidad)
-                                except (ValueError, TypeError):
-                                    cant_num = 1.0
-                                if cant_num <= 0:
-                                    cant_num = 1.0
+                            for ic in items_calc:
                                 _cur.execute(
                                     """
                                     INSERT INTO ventas_detalle
@@ -336,23 +309,59 @@ def venta_rapida(payload: VentaRapidaPayload):
                                     """,
                                     (
                                         venta_id,
-                                        item.nombre,
-                                        cant_num,
-                                        round(item.total / cant_num, 2),
-                                        item.total,
-                                        item.unidad_medida or "Unidad",
+                                        ic["item"].nombre,
+                                        ic["cant_num"],
+                                        ic["precio_unitario"],
+                                        ic["item"].total,
+                                        ic["unidad"],
                                     ),
                                 )
                     _conn.commit()
-        except Exception:
-            pass
+                pg_ok = True
+        except Exception as e_pg:
+            logger.warning(f"Postgres write falló en /venta-rapida (usando Excel como backup): {e_pg}")
+
+        # ── Backup: Excel ─────────────────────────────────────────────────────
+        filas = []
+        try:
+            for ic in items_calc:
+                fila = guardar_venta_excel(
+                    producto        = ic["item"].nombre,
+                    cantidad        = ic["cant_num"],
+                    precio_unitario = ic["precio_unitario"],
+                    total           = ic["item"].total,
+                    vendedor        = payload.vendedor,
+                    observaciones   = "venta-rapida",
+                    metodo_pago     = payload.metodo,
+                    consecutivo     = consecutivo,
+                    unidad_medida   = ic["unidad"],
+                    cliente_nombre  = payload.cliente_nombre or None,
+                    cliente_id      = payload.cliente_id     or None,
+                )
+                filas.append(fila)
+            recalcular_caja_desde_excel()
+        except Exception as e_xl:
+            logger.warning(f"Excel backup falló en /venta-rapida: {e_xl}")
+
+        # Si ambas fuentes fallaron → error real
+        if not pg_ok and not filas:
+            raise Exception("No se pudo guardar la venta en Postgres ni en Excel")
+
+        # Descontar inventario (igual que hace el bot por Telegram)
+        for ic in items_calc:
+            try:
+                from memoria import descontar_inventario
+                descontar_inventario(ic["item"].nombre, ic["cant_num"])
+            except Exception:
+                pass
 
         return {
             "ok":          True,
             "consecutivo": consecutivo,
-            "productos":   len(filas),
-            "total":       sum(i.total for i in payload.productos),
+            "productos":   len(items_calc),
+            "total":       sum(ic["item"].total for ic in items_calc),
             "metodo":      payload.metodo,
+            "fuente":      "postgres" if pg_ok else "excel_fallback",
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -428,18 +437,38 @@ def ventas_top2(
 @router.delete("/ventas/{numero}")
 def eliminar_venta(numero: int):
     """
-    Elimina todas las filas de un consecutivo de venta del Excel y Sheets.
-    También descuenta el total de la caja si era de hoy.
+    Elimina todas las filas de un consecutivo de venta.
+    PG primero, Excel como backup.
     """
     try:
         from excel import borrar_venta_excel, recalcular_caja_desde_excel
-        ok, msg = borrar_venta_excel(numero)
-        if ok:
-            recalcular_caja_desde_excel()
-        # Si no se encontró, devolver 404 para que el frontend lo muestre
-        if not ok:
-            raise HTTPException(status_code=404, detail=msg)
-        return {"ok": ok, "mensaje": msg}
+
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                borradas = _db.execute(
+                    "DELETE FROM ventas WHERE consecutivo = %s", [numero]
+                )
+                pg_ok = borradas > 0
+        except Exception as e_pg:
+            logger.warning(f"Postgres delete falló en /ventas/{numero}: {e_pg}")
+
+        # ── Backup: Excel ─────────────────────────────────────────────────────
+        excel_ok = False
+        excel_msg = ""
+        try:
+            excel_ok, excel_msg = borrar_venta_excel(numero)
+            if excel_ok:
+                recalcular_caja_desde_excel()
+        except Exception as e_xl:
+            logger.warning(f"Excel delete falló para consecutivo {numero}: {e_xl}")
+
+        if not pg_ok and not excel_ok:
+            raise HTTPException(status_code=404, detail=excel_msg or f"Consecutivo #{numero} no encontrado")
+
+        return {"ok": True, "mensaje": excel_msg or f"Venta #{numero} eliminada"}
     except HTTPException:
         raise
     except Exception as e:
@@ -450,49 +479,71 @@ def eliminar_venta(numero: int):
 def eliminar_linea_venta(numero: int, producto: str = Query(...)):
     """
     Elimina UNA sola línea (producto) de un consecutivo multi-producto.
-    Busca por consecutivo + nombre de producto exacto en Excel.
+    PG primero, Excel como backup.
     """
     try:
         import openpyxl
         from excel import inicializar_excel, obtener_nombre_hoja, detectar_columnas, recalcular_caja_desde_excel
 
-        inicializar_excel()
-        wb    = openpyxl.load_workbook(config.EXCEL_FILE)
-        hojas = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                borradas = _db.execute(
+                    """
+                    DELETE FROM ventas_detalle
+                    WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s LIMIT 1)
+                      AND LOWER(producto_nombre) = LOWER(%s)
+                    """,
+                    [numero, producto],
+                )
+                pg_ok = borradas > 0
+        except Exception as e_pg:
+            logger.warning(f"Postgres delete línea falló para #{numero} '{producto}': {e_pg}")
+
+        # ── Backup: Excel ─────────────────────────────────────────────────────
         total_borradas = 0
+        try:
+            inicializar_excel()
+            wb    = openpyxl.load_workbook(config.EXCEL_FILE)
+            hojas = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
 
-        for nombre_sh in hojas:
-            if nombre_sh not in wb.sheetnames:
-                continue
-            ws   = wb[nombre_sh]
-            cols = detectar_columnas(ws)
-            col_id   = cols.get("consecutivo de venta") or cols.get("consecutivo") or cols.get("alias")
-            col_prod = cols.get("producto")
-            if not col_id or not col_prod:
-                continue
+            for nombre_sh in hojas:
+                if nombre_sh not in wb.sheetnames:
+                    continue
+                ws   = wb[nombre_sh]
+                cols = detectar_columnas(ws)
+                col_id   = cols.get("consecutivo de venta") or cols.get("consecutivo") or cols.get("alias")
+                col_prod = cols.get("producto")
+                if not col_id or not col_prod:
+                    continue
 
-            filas_borrar = []
-            for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
-                val_id = ws.cell(row=fila, column=col_id).value
-                val_prod = str(ws.cell(row=fila, column=col_prod).value or "").strip()
-                try:
-                    if val_id is not None and int(float(str(val_id))) == numero:
-                        if val_prod.lower() == producto.lower():
-                            filas_borrar.append(fila)
-                except (ValueError, TypeError):
-                    pass
+                filas_borrar = []
+                for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
+                    val_id   = ws.cell(row=fila, column=col_id).value
+                    val_prod = str(ws.cell(row=fila, column=col_prod).value or "").strip()
+                    try:
+                        if val_id is not None and int(float(str(val_id))) == numero:
+                            if val_prod.lower() == producto.lower():
+                                filas_borrar.append(fila)
+                    except (ValueError, TypeError):
+                        pass
 
-            for fila in reversed(filas_borrar):
-                ws.delete_rows(fila)
-            total_borradas += len(filas_borrar)
+                for fila in reversed(filas_borrar):
+                    ws.delete_rows(fila)
+                total_borradas += len(filas_borrar)
 
-        if total_borradas:
-            wb.save(config.EXCEL_FILE)
-            recalcular_caja_desde_excel()
+            if total_borradas:
+                wb.save(config.EXCEL_FILE)
+                recalcular_caja_desde_excel()
+        except Exception as e_xl:
+            logger.warning(f"Excel delete línea falló para #{numero} '{producto}': {e_xl}")
 
-            return {"ok": True, "borradas": total_borradas, "mensaje": f"'{producto}' eliminado del consecutivo #{numero}"}
+        if not pg_ok and not total_borradas:
+            raise HTTPException(status_code=404, detail=f"No se encontró '{producto}' en consecutivo #{numero}")
 
-        raise HTTPException(status_code=404, detail=f"No se encontró '{producto}' en consecutivo #{numero}")
+        return {"ok": True, "borradas": total_borradas or 1, "mensaje": f"'{producto}' eliminado del consecutivo #{numero}"}
 
     except HTTPException:
         raise
@@ -514,26 +565,65 @@ class EditarVentaBody(BaseModel):
 @router.patch("/ventas/{numero}")
 def editar_venta(numero: int, body: EditarVentaBody):
     """
-    Edita los campos de un consecutivo en el Excel (hoja mensual + Acumulado)
-    y sincroniza los cambios a Postgres.
+    Edita los campos de un consecutivo.
+    PG primero, Excel como backup.
     Si producto_original viene, solo actualiza la fila con ese producto (multi-producto).
     """
     try:
         import openpyxl
         from excel import inicializar_excel, obtener_nombre_hoja, detectar_columnas, recalcular_caja_desde_excel
 
-        inicializar_excel()
-        wb          = openpyxl.load_workbook(config.EXCEL_FILE)
-        hojas       = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
-        actualizadas = 0
-
         cambios = {k: v for k, v in body.dict().items() if v is not None and k != "producto_original"}
         if not cambios:
             raise HTTPException(status_code=400, detail="No hay campos para actualizar")
 
-        # Filtro por producto para multi-producto
         filtro_producto = body.producto_original.strip().lower() if body.producto_original else None
 
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        pg_ok = False
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                campo_col_pg = {
+                    "producto":        "producto_nombre",
+                    "cantidad":        "cantidad",
+                    "precio_unitario": "precio_unitario",
+                    "total":           "total",
+                }
+                cabecera_col_pg = {
+                    "metodo_pago": "metodo_pago",
+                    "cliente":     "cliente_nombre",
+                    "vendedor":    "vendedor",
+                }
+                # Actualizar ventas_detalle
+                det_parts, det_params = [], []
+                for campo, col in campo_col_pg.items():
+                    if campo in cambios:
+                        det_parts.append(f"{col} = %s")
+                        det_params.append(cambios[campo])
+                if det_parts:
+                    where_det = "WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s LIMIT 1)"
+                    if filtro_producto:
+                        where_det += " AND LOWER(producto_nombre) = LOWER(%s)"
+                        det_params.append(numero)
+                        det_params.append(filtro_producto)
+                    else:
+                        det_params.append(numero)
+                    _db.execute(f"UPDATE ventas_detalle SET {', '.join(det_parts)} {where_det}", det_params)
+                # Actualizar ventas (cabecera)
+                cab_parts, cab_params = [], []
+                for campo, col in cabecera_col_pg.items():
+                    if campo in cambios:
+                        cab_parts.append(f"{col} = %s")
+                        cab_params.append(cambios[campo])
+                if cab_parts:
+                    cab_params.append(numero)
+                    _db.execute(f"UPDATE ventas SET {', '.join(cab_parts)} WHERE consecutivo = %s", cab_params)
+                pg_ok = True
+        except Exception as e_pg:
+            logger.warning(f"Postgres update falló en /ventas/{numero}: {e_pg}")
+
+        # ── Backup: Excel ─────────────────────────────────────────────────────
         CAMPO_COL = {
             "producto":        ["producto"],
             "cantidad":        ["cantidad"],
@@ -544,93 +634,56 @@ def editar_venta(numero: int, body: EditarVentaBody):
             "id_cliente":      ["id cliente"],
             "vendedor":        ["vendedor"],
         }
+        actualizadas = 0
+        try:
+            inicializar_excel()
+            wb    = openpyxl.load_workbook(config.EXCEL_FILE)
+            hojas = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
 
-        for nombre_sh in hojas:
-            if nombre_sh not in wb.sheetnames:
-                continue
-            ws     = wb[nombre_sh]
-            cols   = detectar_columnas(ws)
-            col_id = cols.get("consecutivo de venta") or cols.get("alias")
-            col_prod = cols.get("producto")
-            if not col_id:
-                continue
-
-            for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
-                val = ws.cell(row=fila, column=col_id).value
-                try:
-                    if val is None or int(float(str(val))) != numero:
-                        continue
-                except (ValueError, TypeError):
+            for nombre_sh in hojas:
+                if nombre_sh not in wb.sheetnames:
+                    continue
+                ws     = wb[nombre_sh]
+                cols   = detectar_columnas(ws)
+                col_id = cols.get("consecutivo de venta") or cols.get("alias")
+                col_prod = cols.get("producto")
+                if not col_id:
                     continue
 
-                # Si hay filtro de producto, solo actualizar la fila que coincida
-                if filtro_producto and col_prod:
-                    prod_fila = str(ws.cell(row=fila, column=col_prod).value or "").strip().lower()
-                    if prod_fila != filtro_producto:
+                for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
+                    val = ws.cell(row=fila, column=col_id).value
+                    try:
+                        if val is None or int(float(str(val))) != numero:
+                            continue
+                    except (ValueError, TypeError):
                         continue
 
-                for campo, valor in cambios.items():
-                    claves = CAMPO_COL.get(campo, [campo.replace("_", " ")])
-                    col_destino = None
-                    for clave in claves:
-                        col_destino = cols.get(clave)
+                    if filtro_producto and col_prod:
+                        prod_fila = str(ws.cell(row=fila, column=col_prod).value or "").strip().lower()
+                        if prod_fila != filtro_producto:
+                            continue
+
+                    for campo, valor in cambios.items():
+                        claves = CAMPO_COL.get(campo, [campo.replace("_", " ")])
+                        col_destino = None
+                        for clave in claves:
+                            col_destino = cols.get(clave)
+                            if col_destino:
+                                break
                         if col_destino:
-                            break
-                    if col_destino:
-                        ws.cell(row=fila, column=col_destino).value = valor
-                        actualizadas += 1
+                            ws.cell(row=fila, column=col_destino).value = valor
+                            actualizadas += 1
 
-        if actualizadas:
-            wb.save(config.EXCEL_FILE)
-            recalcular_caja_desde_excel()
-            # ── Sincronizar a Postgres ────────────────────────────────────
-            try:
-                import db as _db
-                if _db.DB_DISPONIBLE and cambios:
-                    set_parts = []
-                    params = []
-                    campo_col_pg = {
-                        "producto":        "producto_nombre",
-                        "cantidad":        "cantidad",
-                        "precio_unitario": "precio_unitario",
-                        "total":           "total",
-                    }
-                    cabecera_col_pg = {
-                        "metodo_pago": "metodo_pago",
-                        "cliente":     "cliente_nombre",
-                        "vendedor":    "vendedor",
-                    }
-                    # Actualizar ventas_detalle
-                    det_parts = []
-                    det_params = []
-                    for campo, col in campo_col_pg.items():
-                        if campo in cambios:
-                            det_parts.append(f"{col} = %s")
-                            det_params.append(cambios[campo])
-                    if det_parts:
-                        det_params.append(numero)
-                        _db.execute(
-                            f"UPDATE ventas_detalle SET {', '.join(det_parts)} WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s LIMIT 1)",
-                            det_params,
-                        )
-                    # Actualizar ventas (cabecera)
-                    cab_parts = []
-                    cab_params = []
-                    for campo, col in cabecera_col_pg.items():
-                        if campo in cambios:
-                            cab_parts.append(f"{col} = %s")
-                            cab_params.append(cambios[campo])
-                    if cab_parts:
-                        cab_params.append(numero)
-                        _db.execute(
-                            f"UPDATE ventas SET {', '.join(cab_parts)} WHERE consecutivo = %s",
-                            cab_params,
-                        )
-            except Exception as e_pg:
-                logger.warning(f"No se pudo sincronizar edición a Postgres (no crítico): {e_pg}")
-            return {"ok": True, "actualizadas": actualizadas, "mensaje": f"Venta #{numero} actualizada"}
+            if actualizadas:
+                wb.save(config.EXCEL_FILE)
+                recalcular_caja_desde_excel()
+        except Exception as e_xl:
+            logger.warning(f"Excel update falló en /ventas/{numero}: {e_xl}")
 
-        return {"ok": False, "mensaje": f"No se encontró el consecutivo #{numero}"}
+        if not pg_ok and not actualizadas:
+            return {"ok": False, "mensaje": f"No se encontró el consecutivo #{numero}"}
+
+        return {"ok": True, "actualizadas": actualizadas, "mensaje": f"Venta #{numero} actualizada"}
 
     except HTTPException:
         raise

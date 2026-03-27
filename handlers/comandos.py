@@ -732,16 +732,48 @@ async def comando_compra(update: Update, context: ContextTypes.DEFAULT_TYPE):
         registrar_compra, nombre_producto, cantidad, costo_gramo, proveedor
     )
     
-    # Guardar en Excel
+    # Guardar compra — PG primero, Excel como backup
     if exito:
-        await asyncio.to_thread(
-            registrar_compra_en_excel,
-            datos_excel["producto"],
-            datos_excel["cantidad"],
-            datos_excel["costo_unitario"],
-            datos_excel["costo_total"],
-            datos_excel["proveedor"],
-        )
+        # ── Fuente primaria: Postgres ─────────────────────────────────────────
+        try:
+            import db as _db
+            import datetime as _dt
+            if _db.DB_DISPONIBLE:
+                ahora = _dt.datetime.now()
+                _db.execute(
+                    """
+                    INSERT INTO compras
+                        (fecha, hora, proveedor, producto_nombre,
+                         cantidad, costo_unitario, costo_total)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        ahora.date(),
+                        ahora.strftime("%H:%M"),
+                        datos_excel["proveedor"],
+                        datos_excel["producto"],
+                        datos_excel["cantidad"],
+                        datos_excel["costo_unitario"],
+                        datos_excel["costo_total"],
+                    ),
+                )
+        except Exception as _e_pg:
+            import logging as _log
+            _log.getLogger("ferrebot").warning(f"PG compra write falló (usando Excel como backup): {_e_pg}")
+
+        # ── Backup: Excel ─────────────────────────────────────────────────────
+        try:
+            await asyncio.to_thread(
+                registrar_compra_en_excel,
+                datos_excel["producto"],
+                datos_excel["cantidad"],
+                datos_excel["costo_unitario"],
+                datos_excel["costo_total"],
+                datos_excel["proveedor"],
+            )
+        except Exception as _e_xl:
+            import logging as _log
+            _log.getLogger("ferrebot").warning(f"Excel compra backup falló: {_e_xl}")
     
     await update.message.reply_text(mensaje)
 
