@@ -312,8 +312,8 @@ def venta_rapida(payload: VentaRapidaPayload):
                             """
                             INSERT INTO ventas
                                 (consecutivo, fecha, vendedor, metodo_pago,
-                                 total, cliente_nombre, cliente_id, fuente)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                 total, cliente_nombre, cliente_id)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (consecutivo, fecha) DO NOTHING
                             RETURNING id
                             """,
@@ -325,7 +325,6 @@ def venta_rapida(payload: VentaRapidaPayload):
                                 sum(i.total for i in payload.productos),
                                 payload.cliente_nombre or None,
                                 payload.cliente_id or None,
-                                "venta-rapida",
                             ),
                         )
                         row = _cur.fetchone()
@@ -341,7 +340,7 @@ def venta_rapida(payload: VentaRapidaPayload):
                                 _cur.execute(
                                     """
                                     INSERT INTO ventas_detalle
-                                        (venta_id, producto, cantidad,
+                                        (venta_id, producto_nombre, cantidad,
                                          precio_unitario, total, unidad_medida)
                                     VALUES (%s, %s, %s, %s, %s, %s)
                                     """,
