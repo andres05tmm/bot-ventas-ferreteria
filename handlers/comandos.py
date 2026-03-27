@@ -1464,18 +1464,12 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
                     ws_actual.delete_rows(fila)
                 total_borradas += len(filas_borrar)
 
-            if total_borradas == 0:
-                await update.message.reply_text(f"No hay ventas del {fecha_str_raw} en el Excel.")
-                return
-
-            await asyncio.to_thread(wb.save, config.EXCEL_FILE)
-            await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
-
-            # Borrar también en Postgres (no fatal)
+            # Borrar también en Postgres (no fatal) — siempre, aunque Excel ya esté limpio
+            pg_borradas = 0
             try:
-                from db import get_conn, DB_DISPONIBLE
+                from db import _get_conn, DB_DISPONIBLE
                 if DB_DISPONIBLE:
-                    with get_conn() as conn:
+                    with _get_conn() as conn:
                         with conn.cursor() as cur:
                             cur.execute(
                                 "DELETE FROM ventas_detalle WHERE venta_id IN "
@@ -1486,9 +1480,20 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
                                 "DELETE FROM ventas WHERE fecha::date = %s",
                                 (fecha_iso,)
                             )
+                            pg_borradas = cur.rowcount
                         conn.commit()
             except Exception:
                 pass
+
+            if total_borradas == 0 and pg_borradas == 0:
+                await update.message.reply_text(f"No hay ventas del {fecha_str_raw} en el Excel ni en Postgres.")
+                return
+            elif total_borradas == 0:
+                await update.message.reply_text(f"✅ No había filas en Excel, pero se eliminaron {pg_borradas} ventas del {fecha_str_raw} en Postgres.")
+                return
+
+            await asyncio.to_thread(wb.save, config.EXCEL_FILE)
+            await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
 
             # Si la fecha borrada es hoy, recalcular caja y limpiar Sheets
             hoy_iso = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
