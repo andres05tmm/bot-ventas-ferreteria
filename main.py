@@ -12,7 +12,6 @@ from telegram.ext import (
 )
 
 import config
-from drive import sincronizar_archivos
 from excel import inicializar_excel
 from sheets import _obtener_hoja_sheets
 
@@ -39,7 +38,6 @@ from keepalive import loop_keepalive
 
 def main():
     print(f"🚀 Iniciando FerreBot {config.VERSION}")
-    sincronizar_archivos()
     inicializar_excel()
 
     # Construir índice fuzzy al arrancar para que las búsquedas funcionen

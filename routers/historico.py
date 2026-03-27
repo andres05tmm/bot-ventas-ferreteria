@@ -553,47 +553,17 @@ def _dict_a_excel(data: dict, ruta: str) -> None:
 
     wb.save(ruta)
 
-def _leer_historico_de_excel() -> dict:
-    """
-    Descarga el Excel de Drive → lee datos → retorna dict.
-    Es la fuente de verdad cuando existe.
-    """
-    try:
-        from drive import descargar_de_drive
-        ruta_tmp = HISTORICO_EXCEL + ".tmp"
-        if descargar_de_drive(HISTORICO_EXCEL, ruta_tmp):
-            data = _excel_a_dict(ruta_tmp)
-            try:
-                import os as _os; _os.remove(ruta_tmp)
-            except Exception:
-                pass
-            return data
-    except Exception:
-        pass
-    return {}
-
 def _leer_historico() -> dict:
     """
     Lee historial: primero Postgres (nueva fuente de verdad),
-    luego Excel de Drive (fuente legacy), luego JSON local como fallback.
+    luego JSON local como fallback.
     """
     # 1. Postgres (nueva fuente de verdad)
     pg_data = _leer_historico_postgres()
     if pg_data:
         return pg_data
 
-    # 2. Excel en Drive (fuente legacy de verdad)
-    data = _leer_historico_de_excel()
-    if data:
-        # Actualizar caché JSON local
-        try:
-            with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-        return data
-
-    # 3. JSON local como fallback
+    # 2. JSON local como fallback
     if os.path.exists(HISTORICO_FILE):
         try:
             with open(HISTORICO_FILE, encoding="utf-8") as f:
@@ -601,14 +571,6 @@ def _leer_historico() -> dict:
         except Exception:
             pass
 
-    # 4. JSON en Drive como último recurso
-    try:
-        from drive import descargar_de_drive
-        if descargar_de_drive(HISTORICO_FILE, HISTORICO_FILE):
-            with open(HISTORICO_FILE, encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
     return {}
 
 def _guardar_historico(data: dict) -> None:
@@ -687,18 +649,21 @@ def historico_ventas_post(body: HistoricoBody):
 @router.post("/historico/sincronizar-excel")
 def historico_sincronizar_excel():
     """
-    Lee el Excel de Drive (editado manualmente) y actualiza el JSON.
-    Llamar desde dashboard cuando quieras traer cambios hechos en Excel.
+    Lee el Excel local historico_ventas.xlsx (editado manualmente) y
+    sincroniza hacia Postgres + JSON local.
     """
     try:
-        data = _leer_historico_de_excel()
+        if not os.path.exists(HISTORICO_EXCEL):
+            return {"ok": False, "error": f"No se encontró {HISTORICO_EXCEL} en disco"}
+        data = _excel_a_dict(HISTORICO_EXCEL)
         if not data:
-            return {"ok": False, "error": "No se encontró historico_ventas.xlsx en Drive o está vacío"}
-        # Actualizar JSON local con lo que tiene el Excel (protegido con lock)
+            return {"ok": False, "error": f"{HISTORICO_EXCEL} está vacío o sin datos válidos"}
+        # Persistir en Postgres (nueva fuente de verdad)
+        _guardar_historico_postgres(data)
+        # Actualizar caché JSON local
         with _historico_lock:
             with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        # ELIMINADO (HIS-04): ya no se sube historico_ventas.json a Drive
         return {"ok": True, "registros": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -725,7 +690,7 @@ def historico_resumen():
 def historico_diario_get(año: int = 0, mes: int = 0):
     """
     Retorna el desglose diario (efectivo, transferencia, datáfono, gastos, abonos).
-    Fuente: primero Postgres, luego historico_diario.json local, con fallback desde Drive.
+    Fuente: primero Postgres, luego historico_diario.json local.
     """
     import json as _json
 
@@ -742,16 +707,6 @@ def historico_diario_get(año: int = 0, mes: int = 0):
         try:
             with open(_diario_file, encoding="utf-8") as fh:
                 diario = _json.load(fh)
-        except Exception:
-            pass
-
-    # 3. Fallback Drive
-    if not diario:
-        try:
-            from drive import descargar_de_drive
-            if descargar_de_drive(_diario_file, _diario_file):
-                with open(_diario_file, encoding="utf-8") as fh:
-                    diario = _json.load(fh)
         except Exception:
             pass
 
