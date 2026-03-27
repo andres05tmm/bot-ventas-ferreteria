@@ -91,10 +91,10 @@ Plans:
   3. El cierre diario (/cerrar) no sube ningún archivo JSON a Drive
   4. Google Sheets ya no recibe escrituras de ventas nuevas (o solo se mantiene como lectura opcional)
   5. test_suite.py pasa 1096+ tests en el estado final limpio
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 05-01-PLAN.md — Drive & Sheets cutover: eliminar uploads a Drive y writes a Sheets en excel.py, memoria.py, start.py, routers/ventas.py, handlers/callbacks.py
+- [x] 05-01-PLAN.md — Drive & Sheets cutover: eliminar uploads a Drive y writes a Sheets en excel.py, memoria.py, start.py, routers/ventas.py, handlers/callbacks.py
 - [ ] 05-02-PLAN.md — Export endpoint + test run: GET /export/ventas.xlsx desde Postgres + confirmar test_suite 1096+ tests
 
 ## Progress
@@ -108,4 +108,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Histórico + Gastos + Caja | 2/2 | Complete   | 2026-03-26 |
 | 3. Ventas | 2/3 | In Progress|  |
 | 4. Proveedores + Fiados + Compras | 3/3 | Complete   | 2026-03-27 |
-| 5. Limpieza | 0/2 | Not started | - |
+| 5. Limpieza | 1/2 | In Progress|  |

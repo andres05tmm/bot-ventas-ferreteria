@@ -56,10 +56,10 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 ### Limpieza y Finalización (Fase 5)
 
 - [ ] **CLEAN-01**: Endpoint `GET /export/ventas.xlsx` genera Excel on-demand desde Postgres
-- [ ] **CLEAN-02**: Eliminadas todas las subidas a Drive de archivos JSON (histórico, memoria, etc.)
-- [ ] **CLEAN-03**: Google Sheets eliminado o mantenido solo como lectura opcional
-- [ ] **CLEAN-04**: `start.py` simplificado: `_restaurar_memoria()` eliminado o reemplazado por inicialización desde Postgres
-- [ ] **CLEAN-05**: Cero dependencias de Drive para datos estructurados — Drive solo para fotos de facturas
+- [x] **CLEAN-02**: Eliminadas todas las subidas a Drive de archivos JSON (histórico, memoria, etc.)
+- [x] **CLEAN-03**: Google Sheets eliminado o mantenido solo como lectura opcional
+- [x] **CLEAN-04**: `start.py` simplificado: `_restaurar_memoria()` eliminado o reemplazado por inicialización desde Postgres
+- [x] **CLEAN-05**: Cero dependencias de Drive para datos estructurados — Drive solo para fotos de facturas
 - [ ] **CLEAN-06**: `test_suite.py` pasa 1096+ tests en estado final
 
 ## v2 Requirements
@@ -122,10 +122,10 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 | PROV-05 | Phase 4 | Complete |
 | PROV-06 | Phase 4 | Complete |
 | CLEAN-01 | Phase 5 | Pending |
-| CLEAN-02 | Phase 5 | Pending |
-| CLEAN-03 | Phase 5 | Pending |
-| CLEAN-04 | Phase 5 | Pending |
-| CLEAN-05 | Phase 5 | Pending |
+| CLEAN-02 | Phase 5 | Complete |
+| CLEAN-03 | Phase 5 | Complete |
+| CLEAN-04 | Phase 5 | Complete |
+| CLEAN-05 | Phase 5 | Complete |
 | CLEAN-06 | Phase 5 | Pending |
 
 **Coverage:**

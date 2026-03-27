@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Phase 5 context gathered
-last_updated: "2026-03-27T04:06:11.572Z"
+status: executing
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-03-27T04:36:31.911Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 13
+  completed_plans: 12
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-25)
 
 **Core value:** El bot debe registrar ventas sin interrupciones — si la DB falla, el bot no puede caer.
-**Current focus:** Phase 04 — proveedores-fiados-compras
+**Current focus:** Phase 05 — limpieza
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 05 (limpieza) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-03-27
 
 Progress: [░░░░░░░░░░] 0%
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P01 | 2 | 2 tasks | 1 files |
 | Phase 04 P03 | 2 | 2 tasks | 3 files |
 | Phase 04 P02 | 2 | 2 tasks | 3 files |
+| Phase 05 P01 | 7 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,9 @@ Recent decisions affecting current work:
 - [Phase 04]: migrate_compras.py handles both 'total' and 'costo_total' key names from JSON source
 - [Phase 04]: GET /compras maps producto_nombre column to 'producto' key to preserve API response shape (D-04)
 - [Phase 04]: listar_facturas and cargar_fiados use json_agg with FILTER (WHERE id IS NOT NULL) to prevent NULL rows in aggregation
+- [Phase 05]: guardar_memoria signature kept (urgente param preserved as no-op) — 151+ callers; Drive writes eliminated
+- [Phase 05]: obtener_siguiente_consecutivo uses Postgres MAX(consecutivo) as primary instead of Sheets
+- [Phase 05]: /ventas/hoy and /ventas/resumen use Postgres as primary source; Excel as fallback; Sheets eliminated
 
 ### Pending Todos
 
@@ -112,6 +116,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T04:06:11.560Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-limpieza/05-CONTEXT.md
+Last session: 2026-03-27T04:36:31.900Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: None
