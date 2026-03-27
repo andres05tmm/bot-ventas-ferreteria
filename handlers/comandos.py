@@ -1471,6 +1471,25 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
             await asyncio.to_thread(wb.save, config.EXCEL_FILE)
             await asyncio.to_thread(subir_a_drive, config.EXCEL_FILE)
 
+            # Borrar también en Postgres (no fatal)
+            try:
+                from db import get_conn, DB_DISPONIBLE
+                if DB_DISPONIBLE:
+                    with get_conn() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "DELETE FROM ventas_detalle WHERE venta_id IN "
+                                "(SELECT id FROM ventas WHERE fecha::date = %s)",
+                                (fecha_iso,)
+                            )
+                            cur.execute(
+                                "DELETE FROM ventas WHERE fecha::date = %s",
+                                (fecha_iso,)
+                            )
+                        conn.commit()
+            except Exception:
+                pass
+
             # Si la fecha borrada es hoy, recalcular caja y limpiar Sheets
             hoy_iso = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
             sheets_msg = ""
@@ -1514,6 +1533,26 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
             ventas_esperando_cliente.clear()
     except Exception as e:
         print(f"Error limpiando memoria interna: {e}")
+
+    # 2b. Borrar ventas de hoy en Postgres (no fatal)
+    try:
+        from db import get_conn, DB_DISPONIBLE
+        if DB_DISPONIBLE:
+            hoy_iso = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM ventas_detalle WHERE venta_id IN "
+                        "(SELECT id FROM ventas WHERE fecha::date = %s)",
+                        (hoy_iso,)
+                    )
+                    cur.execute(
+                        "DELETE FROM ventas WHERE fecha::date = %s",
+                        (hoy_iso,)
+                    )
+                conn.commit()
+    except Exception:
+        pass
 
     # 3. Recalcular caja desde lo que queda en el Excel
     await asyncio.to_thread(recalcular_caja_desde_excel)
