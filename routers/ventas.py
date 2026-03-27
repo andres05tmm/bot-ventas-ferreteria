@@ -300,6 +300,64 @@ def venta_rapida(payload: VentaRapidaPayload):
 
         recalcular_caja_desde_excel()
 
+        # Escribir en Postgres (no fatal — si falla, Excel ya quedó guardado)
+        try:
+            from db import DB_DISPONIBLE, _get_conn
+            import datetime as _dt
+            if DB_DISPONIBLE:
+                ahora = _dt.datetime.now()
+                with _get_conn() as _conn:
+                    with _conn.cursor() as _cur:
+                        _cur.execute(
+                            """
+                            INSERT INTO ventas
+                                (consecutivo, fecha, vendedor, metodo_pago,
+                                 total, cliente_nombre, cliente_id, fuente)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (consecutivo, fecha) DO NOTHING
+                            RETURNING id
+                            """,
+                            (
+                                consecutivo,
+                                ahora,
+                                payload.vendedor,
+                                payload.metodo,
+                                sum(i.total for i in payload.productos),
+                                payload.cliente_nombre or None,
+                                payload.cliente_id or None,
+                                "venta-rapida",
+                            ),
+                        )
+                        row = _cur.fetchone()
+                        if row:
+                            venta_id = row["id"]
+                            for item in payload.productos:
+                                try:
+                                    cant_num = float(item.cantidad)
+                                except (ValueError, TypeError):
+                                    cant_num = 1.0
+                                if cant_num <= 0:
+                                    cant_num = 1.0
+                                _cur.execute(
+                                    """
+                                    INSERT INTO ventas_detalle
+                                        (venta_id, producto, cantidad,
+                                         precio_unitario, total, unidad_medida)
+                                    VALUES (%s, %s, %s, %s, %s, %s)
+                                    """,
+                                    (
+                                        venta_id,
+                                        item.nombre,
+                                        cant_num,
+                                        round(item.total / cant_num, 2),
+                                        item.total,
+                                        item.unidad_medida or "Unidad",
+                                    ),
+                                )
+                    _conn.commit()
+        except Exception:
+            pass
+
         return {
             "ok":          True,
             "consecutivo": consecutivo,
