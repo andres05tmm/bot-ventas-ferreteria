@@ -34,9 +34,9 @@ El bot debe registrar ventas sin interrupciones — si la DB falla, el bot no pu
 - ✓ Endpoints `/ventas/*` leyendo desde Postgres (con fallback a Excel); `_leer_ventas_postgres()` en shared.py — Validated in Phase 03: ventas
 - ✓ Script `migrate_ventas.py` para importar histórico de ventas.xlsx a Postgres (idempotente) — Validated in Phase 03: ventas
 - ✓ Proveedores, fiados y compras migrados a Postgres — Validated in Phase 04: proveedores-fiados-compras
-- [ ] Export Excel generado on-demand desde Postgres (`GET /export/ventas.xlsx`)
-- [ ] Eliminación de dependencias de Drive para datos estructurados (JSONs e históricos)
-- [ ] `test_suite.py` pasando 1096+ tests después de cada fase
+- ✓ Export Excel generado on-demand desde Postgres (`GET /export/ventas.xlsx`) — Validated in Phase 05: limpieza
+- ✓ Eliminación de dependencias de Drive/Sheets para datos estructurados (start.py, memoria.py, ventas routers) — Validated in Phase 05: limpieza
+- ✓ `test_suite.py` 201 tests pasando después de cada fase — Validated in Phase 05: limpieza
 
 ### Out of Scope
 
@@ -100,4 +100,4 @@ Este documento evoluciona en cada transición de fase y milestone.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-27 — Phase 04 complete (proveedores/fiados/compras dual-write, Postgres-first reads, migration scripts)*
+*Last updated: 2026-03-27 — Phase 05 complete — migración PostgreSQL completa: Drive/Sheets eliminados de datos estructurados, Excel on-demand, sistema 100% en Postgres*
