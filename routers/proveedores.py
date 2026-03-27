@@ -131,6 +131,20 @@ async def subir_foto_factura(fac_id: str, foto: UploadFile = File(...)):
         factura["foto_nombre"] = nombre_archivo
         guardar_memoria(mem, urgente=True)
 
+        # Non-fatal Postgres sync para foto_url (D-07)
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                _db.execute(
+                    "UPDATE facturas_proveedores SET foto_url=%s, foto_nombre=%s WHERE id=%s",
+                    (resultado["url"], nombre_archivo, fac_id.upper())
+                )
+        except Exception as e:
+            import logging as _logging
+            _logging.getLogger("ferrebot.proveedores").warning(
+                "Postgres UPDATE foto factura failed: %s", e
+            )
+
         return {"ok": True, "url": resultado["url"], "nombre": nombre_archivo}
 
     except HTTPException:
@@ -221,6 +235,26 @@ async def subir_foto_abono(fac_id: str, foto: UploadFile = File(...)):
         abonos[-1]["foto_url"]    = resultado["url"]
         abonos[-1]["foto_nombre"] = nombre_archivo
         guardar_memoria(mem, urgente=True)
+
+        # Non-fatal Postgres sync para foto abono (D-07)
+        try:
+            import db as _db
+            if _db.DB_DISPONIBLE:
+                # Find the latest facturas_abonos row for this factura
+                latest = _db.query_one(
+                    "SELECT id FROM facturas_abonos WHERE factura_id=%s ORDER BY created_at DESC LIMIT 1",
+                    (fac_id.upper(),)
+                )
+                if latest:
+                    _db.execute(
+                        "UPDATE facturas_abonos SET foto_url=%s, foto_nombre=%s WHERE id=%s",
+                        (resultado["url"], nombre_archivo, latest["id"])
+                    )
+        except Exception as e:
+            import logging as _logging
+            _logging.getLogger("ferrebot.proveedores").warning(
+                "Postgres UPDATE foto abono failed: %s", e
+            )
 
         return {"ok": True, "url": resultado["url"], "nombre": nombre_archivo}
 

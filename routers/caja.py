@@ -396,14 +396,54 @@ def gastos(dias: int = Query(default=7, ge=1, le=90)):
 @router.get("/compras")
 def compras(dias: int = Query(default=30, ge=1, le=365)):
     try:
+        # Try Postgres first (D-03)
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            ahora        = datetime.now(config.COLOMBIA_TZ)
+            fecha_fin    = ahora.strftime("%Y-%m-%d")
+            fecha_inicio = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d")
+            rows = _db.query_all(
+                "SELECT fecha::text, hora::text, proveedor, producto_nombre, "
+                "       cantidad, costo_unitario, costo_total "
+                "FROM compras "
+                "WHERE fecha >= %s AND fecha <= %s ORDER BY fecha DESC, hora DESC",
+                (fecha_inicio, fecha_fin)
+            )
+            resultado: list = []
+            por_proveedor: dict[str, float] = defaultdict(float)
+            por_producto:  dict[str, float] = defaultdict(float)
+            for r in rows:
+                prov    = r.get("proveedor") or "Sin proveedor"
+                prod    = r.get("producto_nombre") or ""
+                ct      = int(r.get("costo_total") or 0)
+                resultado.append({
+                    "fecha":          str(r["fecha"])[:10],
+                    "hora":           str(r["hora"])[:5] if r.get("hora") else "",
+                    "proveedor":      prov,
+                    "producto":       prod,
+                    "cantidad":       float(r["cantidad"]),
+                    "costo_unitario": int(r.get("costo_unitario") or 0),
+                    "costo_total":    ct,
+                })
+                por_proveedor[prov] += ct
+                por_producto[prod]  += ct
+            return {
+                "compras":         resultado,
+                "total_invertido": sum(c["costo_total"] for c in resultado),
+                "por_proveedor":   dict(por_proveedor),
+                "por_producto":    dict(sorted(por_producto.items(), key=lambda x: -x[1])[:20]),
+                "dias":            dias,
+            }
+
+        # Fallback: JSON
         if not os.path.exists(config.MEMORIA_FILE):
             return {"compras": [], "total_invertido": 0, "por_proveedor": {}}
         with open(config.MEMORIA_FILE, encoding="utf-8") as f:
             mem = json.load(f)
 
         historial = mem.get("historial_compras", [])
-        ahora  = datetime.now(config.COLOMBIA_TZ)
-        limite = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d")
+        ahora     = datetime.now(config.COLOMBIA_TZ)
+        limite    = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d")
 
         filtradas      = [c for c in historial if str(c.get("fecha", ""))[:10] >= limite]
         por_proveedor: dict[str, float] = defaultdict(float)
@@ -417,11 +457,11 @@ def compras(dias: int = Query(default=30, ge=1, le=365)):
         filtradas.sort(key=lambda x: x.get("fecha", ""), reverse=True)
 
         return {
-            "compras":        filtradas,
+            "compras":         filtradas,
             "total_invertido": sum(_to_float(c.get("costo_total", 0)) for c in filtradas),
-            "por_proveedor":  dict(por_proveedor),
-            "por_producto":   dict(sorted(por_producto.items(), key=lambda x: -x[1])[:20]),
-            "dias":           dias,
+            "por_proveedor":   dict(por_proveedor),
+            "por_producto":    dict(sorted(por_producto.items(), key=lambda x: -x[1])[:20]),
+            "dias":            dias,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
