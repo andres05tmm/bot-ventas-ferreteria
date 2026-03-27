@@ -1550,6 +1550,21 @@ def registrar_factura_proveedor(
     }
     mem["cuentas_por_pagar"].append(factura)
     guardar_memoria(mem, urgente=True)
+    # Postgres dual-write (non-fatal, inline — D-01/D-02)
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            _db.execute(
+                """INSERT INTO facturas_proveedores
+                   (id, proveedor, descripcion, total, pagado, pendiente, estado, fecha, foto_url, foto_nombre)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (id) DO NOTHING""",
+                (fac_id, proveedor.strip(), descripcion.strip(),
+                 int(float(total)), 0, int(float(total)), "pendiente", hoy,
+                 foto_url, foto_nombre)
+            )
+    except Exception as e:
+        logger.warning("Postgres write facturas_proveedores failed: %s", e)
     return factura
 
 
@@ -1603,6 +1618,24 @@ def registrar_abono_factura(
     })
 
     guardar_memoria(mem, urgente=True)
+    # Postgres dual-write: INSERT abono + UPDATE factura (non-fatal — D-01/D-02)
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            _db.execute(
+                """INSERT INTO facturas_abonos (factura_id, monto, fecha, foto_url, foto_nombre)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (fac_id.upper(), int(float(monto)), hoy, foto_url, foto_nombre)
+            )
+            _db.execute(
+                """UPDATE facturas_proveedores
+                   SET pagado=%s, pendiente=%s, estado=%s
+                   WHERE id=%s""",
+                (int(round(factura["pagado"])), int(round(max(factura["pendiente"], 0))),
+                 factura["estado"], fac_id.upper())
+            )
+    except Exception as e:
+        logger.warning("Postgres write registrar_abono_factura failed: %s", e)
     return {"ok": True, "factura": factura}
 
 
