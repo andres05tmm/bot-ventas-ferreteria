@@ -689,3 +689,98 @@ async def registrar_venta_varia(req: VentaVariaRequest):
 
 
 # ── Transcripción de audio desde el Dashboard ─────────────────────────────────
+
+
+# ── Export Excel on-demand ─────────────────────────────────────────────────────
+
+@router.get("/export/ventas.xlsx")
+def export_ventas_xlsx():
+    """
+    Genera y descarga un archivo Excel con todas las ventas desde Postgres.
+    Una sola hoja plana 'Ventas'. Ordenado por fecha DESC, consecutivo DESC.
+    Per D-10, D-11, D-12, D-13.
+    """
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
+
+        sql = """
+            SELECT
+                v.consecutivo,
+                v.fecha::text          AS fecha,
+                COALESCE(v.hora::text, '')          AS hora,
+                COALESCE(v.cliente_nombre, 'Consumidor Final') AS cliente,
+                d.producto_nombre      AS producto,
+                d.cantidad::text       AS cantidad,
+                COALESCE(d.unidad_medida, 'Unidad') AS unidad_medida,
+                COALESCE(d.precio_unitario, 0)::float AS precio_unitario,
+                COALESCE(d.total, 0)::float           AS total,
+                COALESCE(v.vendedor, '')    AS vendedor,
+                COALESCE(v.metodo_pago, '') AS metodo_pago
+            FROM ventas v
+            JOIN ventas_detalle d ON d.venta_id = v.id
+            ORDER BY v.fecha DESC, v.consecutivo DESC
+        """
+        rows = _db.query_all(sql, [])
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generando export ventas.xlsx: {e}")
+        raise HTTPException(status_code=503, detail=f"Error consultando base de datos: {e}")
+
+    # ── Construir Excel en memoria ────────────────────────────────────────────
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Ventas"
+
+    COLUMNAS = [
+        "consecutivo", "fecha", "hora", "cliente", "producto",
+        "cantidad", "unidad_medida", "precio_unitario", "total",
+        "vendedor", "metodo_pago",
+    ]
+
+    # Encabezados con estilo
+    header_font  = Font(bold=True, color="FFFFFF")
+    header_fill  = PatternFill("solid", fgColor="1B56E1")
+    header_align = Alignment(horizontal="center")
+    for col_idx, nombre in enumerate(COLUMNAS, 1):
+        celda = ws.cell(row=1, column=col_idx, value=nombre.upper().replace("_", " "))
+        celda.font      = header_font
+        celda.fill      = header_fill
+        celda.alignment = header_align
+
+    # Anchos de columna (aprox)
+    anchos = [14, 12, 8, 25, 35, 10, 14, 16, 14, 18, 14]
+    for col_idx, ancho in enumerate(anchos, 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = ancho
+
+    # Filas de datos
+    alt_fill = PatternFill("solid", fgColor="EFF6FF")
+    for row_idx, row in enumerate(rows, 2):
+        for col_idx, clave in enumerate(COLUMNAS, 1):
+            valor = row.get(clave)
+            celda = ws.cell(row=row_idx, column=col_idx, value=valor)
+            celda.alignment = Alignment(horizontal="center")
+            if row_idx % 2 == 0:
+                celda.fill = alt_fill
+            # Formato numérico para columnas de dinero
+            if clave in ("precio_unitario", "total"):
+                celda.number_format = "$#,##0.00"
+
+    # ── Serializar a BytesIO ──────────────────────────────────────────────────
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=ventas.xlsx"},
+    )
