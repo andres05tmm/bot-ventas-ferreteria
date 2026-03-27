@@ -1252,6 +1252,44 @@ def guardar_gasto(gasto: dict):
 
 def cargar_fiados() -> dict:
     """Retorna el dict completo de fiados: {nombre_cliente: {saldo, movimientos}}"""
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            rows = _db.query_all(
+                """SELECT f.id, f.nombre, f.deuda,
+                          COALESCE(
+                              json_agg(
+                                  json_build_object(
+                                      'fecha', fh.fecha::text,
+                                      'concepto', fh.concepto,
+                                      'cargo', CASE WHEN fh.tipo='cargo' THEN fh.monto ELSE 0 END,
+                                      'abono', CASE WHEN fh.tipo='abono' THEN fh.monto ELSE 0 END,
+                                      'saldo', 0
+                                  ) ORDER BY fh.created_at
+                              ) FILTER (WHERE fh.id IS NOT NULL),
+                              '[]'
+                          ) AS movimientos
+                   FROM fiados f
+                   LEFT JOIN fiados_historial fh ON fh.fiado_id = f.id
+                   GROUP BY f.id, f.nombre, f.deuda""",
+                ()
+            )
+            result = {}
+            for r in rows:
+                movimientos = r["movimientos"] if r["movimientos"] else []
+                # Reconstruct running saldo for each movement
+                saldo_acumulado = 0
+                for mov in movimientos:
+                    saldo_acumulado += mov["cargo"] - mov["abono"]
+                    mov["saldo"] = saldo_acumulado
+                result[r["nombre"]] = {
+                    "saldo": r["deuda"],
+                    "movimientos": movimientos,
+                }
+            return result
+    except Exception as e:
+        logger.warning("Postgres read cargar_fiados failed: %s", e)
+
     return cargar_memoria().get("fiados", {})
 
 
@@ -1699,6 +1737,40 @@ def import_config_tz():
 
 def listar_facturas(solo_pendientes: bool = False) -> list:
     """Retorna la lista de facturas, opcionalmente solo las no pagadas."""
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            rows = _db.query_all(
+                """SELECT fp.id, fp.proveedor, fp.descripcion, fp.total, fp.pagado,
+                          fp.pendiente, fp.estado, fp.fecha::text, fp.foto_url, fp.foto_nombre,
+                          COALESCE(
+                              json_agg(
+                                  json_build_object(
+                                      'fecha', fa.fecha::text,
+                                      'monto', fa.monto,
+                                      'foto_url', COALESCE(fa.foto_url, ''),
+                                      'foto_nombre', COALESCE(fa.foto_nombre, '')
+                                  ) ORDER BY fa.created_at
+                              ) FILTER (WHERE fa.id IS NOT NULL),
+                              '[]'
+                          ) AS abonos
+                   FROM facturas_proveedores fp
+                   LEFT JOIN facturas_abonos fa ON fa.factura_id = fp.id
+                   GROUP BY fp.id
+                   ORDER BY fp.fecha DESC""",
+                ()
+            )
+            facturas = [
+                {**dict(r), "abonos": r["abonos"] if r["abonos"] else []}
+                for r in rows
+            ]
+            if solo_pendientes:
+                return [f for f in facturas if f["estado"] != "pagada"]
+            return facturas
+    except Exception as e:
+        logger.warning("Postgres read listar_facturas failed: %s", e)
+
+    # Fallback: JSON
     mem = cargar_memoria()
     facturas = mem.get("cuentas_por_pagar", [])
     if solo_pendientes:
