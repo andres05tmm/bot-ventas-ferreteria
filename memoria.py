@@ -978,8 +978,23 @@ def _registrar_historial_compra(producto: str, cantidad: float, costo_unitario: 
     # Mantener solo últimos 500 registros
     if len(mem["historial_compras"]) > 500:
         mem["historial_compras"] = mem["historial_compras"][-500:]
-    
+
     guardar_memoria(mem)
+    # Postgres dual-write (non-fatal — D-01/D-02)
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            _db.execute(
+                """INSERT INTO compras
+                   (fecha, hora, proveedor, producto_nombre, cantidad, costo_unitario, costo_total)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
+                 datetime.now(config.COLOMBIA_TZ).strftime("%H:%M"),
+                 proveedor, producto, cantidad,
+                 int(costo_unitario), round(cantidad * costo_unitario))
+            )
+    except Exception as e:
+        logger.warning("Postgres write compras failed: %s", e)
 
 
 def obtener_costo_producto(nombre_producto: str) -> float | None:
@@ -1282,6 +1297,39 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
         "saldo":    saldo_nuevo,
     })
     guardar_memoria(mem)
+    # Postgres dual-write: upsert fiado + insert historial (non-fatal — D-01/D-02)
+    try:
+        import db as _db
+        if _db.DB_DISPONIBLE:
+            # Get or create the fiado record
+            existing = _db.query_one(
+                "SELECT id FROM fiados WHERE nombre = %s", (cliente,)
+            )
+            if existing:
+                fiado_id = existing["id"]
+                _db.execute(
+                    "UPDATE fiados SET deuda=%s, updated_at=NOW() WHERE id=%s",
+                    (int(saldo_nuevo), fiado_id)
+                )
+            else:
+                row = _db.execute_returning(
+                    "INSERT INTO fiados (nombre, deuda) VALUES (%s, %s) RETURNING id",
+                    (cliente, int(saldo_nuevo))
+                )
+                fiado_id = row["id"]
+            # Derive tipo from cargo/abono values
+            tipo = "cargo" if cargo > 0 else "abono"
+            monto_pg = int(cargo if cargo > 0 else abono)
+            _db.execute(
+                """INSERT INTO fiados_historial
+                   (fiado_id, tipo, monto, concepto, fecha, hora)
+                   VALUES (%s, %s, %s, %s, %s, %s)""",
+                (fiado_id, tipo, monto_pg, concepto,
+                 datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
+                 datetime.now(config.COLOMBIA_TZ).strftime("%H:%M"))
+            )
+    except Exception as e:
+        logger.warning("Postgres write fiados failed: %s", e)
     return saldo_nuevo
 
 
