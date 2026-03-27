@@ -50,8 +50,8 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 - [x] **PROV-02**: `memoria.json["fiados"]` migrado a tablas `fiados` + `fiados_historial`
 - [x] **PROV-03**: Compras del Excel migradas a tabla `compras`
 - [x] **PROV-04**: Routers de proveedores, fiados y compras leen/escriben en Postgres
-- [ ] **PROV-05**: Fotos de facturas siguen en Google Drive sin cambios
-- [ ] **PROV-06**: Tab Proveedores funciona desde Postgres
+- [x] **PROV-05**: Fotos de facturas siguen en Google Drive sin cambios
+- [x] **PROV-06**: Tab Proveedores funciona desde Postgres
 
 ### Limpieza y Finalización (Fase 5)
 
@@ -119,8 +119,8 @@ Requirements para la migración completa de Drive/JSON/Excel → PostgreSQL.
 | PROV-02 | Phase 4 | Complete |
 | PROV-03 | Phase 4 | Complete |
 | PROV-04 | Phase 4 | Complete |
-| PROV-05 | Phase 4 | Pending |
-| PROV-06 | Phase 4 | Pending |
+| PROV-05 | Phase 4 | Complete |
+| PROV-06 | Phase 4 | Complete |
 | CLEAN-01 | Phase 5 | Pending |
 | CLEAN-02 | Phase 5 | Pending |
 | CLEAN-03 | Phase 5 | Pending |
