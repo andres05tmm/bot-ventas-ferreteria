@@ -399,3 +399,42 @@ def execute_returning(sql: str, params=None) -> dict | None:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             return cur.fetchone()
+
+
+# ───────────────────────────────────────────────────────────────
+# HELPERS DE VENTAS (reemplazan excel.py / sheets.py eliminados)
+# ───────────────────────────────────────────────────────────────
+
+def obtener_siguiente_consecutivo() -> int:
+    """
+    Retorna el siguiente consecutivo disponible para hoy (MAX + 1).
+    Si no hay ventas hoy retorna 1.
+    """
+    import config as _cfg
+    from datetime import datetime as _dt
+    hoy = _dt.now(_cfg.COLOMBIA_TZ).strftime("%Y-%m-%d")
+    if not DB_DISPONIBLE:
+        return 1
+    row = query_one(
+        "SELECT COALESCE(MAX(consecutivo), 0) AS max_c FROM ventas WHERE fecha = %s",
+        (hoy,)
+    )
+    return int(row["max_c"]) + 1 if row else 1
+
+
+def obtener_nombre_id_cliente(termino: str) -> tuple[str, str]:
+    """
+    Busca cliente en la DB por nombre o identificación.
+    Retorna (identificacion, nombre) o ('CF', 'Consumidor Final') si no encuentra.
+    """
+    if not termino or not DB_DISPONIBLE:
+        return "CF", "Consumidor Final"
+    row = query_one(
+        """SELECT identificacion, nombre FROM clientes
+           WHERE LOWER(nombre) LIKE LOWER(%s) OR identificacion = %s
+           ORDER BY id LIMIT 1""",
+        (f"%{termino}%", termino),
+    )
+    if row:
+        return str(row.get("identificacion") or "CF"), str(row.get("nombre") or "Consumidor Final")
+    return "CF", "Consumidor Final"

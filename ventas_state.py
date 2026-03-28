@@ -14,11 +14,7 @@ import time
 
 import config
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, es_thinner, parsear_precio
-from excel import (
-    obtener_siguiente_consecutivo,
-    guardar_venta_excel,
-    obtener_nombre_id_cliente,
-)
+from db import obtener_siguiente_consecutivo, obtener_nombre_id_cliente
 from memoria import cargar_inventario, guardar_inventario, cargar_caja, guardar_caja, cargar_memoria, descontar_inventario
 
 _estado_lock = threading.Lock()
@@ -205,15 +201,6 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
             "valor_final": valor_final,
             "alias":       venta.get("alias"),
         })
-
-        precio_u_excel = valor_final / cantidad if cantidad > 0 else valor_final
-
-        guardar_venta_excel(
-            producto, cantidad, precio_u_excel, valor_final, vendedor, metodo,
-            cliente_nombre=nombre_c, cliente_id=id_c,
-            consecutivo=consecutivo,
-            unidad_medida=unidad,
-        )
 
         cliente_txt = f" | {nombre_c}" if nombre_c != "Consumidor Final" else ""
         confirmaciones.append(f"• {cantidad_legible} {producto} ${valor_final:,.0f}{cliente_txt}")
