@@ -41,7 +41,6 @@ from ventas_state import (
     agregar_a_standby,
     mensaje_contexto_pendiente,
 )
-from excel import guardar_cliente_nuevo
 from handlers.comandos import manejar_flujo_agregar_producto
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
 from memoria import invalidar_cache_memoria, importar_catalogo_desde_excel
@@ -429,15 +428,32 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             en_proceso["telefono"] = telefono
             with _estado_lock:
                 clientes_en_proceso.pop(chat_id, None)
-            ok = await asyncio.to_thread(
-                guardar_cliente_nuevo,
-                en_proceso["nombre"],
-                en_proceso["tipo_id"],
-                en_proceso["identificacion"],
-                en_proceso["tipo_persona"],
-                en_proceso.get("correo", ""),
-                telefono,
-            )
+            def _insertar_cliente_pg():
+                import db as _db
+                if not _db.DB_DISPONIBLE:
+                    return False
+                try:
+                    _db.execute(
+                        """INSERT INTO clientes
+                               (nombre, tipo_id, identificacion, tipo_persona, correo, telefono)
+                           VALUES (%s, %s, %s, %s, %s, %s)
+                           ON CONFLICT DO NOTHING""",
+                        (
+                            en_proceso["nombre"].upper().strip(),
+                            en_proceso["tipo_id"],
+                            en_proceso["identificacion"].strip() or None,
+                            en_proceso["tipo_persona"],
+                            en_proceso.get("correo", "").strip() or None,
+                            telefono.strip() or None,
+                        ),
+                    )
+                    return True
+                except Exception as _e:
+                    logger.error("Error INSERT cliente PG: %s", _e)
+                    return False
+
+            ok = await asyncio.to_thread(_insertar_cliente_pg)
+            invalidar_cache_memoria()
             if ok:
                 tipo_map     = {"CC": "Cédula de ciudadanía", "NIT": "NIT", "CE": "Cédula de extranjería"}
                 tipo_legible = tipo_map.get(en_proceso.get("tipo_id", ""), en_proceso.get("tipo_id", ""))

@@ -2,6 +2,10 @@
 Router: Catálogo — /catalogo/*, /productos, /inventario/*, /kardex
 MIGRADO A SQL: PostgreSQL es la única fuente de verdad.
                Sin MEMORIA_FILE, sin Drive, sin Excel.
+
+MIGRACIÓN PG-ONLY v2:
+  - Eliminado: from precio_sync import _normalizar_unidad
+  - Inlineado: _UNIDAD_MAP + _normalizar_unidad (8 líneas) directamente en este módulo
 """
 from __future__ import annotations
 
@@ -25,6 +29,36 @@ _FRACS_GALON = [
     ("1/8", 0.125), ("1/16", 0.0625), ("1/10", 0.1),
 ]
 
+# ── Normalización de unidades de medida (DIAN) ────────────────────────────────
+_UNIDAD_MAP: dict[str, str] = {
+    # galón
+    "galon": "Galón", "galón": "Galón", "gal": "Galón",
+    # kilogramo
+    "kg": "Kg", "kgs": "Kg", "kilo": "Kg",
+    "kilos": "Kg", "kilogramo": "Kg", "25 kg": "Kg",
+    # metro
+    "mts": "Mts", "mt": "Mts", "metro": "Mts",
+    "metros": "Mts", "m": "Mts",
+    # centímetro
+    "cms": "Cms", "cm": "Cms", "centimetro": "Cms",
+    # litro
+    "lt": "Lt", "lts": "Lts", "litro": "Lt", "litros": "Lts",
+    # mililitro — código DIAN: MLT
+    "ml": "MLT", "mlt": "MLT", "mililitro": "MLT",
+    "mililitros": "MLT", "cc": "MLT", "centimetro cubico": "MLT",
+    # unidad (por defecto)
+    "unidad": "Unidad", "und": "Unidad", "un": "Unidad",
+    "unidades": "Unidad", "uni": "Unidad",
+}
+
+
+def _normalizar_unidad(raw: str) -> str:
+    """Normaliza texto de unidad de medida → etiqueta canónica DIAN."""
+    if not raw:
+        return "Unidad"
+    clave = raw.strip().lower().replace("á", "a").replace("é", "e").replace("ó", "o")
+    return _UNIDAD_MAP.get(clave, raw.strip()) or "Unidad"
+
 
 def _parse_fraccion_decimal(frac_str: str) -> float:
     """Convierte '1/4' → 0.25, '0.5' → 0.5. No lanza ValueError."""
@@ -46,7 +80,6 @@ def productos():
         if not db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
-        # Un solo JOIN — sin N+1
         prods = db.query_all(
             """
             SELECT p.id, p.clave, p.nombre, p.categoria, p.precio_unidad,
@@ -61,7 +94,6 @@ def productos():
             """
         )
 
-        # Fracciones en bulk — 1 query para todos
         fracs_all = db.query_all(
             "SELECT producto_id, fraccion, precio_total FROM productos_fracciones"
         )
@@ -77,7 +109,6 @@ def productos():
             precio = v["precio_unidad"] or 0
             fracs  = fracs_map.get(pid) or {}
 
-            # Auto-generar fracciones para pinturas sin precios_fraccion explícitos
             if not fracs and precio > 0:
                 cat_lower = (v["categoria"] or "").lower()
                 if "pintura" in cat_lower or "disolvente" in cat_lower or "impermeab" in cat_lower:
@@ -177,7 +208,6 @@ def catalogo_nav(q: str = Query(default="")):
             """
         )
 
-        # Fracciones en bulk
         fracs_all = db.query_all(
             "SELECT producto_id, fraccion, precio_total FROM productos_fracciones"
         )
@@ -281,7 +311,7 @@ def kardex(
             [prod_id, fecha_inicio],
         )
 
-        inv_row     = db.query_one(
+        inv_row      = db.query_one(
             "SELECT cantidad, costo_promedio FROM inventario WHERE producto_id = %s", [prod_id]
         )
         stock_actual = float(inv_row["cantidad"]) if inv_row else None
@@ -345,7 +375,6 @@ def crear_producto(body: NuevoProducto):
     """Crea un producto nuevo directamente en PostgreSQL."""
     try:
         from utils import _normalizar
-        from precio_sync import _normalizar_unidad
         from memoria import invalidar_cache_memoria
 
         if not body.nombre.strip():
@@ -354,10 +383,10 @@ def crear_producto(body: NuevoProducto):
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
         key_base = _normalizar(body.nombre.strip()).replace(" ", "_")
-        key = key_base
-        sufijo = 2
+        key      = key_base
+        sufijo   = 2
         while db.query_one("SELECT 1 FROM productos WHERE clave = %s", [key]):
-            key = f"{key_base}_{sufijo}"
+            key    = f"{key_base}_{sufijo}"
             sufijo += 1
 
         unidad_norm = _normalizar_unidad(body.unidad_medida)
@@ -491,7 +520,6 @@ def actualizar_fracciones(key: str, body: FraccionesUpdate):
 
         for frac_key, frac_val in fracs_norm.items():
             precio_frac = frac_val["precio"] if isinstance(frac_val, dict) else int(frac_val)
-            # _parse_fraccion_decimal maneja correctamente "1/4" → 0.25 (float() falla)
             decimal_val = _parse_fraccion_decimal(frac_key)
             precio_unit = round(precio_frac / decimal_val) if decimal_val else precio_frac
 
@@ -547,12 +575,11 @@ def actualizar_mayorista(key: str, body: MayoristaUpdate):
         if not row_prod:
             raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
 
-        ppc_actual = db.query_one(
+        ppc_actual  = db.query_one(
             "SELECT umbral, precio_bajo_umbral FROM productos_precio_cantidad WHERE producto_id = %s",
             [row_prod["id"]],
         )
         umbral      = body.umbral if body.umbral else (ppc_actual["umbral"] if ppc_actual else 50)
-        # Preservar precio_bajo existente si el endpoint no lo provee
         precio_bajo = ppc_actual["precio_bajo_umbral"] if ppc_actual else (row_prod["precio_unidad"] or 0)
         precio_sobre = int(body.precio)
 
@@ -645,7 +672,6 @@ def editar_producto(key: str, body: EditarProductoBody):
     """Edita metadatos de un producto directamente en PostgreSQL."""
     try:
         from utils import _normalizar
-        from precio_sync import _normalizar_unidad
         from memoria import invalidar_cache_memoria
 
         if not db.DB_DISPONIBLE:
@@ -694,9 +720,9 @@ def editar_producto(key: str, body: EditarProductoBody):
         )
 
         return {
-            "ok":           True,
-            "key_nueva":    nueva_clave,
-            "producto":     dict(prod_resultado or {}),
+            "ok":             True,
+            "key_nueva":      nueva_clave,
+            "producto":       dict(prod_resultado or {}),
             "pg_actualizado": True,
         }
     except HTTPException:
