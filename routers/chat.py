@@ -328,34 +328,32 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
 
     # ── Histórico últimos 30 días ─────────────────────────────────────────────
     try:
-        import json as _json_hist
-        _historico_data = {}
-        _diario_data = {}
-        if os.path.exists("historico_ventas.json"):
-            with open("historico_ventas.json", encoding="utf-8") as _fh:
-                _historico_data = _json_hist.load(_fh)
-        if os.path.exists("historico_diario.json"):
-            with open("historico_diario.json", encoding="utf-8") as _fh:
-                _diario_data = _json_hist.load(_fh)
-
+        import db as _db_hist
         _hist_lines = []
-        _hoy_d = datetime.now(config.COLOMBIA_TZ).date()
-        for _i in range(29, -1, -1):
-            _dia = (_hoy_d - timedelta(days=_i)).strftime("%Y-%m-%d")
-            _v = _historico_data.get(_dia, 0)
-            if _v:
-                _dd = _diario_data.get(_dia, {})
-                _g  = _dd.get("gastos", 0)
-                _ab = _dd.get("abonos_proveedores", 0)
+        if _db_hist.DB_DISPONIBLE:
+            _hoy_d = datetime.now(config.COLOMBIA_TZ).date()
+            _desde = (_hoy_d - timedelta(days=29)).strftime("%Y-%m-%d")
+            _rows_hist = _db_hist.query_all(
+                """SELECT fecha::text, ventas, gastos, abonos_proveedores
+                   FROM historico_ventas
+                   WHERE fecha >= %s
+                   ORDER BY fecha ASC""",
+                (_desde,),
+            )
+            for _r in _rows_hist:
+                _v  = int(_r.get("ventas", 0) or 0)
+                _g  = int(_r.get("gastos", 0) or 0)
+                _ab = int(_r.get("abonos_proveedores", 0) or 0)
                 _cn = _v - _g - _ab
-                _hist_lines.append(
-                    f"  {_dia}: ventas=${_v:,.0f}"
-                    + (f" | gastos=${_g:,.0f}" if _g else "")
-                    + (f" | abonos=${_ab:,.0f}" if _ab else "")
-                    + f" | caja_neta=${_cn:,.0f}"
-                )
+                if _v:
+                    _hist_lines.append(
+                        f"  {_r['fecha']}: ventas=${_v:,.0f}"
+                        + (f" | gastos=${_g:,.0f}" if _g else "")
+                        + (f" | abonos=${_ab:,.0f}" if _ab else "")
+                        + f" | caja_neta=${_cn:,.0f}"
+                    )
         if _hist_lines:
-            historico_texto = f"HISTÓRICO 30 DÍAS:\n" + "\n".join(_hist_lines[-30:])
+            historico_texto = "HISTÓRICO 30 DÍAS:\n" + "\n".join(_hist_lines)
         else:
             historico_texto = "HISTÓRICO: Sin datos previos registrados"
     except Exception:
