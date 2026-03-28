@@ -988,16 +988,22 @@ async def _manejar_foto_factura_o_abono(update, context) -> bool:
             n_abono = len(factura.get("abonos", []))
             nombre_archivo = f"{hoy}_{fac_id}_abono{n_abono}.jpg"
 
-        from drive import subir_foto_factura
-        result = subir_foto_factura(ruta_tmp, nombre_archivo, proveedor)
+        # Subir a Cloudinary
+        from handlers.comandos import upload_foto_cloudinary
+        with open(ruta_tmp, "rb") as _f:
+            foto_bytes = _f.read()
         try:
             import os as _os; _os.unlink(ruta_tmp)
         except Exception:
             pass
 
+        carpeta    = f"ferreteria/{proveedor.lower().replace(' ', '_')}"
+        public_id  = nombre_archivo.replace(".jpg", "")
+        result     = await upload_foto_cloudinary(foto_bytes, public_id, carpeta)
+
         if not result["ok"]:
             await update.message.reply_text(
-                f"⚠️ No se pudo subir la foto a Drive: {result.get('error','')}"
+                f"⚠️ No se pudo subir la foto a Cloudinary: {result.get('error','')}"
             )
             return True
 
@@ -1015,7 +1021,7 @@ async def _manejar_foto_factura_o_abono(update, context) -> bool:
 
         tipo_txt = "factura" if fac_factura else "comprobante de abono"
         await update.message.reply_text(
-            f"📎 Foto del {tipo_txt} guardada en Drive\n"
+            f"📎 Foto del {tipo_txt} guardada en Cloudinary\n"
             f"🏪 {proveedor} · {fac_id}\n"
             f"[Ver foto]({result['url']})",
             parse_mode="Markdown",
