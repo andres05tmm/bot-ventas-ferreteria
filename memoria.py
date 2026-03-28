@@ -1060,34 +1060,19 @@ def registrar_compra(nombre_producto: str, cantidad: float, costo_unitario: floa
 
 def _registrar_historial_compra(producto: str, cantidad: float, costo_unitario: float, proveedor: str = "—"):
     """Persiste la compra en PostgreSQL (fuente única de verdad)."""
-    try:
-        import db as _db
-        if _db.DB_DISPONIBLE:
-            ahora = datetime.now(config.COLOMBIA_TZ)
-            _db.execute(
-                """INSERT INTO compras
-                   (fecha, hora, proveedor, producto_nombre, cantidad, costo_unitario, costo_total)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                (ahora.strftime("%Y-%m-%d"),
-                 ahora.strftime("%H:%M"),
-                 proveedor, producto, cantidad,
-                 int(costo_unitario), round(cantidad * costo_unitario))
-            )
-        else:
-            # Sin PG: fallback temporal a JSON para no perder el registro
-            mem = cargar_memoria()
-            mem.setdefault("historial_compras", []).append({
-                "fecha":          datetime.now().strftime("%Y-%m-%d"),
-                "hora":           datetime.now().strftime("%H:%M"),
-                "proveedor":      proveedor,
-                "producto":       producto,
-                "cantidad":       cantidad,
-                "costo_unitario": costo_unitario,
-                "total":          round(cantidad * costo_unitario),
-            })
-            guardar_memoria(mem)
-    except Exception as e:
-        logger.warning("Postgres write compras failed: %s", e)
+    if not _db.DB_DISPONIBLE:
+        logger.warning("DB no disponible — historial_compra no registrado para: %s", producto)
+        return
+    ahora = datetime.now(config.COLOMBIA_TZ)
+    _db.execute(
+        """INSERT INTO compras
+           (fecha, hora, proveedor, producto_nombre, cantidad, costo_unitario, costo_total)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+        (ahora.strftime("%Y-%m-%d"),
+         ahora.strftime("%H:%M"),
+         proveedor, producto, cantidad,
+         int(costo_unitario), round(cantidad * costo_unitario))
+    )
 
 
 def obtener_costo_producto(nombre_producto: str) -> float | None:
@@ -1271,32 +1256,32 @@ def cargar_caja() -> dict:
     pg = _leer_caja_postgres()
     if pg is not None:
         return pg
-    return cargar_memoria().get("caja_actual", {
+    return {
         "abierta": False, "fecha": None, "monto_apertura": 0,
         "efectivo": 0, "transferencias": 0, "datafono": 0,
-    })
+    }
 
 
 def guardar_caja(caja: dict):
-    if _db.DB_DISPONIBLE:
-        try:
-            _guardar_caja_postgres(caja)
-            return
-        except Exception as e:
-            logger.warning("Error escribiendo caja en Postgres, usando JSON como fallback: %s", e)
-    mem = cargar_memoria()
-    mem["caja_actual"] = caja
-    guardar_memoria(mem)
+    if not _db.DB_DISPONIBLE:
+        raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
+    _guardar_caja_postgres(caja)
 
 
 def obtener_resumen_caja() -> str:
-    from excel import obtener_ventas_hoy_excel
     caja = cargar_caja()
     if not caja.get("abierta"):
         return "La caja no está abierta hoy."
-    resumen_hoy       = obtener_ventas_hoy_excel()
-    total_ventas_hoy  = resumen_hoy["total"]
-    num_ventas_hoy    = resumen_hoy["num_ventas"]
+    if not _db.DB_DISPONIBLE:
+        return "⚠️ Base de datos no disponible. No se puede obtener el resumen de caja ahora."
+    from datetime import date as _date
+    row = _db.query_one(
+        "SELECT COALESCE(SUM(total), 0) AS total, COUNT(*) AS num_ventas"
+        " FROM ventas WHERE fecha = %s",
+        (_date.today(),),
+    )
+    total_ventas_hoy = int(row["total"]) if row else 0
+    num_ventas_hoy   = int(row["num_ventas"]) if row else 0
     gastos_hoy        = cargar_gastos_hoy()
     total_gastos_caja = sum(g["monto"] for g in gastos_hoy if g.get("origen") == "caja")
     efectivo_esperado = caja["monto_apertura"] + caja["efectivo"] - total_gastos_caja
@@ -1317,30 +1302,21 @@ def obtener_resumen_caja() -> str:
 # ─────────────────────────────────────────────
 
 def cargar_gastos_hoy() -> list:
+    if not _db.DB_DISPONIBLE:
+        logger.warning("DB no disponible — cargar_gastos_hoy retorna []")
+        return []
     try:
-        import db as _db
-        if _db.DB_DISPONIBLE:
-            hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
-            gastos = _leer_gastos_postgres(hoy, hoy)
-            if gastos is not None:
-                return gastos
+        hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+        return _leer_gastos_postgres(hoy, hoy) or []
     except Exception as e:
         logger.warning("Error leyendo gastos de Postgres: %s", e)
-    hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
-    return cargar_memoria().get("gastos", {}).get(hoy, [])
+        return []
 
 
 def guardar_gasto(gasto: dict):
-    if _db.DB_DISPONIBLE:
-        try:
-            _guardar_gasto_postgres(gasto)
-            return
-        except Exception as e:
-            logger.warning("Error escribiendo gasto en Postgres, usando JSON como fallback: %s", e)
-    hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
-    mem = cargar_memoria()
-    mem.setdefault("gastos", {}).setdefault(hoy, []).append(gasto)
-    guardar_memoria(mem)
+    if not _db.DB_DISPONIBLE:
+        raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
+    _guardar_gasto_postgres(gasto)
 
 
 # ─────────────────────────────────────────────
@@ -1416,6 +1392,9 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
     Registra un movimiento de fiado (cargo=lo que quedó debiendo, abono=lo que pagó).
     Crea el cliente en fiados si no existe.
     """
+    if not _db.DB_DISPONIBLE:
+        raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
+
     mem    = cargar_memoria()
     fiados = mem.setdefault("fiados", {})
     if cliente not in fiados:
@@ -1431,36 +1410,30 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
         "abono":    abono,
         "saldo":    saldo_nuevo,
     })
-    if _db.DB_DISPONIBLE:
-        try:
-            existing = _db.query_one("SELECT id FROM fiados WHERE nombre = %s", (cliente,))
-            if existing:
-                fiado_id = existing["id"]
-                _db.execute(
-                    "UPDATE fiados SET deuda=%s, updated_at=NOW() WHERE id=%s",
-                    (int(saldo_nuevo), fiado_id)
-                )
-            else:
-                row = _db.execute_returning(
-                    "INSERT INTO fiados (nombre, deuda) VALUES (%s, %s) RETURNING id",
-                    (cliente, int(saldo_nuevo))
-                )
-                fiado_id = row["id"]
-            tipo     = "cargo" if cargo > 0 else "abono"
-            monto_pg = int(cargo if cargo > 0 else abono)
-            _db.execute(
-                """INSERT INTO fiados_historial
-                   (fiado_id, tipo, monto, concepto, fecha, hora)
-                   VALUES (%s, %s, %s, %s, %s, %s)""",
-                (fiado_id, tipo, monto_pg, concepto,
-                 datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
-                 datetime.now(config.COLOMBIA_TZ).strftime("%H:%M"))
-            )
-            return saldo_nuevo
-        except Exception as e:
-            logger.warning("Error escribiendo fiado en Postgres, usando JSON como fallback: %s", e)
-    # Fallback JSON
-    guardar_memoria(mem)
+
+    existing = _db.query_one("SELECT id FROM fiados WHERE nombre = %s", (cliente,))
+    if existing:
+        fiado_id = existing["id"]
+        _db.execute(
+            "UPDATE fiados SET deuda=%s, updated_at=NOW() WHERE id=%s",
+            (int(saldo_nuevo), fiado_id)
+        )
+    else:
+        row = _db.execute_returning(
+            "INSERT INTO fiados (nombre, deuda) VALUES (%s, %s) RETURNING id",
+            (cliente, int(saldo_nuevo))
+        )
+        fiado_id = row["id"]
+    tipo     = "cargo" if cargo > 0 else "abono"
+    monto_pg = int(cargo if cargo > 0 else abono)
+    _db.execute(
+        """INSERT INTO fiados_historial
+           (fiado_id, tipo, monto, concepto, fecha, hora)
+           VALUES (%s, %s, %s, %s, %s, %s)""",
+        (fiado_id, tipo, monto_pg, concepto,
+         datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
+         datetime.now(config.COLOMBIA_TZ).strftime("%H:%M"))
+    )
     return saldo_nuevo
 
 
@@ -1628,35 +1601,20 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
 
     precio_antes = catalogo[clave].get("precio_unidad") if clave else None
 
-    if _db.DB_DISPONIBLE:
-        try:
-            _upsert_precio_producto_postgres(clave, catalogo[clave], fraccion)
-            # Actualizar cache directamente — sin guardar_memoria ni invalidar_cache_memoria
-            global _cache
-            with _cache_lock:
-                if _cache is not None:
-                    _cache.setdefault("catalogo", {})[clave] = catalogo[clave]
-                    # Limpiar precio viejo de "precios" simples del cache
-                    nombre_lower = prod.get("nombre_lower", nombre_producto.lower())
-                    precios_cache = _cache.get("precios", {})
-                    for k in [k for k in precios_cache if k == nombre_lower or nombre_lower in k or k in nombre_lower]:
-                        del precios_cache[k]
-            _log.info("[PRECIO_CAT] ✅ %s: $%s → $%s (fraccion=%s)", clave, precio_antes, nuevo_precio, fraccion)
-            return True
-        except Exception as e:
-            logger.warning("Error escribiendo precio en Postgres, usando JSON como fallback: %s", e)
+    if not _db.DB_DISPONIBLE:
+        raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
 
-    # Fallback JSON
-    mem["catalogo"] = catalogo
-    precios = mem.get("precios", {})
-    nombre_lower = prod.get("nombre_lower", nombre_producto.lower())
-    claves_borrar = [k for k in precios if k == nombre_lower or nombre_lower in k or k in nombre_lower]
-    for k in claves_borrar:
-        del precios[k]
-    mem["precios"] = precios
-    guardar_memoria(mem, urgente=True)
-    invalidar_cache_memoria()
-    _log.info("[PRECIO_CAT] ✅ %s: $%s → $%s (fraccion=%s) [JSON fallback]", clave, precio_antes, nuevo_precio, fraccion)
+    _upsert_precio_producto_postgres(clave, catalogo[clave], fraccion)
+    # Actualizar cache directamente — sin guardar_memoria ni invalidar_cache_memoria
+    global _cache
+    with _cache_lock:
+        if _cache is not None:
+            _cache.setdefault("catalogo", {})[clave] = catalogo[clave]
+            nombre_lower = prod.get("nombre_lower", nombre_producto.lower())
+            precios_cache = _cache.get("precios", {})
+            for k in [k for k in precios_cache if k == nombre_lower or nombre_lower in k or k in nombre_lower]:
+                del precios_cache[k]
+    _log.info("[PRECIO_CAT] ✅ %s: $%s → $%s (fraccion=%s)", clave, precio_antes, nuevo_precio, fraccion)
     return True
 
 
@@ -1742,23 +1700,17 @@ def registrar_factura_proveedor(
         "foto_nombre": foto_nombre,
         "abonos":      [],             # historial de abonos
     }
-    if _db.DB_DISPONIBLE:
-        try:
-            _db.execute(
-                """INSERT INTO facturas_proveedores
-                   (id, proveedor, descripcion, total, pagado, pendiente, estado, fecha, foto_url, foto_nombre)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                   ON CONFLICT (id) DO NOTHING""",
-                (fac_id, proveedor.strip(), descripcion.strip(),
-                 int(float(total)), 0, int(float(total)), "pendiente", hoy,
-                 foto_url, foto_nombre)
-            )
-            return factura
-        except Exception as e:
-            logger.warning("Error escribiendo factura en Postgres, usando JSON como fallback: %s", e)
-    # Fallback JSON
-    mem["cuentas_por_pagar"].append(factura)
-    guardar_memoria(mem, urgente=True)
+    if not _db.DB_DISPONIBLE:
+        raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
+    _db.execute(
+        """INSERT INTO facturas_proveedores
+           (id, proveedor, descripcion, total, pagado, pendiente, estado, fecha, foto_url, foto_nombre)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+           ON CONFLICT (id) DO NOTHING""",
+        (fac_id, proveedor.strip(), descripcion.strip(),
+         int(float(total)), 0, int(float(total)), "pendiente", hoy,
+         foto_url, foto_nombre)
+    )
     return factura
 
 
@@ -1775,34 +1727,38 @@ def registrar_abono_factura(
     Retorna {"ok": True/False, "factura": {...}, "error": "..."}
     """
     from datetime import datetime as _dt
-    mem = cargar_memoria()
-    facturas = mem.get("cuentas_por_pagar", [])
+    if not _db.DB_DISPONIBLE:
+        raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
 
-    factura = next((f for f in facturas if f["id"].upper() == fac_id.upper()), None)
-    if not factura:
+    # Leer factura desde Postgres
+    row = _db.query_one(
+        "SELECT * FROM facturas_proveedores WHERE id = %s",
+        (fac_id.upper(),)
+    )
+    if not row:
         return {"ok": False, "error": f"Factura {fac_id} no encontrada"}
 
-    hoy = fecha or _dt.now(import_config_tz()).strftime("%Y-%m-%d")
+    hoy      = fecha or _dt.now(import_config_tz()).strftime("%Y-%m-%d")
+    pagado   = int(row["pagado"]) + int(float(monto))
+    total    = int(row["total"])
+    pendiente = max(total - pagado, 0)
+    estado   = "pagada" if pendiente <= 0 else ("parcial" if pagado > 0 else "pendiente")
 
-    abono = {
-        "fecha":       hoy,
-        "monto":       float(monto),
-        "foto_url":    foto_url,
-        "foto_nombre": foto_nombre,
-    }
-    factura["abonos"].append(abono)
-    factura["pagado"]    = round(factura["pagado"] + monto, 2)
-    factura["pendiente"] = round(factura["total"] - factura["pagado"], 2)
+    _db.execute(
+        """INSERT INTO facturas_abonos (factura_id, monto, fecha, foto_url, foto_nombre)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (fac_id.upper(), int(float(monto)), hoy, foto_url, foto_nombre)
+    )
+    _db.execute(
+        """UPDATE facturas_proveedores
+           SET pagado=%s, pendiente=%s, estado=%s
+           WHERE id=%s""",
+        (pagado, pendiente, estado, fac_id.upper())
+    )
 
-    if factura["pendiente"] <= 0:
-        factura["estado"] = "pagada"
-        factura["pendiente"] = 0.0
-    elif factura["pagado"] > 0:
-        factura["estado"] = "parcial"
-
-    # Registrar el gasto del abono via guardar_gasto (ya es PG-first)
+    # Registrar el gasto del abono
     guardar_gasto({
-        "concepto":  f"Abono {fac_id} - {factura['proveedor']}",
+        "concepto":  f"Abono {fac_id} - {row['proveedor']}",
         "monto":     float(monto),
         "categoria": "abono_proveedor",
         "origen":    "proveedor",
@@ -1810,34 +1766,16 @@ def registrar_abono_factura(
         "fac_id":    fac_id,
     })
 
-    if _db.DB_DISPONIBLE:
-        try:
-            _db.execute(
-                """INSERT INTO facturas_abonos (factura_id, monto, fecha, foto_url, foto_nombre)
-                   VALUES (%s, %s, %s, %s, %s)""",
-                (fac_id.upper(), int(float(monto)), hoy, foto_url, foto_nombre)
-            )
-            _db.execute(
-                """UPDATE facturas_proveedores
-                   SET pagado=%s, pendiente=%s, estado=%s
-                   WHERE id=%s""",
-                (int(round(factura["pagado"])), int(round(max(factura["pendiente"], 0))),
-                 factura["estado"], fac_id.upper())
-            )
-            return {"ok": True, "factura": factura}
-        except Exception as e:
-            logger.warning("Error escribiendo abono en Postgres, usando JSON como fallback: %s", e)
-    # Fallback JSON
-    hoy_gastos = mem.setdefault("gastos", {}).setdefault(hoy, [])
-    hoy_gastos.append({
-        "concepto":  f"Abono {fac_id} - {factura['proveedor']}",
-        "monto":     float(monto),
-        "categoria": "abono_proveedor",
-        "origen":    "proveedor",
-        "hora":      _dt.now(import_config_tz()).strftime("%H:%M"),
-        "fac_id":    fac_id,
-    })
-    guardar_memoria(mem, urgente=True)
+    factura = {
+        "id":          fac_id.upper(),
+        "proveedor":   row["proveedor"],
+        "descripcion": row.get("descripcion", ""),
+        "total":       total,
+        "pagado":      pagado,
+        "pendiente":   pendiente,
+        "estado":      estado,
+        "fecha":       str(row["fecha"]),
+    }
     return {"ok": True, "factura": factura}
 
 

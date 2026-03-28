@@ -24,7 +24,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import config
-from excel import borrar_venta_excel, guardar_cliente_nuevo
+
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, parsear_precio
 from ventas_state import (
     ventas_pendientes, borrados_pendientes, _estado_lock,
@@ -317,13 +317,7 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
                 import logging as _log
                 _log.getLogger("ferrebot.callbacks").warning(f"Error borrando de Postgres: {e_pg}")
 
-            # Borrar del Excel local también
-            exito, msg = await asyncio.to_thread(borrar_venta_excel, numero)
-
-            if pg_borradas > 0 or exito:
-                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
-            else:
-                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
+            await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
         else:
             await query.edit_message_text("Borrado cancelado.")
 

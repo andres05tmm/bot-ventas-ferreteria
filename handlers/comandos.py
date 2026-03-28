@@ -20,7 +20,7 @@ from excel import (
     inicializar_excel, obtener_o_crear_hoja,
     detectar_columnas, buscar_ventas, obtener_ventas_recientes,
     buscar_clientes_multiples, cargar_clientes,
-    registrar_compra_en_excel, actualizar_hoja_inventario,
+    actualizar_hoja_inventario,
     recalcular_caja_desde_excel,
 )
 from memoria import (
@@ -198,16 +198,34 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.message.chat_id
 
-    # Buscar todas las filas del consecutivo - PRIORIZAR SHEETS
+    # Buscar filas del consecutivo — Postgres primero
     filas = []
-    if config.SHEETS_ID and config._get_sheets_disponible():
-        from sheets import sheets_obtener_ventas_por_consecutivo
-        filas = await asyncio.to_thread(sheets_obtener_ventas_por_consecutivo, numero)
-    
-    # Fallback a Excel local si Sheets no tiene datos
+    if _db.DB_DISPONIBLE:
+        rows = await asyncio.to_thread(
+            _db.query_all,
+            """
+            SELECT vd.producto_nombre  AS producto,
+                   vd.total,
+                   vd.cantidad,
+                   v.fecha::text       AS fecha,
+                   v.vendedor
+            FROM   ventas_detalle vd
+            JOIN   ventas v ON v.id = vd.venta_id
+            WHERE  v.consecutivo = %s
+              AND  v.fecha::date  = CURRENT_DATE
+            """,
+            [numero],
+        )
+        filas = [dict(r) for r in rows]
+
+    # Fallback a Sheets / Excel si PG no tiene el dato
     if not filas:
-        from excel import obtener_ventas_por_consecutivo
-        filas = await asyncio.to_thread(obtener_ventas_por_consecutivo, numero)
+        if config.SHEETS_ID and config._get_sheets_disponible():
+            from sheets import sheets_obtener_ventas_por_consecutivo
+            filas = await asyncio.to_thread(sheets_obtener_ventas_por_consecutivo, numero)
+        if not filas:
+            from excel import obtener_ventas_por_consecutivo
+            filas = await asyncio.to_thread(obtener_ventas_por_consecutivo, numero)
 
     if not filas:
         await update.message.reply_text(f"No encontré el consecutivo #{numero}.")
@@ -732,9 +750,8 @@ async def comando_compra(update: Update, context: ContextTypes.DEFAULT_TYPE):
         registrar_compra, nombre_producto, cantidad, costo_gramo, proveedor
     )
     
-    # Guardar compra — PG primero, Excel como backup
+    # Guardar compra — Postgres como fuente única de verdad
     if exito:
-        # ── Fuente primaria: Postgres ─────────────────────────────────────────
         try:
             import db as _db
             import datetime as _dt
@@ -759,21 +776,7 @@ async def comando_compra(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         except Exception as _e_pg:
             import logging as _log
-            _log.getLogger("ferrebot").warning(f"PG compra write falló (usando Excel como backup): {_e_pg}")
-
-        # ── Backup: Excel ─────────────────────────────────────────────────────
-        try:
-            await asyncio.to_thread(
-                registrar_compra_en_excel,
-                datos_excel["producto"],
-                datos_excel["cantidad"],
-                datos_excel["costo_unitario"],
-                datos_excel["costo_total"],
-                datos_excel["proveedor"],
-            )
-        except Exception as _e_xl:
-            import logging as _log
-            _log.getLogger("ferrebot").warning(f"Excel compra backup falló: {_e_xl}")
+            _log.getLogger("ferrebot").warning(f"PG compra write falló: {_e_pg}")
     
     await update.message.reply_text(mensaje)
 
