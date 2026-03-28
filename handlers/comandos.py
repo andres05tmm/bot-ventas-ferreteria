@@ -832,55 +832,92 @@ async def comando_margenes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def comando_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from memoria import cargar_memoria, guardar_memoria
+    import db as _db
     from datetime import datetime, timedelta
 
-    args  = " ".join(context.args).strip() if context.args else ""
-    mem   = cargar_memoria()
-    lista = mem.get("productos_pendientes", [])
+    if not _db.DB_DISPONIBLE:
+        await update.message.reply_text(
+            "❌ Base de datos no disponible. No se puede consultar los productos pendientes."
+        )
+        return
 
+    args = " ".join(context.args).strip() if context.args else ""
+
+    # ── AGREGAR ──────────────────────────────────────────────────────────────
     if args.lower().startswith("agregar "):
-        nombre = args[8:].strip().lower()
+        nombre = args[8:].strip()
         if not nombre:
-            await update.message.reply_text("Uso: /pendientes agregar nombre_producto"); return
+            await update.message.reply_text("Uso: /pendientes agregar nombre_producto")
+            return
         hoy  = datetime.now().strftime("%Y-%m-%d")
         hora = datetime.now().strftime("%H:%M")
-        if any(p["nombre"].lower() == nombre and p.get("fecha") == hoy for p in lista):
-            await update.message.reply_text(f"ℹ️ *{nombre}* ya está en la lista de hoy."); return
-        lista.append({"nombre": nombre, "fecha": hoy, "hora": hora})
-        mem["productos_pendientes"] = lista
-        guardar_memoria(mem, urgente=True)
-        await update.message.reply_text(f"✅ *{nombre}* agregado a pendientes."); return
+        existe = _db.query_one(
+            "SELECT id FROM productos_pendientes WHERE LOWER(nombre) = LOWER(%s) AND fecha = %s",
+            (nombre, hoy),
+        )
+        if existe:
+            await update.message.reply_text(
+                f"ℹ️ *{nombre}* ya está en la lista de hoy.", parse_mode="Markdown"
+            )
+            return
+        _db.execute(
+            "INSERT INTO productos_pendientes (nombre, fecha, hora) VALUES (%s, %s, %s)",
+            (nombre, hoy, hora),
+        )
+        await update.message.reply_text(
+            f"✅ *{nombre}* agregado a pendientes.", parse_mode="Markdown"
+        )
+        return
 
+    # ── QUITAR ───────────────────────────────────────────────────────────────
     if args.lower().startswith("quitar "):
-        nombre  = args[7:].strip().lower()
-        antes   = len(lista)
-        lista   = [p for p in lista if p["nombre"].lower() != nombre]
-        if len(lista) == antes:
-            await update.message.reply_text(f"ℹ️ No encontré *{nombre}* en la lista."); return
-        mem["productos_pendientes"] = lista
-        guardar_memoria(mem, urgente=True)
-        await update.message.reply_text(f"🗑️ *{nombre}* quitado de pendientes."); return
+        nombre  = args[7:].strip()
+        deleted = _db.execute(
+            "DELETE FROM productos_pendientes WHERE LOWER(nombre) = LOWER(%s)",
+            (nombre,),
+        )
+        if deleted == 0:
+            await update.message.reply_text(
+                f"ℹ️ No encontré *{nombre}* en la lista.", parse_mode="Markdown"
+            )
+            return
+        await update.message.reply_text(
+            f"🗑️ *{nombre}* quitado de pendientes.", parse_mode="Markdown"
+        )
+        return
 
+    # ── LIMPIAR ──────────────────────────────────────────────────────────────
     if args.lower() == "limpiar":
-        mem["productos_pendientes"] = []
-        guardar_memoria(mem, urgente=True)
-        await update.message.reply_text("🧹 Lista de pendientes limpiada."); return
+        _db.execute("DELETE FROM productos_pendientes", ())
+        await update.message.reply_text("🧹 Lista de pendientes limpiada.")
+        return
 
-    hoy   = datetime.now().strftime("%Y-%m-%d")
-    desde = None
+    # ── LISTAR ───────────────────────────────────────────────────────────────
+    hoy = datetime.now().strftime("%Y-%m-%d")
     if args.lower() == "semana":
         desde  = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         titulo = "📋 *Productos pendientes — últimos 7 días:*"
+        rows   = _db.query_all(
+            "SELECT nombre, fecha::text AS fecha, hora::text AS hora "
+            "FROM productos_pendientes WHERE fecha >= %s ORDER BY fecha DESC, hora DESC",
+            (desde,),
+        )
     elif args.lower() == "todo":
         titulo = "📋 *Todos los productos pendientes:*"
+        rows   = _db.query_all(
+            "SELECT nombre, fecha::text AS fecha, hora::text AS hora "
+            "FROM productos_pendientes ORDER BY fecha DESC, hora DESC",
+            (),
+        )
     else:
-        desde  = hoy
         titulo = "📋 *Productos pendientes de hoy:*"
+        rows   = _db.query_all(
+            "SELECT nombre, fecha::text AS fecha, hora::text AS hora "
+            "FROM productos_pendientes WHERE fecha = %s ORDER BY hora DESC",
+            (hoy,),
+        )
 
-    filtrados = [p for p in lista if p.get("fecha", "") >= desde] if desde else lista
-
-    if not filtrados:
+    if not rows:
         periodo = "hoy" if not args else args
         await update.message.reply_text(
             f"✅ No hay productos pendientes para {periodo}.\n\n"
@@ -889,18 +926,19 @@ async def comando_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "• /pendientes agregar nombre\n"
             "• /pendientes quitar nombre\n"
             "• /pendientes limpiar"
-        ); return
+        )
+        return
 
-    por_fecha = {}
-    for p in filtrados:
-        por_fecha.setdefault(p.get("fecha", "?"), []).append(p)
+    por_fecha: dict = {}
+    for p in rows:
+        por_fecha.setdefault(p["fecha"], []).append(p)
 
     lineas = [titulo, ""]
     total_mostrados = 0
     for fecha in sorted(por_fecha.keys(), reverse=True):
-        if args.lower() != "" and fecha != hoy:
+        if args.lower() != "":
             lineas.append(f"📅 *{fecha}*")
-        vistos = set()
+        vistos: set = set()
         for p in por_fecha[fecha]:
             nombre = p["nombre"].strip().lower()
             if nombre not in vistos:
@@ -2020,7 +2058,11 @@ async def comando_abonar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if len(args) < 2:
         from memoria import listar_facturas
-        pendientes = listar_facturas(solo_pendientes=True)
+        try:
+            pendientes = listar_facturas(solo_pendientes=True)
+        except RuntimeError as e:
+            await update.message.reply_text(f"❌ {e}")
+            return
         if not pendientes:
             await update.message.reply_text(
                 "📋 No hay facturas pendientes.\n\n"
@@ -2080,7 +2122,11 @@ async def comando_deudas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from memoria import listar_facturas
     from collections import defaultdict
 
-    todas      = listar_facturas()
+    try:
+        todas = listar_facturas()
+    except RuntimeError as e:
+        await update.message.reply_text(f"❌ {e}")
+        return
     if not todas:
         await update.message.reply_text(
             "📋 No hay facturas registradas.\n"
@@ -2241,48 +2287,81 @@ async def comando_facturas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def comando_borrar_factura(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
-    from memoria import cargar_memoria, guardar_memoria
+    import db as _db
 
-    mem      = cargar_memoria()
-    facturas = mem.get("cuentas_por_pagar", [])
+    if not _db.DB_DISPONIBLE:
+        await update.message.reply_text(
+            "❌ Base de datos no disponible. No se puede ejecutar esta operación."
+        )
+        return
 
+    # ── SIN ARGUMENTOS: listar facturas ──────────────────────────────────────
     if not args:
-        if not facturas:
-            await update.message.reply_text("📋 No hay facturas registradas."); return
+        rows = _db.query_all(
+            """SELECT fp.id, fp.proveedor, fp.total, fp.estado,
+                      COUNT(fa.id) AS n_abonos
+               FROM facturas_proveedores fp
+               LEFT JOIN facturas_abonos fa ON fa.factura_id = fp.id
+               GROUP BY fp.id, fp.proveedor, fp.total, fp.estado
+               ORDER BY fp.fecha DESC""",
+            (),
+        )
+        if not rows:
+            await update.message.reply_text("📋 No hay facturas registradas.")
+            return
         lineas = ["📋 *Facturas registradas:*\n"]
-        for f in sorted(facturas, key=lambda x: x.get("fecha",""), reverse=True):
-            icon = {"pagada":"✅","parcial":"🔶","pendiente":"🔴"}.get(f["estado"],"📄")
-            lineas.append(f"{icon} `{f['id']}` — {f['proveedor']} — ${f['total']:,.0f} ({f['estado']})")
+        for f in rows:
+            icon = {"pagada": "✅", "parcial": "🔶", "pendiente": "🔴"}.get(f["estado"], "📄")
+            lineas.append(
+                f"{icon} `{f['id']}` — {f['proveedor']} — ${f['total']:,.0f} ({f['estado']})"
+            )
         lineas.append("\nUso: `/borrar_factura FAC-001`")
         await update.message.reply_text("\n".join(lineas), parse_mode="Markdown")
         return
 
-    fac_id  = args[0].upper()
+    # ── CON ARGUMENTO: buscar y borrar ───────────────────────────────────────
+    fac_id = args[0].upper()
     if not fac_id.startswith("FAC-"):
         fac_id = "FAC-" + fac_id
 
-    factura = next((f for f in facturas if f["id"].upper() == fac_id), None)
+    factura = _db.query_one(
+        "SELECT id, proveedor, total, estado FROM facturas_proveedores WHERE id = %s",
+        (fac_id,),
+    )
     if not factura:
         await update.message.reply_text(
-            f"❌ No encontré la factura `{fac_id}`.\n"
+            f"❌ No encontré la factura `{fac_id}` en la base de datos.\n"
             f"Usa `/borrar_factura` sin argumentos para ver la lista.",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
         return
 
-    tiene_abonos = len(factura.get("abonos", [])) > 0
+    abonos_row = _db.query_one(
+        "SELECT COUNT(*) AS n FROM facturas_abonos WHERE factura_id = %s",
+        (fac_id,),
+    )
+    n_abonos    = abonos_row["n"] if abonos_row else 0
     aviso_abonos = (
-        f"\n⚠️ Esta factura tiene {len(factura['abonos'])} abono(s) registrado(s) que también se borrarán."
-        if tiene_abonos else ""
+        f"\n⚠️ Esta factura tenía {n_abonos} abono(s) que también fueron eliminados."
+        if n_abonos else ""
     )
 
-    mem["cuentas_por_pagar"] = [f for f in facturas if f["id"].upper() != fac_id]
-    guardar_memoria(mem, urgente=True)
+    # ON DELETE CASCADE en facturas_abonos elimina los abonos automáticamente
+    deleted = _db.execute(
+        "DELETE FROM facturas_proveedores WHERE id = %s",
+        (fac_id,),
+    )
+    if deleted == 0:
+        await update.message.reply_text(
+            f"❌ No se pudo eliminar la factura `{fac_id}`. Intenta de nuevo.",
+            parse_mode="Markdown",
+        )
+        return
 
     await update.message.reply_text(
         f"🗑️ Factura `{fac_id}` eliminada.\n"
         f"Proveedor: {factura['proveedor']} — ${factura['total']:,.0f}"
         f"{aviso_abonos}\n\n"
         f"_Nota: las fotos en Cloudinary no se borran automáticamente._",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
     )

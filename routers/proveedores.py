@@ -89,29 +89,30 @@ def crear_factura(body: FacturaBody):
 
 @router.post("/proveedores/facturas/{fac_id}/foto")
 async def subir_foto_factura(fac_id: str, foto: UploadFile = File(...)):
-    """Sube la foto de una factura a Drive y actualiza la URL en memoria."""
+    """Sube la foto de una factura a Cloudinary y actualiza la URL en PostgreSQL."""
     try:
-        from memoria import cargar_memoria, guardar_memoria
+        import db as _db
         from drive import subir_foto_factura as _subir
 
-        mem = cargar_memoria()
-        facturas = mem.get("cuentas_por_pagar", [])
-        factura  = next((f for f in facturas if f["id"].upper() == fac_id.upper()), None)
+        if not _db.DB_DISPONIBLE:
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
+
+        factura = _db.query_one(
+            "SELECT id, proveedor, fecha::text AS fecha FROM facturas_proveedores WHERE id = %s",
+            (fac_id.upper(),),
+        )
         if not factura:
             raise HTTPException(status_code=404, detail=f"Factura {fac_id} no encontrada")
 
-        # Nombre del archivo: fecha_fac_id.jpg
         ext = ".jpg"
         if foto.content_type == "image/png":
             ext = ".png"
         elif foto.content_type == "application/pdf":
             ext = ".pdf"
 
-        # FIX: usar get() con fallback para evitar KeyError si 'fecha' es None
         fecha_factura  = factura.get("fecha") or _hoy()
         nombre_archivo = f"{fecha_factura}_{fac_id}{ext}"
 
-        # Guardar temp y subir a Drive
         contenido = await foto.read()
         with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
             tmp.write(contenido)
@@ -124,26 +125,14 @@ async def subir_foto_factura(fac_id: str, foto: UploadFile = File(...)):
             pass
 
         if not resultado["ok"]:
-            raise HTTPException(status_code=500, detail=resultado.get("error", "Error Drive"))
+            raise HTTPException(status_code=500, detail=resultado.get("error", "Error subiendo foto"))
 
-        # Actualizar factura con URL de foto
-        factura["foto_url"]    = resultado["url"]
-        factura["foto_nombre"] = nombre_archivo
-        guardar_memoria(mem, urgente=True)
-
-        # Non-fatal Postgres sync para foto_url (D-07)
-        try:
-            import db as _db
-            if _db.DB_DISPONIBLE:
-                _db.execute(
-                    "UPDATE facturas_proveedores SET foto_url=%s, foto_nombre=%s WHERE id=%s",
-                    (resultado["url"], nombre_archivo, fac_id.upper())
-                )
-        except Exception as e:
-            import logging as _logging
-            _logging.getLogger("ferrebot.proveedores").warning(
-                "Postgres UPDATE foto factura failed: %s", e
-            )
+        updated = _db.execute(
+            "UPDATE facturas_proveedores SET foto_url=%s, foto_nombre=%s WHERE id=%s",
+            (resultado["url"], nombre_archivo, fac_id.upper()),
+        )
+        if updated == 0:
+            raise HTTPException(status_code=500, detail="No se pudo actualizar la foto en la base de datos")
 
         return {"ok": True, "url": resultado["url"], "nombre": nombre_archivo}
 
@@ -192,19 +181,26 @@ def registrar_abono(body: AbonoBody):
 
 @router.post("/proveedores/abonos/{fac_id}/foto")
 async def subir_foto_abono(fac_id: str, foto: UploadFile = File(...)):
-    """Sube la foto del comprobante de abono y la adjunta al último abono."""
+    """Sube la foto del comprobante de abono y la adjunta al último abono en PostgreSQL."""
     try:
-        from memoria import cargar_memoria, guardar_memoria
+        import db as _db
         from drive import subir_foto_factura as _subir
 
-        mem = cargar_memoria()
-        facturas = mem.get("cuentas_por_pagar", [])
-        factura  = next((f for f in facturas if f["id"].upper() == fac_id.upper()), None)
+        if not _db.DB_DISPONIBLE:
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
+
+        factura = _db.query_one(
+            "SELECT id, proveedor FROM facturas_proveedores WHERE id = %s",
+            (fac_id.upper(),),
+        )
         if not factura:
             raise HTTPException(status_code=404, detail=f"Factura {fac_id} no encontrada")
 
-        abonos = factura.get("abonos", [])
-        if not abonos:
+        ultimo_abono = _db.query_one(
+            "SELECT id FROM facturas_abonos WHERE factura_id = %s ORDER BY created_at DESC LIMIT 1",
+            (fac_id.upper(),),
+        )
+        if not ultimo_abono:
             raise HTTPException(status_code=400, detail="Esta factura no tiene abonos registrados")
 
         ext = ".jpg"
@@ -213,7 +209,10 @@ async def subir_foto_abono(fac_id: str, foto: UploadFile = File(...)):
         elif foto.content_type == "application/pdf":
             ext = ".pdf"
 
-        n_abono        = len(abonos)
+        n_abono        = _db.query_one(
+            "SELECT COUNT(*) AS n FROM facturas_abonos WHERE factura_id = %s",
+            (fac_id.upper(),),
+        )["n"]
         hoy            = _hoy()
         nombre_archivo = f"{hoy}_{fac_id}_abono{n_abono}{ext}"
 
@@ -229,32 +228,14 @@ async def subir_foto_abono(fac_id: str, foto: UploadFile = File(...)):
             pass
 
         if not resultado["ok"]:
-            raise HTTPException(status_code=500, detail=resultado.get("error", "Error Drive"))
+            raise HTTPException(status_code=500, detail=resultado.get("error", "Error subiendo foto"))
 
-        # Actualizar el último abono con la URL
-        abonos[-1]["foto_url"]    = resultado["url"]
-        abonos[-1]["foto_nombre"] = nombre_archivo
-        guardar_memoria(mem, urgente=True)
-
-        # Non-fatal Postgres sync para foto abono (D-07)
-        try:
-            import db as _db
-            if _db.DB_DISPONIBLE:
-                # Find the latest facturas_abonos row for this factura
-                latest = _db.query_one(
-                    "SELECT id FROM facturas_abonos WHERE factura_id=%s ORDER BY created_at DESC LIMIT 1",
-                    (fac_id.upper(),)
-                )
-                if latest:
-                    _db.execute(
-                        "UPDATE facturas_abonos SET foto_url=%s, foto_nombre=%s WHERE id=%s",
-                        (resultado["url"], nombre_archivo, latest["id"])
-                    )
-        except Exception as e:
-            import logging as _logging
-            _logging.getLogger("ferrebot.proveedores").warning(
-                "Postgres UPDATE foto abono failed: %s", e
-            )
+        updated = _db.execute(
+            "UPDATE facturas_abonos SET foto_url=%s, foto_nombre=%s WHERE id=%s",
+            (resultado["url"], nombre_archivo, ultimo_abono["id"]),
+        )
+        if updated == 0:
+            raise HTTPException(status_code=500, detail="No se pudo actualizar la foto del abono")
 
         return {"ok": True, "url": resultado["url"], "nombre": nombre_archivo}
 

@@ -1658,16 +1658,14 @@ def actualizar_precio_en_excel_drive(
 # CUENTAS POR PAGAR (facturas de proveedores)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _siguiente_id_factura(mem: dict) -> str:
-    """Genera el próximo ID secuencial: FAC-001, FAC-002, ..."""
-    facturas = mem.get("cuentas_por_pagar", [])
-    if not facturas:
-        return "FAC-001"
-    # Extraer números existentes
+def _siguiente_id_factura() -> str:
+    """Genera el próximo ID secuencial desde PostgreSQL: FAC-001, FAC-002, ..."""
+    import db as _db
     import re as _re
+    rows = _db.query_all("SELECT id FROM facturas_proveedores", ())
     nums = []
-    for f in facturas:
-        m = _re.match(r"FAC-(\d+)", f.get("id", ""))
+    for r in rows:
+        m = _re.match(r"FAC-(\d+)", r["id"])
         if m:
             nums.append(int(m.group(1)))
     siguiente = max(nums) + 1 if nums else 1
@@ -1688,11 +1686,10 @@ def registrar_factura_proveedor(
     """
     import db as _db
     from datetime import datetime as _dt
-    mem = cargar_memoria()
-    if "cuentas_por_pagar" not in mem:
-        mem["cuentas_por_pagar"] = []
+    if not _db.DB_DISPONIBLE:
+        raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
 
-    fac_id = _siguiente_id_factura(mem)
+    fac_id = _siguiente_id_factura()
     hoy    = fecha or _dt.now(import_config_tz()).strftime("%Y-%m-%d")
 
     factura = {
@@ -1708,8 +1705,6 @@ def registrar_factura_proveedor(
         "foto_nombre": foto_nombre,
         "abonos":      [],             # historial de abonos
     }
-    if not _db.DB_DISPONIBLE:
-        raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
     _db.execute(
         """INSERT INTO facturas_proveedores
            (id, proveedor, descripcion, total, pagado, pendiente, estado, fecha, foto_url, foto_nombre)
@@ -1799,43 +1794,38 @@ def import_config_tz():
 
 
 def listar_facturas(solo_pendientes: bool = False) -> list:
-    """Retorna la lista de facturas, opcionalmente solo las no pagadas."""
-    try:
-        import db as _db
-        if _db.DB_DISPONIBLE:
-            rows = _db.query_all(
-                """SELECT fp.id, fp.proveedor, fp.descripcion, fp.total, fp.pagado,
-                          fp.pendiente, fp.estado, fp.fecha::text, fp.foto_url, fp.foto_nombre,
-                          COALESCE(
-                              json_agg(
-                                  json_build_object(
-                                      'fecha', fa.fecha::text,
-                                      'monto', fa.monto,
-                                      'foto_url', COALESCE(fa.foto_url, ''),
-                                      'foto_nombre', COALESCE(fa.foto_nombre, '')
-                                  ) ORDER BY fa.created_at
-                              ) FILTER (WHERE fa.id IS NOT NULL),
-                              '[]'
-                          ) AS abonos
-                   FROM facturas_proveedores fp
-                   LEFT JOIN facturas_abonos fa ON fa.factura_id = fp.id
-                   GROUP BY fp.id
-                   ORDER BY fp.fecha DESC""",
-                ()
-            )
-            facturas = [
-                {**dict(r), "abonos": r["abonos"] if r["abonos"] else []}
-                for r in rows
-            ]
-            if solo_pendientes:
-                return [f for f in facturas if f["estado"] != "pagada"]
-            return facturas
-    except Exception as e:
-        logger.warning("Postgres read listar_facturas failed: %s", e)
-
-    # Fallback: JSON
-    mem = cargar_memoria()
-    facturas = mem.get("cuentas_por_pagar", [])
+    """Retorna la lista de facturas desde PostgreSQL.
+    Lanza RuntimeError si la base de datos no está disponible.
+    """
+    import db as _db
+    if not _db.DB_DISPONIBLE:
+        raise RuntimeError(
+            "Base de datos no disponible — listar_facturas requiere PostgreSQL."
+        )
+    rows = _db.query_all(
+        """SELECT fp.id, fp.proveedor, fp.descripcion, fp.total, fp.pagado,
+                  fp.pendiente, fp.estado, fp.fecha::text, fp.foto_url, fp.foto_nombre,
+                  COALESCE(
+                      json_agg(
+                          json_build_object(
+                              'fecha', fa.fecha::text,
+                              'monto', fa.monto,
+                              'foto_url', COALESCE(fa.foto_url, ''),
+                              'foto_nombre', COALESCE(fa.foto_nombre, '')
+                          ) ORDER BY fa.created_at
+                      ) FILTER (WHERE fa.id IS NOT NULL),
+                      '[]'
+                  ) AS abonos
+           FROM facturas_proveedores fp
+           LEFT JOIN facturas_abonos fa ON fa.factura_id = fp.id
+           GROUP BY fp.id
+           ORDER BY fp.fecha DESC""",
+        (),
+    )
+    facturas = [
+        {**dict(r), "abonos": r["abonos"] if r["abonos"] else []}
+        for r in rows
+    ]
     if solo_pendientes:
-        return [f for f in facturas if f.get("estado") != "pagada"]
-    return sorted(facturas, key=lambda f: f.get("fecha", ""), reverse=True)
+        return [f for f in facturas if f["estado"] != "pagada"]
+    return facturas

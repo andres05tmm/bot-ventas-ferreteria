@@ -856,30 +856,28 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                         for n in re.split(r',| y ', _nombres_raw)
                         if n.strip()
                     ]
-                    from memoria import cargar_memoria as _cm_pend, guardar_memoria as _gm_pend
-                    _mem_pend = _cm_pend()
-                    if "productos_pendientes" not in _mem_pend:
-                        _mem_pend["productos_pendientes"] = []
-                    _hoy = datetime.now().strftime("%Y-%m-%d")
-                    _hora = datetime.now().strftime("%H:%M")
-                    _nombres_existentes = {
-                        p["nombre"].lower() 
-                        for p in _mem_pend["productos_pendientes"]
-                        if p.get("fecha") == _hoy
-                    }
-                    _nuevos = 0
-                    for _np in _nombres_lista:
-                        if _np and _np not in _nombres_existentes:
-                            _mem_pend["productos_pendientes"].append({
-                                "nombre": _np,
-                                "fecha": _hoy,
-                                "hora": _hora
-                            })
-                            _nombres_existentes.add(_np)
-                            _nuevos += 1
-                    if _nuevos:
-                        _gm_pend(_mem_pend, urgente=True)
-                        logger.info(f"[PENDIENTES] +{_nuevos} productos guardados: {_nombres_lista}")
+                    import db as _db_pend
+                    if not _db_pend.DB_DISPONIBLE:
+                        logger.warning("[PENDIENTES] Base de datos no disponible — no se guardaron pendientes")
+                    else:
+                        _hoy = datetime.now().strftime("%Y-%m-%d")
+                        _hora = datetime.now().strftime("%H:%M")
+                        _nuevos = 0
+                        for _np in _nombres_lista:
+                            if not _np:
+                                continue
+                            _existe = _db_pend.query_one(
+                                "SELECT id FROM productos_pendientes WHERE LOWER(nombre) = LOWER(%s) AND fecha = %s",
+                                (_np, _hoy),
+                            )
+                            if not _existe:
+                                _db_pend.execute(
+                                    "INSERT INTO productos_pendientes (nombre, fecha, hora) VALUES (%s, %s, %s)",
+                                    (_np, _hoy, _hora),
+                                )
+                                _nuevos += 1
+                        if _nuevos:
+                            logger.info(f"[PENDIENTES] +{_nuevos} productos guardados en PG: {_nombres_lista}")
             except Exception as _e_pend:
                 logger.warning(f"[PENDIENTES] Error guardando pendientes: {_e_pend}")
 
