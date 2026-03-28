@@ -2,7 +2,7 @@
 alias_manager.py — Gestión dinámica de aliases de ferretería.
 
 Separa los aliases SIMPLES (palabra → palabra/frase) del código Python.
-Se guardan en aliases_dinamicos.json y se cargan en RAM al iniciar.
+Se guardan en la tabla `aliases` de PostgreSQL y se cachean en RAM.
 
 Los aliases COMPLEJOS (regex con lógica) siguen en _ALIAS_FERRETERIA de ai.py.
 
@@ -13,16 +13,13 @@ COMANDOS TELEGRAM:
   /alias test "2 esmaltes"            → prueba cómo queda el mensaje
 """
 
-import json
-import os
 import re
 import logging
 import threading
 
-logger = logging.getLogger("ferrebot.alias")
+import db
 
-# Archivo de persistencia (Railway persiste el volumen entre deploys)
-_RUTA_ALIASES = os.getenv("ALIASES_PATH", "aliases_dinamicos.json")
+logger = logging.getLogger("ferrebot.alias")
 
 # Aliases PREDETERMINADOS — siempre activos, no se pueden borrar con /alias
 # Solo términos coloquiales muy comunes que el bypass necesita resolver
@@ -120,31 +117,35 @@ _lock = threading.Lock()
 # ─────────────────────────────────────────────
 
 def cargar_aliases() -> dict:
-    """Carga aliases desde JSON. Llama al iniciar el bot."""
+    """Carga aliases desde PostgreSQL. Llama al iniciar el bot."""
     global _aliases
     try:
-        if os.path.exists(_RUTA_ALIASES):
-            with open(_RUTA_ALIASES, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            with _lock:
-                _aliases = {k.lower(): v for k, v in data.items()}
-            logger.info(f"[ALIAS] {len(_aliases)} aliases cargados desde {_RUTA_ALIASES}")
-        else:
-            logger.info("[ALIAS] No hay aliases_dinamicos.json — empezando vacío")
+        filas = db.query_all("SELECT termino, reemplazo FROM aliases")
+        with _lock:
+            _aliases = {row["termino"]: row["reemplazo"] for row in filas}
+        logger.info(f"[ALIAS] {len(_aliases)} aliases cargados desde PostgreSQL")
     except Exception as e:
-        logger.error(f"[ALIAS] Error cargando aliases: {e}")
+        logger.error(f"[ALIAS] Error cargando aliases desde PG: {e}")
     return dict(_aliases)
 
 
-def _guardar_aliases():
-    """Persiste el dict actual a JSON."""
-    try:
-        with _lock:
-            data = dict(_aliases)
-        with open(_RUTA_ALIASES, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"[ALIAS] Error guardando aliases: {e}")
+def _upsert_alias_pg(termino: str, reemplazo: str) -> None:
+    """Persiste un alias en PostgreSQL (INSERT … ON CONFLICT UPDATE)."""
+    db.execute(
+        """
+        INSERT INTO aliases (termino, reemplazo, updated_at)
+        VALUES (%s, %s, NOW())
+        ON CONFLICT (termino) DO UPDATE
+            SET reemplazo  = EXCLUDED.reemplazo,
+                updated_at = NOW()
+        """,
+        (termino, reemplazo),
+    )
+
+
+def _delete_alias_pg(termino: str) -> None:
+    """Elimina un alias de PostgreSQL."""
+    db.execute("DELETE FROM aliases WHERE termino = %s", (termino,))
 
 
 # ─────────────────────────────────────────────
@@ -172,7 +173,11 @@ def agregar_alias(termino: str, reemplazo: str) -> str:
         existia = termino_key in _aliases
         _aliases[termino_key] = reemplazo_val
 
-    _guardar_aliases()
+    try:
+        _upsert_alias_pg(termino_key, reemplazo_val)
+    except Exception as e:
+        logger.error(f"[ALIAS] Error guardando en PG: {e}")
+        return "❌ Error guardando el alias en la base de datos."
 
     if existia:
         return f"✅ Alias actualizado: '{termino_key}' → '{reemplazo_val}'"
@@ -188,7 +193,12 @@ def borrar_alias(termino: str) -> str:
             return f"❌ No existe el alias '{termino_key}'"
         del _aliases[termino_key]
 
-    _guardar_aliases()
+    try:
+        _delete_alias_pg(termino_key)
+    except Exception as e:
+        logger.error(f"[ALIAS] Error borrando en PG: {e}")
+        return "❌ Error eliminando el alias de la base de datos."
+
     return f"🗑️ Alias eliminado: '{termino_key}'"
 
 

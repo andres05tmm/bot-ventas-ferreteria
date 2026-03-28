@@ -333,6 +333,16 @@ CREATE TABLE IF NOT EXISTS productos_pendientes (
 );
 
 -- ───────────────────────────────────────────────────────────────
+-- ALIASES DINAMICOS (antes aliases_dinamicos.json)
+-- ───────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS aliases (
+    termino    VARCHAR(200) PRIMARY KEY,
+    reemplazo  VARCHAR(300) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ───────────────────────────────────────────────────────────────
 -- CONFIGURACION DEL SISTEMA
 -- ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS config_sistema (
