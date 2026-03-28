@@ -1,16 +1,13 @@
 """
 Memoria persistente del bot: precios, catálogo, negocio, inventario, caja, gastos.
-Usa cache en RAM para evitar lecturas repetidas del JSON.
+100% PostgreSQL — sin JSON local ni Google Drive.
 
-CORRECCIONES v2:
-  - Docstring movido ANTES del import (antes estaba después, Python no lo reconocía)
-  - _normalizar eliminada de aquí — se importa de utils (era duplicado con lógica distinta)
-
-CORRECCIONES v3:
-  - cargar_memoria() lee catálogo e inventario desde Postgres cuando DB_DISPONIBLE=True (CAT-04)
-  - guardar_memoria() dual-write: JSON+Drive Y Postgres (D-06, D-07)
-  - Lazy import de db dentro de funciones para evitar importación circular (Pitfall 1 en RESEARCH.md)
-  - Firmas públicas cargar_memoria() y guardar_memoria() sin cambios (151 referencias externas)
+CORRECCIONES v4:
+  - _cargar_desde_postgres() lee negocio y notas desde config_sistema PG
+  - guardar_memoria() solo escribe a PG (sin json.dump a disco)
+  - construir_producto_desde_fila() y constantes de columnas extraídas de precio_sync.py
+  - Lazy import de db dentro de funciones para evitar importación circular
+  - Firmas públicas cargar_memoria() y guardar_memoria() sin cambios (~151 referencias externas)
 """
 
 import logging
@@ -21,10 +18,6 @@ from datetime import datetime
 
 import config
 from utils import _normalizar  # única definición centralizada
-
-# Fallback: _MEMORIA_FILE fue removido en la migración a PostgreSQL.
-# Mantenemos la constante local para compatibilidad con entornos sin PG.
-_MEMORIA_FILE: str = getattr(config, "MEMORIA_FILE", "memoria.json")
 
 logger = logging.getLogger("ferrebot.memoria")
 
@@ -127,24 +120,17 @@ def _leer_inventario_postgres(db_module) -> dict:
 
 
 def _cargar_desde_postgres() -> dict:
-    """Construye el dict de memoria con catalogo e inventario desde Postgres.
-    Campos no migrados (gastos, caja, notas, negocio) se cargan del JSON local."""
+    """Construye el dict de memoria 100% desde Postgres — sin JSON local."""
     import db as _db
-    # Cargar estructura base desde JSON si existe (para campos que aun no migran)
-    if os.path.exists(_MEMORIA_FILE):
-        with open(_MEMORIA_FILE, "r", encoding="utf-8") as f:
-            base = json.load(f)
-    else:
-        base = {
-            "precios": {}, "catalogo": {}, "negocio": {},
-            "notas": [], "inventario": {}, "gastos": {},
-            "caja_actual": {"abierta": False},
-        }
-
-    # Sobreescribir catalogo e inventario con datos de Postgres
-    base["catalogo"] = _leer_catalogo_postgres(_db)
-    base["inventario"] = _leer_inventario_postgres(_db)
-    return base
+    return {
+        "precios":     {},
+        "catalogo":    _leer_catalogo_postgres(_db),
+        "negocio":     _leer_negocio_postgres(_db),
+        "notas":       _leer_notas_postgres(_db),
+        "inventario":  _leer_inventario_postgres(_db),
+        "gastos":      {},        # cargar_gastos_hoy() lee PG directamente
+        "caja_actual": {},        # cargar_caja() lee PG directamente
+    }
 
 
 def cargar_memoria() -> dict:
@@ -152,22 +138,68 @@ def cargar_memoria() -> dict:
     with _cache_lock:
         if _cache is not None:
             return _cache
-        # Intentar cargar desde Postgres si disponible
         import db as _db
         if _db.DB_DISPONIBLE:
             _cache = _cargar_desde_postgres()
         else:
-            # Fallback: comportamiento anterior exacto
-            if os.path.exists(_MEMORIA_FILE):
-                with open(_MEMORIA_FILE, "r", encoding="utf-8") as f:
-                    _cache = json.load(f)
-            else:
-                _cache = {
-                    "precios": {}, "catalogo": {}, "negocio": {},
-                    "notas": [], "inventario": {}, "gastos": {},
-                    "caja_actual": {"abierta": False},
-                }
+            # DB no disponible — estructura mínima en RAM (sin fallback JSON)
+            logger.warning("DB no disponible — cargar_memoria() retorna estructura vacía")
+            _cache = {
+                "precios": {}, "catalogo": {}, "negocio": {},
+                "notas": {}, "inventario": {}, "gastos": {},
+                "caja_actual": {"abierta": False},
+            }
         return _cache
+
+
+def _leer_negocio_postgres(db_module) -> dict:
+    """Lee config_sistema.negocio (JSON) → dict. Retorna {} si aún no existe."""
+    row = db_module.query_one(
+        "SELECT valor FROM config_sistema WHERE clave = 'negocio'"
+    )
+    if not row or not row["valor"]:
+        return {}
+    try:
+        return json.loads(row["valor"])
+    except Exception:
+        return {}
+
+
+def _guardar_negocio_postgres(negocio: dict, db_module) -> None:
+    db_module.execute(
+        """INSERT INTO config_sistema (clave, valor, updated_at)
+           VALUES ('negocio', %s, NOW())
+           ON CONFLICT (clave) DO UPDATE
+           SET valor = EXCLUDED.valor, updated_at = NOW()""",
+        (json.dumps(negocio, ensure_ascii=False),),
+    )
+
+
+def _leer_notas_postgres(db_module) -> dict:
+    """Lee config_sistema.notas (JSON) → dict. Retorna {} si aún no existe."""
+    row = db_module.query_one(
+        "SELECT valor FROM config_sistema WHERE clave = 'notas'"
+    )
+    if not row or not row["valor"]:
+        return {}
+    try:
+        val = json.loads(row["valor"])
+        # Compatibilidad: el campo era lista en versiones antiguas del JSON
+        if isinstance(val, list):
+            return {"observaciones": val} if val else {}
+        return val
+    except Exception:
+        return {}
+
+
+def _guardar_notas_postgres(notas: dict, db_module) -> None:
+    db_module.execute(
+        """INSERT INTO config_sistema (clave, valor, updated_at)
+           VALUES ('notas', %s, NOW())
+           ON CONFLICT (clave) DO UPDATE
+           SET valor = EXCLUDED.valor, updated_at = NOW()""",
+        (json.dumps(notas, ensure_ascii=False),),
+    )
 
 
 def _sincronizar_catalogo_postgres(catalogo: dict, db_module):
@@ -343,23 +375,32 @@ def _upsert_inventario_producto_postgres(clave: str, datos: dict):
 
 def guardar_memoria(memoria: dict, urgente: bool = False):
     """
-    Guarda memoria en disco y sincroniza a Postgres.
+    Persiste memoria en Postgres — sin escritura a JSON ni a Drive (100% PG).
     urgente=True: parámetro mantenido por compatibilidad con callers existentes.
-    urgente=False: comportamiento idéntico (Drive eliminado en Fase 5).
     """
     global _cache
     with _cache_lock:
         _cache = memoria
-        with open(_MEMORIA_FILE, "w", encoding="utf-8") as f:
-            json.dump(memoria, f, ensure_ascii=False, indent=2)
-    # Sincronizacion de catalogo a Postgres (si disponible) — D-06
-    # Inventario ya no se sincroniza aquí: guardar_inventario() hace upsert directo
     import db as _db
     if _db.DB_DISPONIBLE:
+        # Catálogo — D-06: inventario ya no se sincroniza aquí (upsert directo)
         try:
             _sincronizar_catalogo_postgres(memoria.get("catalogo", {}), _db)
         except Exception as e:
-            logger.warning(f"Error sincronizando catalogo a Postgres (no critico): {e}")
+            logger.warning("Error sincronizando catalogo a Postgres (no critico): %s", e)
+        # Negocio
+        try:
+            _guardar_negocio_postgres(memoria.get("negocio", {}), _db)
+        except Exception as e:
+            logger.warning("Error guardando negocio a Postgres (no critico): %s", e)
+        # Notas
+        try:
+            notas = memoria.get("notas", {})
+            if isinstance(notas, list):
+                notas = {"observaciones": notas} if notas else {}
+            _guardar_notas_postgres(notas, _db)
+        except Exception as e:
+            logger.warning("Error guardando notas a Postgres (no critico): %s", e)
 
 
 def invalidar_cache_memoria():
@@ -1629,20 +1670,236 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
     return True
 
 
+# ─────────────────────────────────────────────────────────────────
+# CONSTRUCCIÓN DE PRODUCTO DESDE FILA EXCEL
+# (extraído de precio_sync.py — sin dependencia de ese módulo)
+# ─────────────────────────────────────────────────────────────────
+
+_UMBRAL_TORNILLERIA = 50
+_IDX_CODIGO        = 0
+_IDX_NOMBRE        = 1
+_IDX_CATEGORIA     = 3
+_IDX_UNIDAD_MEDIDA = 8   # Col I — Unidad de Medida (DIAN)
+_IDX_UNIDAD        = 16  # Col Q — Precio por unidad completa
+
+# header_str → (col_idx_base0, decimal_real, label)
+_HEADER_MAP: dict = {
+    "0.75": (17, 0.75,   "3/4"),
+    "0.5":  (18, 0.5,    "1/2"),
+    "0.25": (19, 0.25,   "1/4"),
+    "0.13": (20, 0.125,  "1/8"),
+    "0.06": (21, 0.0625, "1/16"),
+    "0.1":  (22, 0.1,    "1/10"),
+}
+
+_CATS_GALON = {
+    "2 pinturas y disolventes",
+    "4 impermeabilizantes y materiales de construccion",
+    "4 impermeabilizantes y materiales de construcción",
+}
+_CATS_TORNILLERIA = {"3 tornilleria", "3 tornillería"}
+
+_UNIDAD_MAP: dict = {
+    "galon": "Galón", "galón": "Galón", "gal": "Galón",
+    "kg": "Kg", "kgs": "Kg", "kilo": "Kg", "kilos": "Kg",
+    "kilogramo": "Kg", "25 kg": "Kg",
+    "mts": "Mts", "mt": "Mts", "metro": "Mts", "metros": "Mts", "m": "Mts",
+    "cms": "Cms", "cm": "Cms", "centimetro": "Cms",
+    "lt": "Lt", "lts": "Lts", "litro": "Lt", "litros": "Lts",
+    "ml": "MLT", "mlt": "MLT", "mililitro": "MLT", "mililitros": "MLT",
+    "cc": "MLT", "centimetro cubico": "MLT",
+    "unidad": "Unidad", "und": "Unidad", "un": "Unidad",
+    "unidades": "Unidad", "uni": "Unidad",
+}
+
+
+def _norm_cat(cat: str) -> str:
+    return (
+        (cat or "").lower()
+        .replace("á","a").replace("é","e").replace("í","i")
+        .replace("ó","o").replace("ú","u").replace("ñ","n")
+        .strip()
+    )
+
+def _es_galon(cat: str) -> bool:
+    return _norm_cat(cat) in _CATS_GALON
+
+def _es_tornilleria(cat: str) -> bool:
+    return _norm_cat(cat) in _CATS_TORNILLERIA
+
+def _num_excel(v):
+    """Celda Excel → float positivo, o None."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return f if f > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+def _normalizar_unidad_excel(raw: str) -> str:
+    if not raw:
+        return "Unidad"
+    clave = raw.strip().lower().replace("á","a").replace("é","e").replace("ó","o")
+    return _UNIDAD_MAP.get(clave, raw.strip()) or "Unidad"
+
+
+def construir_producto_desde_fila(row: tuple, col_headers: list):
+    """
+    Convierte una fila del Excel BASE_DE_DATOS_PRODUCTOS en un dict de catálogo.
+    Retorna None si la fila no tiene nombre o precio válido.
+    Campo \"decimal\" SIEMPRE presente en precios_fraccion.
+    """
+    nombre = str(row[_IDX_NOMBRE] or "").strip()
+    if not nombre or nombre.lower() == "nan":
+        return None
+
+    cat      = str(row[_IDX_CATEGORIA] or "").strip()
+    codigo   = str(row[_IDX_CODIGO] or "").strip()
+    p_unidad = _num_excel(row[_IDX_UNIDAD]) if _IDX_UNIDAD < len(row) else None
+
+    unidad_raw    = str(row[_IDX_UNIDAD_MEDIDA] or "").strip() if len(row) > _IDX_UNIDAD_MEDIDA else ""
+    unidad_medida = _normalizar_unidad_excel(unidad_raw)
+
+    if p_unidad is None:
+        return None
+
+    nombre_lower = _normalizar(nombre)
+    prod = {
+        "nombre":        nombre,
+        "nombre_lower":  nombre_lower,
+        "categoria":     cat,
+        "precio_unidad": round(p_unidad),
+        "unidad_medida": unidad_medida,
+    }
+    if codigo:
+        prod["codigo"] = codigo
+
+    if _es_galon(cat):
+        fracs = {}
+        for i, header in enumerate(col_headers):
+            if i == _IDX_UNIDAD:
+                continue
+            info = _HEADER_MAP.get(str(header).strip())
+            if not info:
+                continue
+            _, decimal_real, label = info
+            v = _num_excel(row[i]) if i < len(row) else None
+            if v is None:
+                continue
+            fracs[label] = {"precio": round(v * decimal_real), "decimal": decimal_real}
+        if fracs:
+            prod["precios_fraccion"] = fracs
+
+    elif _es_tornilleria(cat):
+        idx_r = _HEADER_MAP["0.75"][0]
+        p_may = _num_excel(row[idx_r]) if idx_r < len(row) else None
+        if p_may is not None and round(p_may) != round(p_unidad):
+            prod["precio_por_cantidad"] = {
+                "umbral":              _UMBRAL_TORNILLERIA,
+                "precio_bajo_umbral":  round(p_unidad),
+                "precio_sobre_umbral": round(p_may),
+            }
+
+    else:
+        fracs = {}
+        for i, header in enumerate(col_headers):
+            if i == _IDX_UNIDAD:
+                continue
+            info = _HEADER_MAP.get(str(header).strip().lower()) or _HEADER_MAP.get(str(header).strip())
+            if not info:
+                continue
+            _, decimal_real, label = info
+            v = _num_excel(row[i]) if i < len(row) else None
+            if v is None:
+                continue
+            if decimal_real is not None and v < p_unidad:
+                fracs[label] = {"precio": round(v), "decimal": decimal_real}
+        if fracs:
+            prod["precios_fraccion"] = fracs
+
+    return prod
+
+
 def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
     """
-    Lee BASE_DE_DATOS_PRODUCTOS.xlsx e importa todos los productos al catálogo.
-    Delega a precio_sync que maneja correctamente:
+    Lee BASE_DE_DATOS_PRODUCTOS.xlsx e importa todos los productos directamente a
+    PostgreSQL. NO escribe a JSON ni a Drive.
+
+    Reglas de construcción (misma lógica que precio_sync.construir_producto_desde_fila):
       - Campo "decimal" SIEMPRE presente en precios_fraccion.
-      - Pinturas/Impermeabilizantes: total = col_value × decimal_real.
-      - Tornillería Cat 3: precio_por_cantidad con umbral=50.
-      - Ferretería con cols extra: precios_fraccion directos.
+      - Pinturas/Impermeabilizantes (Cat 2/4): total = col_value × decimal_real.
+      - Tornillería (Cat 3): precio_por_cantidad con umbral=50.
+      - Resto: precios_fraccion directos (valor celda = total si < precio_unidad).
+
+    Robustez: usa UPSERT — nunca elimina productos añadidos vía dashboard.
+    Tras el sync, invalida el cache para que el próximo cargar_memoria() lea
+    TODOS los productos activos de PG (Excel + dashboard).
+
+    Retorna {"importados": N, "omitidos": N, "errores": [...]}
     """
-    from precio_sync import importar_catalogo_desde_excel as _importar
-    return _importar(ruta_excel)
+    import re as _re
+    import db as _db
+    try:
+        import openpyxl as _openpyxl
+    except ImportError:
+        return {"importados": 0, "omitidos": 0, "errores": ["openpyxl no disponible"]}
+
+    # construir_producto_desde_fila definida en este mismo módulo (sin precio_sync)
+    _construir = construir_producto_desde_fila
+
+    if not _db.DB_DISPONIBLE:
+        raise RuntimeError("⚠️ Base de datos no disponible — importar_catalogo_desde_excel requiere PostgreSQL.")
+
+    try:
+        wb = _openpyxl.load_workbook(ruta_excel, data_only=True)
+        ws = wb["Datos"]
+    except Exception as e:
+        return {"importados": 0, "omitidos": 0, "errores": [str(e)]}
+
+    col_headers = [
+        str(ws.cell(1, c).value or "")
+        for c in range(1, ws.max_column + 1)
+    ]
+
+    catalogo   = {}   # sólo los productos del Excel (para el UPSERT)
+    importados = 0
+    omitidos   = 0
+    errores    = []
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        try:
+            prod = _construir(row, col_headers)
+            if prod is None:
+                omitidos += 1
+                continue
+            clave = _re.sub('[^\\w\\s/]', '', prod["nombre_lower"]).replace(" ", "_")
+            clave = _re.sub(r'_+', '_', clave).strip('_')
+            catalogo[clave] = prod
+            importados += 1
+        except Exception as e:
+            nombre_raw = row[1] if row and len(row) > 1 else "?"
+            errores.append(f"{nombre_raw}: {e}")
+
+    # ── UPSERT a PG — nunca hace DELETE, productos del dashboard sobreviven ──
+    try:
+        _sincronizar_catalogo_postgres(catalogo, _db)
+    except Exception as e:
+        errores.append(f"Error PG sync: {e}")
+
+    # ── Invalidar cache: próximo cargar_memoria() lee PG completo ────────────
+    # No pisamos _cache aquí con solo los productos del Excel —
+    # invalidar_cache_memoria() limpia y reconstruye desde PG incluyendo
+    # productos añadidos por el dashboard que no están en el Excel.
+    invalidar_cache_memoria()
+
+    logger.info("[importar_excel] ✅ %d importados, %d omitidos, %d errores",
+                importados, omitidos, len(errores))
+    return {"importados": importados, "omitidos": omitidos, "errores": errores[:10]}
+
 
 # ─────────────────────────────────────────────
-# SINCRONIZACIÓN DE PRECIO → BASE_DE_DATOS_PRODUCTOS.xlsx
+# SINCRONIZACIÓN DE PRECIO → PostgreSQL (sin Excel/Drive)
 # ─────────────────────────────────────────────
 
 def actualizar_precio_en_excel_drive(
@@ -1651,11 +1908,28 @@ def actualizar_precio_en_excel_drive(
     fraccion: str = None,
 ) -> tuple[bool, str]:
     """
-    DEPRECATED — mantenida por compatibilidad con código existente.
-    Ahora delega a precio_sync.actualizar_precio() que usa cola serializada.
+    Actualiza el precio en PostgreSQL + cache. Nombre mantenido por
+    compatibilidad con callers existentes — ya NO escribe al Excel de Drive.
+
+    Delega a actualizar_precio_en_catalogo() que hace el upsert en PG de
+    forma atómica (precio_unidad, fracciones, precio_por_cantidad).
+
+    Returns:
+        (True, descripción)  — producto encontrado y precio actualizado.
+        (False, msg_error)   — producto no encontrado en catálogo.
     """
-    from precio_sync import actualizar_precio as _ap
-    return _ap(nombre_producto, nuevo_precio, fraccion)
+    frac = fraccion.strip() if fraccion and fraccion.strip() not in ("", "1") else None
+
+    ok = actualizar_precio_en_catalogo(nombre_producto, nuevo_precio, frac)
+    if not ok:
+        return False, f"Producto '{nombre_producto}' no encontrado en catálogo."
+
+    invalidar_cache_memoria()
+
+    prod = buscar_producto_en_catalogo(nombre_producto)
+    nombre_oficial = prod["nombre"] if prod else nombre_producto
+    desc = nombre_oficial + (f" {frac}" if frac else "") + f" = ${nuevo_precio:,.0f}"
+    return True, desc
 
 
 # ─────────────────────────────────────────────────────────────────────────────
