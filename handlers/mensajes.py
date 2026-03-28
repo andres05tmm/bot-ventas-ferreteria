@@ -44,8 +44,7 @@ from ventas_state import (
 from excel import guardar_cliente_nuevo
 from handlers.comandos import manejar_flujo_agregar_producto
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
-from memoria import cargar_memoria, guardar_memoria, importar_catalogo_desde_excel
-from precio_sync import actualizar_precio as _actualizar_precio_sync
+from memoria import invalidar_cache_memoria, importar_catalogo_desde_excel
 # Callbacks: no crean ciclo (callbacks.py no importa mensajes.py en nivel de módulo)
 from handlers.callbacks import (
     _enviar_botones_pago as _botones_central,
@@ -277,7 +276,8 @@ def _parsear_actualizacion_masiva(mensaje: str):
 
 
 async def _manejar_actualizacion_masiva(update, vendedor: str, pares: list):
-    """Actualiza todos los precios y responde con resumen."""
+    """Actualiza todos los precios directamente en PostgreSQL."""
+    import db as _db
     from memoria import buscar_producto_en_catalogo, invalidar_cache_memoria
 
     exitos, errores = [], []
@@ -287,31 +287,60 @@ async def _manejar_actualizacion_masiva(update, vendedor: str, pares: list):
             prod = buscar_producto_en_catalogo(nombre)
             nombre_display = prod["nombre"] if prod else nombre
 
+            if not prod:
+                errores.append(f"❌ {nombre}: no encontrado")
+                continue
+
+            row = _db.query_one(
+                "SELECT id, precio_unidad FROM productos WHERE nombre_lower = %s AND activo = TRUE",
+                [prod.get("nombre_lower", nombre.lower())]
+            )
+            if not row:
+                errores.append(f"❌ {nombre}: no encontrado en BD")
+                continue
+
             if precio_mayorista is not None:
-                # Actualizar precio_por_cantidad (tornillos)
-                mem = cargar_memoria()
-                cat = mem.get("catalogo", {})
-                clave = next((k for k, v in cat.items()
-                              if v.get("nombre_lower") == (prod.get("nombre_lower") if prod else "")), None)
-                if clave:
-                    cat[clave]["precio_unidad"] = round(precio)
-                    pxc = cat[clave].get("precio_por_cantidad", {})
-                    pxc["precio_bajo_umbral"]  = round(precio)
-                    pxc["precio_sobre_umbral"] = round(precio_mayorista)
-                    pxc.setdefault("umbral", 50)
-                    cat[clave]["precio_por_cantidad"] = pxc
-                    mem["catalogo"] = cat
-                    guardar_memoria(mem, urgente=True)
-                    _actualizar_precio_sync(nombre, precio, None)  # actualizar col Q en Excel
-                    linea = f"✅ {nombre_display}: ${int(precio):,} / ${int(precio_mayorista):,} ×50".replace(",", ".")
-                else:
-                    linea = f"❌ {nombre}: no encontrado"
+                # precio_unidad + precio_por_cantidad (tornillería)
+                _db.execute(
+                    "UPDATE productos SET precio_unidad = %s, updated_at = NOW() WHERE id = %s",
+                    [round(precio), row["id"]],
+                )
+                _db.execute(
+                    """
+                    INSERT INTO productos_precio_cantidad
+                        (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
+                    VALUES (%s, 50, %s, %s)
+                    ON CONFLICT (producto_id) DO UPDATE
+                    SET precio_bajo_umbral  = EXCLUDED.precio_bajo_umbral,
+                        precio_sobre_umbral = EXCLUDED.precio_sobre_umbral
+                    """,
+                    (row["id"], round(precio), round(precio_mayorista)),
+                )
+                linea = f"✅ {nombre_display}: ${int(precio):,} / ${int(precio_mayorista):,} ×50".replace(",", ".")
+            elif fraccion:
+                try:
+                    precio_unit = round(precio / float(fraccion), 2)
+                except (ValueError, ZeroDivisionError):
+                    precio_unit = precio
+                _db.execute(
+                    """
+                    INSERT INTO productos_fracciones
+                        (producto_id, fraccion, precio_total, precio_unitario)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT ON CONSTRAINT uq_prod_fraccion DO UPDATE
+                    SET precio_total    = EXCLUDED.precio_total,
+                        precio_unitario = EXCLUDED.precio_unitario
+                    """,
+                    (row["id"], fraccion, round(precio), int(precio_unit)),
+                )
+                linea = f"✅ {nombre_display} {fraccion} → ${int(precio):,}".replace(",", ".")
             else:
-                ok, msg = _actualizar_precio_sync(nombre, precio, fraccion)
-                if fraccion:
-                    linea = f"✅ {nombre_display} {fraccion} → ${int(precio):,}".replace(",", ".")
-                else:
-                    linea = f"✅ {nombre_display} → ${int(precio):,}".replace(",", ".")
+                _db.execute(
+                    "UPDATE productos SET precio_unidad = %s, updated_at = NOW() WHERE id = %s",
+                    [round(precio), row["id"]],
+                )
+                linea = f"✅ {nombre_display} → ${int(precio):,}".replace(",", ".")
+
             exitos.append(linea)
         except Exception as e:
             errores.append(f"❌ {nombre}: {e}")
