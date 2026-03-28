@@ -18,7 +18,7 @@ from typing import Optional, Union
 
 import config
 from routers.shared import (
-    _hoy, _hace_n_dias, _leer_excel_rango, _leer_ventas_postgres, _leer_excel_compras,
+    _hoy, _hace_n_dias, _leer_ventas_postgres,
     _to_float, _cantidad_a_float, _stock_wayper,
 )
 from routers.caja import VentaRapidaPayload, VentaRapidaItem
@@ -33,28 +33,14 @@ router = APIRouter()
 def ventas_hoy():
     try:
         hoy = _hoy()
-        filtradas = []
-        fuente = "postgres"
 
-        # ── Fuente primaria: Postgres ─────────────────────────────────────────
         try:
             pg_ventas = _leer_ventas_postgres(dias=1)
-            if pg_ventas is not None:
-                filtradas = [v for v in pg_ventas if str(v.get("fecha", ""))[:10] == hoy]
+            filtradas = [v for v in pg_ventas if str(v.get("fecha", ""))[:10] == hoy]
         except Exception as e_pg:
-            logger.warning(f"Postgres no disponible en /ventas/hoy: {e_pg}")
+            raise HTTPException(status_code=503, detail=f"Base de datos no disponible: {e_pg}")
 
-        # ── Fallback: Excel local ─────────────────────────────────────────────
-        if not filtradas:
-            try:
-                ventas_xls = _leer_excel_rango(dias=1)
-                filtradas = [v for v in ventas_xls if str(v.get("fecha", ""))[:10] == hoy]
-                if filtradas:
-                    fuente = "excel_fallback"
-            except Exception:
-                pass
-
-        # ── Enriquecer con unidad_medida desde el catálogo (solo si falta) ────
+        # Enriquecer con unidad_medida desde el catálogo (solo si falta)
         try:
             necesitan = [v for v in filtradas if not v.get("unidad_medida") or v["unidad_medida"] == "Unidad"]
             if necesitan and os.path.exists(config.MEMORIA_FILE):
@@ -76,7 +62,9 @@ def ventas_hoy():
         except Exception:
             pass
 
-        return {"fecha": hoy, "ventas": filtradas, "total": len(filtradas), "fuente": fuente}
+        return {"fecha": hoy, "ventas": filtradas, "total": len(filtradas), "fuente": "postgres"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -86,8 +74,10 @@ def ventas_semana():
     try:
         ventas = _leer_ventas_postgres(dias=7)
         if ventas is None:
-            ventas = _leer_excel_rango(dias=7)
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
         return {"ventas": ventas, "total": len(ventas)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -99,9 +89,8 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
         mes = periodo == "mes"
         ventas = _leer_ventas_postgres(dias=dias, mes_actual=mes)
         if ventas is None:
-            ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
-        # Leer catálogo para obtener unidad_medida canónica de cada producto
         cat_unidad: dict[str, str] = {}
         if os.path.exists(config.MEMORIA_FILE):
             with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
@@ -131,7 +120,6 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
             por_producto[nombre]["ingresos"]   += total
             por_producto[nombre]["frecuencia"] += 1
 
-        # Ordenar por INGRESOS (no por unidades — evita que gramos inflen el ranking)
         ranking = sorted(
             [{"producto": k, **v} for k, v in por_producto.items()],
             key=lambda x: x["ingresos"],
@@ -142,6 +130,8 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
             item["posicion"] = i
 
         return {"periodo": periodo, "top": ranking}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -150,14 +140,6 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
 def ventas_resumen():
     """
     Resumen para las tarjetas del dashboard. 100 % PostgreSQL, sin fallbacks.
-
-    total_hoy    → SUM(ventas_detalle.total) donde ventas.fecha = hoy
-    pedidos_hoy  → COUNT(DISTINCT ventas.id) donde fecha = hoy
-    total_semana → SUM(historico_ventas.ventas) últimos 7 días
-    total_mes    → SUM(historico_ventas.ventas) mes en curso
-    ticket_prom  → total_semana / n_transacciones_semana (ventas.id únicos)
-    historico_7d → historico_ventas día a día, últimos 7 días
-    historico_mes→ historico_ventas día a día, mes en curso
     """
     import db as _db
 
@@ -168,7 +150,6 @@ def ventas_resumen():
         hoy         = _hoy()
         ahora_local = datetime.now(config.COLOMBIA_TZ)
 
-        # ── HOY ──────────────────────────────────────────────────────────────
         row_hoy = _db.query_one(
             """
             SELECT
@@ -184,7 +165,6 @@ def ventas_resumen():
         total_hoy   = _to_float(row_hoy["total_hoy"])   if row_hoy else 0.0
         pedidos_hoy = int(row_hoy["pedidos_hoy"])        if row_hoy else 0
 
-        # ── SEMANA — historico_ventas ─────────────────────────────────────────
         fecha_7d  = _hace_n_dias(7).strftime("%Y-%m-%d")
         rows_sem  = _db.query_all(
             "SELECT fecha::text AS fecha, ventas FROM historico_ventas WHERE fecha >= %s ORDER BY fecha",
@@ -193,7 +173,6 @@ def ventas_resumen():
         ventas_por_dia = {str(r["fecha"])[:10]: _to_float(r["ventas"]) for r in rows_sem}
         total_sem = sum(ventas_por_dia.values())
 
-        # Ticket promedio: n° de ventas únicas en los últimos 7 días
         row_tick = _db.query_one(
             "SELECT COUNT(DISTINCT id) AS n FROM ventas WHERE fecha >= %s",
             [fecha_7d],
@@ -201,14 +180,12 @@ def ventas_resumen():
         pedidos_sem = int(row_tick["n"]) if row_tick and row_tick["n"] else 1
         ticket_prom = round(total_sem / pedidos_sem, 0)
 
-        # Histórico 7 días (un punto por día, sin huecos)
         historico = [
             {"fecha": _hace_n_dias(i).strftime("%Y-%m-%d"),
              "total": ventas_por_dia.get(_hace_n_dias(i).strftime("%Y-%m-%d"), 0)}
             for i in range(6, -1, -1)
         ]
 
-        # ── MES — historico_ventas ────────────────────────────────────────────
         primer_dia_mes = ahora_local.replace(day=1).strftime("%Y-%m-%d")
         rows_mes = _db.query_all(
             "SELECT fecha::text AS fecha, ventas FROM historico_ventas WHERE fecha >= %s ORDER BY fecha",
@@ -217,7 +194,6 @@ def ventas_resumen():
         ventas_mes_por_dia = {str(r["fecha"])[:10]: _to_float(r["ventas"]) for r in rows_mes}
         total_mes = sum(ventas_mes_por_dia.values())
 
-        # Histórico mes (un punto por día desde el día 1 hasta hoy)
         historico_mes = []
         current = ahora_local.replace(day=1)
         while current.date() <= ahora_local.date():
@@ -243,9 +219,12 @@ def ventas_resumen():
 @router.post("/venta-rapida")
 def venta_rapida(payload: VentaRapidaPayload):
     try:
-        from excel import guardar_venta_excel, recalcular_caja_desde_excel, obtener_siguiente_consecutivo
+        import db as _db
+        import datetime as _dt
 
-        # Cargar catálogo una sola vez para resolver unidad_medida
+        if not _db.DB_DISPONIBLE:
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
+
         _catalogo_cache = {}
         try:
             if os.path.exists(config.MEMORIA_FILE):
@@ -256,7 +235,6 @@ def venta_rapida(payload: VentaRapidaPayload):
             pass
 
         def _resolver_unidad(item: VentaRapidaItem) -> str:
-            """Devuelve la unidad_medida del item: primero la del payload, si no la del catálogo."""
             if item.unidad_medida and item.unidad_medida not in ("", "Unidad"):
                 return item.unidad_medida
             nombre_norm = item.nombre.lower().strip()
@@ -265,10 +243,6 @@ def venta_rapida(payload: VentaRapidaPayload):
                     return prod_val.get("unidad_medida", "Unidad")
             return item.unidad_medida or "Unidad"
 
-        # Un solo consecutivo para toda la venta
-        consecutivo = obtener_siguiente_consecutivo()
-
-        # Pre-calcular items una sola vez (se reusan en PG y en Excel)
         items_calc = []
         for item in payload.productos:
             try:
@@ -276,7 +250,6 @@ def venta_rapida(payload: VentaRapidaPayload):
                 cant_num = convertir_fraccion_a_decimal(item.cantidad)
             except (ValueError, TypeError):
                 cant_num = 1.0
-            # Bug fix: cant_num <= 0 causaba precio_unitario=total (incorrecto).
             if not cant_num or cant_num <= 0:
                 cant_num = 1.0
             items_calc.append({
@@ -286,86 +259,53 @@ def venta_rapida(payload: VentaRapidaPayload):
                 "unidad":          _resolver_unidad(item),
             })
 
-        # ── Fuente primaria: Postgres ─────────────────────────────────────────
-        pg_ok = False
-        try:
-            from db import DB_DISPONIBLE, _get_conn
-            import datetime as _dt
-            if DB_DISPONIBLE:
-                ahora = _dt.datetime.now()
-                with _get_conn() as _conn:
-                    with _conn.cursor() as _cur:
-                        _cur.execute(
-                            """
-                            INSERT INTO ventas
-                                (consecutivo, fecha, vendedor, metodo_pago,
-                                 total, cliente_nombre, cliente_id)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (consecutivo, fecha) DO NOTHING
-                            RETURNING id
-                            """,
-                            (
-                                consecutivo,
-                                ahora,
-                                payload.vendedor,
-                                payload.metodo,
-                                sum(i["item"].total for i in items_calc),
-                                payload.cliente_nombre or None,
-                                payload.cliente_id     or None,
-                            ),
-                        )
-                        row = _cur.fetchone()
-                        if row:
-                            venta_id = row["id"]
-                            for ic in items_calc:
-                                _cur.execute(
-                                    """
-                                    INSERT INTO ventas_detalle
-                                        (venta_id, producto_nombre, cantidad,
-                                         precio_unitario, total, unidad_medida)
-                                    VALUES (%s, %s, %s, %s, %s, %s)
-                                    """,
-                                    (
-                                        venta_id,
-                                        ic["item"].nombre,
-                                        ic["cant_num"],
-                                        ic["precio_unitario"],
-                                        ic["item"].total,
-                                        ic["unidad"],
-                                    ),
-                                )
-                    _conn.commit()
-                pg_ok = True
-        except Exception as e_pg:
-            logger.warning(f"Postgres write falló en /venta-rapida (usando Excel como backup): {e_pg}")
+        ahora = _dt.datetime.now()
 
-        # ── Backup: Excel ─────────────────────────────────────────────────────
-        filas = []
-        try:
-            for ic in items_calc:
-                fila = guardar_venta_excel(
-                    producto        = ic["item"].nombre,
-                    cantidad        = ic["cant_num"],
-                    precio_unitario = ic["precio_unitario"],
-                    total           = ic["item"].total,
-                    vendedor        = payload.vendedor,
-                    observaciones   = "venta-rapida",
-                    metodo_pago     = payload.metodo,
-                    consecutivo     = consecutivo,
-                    unidad_medida   = ic["unidad"],
-                    cliente_nombre  = payload.cliente_nombre or None,
-                    cliente_id      = payload.cliente_id     or None,
+        with _db._get_conn() as conn:
+            with conn.cursor() as cur:
+                # Consecutivo atómico desde PG
+                cur.execute("SELECT COALESCE(MAX(consecutivo), 0) + 1 AS siguiente FROM ventas")
+                consecutivo = cur.fetchone()["siguiente"]
+
+                cur.execute(
+                    """
+                    INSERT INTO ventas
+                        (consecutivo, fecha, vendedor, metodo_pago,
+                         total, cliente_nombre, cliente_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        consecutivo,
+                        ahora,
+                        payload.vendedor,
+                        payload.metodo,
+                        sum(i["item"].total for i in items_calc),
+                        payload.cliente_nombre or None,
+                        payload.cliente_id     or None,
+                    ),
                 )
-                filas.append(fila)
-            recalcular_caja_desde_excel()
-        except Exception as e_xl:
-            logger.warning(f"Excel backup falló en /venta-rapida: {e_xl}")
+                venta_id = cur.fetchone()["id"]
 
-        # Si ambas fuentes fallaron → error real
-        if not pg_ok and not filas:
-            raise Exception("No se pudo guardar la venta en Postgres ni en Excel")
+                for ic in items_calc:
+                    cur.execute(
+                        """
+                        INSERT INTO ventas_detalle
+                            (venta_id, producto_nombre, cantidad,
+                             precio_unitario, total, unidad_medida)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            venta_id,
+                            ic["item"].nombre,
+                            ic["cant_num"],
+                            ic["precio_unitario"],
+                            ic["item"].total,
+                            ic["unidad"],
+                        ),
+                    )
+            conn.commit()
 
-        # Descontar inventario (igual que hace el bot por Telegram)
         for ic in items_calc:
             try:
                 from memoria import descontar_inventario
@@ -379,11 +319,12 @@ def venta_rapida(payload: VentaRapidaPayload):
             "productos":   len(items_calc),
             "total":       sum(ic["item"].total for ic in items_calc),
             "metodo":      payload.metodo,
-            "fuente":      "postgres" if pg_ok else "excel_fallback",
+            "fuente":      "postgres",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 
 @router.get("/ventas/top2")
@@ -396,9 +337,8 @@ def ventas_top2(
         mes  = periodo == "mes"
         ventas = _leer_ventas_postgres(dias=dias, mes_actual=mes)
         if ventas is None:
-            ventas = _leer_excel_rango(dias=dias, mes_actual=mes)
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
-        # Leer catálogo para saber la categoría de cada producto
         cat_map: dict[str, str] = {}
         if os.path.exists(config.MEMORIA_FILE):
             with open(config.MEMORIA_FILE, encoding="utf-8") as f:
@@ -407,7 +347,6 @@ def ventas_top2(
                 nombre_lower = v.get("nombre_lower", "").strip()
                 cat_map[nombre_lower] = v.get("categoria", "Sin categoría")
 
-        # Acumular por producto
         acum: dict[str, dict] = defaultdict(lambda: {
             "ingresos": 0.0, "frecuencia": 0, "categoria": "Sin categoría"
         })
@@ -434,7 +373,6 @@ def ventas_top2(
                      for i, (k, v) in enumerate(ranking)]
 
         else:  # categoria
-            # Top 5 por ingresos dentro de cada categoría
             por_cat: dict[str, list] = defaultdict(list)
             for nombre, datos in acum.items():
                 por_cat[datos["categoria"]].append({"producto": nombre, **datos})
@@ -447,46 +385,31 @@ def ventas_top2(
             return {"periodo": periodo, "criterio": criterio, "por_categoria": result_cat}
 
         return {"periodo": periodo, "criterio": criterio, "top": items}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Catálogo navegable (para dashboard) ──────────────────────────────────────
 @router.delete("/ventas/{numero}")
 def eliminar_venta(numero: int):
     """
     Elimina todas las filas de un consecutivo de venta.
-    PG primero, Excel como backup.
     """
     try:
-        from excel import borrar_venta_excel, recalcular_caja_desde_excel
+        import db as _db
 
-        # ── Fuente primaria: Postgres ─────────────────────────────────────────
-        pg_ok = False
-        try:
-            import db as _db
-            if _db.DB_DISPONIBLE:
-                borradas = _db.execute(
-                    "DELETE FROM ventas WHERE consecutivo = %s", [numero]
-                )
-                pg_ok = borradas > 0
-        except Exception as e_pg:
-            logger.warning(f"Postgres delete falló en /ventas/{numero}: {e_pg}")
+        if not _db.DB_DISPONIBLE:
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
-        # ── Backup: Excel ─────────────────────────────────────────────────────
-        excel_ok = False
-        excel_msg = ""
-        try:
-            excel_ok, excel_msg = borrar_venta_excel(numero)
-            if excel_ok:
-                recalcular_caja_desde_excel()
-        except Exception as e_xl:
-            logger.warning(f"Excel delete falló para consecutivo {numero}: {e_xl}")
+        borradas = _db.execute(
+            "DELETE FROM ventas WHERE consecutivo = %s", [numero]
+        )
 
-        if not pg_ok and not excel_ok:
-            raise HTTPException(status_code=404, detail=excel_msg or f"Consecutivo #{numero} no encontrado")
+        if not borradas:
+            raise HTTPException(status_code=404, detail=f"Consecutivo #{numero} no encontrado")
 
-        return {"ok": True, "mensaje": excel_msg or f"Venta #{numero} eliminada"}
+        return {"ok": True, "mensaje": f"Venta #{numero} eliminada"}
     except HTTPException:
         raise
     except Exception as e:
@@ -497,72 +420,29 @@ def eliminar_venta(numero: int):
 def eliminar_linea_venta(numero: int, producto: str = Query(...)):
     """
     Elimina UNA sola línea (producto) de un consecutivo multi-producto.
-    PG primero, Excel como backup.
     """
     try:
-        import openpyxl
-        from excel import inicializar_excel, obtener_nombre_hoja, detectar_columnas, recalcular_caja_desde_excel
+        import db as _db
 
-        # ── Fuente primaria: Postgres ─────────────────────────────────────────
-        pg_ok = False
-        try:
-            import db as _db
-            if _db.DB_DISPONIBLE:
-                borradas = _db.execute(
-                    """
-                    DELETE FROM ventas_detalle
-                    WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s LIMIT 1)
-                      AND LOWER(producto_nombre) = LOWER(%s)
-                    """,
-                    [numero, producto],
-                )
-                pg_ok = borradas > 0
-        except Exception as e_pg:
-            logger.warning(f"Postgres delete línea falló para #{numero} '{producto}': {e_pg}")
+        if not _db.DB_DISPONIBLE:
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
-        # ── Backup: Excel ─────────────────────────────────────────────────────
-        total_borradas = 0
-        try:
-            inicializar_excel()
-            wb    = openpyxl.load_workbook(config.EXCEL_FILE)
-            hojas = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+        borradas = _db.execute(
+            """
+            DELETE FROM ventas_detalle
+            WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s LIMIT 1)
+              AND LOWER(producto_nombre) = LOWER(%s)
+            """,
+            [numero, producto],
+        )
 
-            for nombre_sh in hojas:
-                if nombre_sh not in wb.sheetnames:
-                    continue
-                ws   = wb[nombre_sh]
-                cols = detectar_columnas(ws)
-                col_id   = cols.get("consecutivo de venta") or cols.get("consecutivo") or cols.get("alias")
-                col_prod = cols.get("producto")
-                if not col_id or not col_prod:
-                    continue
+        if not borradas:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No se encontró '{producto}' en consecutivo #{numero}",
+            )
 
-                filas_borrar = []
-                for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
-                    val_id   = ws.cell(row=fila, column=col_id).value
-                    val_prod = str(ws.cell(row=fila, column=col_prod).value or "").strip()
-                    try:
-                        if val_id is not None and int(float(str(val_id))) == numero:
-                            if val_prod.lower() == producto.lower():
-                                filas_borrar.append(fila)
-                    except (ValueError, TypeError):
-                        pass
-
-                for fila in reversed(filas_borrar):
-                    ws.delete_rows(fila)
-                total_borradas += len(filas_borrar)
-
-            if total_borradas:
-                wb.save(config.EXCEL_FILE)
-                recalcular_caja_desde_excel()
-        except Exception as e_xl:
-            logger.warning(f"Excel delete línea falló para #{numero} '{producto}': {e_xl}")
-
-        if not pg_ok and not total_borradas:
-            raise HTTPException(status_code=404, detail=f"No se encontró '{producto}' en consecutivo #{numero}")
-
-        return {"ok": True, "borradas": total_borradas or 1, "mensaje": f"'{producto}' eliminado del consecutivo #{numero}"}
-
+        return {"ok": True, "borradas": borradas, "mensaje": f"'{producto}' eliminado del consecutivo #{numero}"}
     except HTTPException:
         raise
     except Exception as e:
@@ -583,13 +463,13 @@ class EditarVentaBody(BaseModel):
 @router.patch("/ventas/{numero}")
 def editar_venta(numero: int, body: EditarVentaBody):
     """
-    Edita los campos de un consecutivo.
-    PG primero, Excel como backup.
-    Si producto_original viene, solo actualiza la fila con ese producto (multi-producto).
+    Edita los campos de un consecutivo. 100% Postgres.
     """
     try:
-        import openpyxl
-        from excel import inicializar_excel, obtener_nombre_hoja, detectar_columnas, recalcular_caja_desde_excel
+        import db as _db
+
+        if not _db.DB_DISPONIBLE:
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
         cambios = {k: v for k, v in body.dict().items() if v is not None and k != "producto_original"}
         if not cambios:
@@ -597,111 +477,44 @@ def editar_venta(numero: int, body: EditarVentaBody):
 
         filtro_producto = body.producto_original.strip().lower() if body.producto_original else None
 
-        # ── Fuente primaria: Postgres ─────────────────────────────────────────
-        pg_ok = False
-        try:
-            import db as _db
-            if _db.DB_DISPONIBLE:
-                campo_col_pg = {
-                    "producto":        "producto_nombre",
-                    "cantidad":        "cantidad",
-                    "precio_unitario": "precio_unitario",
-                    "total":           "total",
-                }
-                cabecera_col_pg = {
-                    "metodo_pago": "metodo_pago",
-                    "cliente":     "cliente_nombre",
-                    "vendedor":    "vendedor",
-                }
-                # Actualizar ventas_detalle
-                det_parts, det_params = [], []
-                for campo, col in campo_col_pg.items():
-                    if campo in cambios:
-                        det_parts.append(f"{col} = %s")
-                        det_params.append(cambios[campo])
-                if det_parts:
-                    where_det = "WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s LIMIT 1)"
-                    if filtro_producto:
-                        where_det += " AND LOWER(producto_nombre) = LOWER(%s)"
-                        det_params.append(numero)
-                        det_params.append(filtro_producto)
-                    else:
-                        det_params.append(numero)
-                    _db.execute(f"UPDATE ventas_detalle SET {', '.join(det_parts)} {where_det}", det_params)
-                # Actualizar ventas (cabecera)
-                cab_parts, cab_params = [], []
-                for campo, col in cabecera_col_pg.items():
-                    if campo in cambios:
-                        cab_parts.append(f"{col} = %s")
-                        cab_params.append(cambios[campo])
-                if cab_parts:
-                    cab_params.append(numero)
-                    _db.execute(f"UPDATE ventas SET {', '.join(cab_parts)} WHERE consecutivo = %s", cab_params)
-                pg_ok = True
-        except Exception as e_pg:
-            logger.warning(f"Postgres update falló en /ventas/{numero}: {e_pg}")
-
-        # ── Backup: Excel ─────────────────────────────────────────────────────
-        CAMPO_COL = {
-            "producto":        ["producto"],
-            "cantidad":        ["cantidad"],
-            "precio_unitario": ["valor unitario", "precio unitario"],
-            "total":           ["total"],
-            "metodo_pago":     ["metodo de pago", "metodo pago"],
-            "cliente":         ["cliente"],
-            "id_cliente":      ["id cliente"],
-            "vendedor":        ["vendedor"],
+        campo_col_pg = {
+            "producto":        "producto_nombre",
+            "cantidad":        "cantidad",
+            "precio_unitario": "precio_unitario",
+            "total":           "total",
         }
-        actualizadas = 0
-        try:
-            inicializar_excel()
-            wb    = openpyxl.load_workbook(config.EXCEL_FILE)
-            hojas = [obtener_nombre_hoja(), "Registro de Ventas-Acumulado"]
+        cabecera_col_pg = {
+            "metodo_pago": "metodo_pago",
+            "cliente":     "cliente_nombre",
+            "vendedor":    "vendedor",
+        }
 
-            for nombre_sh in hojas:
-                if nombre_sh not in wb.sheetnames:
-                    continue
-                ws     = wb[nombre_sh]
-                cols   = detectar_columnas(ws)
-                col_id = cols.get("consecutivo de venta") or cols.get("alias")
-                col_prod = cols.get("producto")
-                if not col_id:
-                    continue
+        # Actualizar ventas_detalle
+        det_parts, det_params = [], []
+        for campo, col in campo_col_pg.items():
+            if campo in cambios:
+                det_parts.append(f"{col} = %s")
+                det_params.append(cambios[campo])
+        if det_parts:
+            where_det = "WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s LIMIT 1)"
+            if filtro_producto:
+                where_det += " AND LOWER(producto_nombre) = LOWER(%s)"
+                det_params.extend([numero, filtro_producto])
+            else:
+                det_params.append(numero)
+            _db.execute(f"UPDATE ventas_detalle SET {', '.join(det_parts)} {where_det}", det_params)
 
-                for fila in range(config.EXCEL_FILA_DATOS, ws.max_row + 1):
-                    val = ws.cell(row=fila, column=col_id).value
-                    try:
-                        if val is None or int(float(str(val))) != numero:
-                            continue
-                    except (ValueError, TypeError):
-                        continue
+        # Actualizar ventas (cabecera)
+        cab_parts, cab_params = [], []
+        for campo, col in cabecera_col_pg.items():
+            if campo in cambios:
+                cab_parts.append(f"{col} = %s")
+                cab_params.append(cambios[campo])
+        if cab_parts:
+            cab_params.append(numero)
+            _db.execute(f"UPDATE ventas SET {', '.join(cab_parts)} WHERE consecutivo = %s", cab_params)
 
-                    if filtro_producto and col_prod:
-                        prod_fila = str(ws.cell(row=fila, column=col_prod).value or "").strip().lower()
-                        if prod_fila != filtro_producto:
-                            continue
-
-                    for campo, valor in cambios.items():
-                        claves = CAMPO_COL.get(campo, [campo.replace("_", " ")])
-                        col_destino = None
-                        for clave in claves:
-                            col_destino = cols.get(clave)
-                            if col_destino:
-                                break
-                        if col_destino:
-                            ws.cell(row=fila, column=col_destino).value = valor
-                            actualizadas += 1
-
-            if actualizadas:
-                wb.save(config.EXCEL_FILE)
-                recalcular_caja_desde_excel()
-        except Exception as e_xl:
-            logger.warning(f"Excel update falló en /ventas/{numero}: {e_xl}")
-
-        if not pg_ok and not actualizadas:
-            return {"ok": False, "mensaje": f"No se encontró el consecutivo #{numero}"}
-
-        return {"ok": True, "actualizadas": actualizadas, "mensaje": f"Venta #{numero} actualizada"}
+        return {"ok": True, "mensaje": f"Venta #{numero} actualizada"}
 
     except HTTPException:
         raise
@@ -709,12 +522,11 @@ def editar_venta(numero: int, body: EditarVentaBody):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Editar / Eliminar Productos ───────────────────────────────────────────────
 # ── Venta Varia ───────────────────────────────────────────────────────────────
 
 class VentaVariaRequest(BaseModel):
     monto: float
-    metodo_pago: str          # "efectivo" | "transferencia" | "datafono"
+    metodo_pago: str
     descripcion: str = "Venta Varia"
     vendedor: str = "Dashboard"
 
@@ -723,7 +535,6 @@ class VentaVariaRequest(BaseModel):
 async def registrar_venta_varia(req: VentaVariaRequest):
     """
     Registra una venta no especificada para cuadrar caja.
-    Usa el mismo mecanismo que el bot: guardar_venta_excel + actualizar caja.
     """
     from ventas_state import registrar_ventas_con_metodo_async
 
@@ -744,7 +555,6 @@ async def registrar_venta_varia(req: VentaVariaRequest):
     }
 
     try:
-        # chat_id=-1 reservado para ventas varias del dashboard
         confirmaciones = await registrar_ventas_con_metodo_async(
             [venta], metodo, req.vendedor, -1
         )
@@ -758,18 +568,12 @@ async def registrar_venta_varia(req: VentaVariaRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-
-# ── Transcripción de audio desde el Dashboard ─────────────────────────────────
-
-
 # ── Export Excel on-demand ─────────────────────────────────────────────────────
 
 @router.get("/export/ventas.xlsx")
 def export_ventas_xlsx():
     """
     Genera y descarga un archivo Excel con todas las ventas desde Postgres.
-    Una sola hoja plana 'Ventas'. Ordenado por fecha DESC, consecutivo DESC.
-    Per D-10, D-11, D-12, D-13.
     """
     import io
     import openpyxl
@@ -806,7 +610,6 @@ def export_ventas_xlsx():
         logger.error(f"Error generando export ventas.xlsx: {e}")
         raise HTTPException(status_code=503, detail=f"Error consultando base de datos: {e}")
 
-    # ── Construir Excel en memoria ────────────────────────────────────────────
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Ventas"
@@ -817,7 +620,6 @@ def export_ventas_xlsx():
         "vendedor", "metodo_pago",
     ]
 
-    # Encabezados con estilo
     header_font  = Font(bold=True, color="FFFFFF")
     header_fill  = PatternFill("solid", fgColor="1B56E1")
     header_align = Alignment(horizontal="center")
@@ -827,12 +629,10 @@ def export_ventas_xlsx():
         celda.fill      = header_fill
         celda.alignment = header_align
 
-    # Anchos de columna (aprox)
     anchos = [14, 12, 8, 25, 35, 10, 14, 16, 14, 18, 14]
     for col_idx, ancho in enumerate(anchos, 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = ancho
 
-    # Filas de datos
     alt_fill = PatternFill("solid", fgColor="EFF6FF")
     for row_idx, row in enumerate(rows, 2):
         for col_idx, clave in enumerate(COLUMNAS, 1):
@@ -841,11 +641,9 @@ def export_ventas_xlsx():
             celda.alignment = Alignment(horizontal="center")
             if row_idx % 2 == 0:
                 celda.fill = alt_fill
-            # Formato numérico para columnas de dinero
             if clave in ("precio_unitario", "total"):
                 celda.number_format = "$#,##0.00"
 
-    # ── Serializar a BytesIO ──────────────────────────────────────────────────
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
