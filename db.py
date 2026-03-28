@@ -2,16 +2,18 @@
 db.py — Acceso central a PostgreSQL.
 Usar este modulo en lugar de psycopg2 directamente.
 
-CORRECCIONES v1:
-  - ThreadedConnectionPool (no SimpleConnectionPool) — thread-safe (D-11)
+CORRECCIONES v2:
+  - ThreadedConnectionPool thread-safe (D-11)
   - DB_DISPONIBLE flag fijado una vez al arranque (D-04)
   - _init_schema() crea todas las tablas IF NOT EXISTS (D-01)
-  - Funciones retornan valores vacios seguros cuando DB_DISPONIBLE=False
+  - Reconexión automática si el pool devuelve una conexión rota (#1)
+  - API pública lanza RuntimeError si DB_DISPONIBLE=False (#2)
 """
 
 # -- stdlib --
 import os
 import logging
+import threading
 from contextlib import contextmanager
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -20,6 +22,8 @@ from contextlib import contextmanager
 logger = logging.getLogger("ferrebot.db")
 
 _pool = None
+_dsn: str | None = None          # guardado para reconexión
+_pool_lock = threading.Lock()    # protege _pool durante reconexión
 DB_DISPONIBLE: bool = False
 
 
@@ -33,19 +37,20 @@ def init_db() -> bool:
     Llamar desde start.py ANTES de _restaurar_memoria().
     Retorna True si la conexion fue exitosa.
     """
-    global _pool, DB_DISPONIBLE
+    global _pool, _dsn, DB_DISPONIBLE
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        logger.warning("DATABASE_URL no configurado — modo JSON activo")
+        logger.warning("DATABASE_URL no configurado — DB deshabilitada")
         return False
     try:
         import psycopg2
         from psycopg2.pool import ThreadedConnectionPool
         from psycopg2.extras import RealDictCursor
 
+        _dsn = database_url
         _pool = ThreadedConnectionPool(
-            minconn=1,
-            maxconn=5,
+            minconn=2,
+            maxconn=10,
             dsn=database_url,
             cursor_factory=RealDictCursor,
             connect_timeout=5,
@@ -59,7 +64,7 @@ def init_db() -> bool:
         _init_schema()
         return True
     except Exception as e:
-        logger.warning(f"Postgres no disponible — modo JSON: {e}")
+        logger.warning(f"Postgres no disponible al arrancar: {e}")
         DB_DISPONIBLE = False
         return False
 
@@ -68,18 +73,79 @@ def init_db() -> bool:
 # CONTEXT MANAGER INTERNO
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _reconectar() -> None:
+    """
+    Reemplaza el pool completo con uno nuevo.
+    Llamar solo cuando se detecta que las conexiones están rotas.
+    """
+    global _pool
+    import psycopg2
+    from psycopg2.pool import ThreadedConnectionPool
+    from psycopg2.extras import RealDictCursor
+
+    logger.warning("[DB] Reconectando pool de PostgreSQL...")
+    try:
+        _pool.closeall()
+    except Exception:
+        pass
+    _pool = ThreadedConnectionPool(
+        minconn=2,
+        maxconn=10,
+        dsn=_dsn,
+        cursor_factory=RealDictCursor,
+        connect_timeout=5,
+    )
+    logger.info("[DB] Pool reconectado exitosamente")
+
+
 @contextmanager
 def _get_conn():
-    """Obtiene conexion del pool. Thread-safe."""
-    conn = _pool.getconn()
+    """
+    Obtiene conexión del pool. Thread-safe.
+    Si la conexión está rota (OperationalError / InterfaceError),
+    reconecta el pool y reintenta una vez.
+    """
+    import psycopg2
+
+    _BROKEN = (psycopg2.OperationalError, psycopg2.InterfaceError)
+
+    with _pool_lock:
+        conn = _pool.getconn()
     try:
         yield conn
         conn.commit()
+    except _BROKEN as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        try:
+            _pool.putconn(conn, close=True)
+        except Exception:
+            pass
+        # Reconectar y reintentar una vez
+        with _pool_lock:
+            _reconectar()
+            conn2 = _pool.getconn()
+        try:
+            yield conn2
+            conn2.commit()
+        except Exception:
+            conn2.rollback()
+            raise
+        finally:
+            with _pool_lock:
+                _pool.putconn(conn2)
+        return
     except Exception:
         conn.rollback()
         raise
     finally:
-        _pool.putconn(conn)
+        try:
+            with _pool_lock:
+                _pool.putconn(conn)
+        except Exception:
+            pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -333,16 +399,6 @@ CREATE TABLE IF NOT EXISTS productos_pendientes (
 );
 
 -- ───────────────────────────────────────────────────────────────
--- ALIASES DINAMICOS (antes aliases_dinamicos.json)
--- ───────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS aliases (
-    termino    VARCHAR(200) PRIMARY KEY,
-    reemplazo  VARCHAR(300) NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- ───────────────────────────────────────────────────────────────
 -- CONFIGURACION DEL SISTEMA
 -- ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS config_sistema (
@@ -371,10 +427,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_prod_fraccion
 # API PUBLICA
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _check_db() -> None:
+    """Lanza RuntimeError si la DB no está disponible. Llamar al inicio de cada función pública."""
+    if not DB_DISPONIBLE:
+        raise RuntimeError(
+            "⚠️ Base de datos no disponible. Verifica DATABASE_URL y reinicia el servicio."
+        )
+
+
 def query_one(sql: str, params=None) -> dict | None:
     """Ejecuta SELECT y retorna una fila como dict, o None."""
-    if not DB_DISPONIBLE:
-        return None
+    _check_db()
     with _get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -383,8 +446,7 @@ def query_one(sql: str, params=None) -> dict | None:
 
 def query_all(sql: str, params=None) -> list[dict]:
     """Ejecuta SELECT y retorna todas las filas como lista de dicts."""
-    if not DB_DISPONIBLE:
-        return []
+    _check_db()
     with _get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -393,8 +455,7 @@ def query_all(sql: str, params=None) -> list[dict]:
 
 def execute(sql: str, params=None) -> int:
     """Ejecuta INSERT/UPDATE/DELETE. Retorna rowcount."""
-    if not DB_DISPONIBLE:
-        return 0
+    _check_db()
     with _get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -403,8 +464,7 @@ def execute(sql: str, params=None) -> int:
 
 def execute_returning(sql: str, params=None) -> dict | None:
     """Ejecuta INSERT ... RETURNING. Retorna la fila insertada."""
-    if not DB_DISPONIBLE:
-        return None
+    _check_db()
     with _get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -422,9 +482,8 @@ def obtener_siguiente_consecutivo() -> int:
     """
     import config as _cfg
     from datetime import datetime as _dt
+    _check_db()
     hoy = _dt.now(_cfg.COLOMBIA_TZ).strftime("%Y-%m-%d")
-    if not DB_DISPONIBLE:
-        return 1
     row = query_one(
         "SELECT COALESCE(MAX(consecutivo), 0) AS max_c FROM ventas WHERE fecha = %s",
         (hoy,)
@@ -437,8 +496,9 @@ def obtener_nombre_id_cliente(termino: str) -> tuple[str, str]:
     Busca cliente en la DB por nombre o identificación.
     Retorna (identificacion, nombre) o ('CF', 'Consumidor Final') si no encuentra.
     """
-    if not termino or not DB_DISPONIBLE:
+    if not termino:
         return "CF", "Consumidor Final"
+    _check_db()
     row = query_one(
         """SELECT identificacion, nombre FROM clientes
            WHERE LOWER(nombre) LIKE LOWER(%s) OR identificacion = %s

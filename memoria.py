@@ -14,6 +14,7 @@ import logging
 import json
 import os
 import threading
+import time
 from datetime import datetime
 
 import config
@@ -22,6 +23,8 @@ from utils import _normalizar  # única definición centralizada
 logger = logging.getLogger("ferrebot.memoria")
 
 _cache: dict | None = None
+_cache_ts: float | None = None          # epoch del último load completo desde PG
+_CACHE_TTL: int = 600                   # segundos — recarga automática si el cache es más viejo
 _bloquear_subida_drive: bool = False  # True durante la sincronización inicial
 _cache_lock = threading.Lock()        # Protege _cache en entornos multi-hilo
 
@@ -134,13 +137,22 @@ def _cargar_desde_postgres() -> dict:
 
 
 def cargar_memoria() -> dict:
-    global _cache
+    global _cache, _cache_ts
     with _cache_lock:
-        if _cache is not None:
+        ahora = time.monotonic()
+        cache_vigente = (
+            _cache is not None
+            and _cache_ts is not None
+            and (ahora - _cache_ts) < _CACHE_TTL
+        )
+        if cache_vigente:
             return _cache
+        if _cache is not None:
+            logger.debug("[CACHE] TTL expirado — recargando desde PostgreSQL")
         import db as _db
         if _db.DB_DISPONIBLE:
             _cache = _cargar_desde_postgres()
+            _cache_ts = ahora
         else:
             # DB no disponible — estructura mínima en RAM (sin fallback JSON)
             logger.warning("DB no disponible — cargar_memoria() retorna estructura vacía")
@@ -378,9 +390,10 @@ def guardar_memoria(memoria: dict, urgente: bool = False):
     Persiste memoria en Postgres — sin escritura a JSON ni a Drive (100% PG).
     urgente=True: parámetro mantenido por compatibilidad con callers existentes.
     """
-    global _cache
+    global _cache, _cache_ts
     with _cache_lock:
         _cache = memoria
+        _cache_ts = time.monotonic()
     import db as _db
     if _db.DB_DISPONIBLE:
         # Catálogo — D-06: inventario ya no se sincroniza aquí (upsert directo)
@@ -404,9 +417,10 @@ def guardar_memoria(memoria: dict, urgente: bool = False):
 
 
 def invalidar_cache_memoria():
-    global _cache
+    global _cache, _cache_ts
     with _cache_lock:
         _cache = None
+        _cache_ts = None
     # Reconstruir índice fuzzy para que productos nuevos sean encontrables
     try:
         from fuzzy_match import construir_indice
