@@ -22,6 +22,10 @@ from datetime import datetime
 import config
 from utils import _normalizar  # única definición centralizada
 
+# Fallback: _MEMORIA_FILE fue removido en la migración a PostgreSQL.
+# Mantenemos la constante local para compatibilidad con entornos sin PG.
+_MEMORIA_FILE: str = getattr(config, "MEMORIA_FILE", "memoria.json")
+
 logger = logging.getLogger("ferrebot.memoria")
 
 _cache: dict | None = None
@@ -127,8 +131,8 @@ def _cargar_desde_postgres() -> dict:
     Campos no migrados (gastos, caja, notas, negocio) se cargan del JSON local."""
     import db as _db
     # Cargar estructura base desde JSON si existe (para campos que aun no migran)
-    if os.path.exists(config.MEMORIA_FILE):
-        with open(config.MEMORIA_FILE, "r", encoding="utf-8") as f:
+    if os.path.exists(_MEMORIA_FILE):
+        with open(_MEMORIA_FILE, "r", encoding="utf-8") as f:
             base = json.load(f)
     else:
         base = {
@@ -154,8 +158,8 @@ def cargar_memoria() -> dict:
             _cache = _cargar_desde_postgres()
         else:
             # Fallback: comportamiento anterior exacto
-            if os.path.exists(config.MEMORIA_FILE):
-                with open(config.MEMORIA_FILE, "r", encoding="utf-8") as f:
+            if os.path.exists(_MEMORIA_FILE):
+                with open(_MEMORIA_FILE, "r", encoding="utf-8") as f:
                     _cache = json.load(f)
             else:
                 _cache = {
@@ -346,7 +350,7 @@ def guardar_memoria(memoria: dict, urgente: bool = False):
     global _cache
     with _cache_lock:
         _cache = memoria
-        with open(config.MEMORIA_FILE, "w", encoding="utf-8") as f:
+        with open(_MEMORIA_FILE, "w", encoding="utf-8") as f:
             json.dump(memoria, f, ensure_ascii=False, indent=2)
     # Sincronizacion de catalogo a Postgres (si disponible) — D-06
     # Inventario ya no se sincroniza aquí: guardar_inventario() hace upsert directo
@@ -1627,85 +1631,18 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
 
 def importar_catalogo_desde_excel(ruta_excel: str) -> dict:
     """
-    Lee BASE_DE_DATOS_PRODUCTOS.xlsx e importa todos los productos directamente a
-    PostgreSQL. NO escribe a JSON ni a Drive.
-
-    Reglas de construcción (misma lógica que precio_sync.construir_producto_desde_fila):
+    Lee BASE_DE_DATOS_PRODUCTOS.xlsx e importa todos los productos al catálogo.
+    Delega a precio_sync que maneja correctamente:
       - Campo "decimal" SIEMPRE presente en precios_fraccion.
-      - Pinturas/Impermeabilizantes (Cat 2/4): total = col_value × decimal_real.
-      - Tornillería (Cat 3): precio_por_cantidad con umbral=50.
-      - Resto: precios_fraccion directos (valor celda = total si < precio_unidad).
-
-    Robustez: usa UPSERT — nunca elimina productos añadidos vía dashboard.
-    Tras el sync, invalida el cache para que el próximo cargar_memoria() lea
-    TODOS los productos activos de PG (Excel + dashboard).
-
-    Retorna {"importados": N, "omitidos": N, "errores": [...]}
+      - Pinturas/Impermeabilizantes: total = col_value × decimal_real.
+      - Tornillería Cat 3: precio_por_cantidad con umbral=50.
+      - Ferretería con cols extra: precios_fraccion directos.
     """
-    import re as _re
-    import db as _db
-    try:
-        import openpyxl as _openpyxl
-    except ImportError:
-        return {"importados": 0, "omitidos": 0, "errores": ["openpyxl no disponible"]}
-
-    try:
-        from precio_sync import construir_producto_desde_fila as _construir
-    except ImportError:
-        return {"importados": 0, "omitidos": 0, "errores": ["precio_sync no disponible"]}
-
-    if not _db.DB_DISPONIBLE:
-        raise RuntimeError("⚠️ Base de datos no disponible — importar_catalogo_desde_excel requiere PostgreSQL.")
-
-    try:
-        wb = _openpyxl.load_workbook(ruta_excel, data_only=True)
-        ws = wb["Datos"]
-    except Exception as e:
-        return {"importados": 0, "omitidos": 0, "errores": [str(e)]}
-
-    col_headers = [
-        str(ws.cell(1, c).value or "")
-        for c in range(1, ws.max_column + 1)
-    ]
-
-    catalogo   = {}   # sólo los productos del Excel (para el UPSERT)
-    importados = 0
-    omitidos   = 0
-    errores    = []
-
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        try:
-            prod = _construir(row, col_headers)
-            if prod is None:
-                omitidos += 1
-                continue
-            clave = _re.sub('[^\\w\\s/]', '', prod["nombre_lower"]).replace(" ", "_")
-            clave = _re.sub(r'_+', '_', clave).strip('_')
-            catalogo[clave] = prod
-            importados += 1
-        except Exception as e:
-            nombre_raw = row[1] if row and len(row) > 1 else "?"
-            errores.append(f"{nombre_raw}: {e}")
-
-    # ── UPSERT a PG — nunca hace DELETE, productos del dashboard sobreviven ──
-    try:
-        _sincronizar_catalogo_postgres(catalogo, _db)
-    except Exception as e:
-        errores.append(f"Error PG sync: {e}")
-
-    # ── Invalidar cache: próximo cargar_memoria() lee PG completo ────────────
-    # No pisamos _cache aquí con solo los productos del Excel —
-    # invalidar_cache_memoria() limpia y reconstruye desde PG incluyendo
-    # productos añadidos por el dashboard que no están en el Excel.
-    invalidar_cache_memoria()
-
-    logger.info("[importar_excel] ✅ %d importados, %d omitidos, %d errores",
-                importados, omitidos, len(errores))
-    return {"importados": importados, "omitidos": omitidos, "errores": errores[:10]}
-
+    from precio_sync import importar_catalogo_desde_excel as _importar
+    return _importar(ruta_excel)
 
 # ─────────────────────────────────────────────
-# SINCRONIZACIÓN DE PRECIO → PostgreSQL (sin Excel/Drive)
+# SINCRONIZACIÓN DE PRECIO → BASE_DE_DATOS_PRODUCTOS.xlsx
 # ─────────────────────────────────────────────
 
 def actualizar_precio_en_excel_drive(
@@ -1714,28 +1651,11 @@ def actualizar_precio_en_excel_drive(
     fraccion: str = None,
 ) -> tuple[bool, str]:
     """
-    Actualiza el precio en PostgreSQL + cache. Nombre mantenido por
-    compatibilidad con callers existentes — ya NO escribe al Excel de Drive.
-
-    Delega a actualizar_precio_en_catalogo() que hace el upsert en PG de
-    forma atómica (precio_unidad, fracciones, precio_por_cantidad).
-
-    Returns:
-        (True, descripción)  — producto encontrado y precio actualizado.
-        (False, msg_error)   — producto no encontrado en catálogo.
+    DEPRECATED — mantenida por compatibilidad con código existente.
+    Ahora delega a precio_sync.actualizar_precio() que usa cola serializada.
     """
-    frac = fraccion.strip() if fraccion and fraccion.strip() not in ("", "1") else None
-
-    ok = actualizar_precio_en_catalogo(nombre_producto, nuevo_precio, frac)
-    if not ok:
-        return False, f"Producto '{nombre_producto}' no encontrado en catálogo."
-
-    invalidar_cache_memoria()
-
-    prod = buscar_producto_en_catalogo(nombre_producto)
-    nombre_oficial = prod["nombre"] if prod else nombre_producto
-    desc = nombre_oficial + (f" {frac}" if frac else "") + f" = ${nuevo_precio:,.0f}"
-    return True, desc
+    from precio_sync import actualizar_precio as _ap
+    return _ap(nombre_producto, nuevo_precio, fraccion)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

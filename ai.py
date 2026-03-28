@@ -58,8 +58,39 @@ from memoria import (
     guardar_fiado_movimiento, abonar_fiado,
     actualizar_precio_en_catalogo,
 )
-from excel import generar_excel_personalizado
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, _normalizar
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GENERACIÓN DE EXCEL (autocontenida — sin depender de excel.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generar_excel_personalizado(titulo: str, encabezados: list, filas: list, nombre_archivo: str) -> str:
+    """Genera un .xlsx con cabecera azul y filas alternas. Reemplaza excel.generar_excel_personalizado."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = titulo[:31]
+    ws.merge_cells(f"A1:{get_column_letter(len(encabezados))}1")
+    celda           = ws.cell(row=1, column=1, value=titulo)
+    celda.font      = Font(bold=True, color="FFFFFF", size=14)
+    celda.fill      = PatternFill("solid", fgColor="1A56DB")
+    celda.alignment = Alignment(horizontal="center")
+    for col, enc in enumerate(encabezados, 1):
+        celda           = ws.cell(row=2, column=col, value=enc)
+        celda.font      = Font(bold=True, color="FFFFFF", size=11)
+        celda.fill      = PatternFill("solid", fgColor="374151")
+        celda.alignment = Alignment(horizontal="center")
+    for i, fila in enumerate(filas, 3):
+        for col, valor in enumerate(fila, 1):
+            celda = ws.cell(row=i, column=col, value=valor)
+            if i % 2 == 0:
+                celda.fill = PatternFill("solid", fgColor="EFF6FF")
+    for col in range(1, len(encabezados) + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 20
+    wb.save(nombre_archivo)
+    return nombre_archivo
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS PG — reemplazan funciones de excel.py
@@ -395,21 +426,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     candidatos del catálogo, cliente encontrado, ventas del día, inventario, caja, etc.
     """
     # ── Resumen de ventas ──
-    resumen_sheets_total    = 0
-    resumen_sheets_cantidad = 0
-    if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
-        try:
-            from sheets import sheets_leer_ventas_del_dia
-            ventas_hoy = sheets_leer_ventas_del_dia()
-            for v in ventas_hoy:
-                try:
-                    resumen_sheets_total    += float(v.get("total", 0) or 0)
-                    resumen_sheets_cantidad += 1
-                except (ValueError, TypeError):
-                    pass
-        except Exception:
-            pass
-
     resumen               = _pg_resumen_ventas()
     resumen_excel_total   = resumen["total"]      if resumen else 0
     resumen_excel_cantidad = resumen["num_ventas"] if resumen else 0
@@ -418,8 +434,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     cantidad_mes = resumen_excel_cantidad
 
     resumen_texto = (
-        f"${total_mes:,.0f} en {cantidad_mes} ventas este mes "
-        f"(hoy: ${resumen_sheets_total:,.0f} en {resumen_sheets_cantidad} ventas)"
+        f"${total_mes:,.0f} en {cantidad_mes} ventas este mes"
     ) if cantidad_mes > 0 else "Sin ventas este mes"
 
     # ── Datos históricos ──────────────────────────────────────────────────────

@@ -49,6 +49,13 @@ if _faltantes:
 VERSION = "v9.0-pg-only"
 
 # ─────────────────────────────────────────────
+# ARCHIVOS LOCALES (legacy — usados por memoria.py
+# mientras notas/negocio no se migren a config_sistema PG)
+# ─────────────────────────────────────────────
+MEMORIA_FILE    = os.getenv("MEMORIA_FILE", "memoria.json")
+EXCEL_FILA_DATOS = 2  # fila donde comienzan los datos en Excels subidos por el usuario
+
+# ─────────────────────────────────────────────
 # Nombres de meses en español
 # ─────────────────────────────────────────────
 MESES = {
