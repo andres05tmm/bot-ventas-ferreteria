@@ -1060,6 +1060,7 @@ def registrar_compra(nombre_producto: str, cantidad: float, costo_unitario: floa
 
 def _registrar_historial_compra(producto: str, cantidad: float, costo_unitario: float, proveedor: str = "—"):
     """Persiste la compra en PostgreSQL (fuente única de verdad)."""
+    import db as _db
     if not _db.DB_DISPONIBLE:
         logger.warning("DB no disponible — historial_compra no registrado para: %s", producto)
         return
@@ -1263,12 +1264,14 @@ def cargar_caja() -> dict:
 
 
 def guardar_caja(caja: dict):
+    import db as _db
     if not _db.DB_DISPONIBLE:
         raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
     _guardar_caja_postgres(caja)
 
 
 def obtener_resumen_caja() -> str:
+    import db as _db
     caja = cargar_caja()
     if not caja.get("abierta"):
         return "La caja no está abierta hoy."
@@ -1302,6 +1305,7 @@ def obtener_resumen_caja() -> str:
 # ─────────────────────────────────────────────
 
 def cargar_gastos_hoy() -> list:
+    import db as _db
     if not _db.DB_DISPONIBLE:
         logger.warning("DB no disponible — cargar_gastos_hoy retorna []")
         return []
@@ -1314,6 +1318,7 @@ def cargar_gastos_hoy() -> list:
 
 
 def guardar_gasto(gasto: dict):
+    import db as _db
     if not _db.DB_DISPONIBLE:
         raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
     _guardar_gasto_postgres(gasto)
@@ -1392,6 +1397,7 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
     Registra un movimiento de fiado (cargo=lo que quedó debiendo, abono=lo que pagó).
     Crea el cliente en fiados si no existe.
     """
+    import db as _db
     if not _db.DB_DISPONIBLE:
         raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
 
@@ -1533,6 +1539,7 @@ def actualizar_precio_en_catalogo(nombre_producto: str, nuevo_precio: float, fra
     - Si fraccion es "1/4", "1/2", etc.: actualiza ese precio de fraccion.
     Retorna True si encontró y actualizó el producto, False si no lo encontró.
     """
+    import db as _db
     import logging as _log_cat
     _log = _log_cat.getLogger("ferrebot.memoria")
 
@@ -1679,6 +1686,7 @@ def registrar_factura_proveedor(
     Registra una nueva factura de proveedor en memoria.json.
     Retorna el dict de la factura creada.
     """
+    import db as _db
     from datetime import datetime as _dt
     mem = cargar_memoria()
     if "cuentas_por_pagar" not in mem:
@@ -1726,6 +1734,7 @@ def registrar_abono_factura(
     Actualiza pagado/pendiente/estado.
     Retorna {"ok": True/False, "factura": {...}, "error": "..."}
     """
+    import db as _db
     from datetime import datetime as _dt
     if not _db.DB_DISPONIBLE:
         raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
