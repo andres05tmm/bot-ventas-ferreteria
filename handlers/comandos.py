@@ -2106,6 +2106,136 @@ async def comando_deudas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# /facturas — historial completo con fotos
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def comando_facturas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Muestra historial de facturas con sus abonos y links de fotos.
+
+    Uso:
+      /facturas              → todas las facturas
+      /facturas pagadas      → solo las pagadas
+      /facturas pendientes   → solo pendientes/parciales
+      /facturas Davinci      → filtra por nombre de proveedor
+    """
+    if not _db.DB_DISPONIBLE:
+        await update.message.reply_text("⚠️ Base de datos no disponible.")
+        return
+
+    filtro = " ".join(context.args).strip() if context.args else ""
+    filtro_lower = filtro.lower()
+
+    # Armar query según filtro
+    if filtro_lower == "pagadas":
+        where = "WHERE fp.estado = 'pagada'"
+        params = []
+        titulo = "✅ Facturas PAGADAS"
+    elif filtro_lower in ("pendientes", "pendiente"):
+        where = "WHERE fp.estado IN ('pendiente', 'parcial')"
+        params = []
+        titulo = "🔴 Facturas PENDIENTES / PARCIALES"
+    elif filtro:
+        where = "WHERE fp.proveedor ILIKE %s"
+        params = [f"%{filtro}%"]
+        titulo = f"📋 Facturas — {filtro}"
+    else:
+        where = ""
+        params = []
+        titulo = "📋 Historial completo de facturas"
+
+    facturas = await asyncio.to_thread(
+        _db.query_all,
+        f"""
+        SELECT fp.id, fp.proveedor, fp.descripcion, fp.total,
+               fp.pagado, fp.pendiente, fp.estado, fp.fecha::text,
+               fp.foto_url, fp.foto_nombre
+        FROM   facturas_proveedores fp
+        {where}
+        ORDER  BY fp.fecha DESC, fp.id DESC
+        """,
+        params or None,
+    )
+
+    if not facturas:
+        await update.message.reply_text(
+            f"📋 No hay facturas{' para «' + filtro + '»' if filtro else ''}.\n\n"
+            "Usa `/factura Proveedor Total Descripción` para registrar una.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Cargar abonos de todas las facturas de una sola query
+    ids = [r["id"] for r in facturas]
+    placeholders = ",".join(["%s"] * len(ids))
+    abonos_rows = await asyncio.to_thread(
+        _db.query_all,
+        f"""
+        SELECT factura_id, monto, fecha::text, foto_url, foto_nombre
+        FROM   facturas_abonos
+        WHERE  factura_id IN ({placeholders})
+        ORDER  BY factura_id, id
+        """,
+        ids,
+    )
+    # Indexar abonos por factura_id
+    abonos_por_fac: dict = {}
+    for ab in (abonos_rows or []):
+        abonos_por_fac.setdefault(ab["factura_id"], []).append(ab)
+
+    estado_emoji = {"pagada": "✅", "parcial": "🔶", "pendiente": "🔴"}
+
+    bloques = [f"*{titulo}* ({len(facturas)} factura(s))\n"]
+
+    for fac in facturas:
+        fid    = fac["id"]
+        prov   = fac["proveedor"]
+        desc   = fac["descripcion"] or "—"
+        total  = int(fac["total"])
+        pagado = int(fac["pagado"])
+        pend   = int(fac["pendiente"])
+        estado = fac["estado"]
+        fecha  = str(fac["fecha"])[:10]
+        emoji  = estado_emoji.get(estado, "📄")
+        foto_fac = fac.get("foto_url", "")
+
+        linea = (
+            f"\n{emoji} *{fid}* — {prov}\n"
+            f"   📅 {fecha}  |  💰 ${total:,.0f}  |  {estado.upper()}\n"
+            f"   📝 {desc}\n"
+        )
+        if pagado > 0:
+            linea += f"   ✔️ Pagado: ${pagado:,.0f}  |  ⏳ Pendiente: ${pend:,.0f}\n"
+        if foto_fac:
+            linea += f"   📎 [Ver factura]({foto_fac})\n"
+
+        # Abonos de esta factura
+        abonos = abonos_por_fac.get(fid, [])
+        for i, ab in enumerate(abonos, 1):
+            monto_ab = int(ab["monto"])
+            fecha_ab = str(ab["fecha"])[:10]
+            foto_ab  = ab.get("foto_url", "")
+            linea += f"   💸 Abono {i}: ${monto_ab:,.0f} el {fecha_ab}"
+            if foto_ab:
+                linea += f"  [Ver comprobante]({foto_ab})"
+            linea += "\n"
+
+        bloques.append(linea)
+
+    # Enviar en mensajes de máx 4000 chars
+    msg = ""
+    for bloque in bloques:
+        if len(msg) + len(bloque) > 3800:
+            await update.message.reply_text(msg, parse_mode="Markdown",
+                                            disable_web_page_preview=True)
+            msg = ""
+        msg += bloque
+    if msg.strip():
+        await update.message.reply_text(msg, parse_mode="Markdown",
+                                        disable_web_page_preview=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # /borrar_factura
 # ─────────────────────────────────────────────────────────────────────────────
 
