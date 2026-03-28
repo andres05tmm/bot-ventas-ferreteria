@@ -3,50 +3,39 @@ Router: Histórico — /historico/*
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
+import threading as _threading
 from collections import defaultdict
 from datetime import datetime, timedelta
-import openpyxl
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
-from fastapi.responses import FileResponse, StreamingResponse
+
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
 
-import config
+from memoria import cargar_memoria
 from routers.shared import (
-    _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
-    _to_float, _cantidad_a_float, _stock_wayper,
+    _hoy, _hace_n_dias, _leer_excel_rango,
+    _to_float, _cantidad_a_float,
 )
 
 logger = logging.getLogger("ferrebot.api")
 
 router = APIRouter()
 
-# ── Historial manual de ventas diarias ────────────────────────────────────────
+# ── Caché en memoria ────────────────────────────────────────────────────────
 
-HISTORICO_FILE  = "historico_ventas.json"
-HISTORICO_EXCEL = "historico_ventas.xlsx"
-_NOMBRES_MES    = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
-                   "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
-
-# ── Locks y caché en memoria ────────────────────────────────────────────────
-import threading as _threading
-
-# Caché para el total de hoy (evita llamar a Sheets en cada GET)
+# Caché para el total de hoy (evita recalcular en cada GET)
 _cache_hoy_lock  = _threading.Lock()
 _cache_hoy_valor: float = 0.0
 _cache_hoy_fecha: str   = ""      # "YYYY-MM-DD" — se invalida al cambiar de día
 _cache_hoy_ts:    float = 0.0     # timestamp UNIX de la última consulta real
 _CACHE_TTL = 90                   # segundos — equilibrio entre frescura y peticiones
 
-# Locks de escritura para archivos JSON del histórico
-# Evitan corrupción cuando el bot y el API escriben simultáneamente
-_historico_lock = _threading.Lock()   # protege historico_ventas.json + .xlsx
-_diario_lock    = _threading.Lock()   # protege historico_diario.json
+_NOMBRES_MES = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
-# ── Helpers: total en vivo desde Sheets / Excel ──────────────────────────────
+# ── Helpers: total en vivo desde Postgres ────────────────────────────────────
 
 def _total_ventas_hoy_sheets() -> float:
     """
@@ -82,18 +71,6 @@ def _total_ventas_hoy_sheets() -> float:
     except Exception:
         pass
 
-    # ── Fallback: Excel si Sheets no devolvió nada ────────────────────────
-    if total <= 0:
-        try:
-            ventas_xls = _leer_excel_rango(dias=1)
-            total = sum(
-                float(str(v.get("total", 0)).replace(",", ".") or 0)
-                for v in ventas_xls
-                if str(v.get("fecha", ""))[:10] == hoy
-            )
-        except Exception:
-            pass
-
     if total > 0:
         import time as _time2
         with _cache_hoy_lock:
@@ -103,33 +80,11 @@ def _total_ventas_hoy_sheets() -> float:
     return total
 
 
-def _totales_por_dia_excel(dias: int = 30) -> dict:
-    """
-    Lee ventas del Excel y retorna {fecha: total} para los últimos N días.
-    Útil para sincronizar históricos de días pasados.
-    """
-    try:
-        ventas = _leer_excel_rango(dias=dias)
-    except Exception:
-        return {}
-    por_dia: dict[str, float] = defaultdict(float)
-    for v in ventas:
-        fecha = str(v.get("fecha", ""))[:10]
-        if fecha:
-            try:
-                por_dia[fecha] += float(str(v.get("total", 0)).replace(",", ".") or 0)
-            except (ValueError, TypeError):
-                pass
-    return {k: int(v) for k, v in por_dia.items() if v > 0}
-
-
 def _sync_historico_hoy() -> dict:
     """
     Sincroniza el total de hoy al histórico persistente.
-    Captura ventas (Sheets), desglose por método de pago (Excel),
-    gastos del día y abonos a proveedores (memoria.json).
+    Desglose de métodos de pago desde Postgres; gastos desde cargar_memoria().
     """
-    import json as _json
     hoy   = _hoy()
     total = _total_ventas_hoy_sheets()
     if total <= 0:
@@ -137,74 +92,61 @@ def _sync_historico_hoy() -> dict:
 
     monto = int(total)
 
-    # ── Desglose método de pago (desde Excel de ventas) ──────────────────
-    efectivo = transferencia = datafono = 0
+    # ── Desglose método de pago (desde Postgres) ─────────────────────────
+    efectivo = transferencia = datafono = 0.0
     n_trans  = 0
     try:
-        rows = [r for r in _leer_excel_rango(dias=1) if str(r.get("fecha", ""))[:10] == hoy]
-        for r in rows:
+        from db import query_all as _qa
+        rows_pg = _qa(
+            """
+            SELECT
+                COALESCE(v.metodo_pago, '') AS metodo,
+                COALESCE(SUM(d.total), 0)::float AS subtotal,
+                COUNT(DISTINCT v.id) AS n
+            FROM ventas v
+            JOIN ventas_detalle d ON d.venta_id = v.id
+            WHERE v.fecha = %s
+            GROUP BY v.metodo_pago
+            """,
+            (hoy,),
+        )
+        for r in rows_pg:
             mt = str(r.get("metodo", "")).lower()
-            v  = float(r.get("total", 0) or 0)
+            v  = float(r.get("subtotal", 0) or 0)
+            n  = int(r.get("n", 0))
             if "transfer" in mt:
                 transferencia += v
             elif "data" in mt or "tarjeta" in mt:
                 datafono += v
             else:
                 efectivo += v
-            n_trans += 1
+            n_trans += n
     except Exception:
         pass
 
-    # ── Gastos y abonos del día — una sola lectura de memoria.json ──────
+    # ── Gastos y abonos del día — desde cargar_memoria() ─────────────────
     gastos_dia = 0.0
     abonos_dia = 0.0
     try:
-        with open(config.MEMORIA_FILE, encoding="utf-8") as _fh:
-            _mem = _json.load(_fh)
-        for g in _mem.get("gastos", {}).get(hoy, []):
+        for g in cargar_memoria().get("gastos", {}).get(hoy, []):
             val = float(g.get("monto", 0))
             gastos_dia += val
             if g.get("categoria") == "abono_proveedor":
                 abonos_dia += val
-        # Descontar abonos de gastos para no contarlos doble
         gastos_dia = max(0.0, gastos_dia - abonos_dia)
     except Exception:
         pass
 
-    # ── Guardar en historico_diario.json (datos enriquecidos) ─────────────
-    _diario_file = "historico_diario.json"
-    try:
-        with _diario_lock:
-            if os.path.exists(_diario_file):
-                with open(_diario_file, encoding="utf-8") as _fh:
-                    _diario = _json.load(_fh)
-            else:
-                _diario = {}
-
-            _diario[hoy] = {
-                "ventas":               monto,
-                "efectivo":             round(efectivo, 2),
-                "transferencia":        round(transferencia, 2),
-                "datafono":             round(datafono, 2),
-                "n_transacciones":      n_trans,
-                "gastos":               round(gastos_dia, 2),
-                "abonos_proveedores":   round(abonos_dia, 2),
-            }
-            with open(_diario_file, "w", encoding="utf-8") as _fh:
-                _json.dump(_diario, _fh, ensure_ascii=False, indent=2)
-        # Postgres write (datos enriquecidos del día)
-        _guardar_diario_postgres(hoy, {
-            "ventas":             monto,
-            "efectivo":           round(efectivo, 2),
-            "transferencia":      round(transferencia, 2),
-            "datafono":           round(datafono, 2),
-            "n_transacciones":    n_trans,
-            "gastos":             round(gastos_dia, 2),
-            "abonos_proveedores": round(abonos_dia, 2),
-        })
-        # ELIMINADO (HIS-04): ya no se sube historico_diario.json a Drive
-    except Exception:
-        pass
+    # ── Persistir en Postgres ─────────────────────────────────────────────
+    _guardar_diario_postgres(hoy, {
+        "ventas":             monto,
+        "efectivo":           round(efectivo, 2),
+        "transferencia":      round(transferencia, 2),
+        "datafono":           round(datafono, 2),
+        "n_transacciones":    n_trans,
+        "gastos":             round(gastos_dia, 2),
+        "abonos_proveedores": round(abonos_dia, 2),
+    })
 
     # ── Guardar total en historico principal ──────────────────────────────
     data = _leer_historico()
@@ -323,274 +265,13 @@ def _guardar_diario_postgres(fecha: str, datos: dict) -> None:
         logger.warning("Error guardando diario en Postgres: %s", e)
 
 
-def _excel_a_dict(ruta: str) -> dict:
-    """
-    Lee historico_ventas.xlsx y retorna {fecha: monto}.
-    Columna A (idx 0) = Fecha (YYYY-MM-DD), Columna B (idx 1) = Ventas.
-    Orden de columnas hoja 1: Fecha|Ventas|Efectivo|Transferencia|Datáfono|…
-    Ignora filas con fecha o monto inválidos.
-    """
-    data = {}
-    try:
-        wb = openpyxl.load_workbook(ruta, read_only=True, data_only=True)
-        ws = wb.active
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            fecha = str(row[0] or "").strip()
-            monto = row[1]  # Col B = Ventas (antes era row[4] = Datáfono ← BUG)
-            if not fecha or not monto:
-                continue
-            try:
-                # Validar formato YYYY-MM-DD
-                parts = fecha.split("-")
-                if len(parts) == 3 and len(parts[0]) == 4:
-                    m = int(monto)
-                    if m > 0:
-                        data[fecha] = m
-            except Exception:
-                pass
-    except Exception as e:
-        logging.getLogger("ferrebot.api").warning(f"[historico] No se pudo leer Excel: {e}")
-    return data
-
-def _dict_a_excel(data: dict, ruta: str) -> None:
-    """
-    Genera historico_ventas.xlsx con 3 hojas:
-      Hoja 1 — Operaciones Diarias  (una fila por día)
-      Hoja 2 — Cuentas por Pagar    (una fila por factura)
-      Hoja 3 — Resumen Mensual      (una fila por mes, calculada)
-    """
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-    from openpyxl.utils import get_column_letter
-    from collections import defaultdict
-
-    ROJO     = "C0392B"
-    AZUL     = "2E4057"
-    VERDE    = "1A7A4A"
-    BLANCO   = "FFFFFF"
-    GRIS_L   = "F2F2F2"
-    BORDE_S  = Side(style="thin", color="CCCCCC")
-    BORDE    = Border(left=BORDE_S, right=BORDE_S, top=BORDE_S, bottom=BORDE_S)
-
-    def _hdr(ws, fila, cols, color=ROJO):
-        """Escribe encabezados con fondo de color."""
-        for col, texto in enumerate(cols, 1):
-            c = ws.cell(row=fila, column=col, value=texto)
-            c.font      = Font(bold=True, color=BLANCO, size=10)
-            c.fill      = PatternFill("solid", fgColor=color)
-            c.alignment = Alignment(horizontal="center", vertical="center")
-            c.border    = BORDE
-
-    def _celda(ws, fila, col, valor, fmt=None, negrita=False, color_txt=None, bg=None):
-        c = ws.cell(row=fila, column=col, value=valor)
-        c.border    = BORDE
-        c.alignment = Alignment(horizontal="right" if isinstance(valor, (int, float)) else "left",
-                                 vertical="center")
-        if fmt:        c.number_format = fmt
-        if negrita:    c.font = Font(bold=True, color=color_txt or "000000", size=10)
-        elif color_txt: c.font = Font(color=color_txt, size=10)
-        if bg:         c.fill = PatternFill("solid", fgColor=bg)
-        return c
-
-    wb = openpyxl.Workbook()
-
-    # ── HOJA 1: Operaciones Diarias ──────────────────────────────────────────
-    ws1 = wb.active
-    ws1.title = "Operaciones Diarias"
-    ws1.row_dimensions[1].height = 22
-
-    # Título
-    ws1.merge_cells("A1:I1")
-    t = ws1.cell(row=1, column=1,
-                 value="FERRETERÍA PUNTO ROJO — Operaciones Diarias")
-    t.font      = Font(bold=True, color=BLANCO, size=12)
-    t.fill      = PatternFill("solid", fgColor=ROJO)
-    t.alignment = Alignment(horizontal="center", vertical="center")
-
-    cols1 = ["Fecha","Ventas","Efectivo","Transferencia","Datáfono",
-             "N° Trans","Gastos","Abonos Prov.","Caja Neta"]
-    _hdr(ws1, 2, cols1)
-
-    # Cargar datos enriquecidos si existen (gastos, abonos)
-    _datos_dia: dict = {}
-    try:
-        import json as _j, config as _cfg, os as _os
-        if _os.path.exists("historico_diario.json"):
-            with open("historico_diario.json", encoding="utf-8") as _fh:
-                _datos_dia = _j.load(_fh)
-    except Exception:
-        pass
-
-    anchos1 = [13, 14, 14, 14, 12, 9, 13, 14, 13]
-    for i, w in enumerate(anchos1, 1):
-        ws1.column_dimensions[get_column_letter(i)].width = w
-
-    totales1 = [0.0] * 9
-    for fila_idx, (fecha, monto) in enumerate(sorted(data.items()), 3):
-        bg = GRIS_L if fila_idx % 2 == 0 else None
-        dd = _datos_dia.get(fecha, {})
-        ventas      = float(monto)
-        efectivo    = float(dd.get("efectivo", 0))
-        transf      = float(dd.get("transferencia", 0))
-        datafono    = float(dd.get("datafono", 0))
-        n_trans     = int(dd.get("n_transacciones", 0))
-        gastos      = float(dd.get("gastos", 0))
-        abonos      = float(dd.get("abonos_proveedores", 0))
-        caja_neta   = ventas - gastos - abonos
-
-        vals = [fecha, ventas, efectivo, transf, datafono,
-                n_trans, gastos, abonos, caja_neta]
-        for ci, val in enumerate(vals, 1):
-            fmt = "#,##0" if isinstance(val, float) else None
-            color = "1A7A4A" if ci == 9 and caja_neta >= 0 else (
-                    "C0392B" if ci == 9 and caja_neta < 0 else None)
-            _celda(ws1, fila_idx, ci, val, fmt=fmt, color_txt=color, bg=bg)
-        for ci, val in enumerate(vals, 1):
-            if isinstance(val, float):
-                totales1[ci-1] += val
-
-    # Fila de totales
-    fila_tot = max(3, 3 + len(data))
-    _celda(ws1, fila_tot, 1, "TOTAL", negrita=True, bg="E8E8E8")
-    for ci, tot in enumerate(totales1[1:], 2):
-        if ci == 6: continue  # N° Trans no suma
-        _celda(ws1, fila_tot, ci, tot, fmt="#,##0", negrita=True, bg="E8E8E8")
-    ws1.freeze_panes = "A3"
-
-    # ── HOJA 2: Cuentas por Pagar ────────────────────────────────────────────
-    ws2 = wb.create_sheet("Cuentas por Pagar")
-    ws2.row_dimensions[1].height = 22
-    ws2.merge_cells("A1:H1")
-    t2 = ws2.cell(row=1, column=1,
-                  value="FERRETERÍA PUNTO ROJO — Cuentas por Pagar")
-    t2.font      = Font(bold=True, color=BLANCO, size=12)
-    t2.fill      = PatternFill("solid", fgColor=AZUL)
-    t2.alignment = Alignment(horizontal="center", vertical="center")
-
-    cols2 = ["ID","Fecha","Proveedor","Descripción","Total","Pagado","Pendiente","Estado"]
-    _hdr(ws2, 2, cols2, color=AZUL)
-
-    anchos2 = [10, 13, 20, 30, 14, 14, 14, 11]
-    for i, w in enumerate(anchos2, 1):
-        ws2.column_dimensions[get_column_letter(i)].width = w
-
-    facturas_data = []
-    try:
-        from memoria import listar_facturas as _lf
-        facturas_data = _lf()
-    except Exception:
-        pass
-
-    for fi, fac in enumerate(sorted(facturas_data, key=lambda x: x.get("fecha",""))):
-        fila_f = fi + 3
-        bg = GRIS_L if fila_f % 2 == 0 else None
-        estado = fac.get("estado", "pendiente")
-        col_estado = {"pagada": "1A7A4A", "parcial": "E67E22", "pendiente": "C0392B"}.get(estado, "000000")
-
-        _celda(ws2, fila_f, 1, fac.get("id",""), bg=bg)
-        _celda(ws2, fila_f, 2, fac.get("fecha",""), bg=bg)
-        _celda(ws2, fila_f, 3, fac.get("proveedor",""), bg=bg)
-        _celda(ws2, fila_f, 4, fac.get("descripcion",""), bg=bg)
-        _celda(ws2, fila_f, 5, fac.get("total",0), fmt="#,##0", bg=bg)
-        _celda(ws2, fila_f, 6, fac.get("pagado",0), fmt="#,##0", bg=bg)
-        _celda(ws2, fila_f, 7, fac.get("pendiente",0), fmt="#,##0",
-               negrita=True, color_txt=col_estado if estado != "pagada" else None, bg=bg)
-        _celda(ws2, fila_f, 8, estado.upper(), color_txt=col_estado, negrita=True, bg=bg)
-
-        # Si tiene foto, agregar hyperlink en la celda ID
-        foto_url = fac.get("foto_url","")
-        if foto_url:
-            ws2.cell(row=fila_f, column=1).hyperlink = foto_url
-            ws2.cell(row=fila_f, column=1).style = "Hyperlink"
-
-    ws2.freeze_panes = "A3"
-
-    # ── HOJA 3: Resumen Mensual ───────────────────────────────────────────────
-    ws3 = wb.create_sheet("Resumen Mensual")
-    ws3.row_dimensions[1].height = 22
-    ws3.merge_cells("A1:F1")
-    t3 = ws3.cell(row=1, column=1,
-                  value="FERRETERÍA PUNTO ROJO — Resumen Mensual")
-    t3.font      = Font(bold=True, color=BLANCO, size=12)
-    t3.fill      = PatternFill("solid", fgColor=VERDE)
-    t3.alignment = Alignment(horizontal="center", vertical="center")
-
-    cols3 = ["Mes","Ventas","Gastos","Abonos Prov.","Caja Neta","Deuda Total"]
-    _hdr(ws3, 2, cols3, color=VERDE)
-
-    anchos3 = [15, 15, 13, 14, 14, 14]
-    for i, w in enumerate(anchos3, 1):
-        ws3.column_dimensions[get_column_letter(i)].width = w
-
-    # Agrupar días por mes
-    por_mes: dict = defaultdict(lambda: {"ventas":0.0,"gastos":0.0,"abonos":0.0})
-    for fecha, monto in data.items():
-        mes_k = fecha[:7]
-        por_mes[mes_k]["ventas"] += float(monto)
-        dd = _datos_dia.get(fecha, {})
-        por_mes[mes_k]["gastos"] += float(dd.get("gastos", 0))
-        por_mes[mes_k]["abonos"] += float(dd.get("abonos_proveedores", 0))
-
-    # Deuda total vigente al final del período
-    deuda_total = sum(f.get("pendiente",0) for f in facturas_data if f.get("estado") != "pagada")
-
-    for mi, (mes_k, vals) in enumerate(sorted(por_mes.items()), 3):
-        bg = GRIS_L if mi % 2 == 0 else None
-        try:
-            año_n, mes_n = int(mes_k[:4]), int(mes_k[5:])
-            nom = f"{_NOMBRES_MES[mes_n]} {año_n}"
-        except Exception:
-            nom = mes_k
-        caja_neta = vals["ventas"] - vals["gastos"] - vals["abonos"]
-        color_cn = "1A7A4A" if caja_neta >= 0 else "C0392B"
-        _celda(ws3, mi, 1, nom, bg=bg)
-        _celda(ws3, mi, 2, vals["ventas"], fmt="#,##0", bg=bg)
-        _celda(ws3, mi, 3, vals["gastos"], fmt="#,##0", bg=bg)
-        _celda(ws3, mi, 4, vals["abonos"], fmt="#,##0", bg=bg)
-        _celda(ws3, mi, 5, caja_neta, fmt="#,##0", negrita=True, color_txt=color_cn, bg=bg)
-        _celda(ws3, mi, 6, deuda_total, fmt="#,##0", bg=bg)
-
-    ws3.freeze_panes = "A3"
-
-    wb.save(ruta)
-
 def _leer_historico() -> dict:
-    """
-    Lee historial: primero Postgres (nueva fuente de verdad),
-    luego JSON local como fallback.
-    """
-    # 1. Postgres (nueva fuente de verdad)
-    pg_data = _leer_historico_postgres()
-    if pg_data:
-        return pg_data
-
-    # 2. JSON local como fallback
-    if os.path.exists(HISTORICO_FILE):
-        try:
-            with open(HISTORICO_FILE, encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-
-    return {}
+    """Lee historial desde Postgres (única fuente de verdad)."""
+    return _leer_historico_postgres()
 
 def _guardar_historico(data: dict) -> None:
-    """
-    Guarda en Postgres (nueva fuente de verdad) + JSON local (cache) + Excel local.
-    Drive uploads de historico JSON/Excel ELIMINADOS (HIS-04).
-    Protegido con _historico_lock para evitar corrupción por escrituras concurrentes.
-    """
-    # 1. Postgres (nueva fuente de verdad)
+    """Persiste en Postgres (única fuente de verdad)."""
     _guardar_historico_postgres(data)
-
-    with _historico_lock:
-        # 2. JSON local (caché rápida para fallback)
-        with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-        # 3. Excel local (para descarga manual, NO se sube a Drive)
-        _dict_a_excel(data, HISTORICO_EXCEL)
-
-    # ELIMINADO (HIS-04): ya no se suben historico_ventas.json ni historico_ventas.xlsx a Drive
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
@@ -621,12 +302,7 @@ class HistoricoBody(BaseModel):
 
 @router.post("/historico/ventas")
 def historico_ventas_post(body: HistoricoBody):
-    """
-    Guarda los montos de un mes.
-    1. Lee estado actual del Excel (para no pisar otros meses)
-    2. Fusiona con los nuevos datos
-    3. Guarda JSON + Excel + sube Drive
-    """
+    """Guarda los montos de un mes en Postgres."""
     try:
         # Leer estado actual (Excel como fuente de verdad)
         data   = _leer_historico()
@@ -643,28 +319,6 @@ def historico_ventas_post(body: HistoricoBody):
         _guardar_historico(data)
         registros_mes = len([v for k, v in data.items() if k.startswith(prefijo)])
         return {"ok": True, "registros": registros_mes, "total": len(data)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/historico/sincronizar-excel")
-def historico_sincronizar_excel():
-    """
-    Lee el Excel local historico_ventas.xlsx (editado manualmente) y
-    sincroniza hacia Postgres + JSON local.
-    """
-    try:
-        if not os.path.exists(HISTORICO_EXCEL):
-            return {"ok": False, "error": f"No se encontró {HISTORICO_EXCEL} en disco"}
-        data = _excel_a_dict(HISTORICO_EXCEL)
-        if not data:
-            return {"ok": False, "error": f"{HISTORICO_EXCEL} está vacío o sin datos válidos"}
-        # Persistir en Postgres (nueva fuente de verdad)
-        _guardar_historico_postgres(data)
-        # Actualizar caché JSON local
-        with _historico_lock:
-            with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        return {"ok": True, "registros": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -690,26 +344,9 @@ def historico_resumen():
 def historico_diario_get(año: int = 0, mes: int = 0):
     """
     Retorna el desglose diario (efectivo, transferencia, datáfono, gastos, abonos).
-    Fuente: primero Postgres, luego historico_diario.json local.
+    Fuente: Postgres (única fuente de verdad).
     """
-    import json as _json
-
-    # 1. Postgres (nueva fuente de verdad)
-    pg_diario = _leer_diario_postgres(año, mes)
-    if pg_diario:
-        return pg_diario
-
-    _diario_file = "historico_diario.json"
-    diario = {}
-
-    # 2. Local JSON
-    if os.path.exists(_diario_file):
-        try:
-            with open(_diario_file, encoding="utf-8") as fh:
-                diario = _json.load(fh)
-        except Exception:
-            pass
-
+    diario = _leer_diario_postgres(año, mes)
     if not año and not mes:
         return diario
     prefijo = f"{año}-{mes:02d}" if mes else str(año)
@@ -742,11 +379,8 @@ class CorreccionDia(BaseModel):
 def historico_corregir_dia(body: CorreccionDia):
     """
     Corrige o agrega manualmente el total de un día específico.
-    Útil para cuadrar con el cuaderno sin depender de Drive ni Excel.
     Acepta opcionalmente el desglose (efectivo, transferencia, datáfono).
     """
-    import json as _json
-
     # Validar formato fecha
     try:
         datetime.strptime(body.fecha, "%Y-%m-%d")
@@ -756,37 +390,26 @@ def historico_corregir_dia(body: CorreccionDia):
     if body.monto <= 0:
         raise HTTPException(status_code=400, detail="El monto debe ser mayor a 0")
 
-    # Actualizar historico principal
+    # Actualizar historico principal en Postgres
     data = _leer_historico()
     anterior = data.get(body.fecha, 0)
     data[body.fecha] = body.monto
     _guardar_historico(data)
 
     # Actualizar desglose si se proporcionó
-    _diario_file = "historico_diario.json"
     if any(v is not None for v in [body.efectivo, body.transferencia, body.datafono, body.gastos, body.abonos]):
         try:
-            with _diario_lock:
-                if os.path.exists(_diario_file):
-                    with open(_diario_file, encoding="utf-8") as fh:
-                        diario = _json.load(fh)
-                else:
-                    diario = {}
-
-                existente = diario.get(body.fecha, {})
-                diario[body.fecha] = {
-                    "ventas":             body.monto,
-                    "efectivo":           body.efectivo     if body.efectivo     is not None else existente.get("efectivo", 0),
-                    "transferencia":      body.transferencia if body.transferencia is not None else existente.get("transferencia", 0),
-                    "datafono":           body.datafono     if body.datafono     is not None else existente.get("datafono", 0),
-                    "n_transacciones":    existente.get("n_transacciones", 0),
-                    "gastos":             body.gastos       if body.gastos       is not None else existente.get("gastos", 0),
-                    "abonos_proveedores": body.abonos       if body.abonos       is not None else existente.get("abonos_proveedores", 0),
-                }
-                with open(_diario_file, "w", encoding="utf-8") as fh:
-                    _json.dump(diario, fh, ensure_ascii=False, indent=2)
-            _guardar_diario_postgres(body.fecha, diario[body.fecha])
-            # ELIMINADO (HIS-04): ya no se sube historico_diario.json a Drive
+            existente = _leer_diario_postgres().get(body.fecha, {})
+            nuevo_desglose = {
+                "ventas":             body.monto,
+                "efectivo":           body.efectivo          if body.efectivo          is not None else existente.get("efectivo", 0),
+                "transferencia":      body.transferencia      if body.transferencia      is not None else existente.get("transferencia", 0),
+                "datafono":           body.datafono           if body.datafono           is not None else existente.get("datafono", 0),
+                "n_transacciones":    existente.get("n_transacciones", 0),
+                "gastos":             body.gastos             if body.gastos             is not None else existente.get("gastos", 0),
+                "abonos_proveedores": body.abonos             if body.abonos             is not None else existente.get("abonos_proveedores", 0),
+            }
+            _guardar_diario_postgres(body.fecha, nuevo_desglose)
         except Exception as e:
             logger.warning(f"[corregir-dia] No se pudo actualizar desglose: {e}")
 
@@ -801,30 +424,21 @@ def historico_corregir_dia(body: CorreccionDia):
 @router.post("/historico/reconstruir-desglose")
 def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
     """
-    Reconstruye historico_diario.json leyendo el Excel de ventas fila por fila.
-    Usar cuando el desglose (efectivo/transferencia/datáfono) se muestra en 0
-    después de un redeploy que perdió historico_diario.json.
+    Reconstruye el desglose diario leyendo ventas desde Postgres y gastos desde
+    cargar_memoria(). Escribe exclusivamente a historico_ventas en Postgres.
+    Usar cuando efectivo/transferencia/datáfono aparezcan en 0.
     """
-    import json as _json
+    # Leer desglose existente desde Postgres (para preservar lo que ya hay)
+    diario: dict = _leer_diario_postgres()
 
-    _diario_file = "historico_diario.json"
-
-    # Leer diario existente (si hay algo, lo preservamos)
-    try:
-        with open(_diario_file, encoding="utf-8") as fh:
-            diario = _json.load(fh)
-    except Exception:
-        diario = {}
-
-    # Calcular rango de fechas (strings YYYY-MM-DD)
     desde = _hace_n_dias(dias).strftime("%Y-%m-%d")
     hasta = _hoy()
 
-    # Leer todas las ventas del Excel en ese rango
+    # Leer ventas desde Postgres (vía _leer_excel_rango → _leer_ventas_postgres)
     try:
         rows = _leer_excel_rango(dias=dias)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error leyendo Excel: {e}")
+        raise HTTPException(status_code=500, detail=f"Error leyendo ventas: {e}")
 
     # Agrupar por fecha y método de pago
     por_dia: dict = defaultdict(lambda: {
@@ -848,11 +462,9 @@ def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
         else:
             por_dia[fecha]["efectivo"] += total
 
-    # Leer gastos y abonos de memoria.json para cada fecha
+    # Gastos y abonos desde cargar_memoria()
     try:
-        with open(config.MEMORIA_FILE, encoding="utf-8") as fh:
-            mem = _json.load(fh)
-        gastos_mem = mem.get("gastos", {})
+        gastos_mem = cargar_memoria().get("gastos", {})
         for fecha, lista in gastos_mem.items():
             if fecha < desde or fecha > hasta:
                 continue
@@ -865,8 +477,7 @@ def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
     except Exception:
         pass
 
-    # Redondear y fusionar — solo pisamos desglose de días que no lo tienen,
-    # pero SIEMPRE actualizamos gastos y abonos desde memoria.json
+    # Fusionar: respetar desglose existente; siempre actualizar gastos/abonos
     reconstruidos = 0
     for fecha, vals in por_dia.items():
         existente = diario.get(fecha, {})
@@ -876,7 +487,7 @@ def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
             or existente.get("datafono", 0) > 0
         )
         if not ya_tiene_desglose:
-            diario[fecha] = {
+            nuevo = {
                 "ventas":             round(vals["ventas"], 2),
                 "efectivo":           round(vals["efectivo"], 2),
                 "transferencia":      round(vals["transferencia"], 2),
@@ -885,78 +496,71 @@ def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
                 "gastos":             round(vals["gastos"], 2),
                 "abonos_proveedores": round(vals["abonos_proveedores"], 2),
             }
+            diario[fecha] = nuevo
+            _guardar_diario_postgres(fecha, nuevo)
             reconstruidos += 1
         else:
-            # Siempre actualizar gastos y abonos aunque el desglose ya exista
             if vals["gastos"] > 0 or vals["abonos_proveedores"] > 0:
                 existente["gastos"]             = round(vals["gastos"], 2)
                 existente["abonos_proveedores"] = round(vals["abonos_proveedores"], 2)
                 diario[fecha] = existente
-
-    # Guardar historico_diario.json localmente
-    with _diario_lock:
-        with open(_diario_file, "w", encoding="utf-8") as fh:
-            _json.dump(diario, fh, ensure_ascii=False, indent=2)
-
-    # Postgres write (datos enriquecidos por día reconstruido)
-    for fecha, vals in diario.items():
-        _guardar_diario_postgres(fecha, vals)
-    # ELIMINADO (HIS-04): ya no se sube historico_diario.json a Drive
-
-    # Regenerar Excel del histórico con el desglose ya reconstruido
-    try:
-        data_hist = _leer_historico()
-        _guardar_historico(data_hist)
-    except Exception:
-        pass
+                _guardar_diario_postgres(fecha, existente)
 
     return {
-        "ok":                    True,
-        "dias_escaneados":       dias,
-        "fechas_reconstruidas":  reconstruidos,
-        "total_dias_en_diario":  len(diario),
+        "ok":                   True,
+        "dias_escaneados":      dias,
+        "fechas_reconstruidas": reconstruidos,
+        "total_dias_en_diario": len(diario),
     }
 
 
 @router.post("/historico/sync-rango")
 def historico_sync_rango(dias: int = Query(default=30, ge=1, le=365)):
     """
-    Sincroniza los totales de los últimos N días desde Excel → histórico.
-    Útil para llenar histórico con datos de días pasados que no se guardaron.
-    No sobreescribe datos existentes (solo agrega los que faltan).
+    Sincroniza los totales de los últimos N días desde Postgres → historico_ventas.
+    No sobreescribe datos existentes (solo agrega los que faltan o tienen monto mayor).
     """
     try:
         data = _leer_historico()
-        totales_excel = _totales_por_dia_excel(dias=dias)
+
+        # Calcular totales por día directamente desde Postgres
+        totales_pg: dict[str, int] = {}
+        try:
+            rows = _leer_excel_rango(dias=dias)   # delega a _leer_ventas_postgres
+            por_dia: dict[str, float] = defaultdict(float)
+            for v in rows:
+                fecha = str(v.get("fecha", ""))[:10]
+                if fecha:
+                    por_dia[fecha] += float(v.get("total", 0) or 0)
+            totales_pg = {k: int(v) for k, v in por_dia.items() if v > 0}
+        except Exception:
+            pass
 
         nuevos = 0
         actualizados = 0
-        for fecha, monto in totales_excel.items():
+        for fecha, monto in totales_pg.items():
             if fecha not in data:
                 data[fecha] = monto
                 nuevos += 1
-            elif data[fecha] != monto:
-                # Solo actualizar si el Excel tiene un monto mayor
-                # (probablemente el dato manual estaba incompleto)
-                if monto > data[fecha]:
-                    data[fecha] = monto
-                    actualizados += 1
+            elif monto > data[fecha]:
+                data[fecha] = monto
+                actualizados += 1
 
-        # Inyectar hoy en vivo desde Sheets (más preciso que Excel para el día actual)
+        # Inyectar hoy en vivo
         hoy = _hoy()
         total_hoy = _total_ventas_hoy_sheets()
         if total_hoy > 0:
             if hoy not in data or int(total_hoy) > data.get(hoy, 0):
                 data[hoy] = int(total_hoy)
-                if hoy not in totales_excel:
+                if hoy not in totales_pg:
                     nuevos += 1
 
         _guardar_historico(data)
         return {
-            "ok": True,
+            "ok":             True,
             "dias_escaneados": dias,
-            "nuevos": nuevos,
-            "actualizados": actualizados,
+            "nuevos":          nuevos,
+            "actualizados":    actualizados,
             "total_registros": len(data),
         }
     except Exception as e:

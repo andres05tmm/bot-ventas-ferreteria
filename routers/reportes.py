@@ -8,20 +8,17 @@ Agrupa los endpoints de análisis y reporting:
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 from collections import defaultdict
 from datetime import datetime, timedelta
-from pathlib import Path
 
-import openpyxl
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
 
 import config
+from memoria import cargar_memoria
 from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
     _to_float, _cantidad_a_float, _stock_wayper,
@@ -43,10 +40,7 @@ def kardex(q: str = Query(default="")):
     try:
         compras_excel = _leer_excel_compras()
 
-        mem = {}
-        if os.path.exists(config.MEMORIA_FILE):
-            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
-                mem = json.load(_f)
+        mem        = cargar_memoria()
         inventario = mem.get("inventario", {})
         q_lower    = q.strip().lower()
 
@@ -154,10 +148,7 @@ def resultados(periodo: str = Query(default="mes", pattern="^(semana|mes)$")):
 
         # ── 2. CMV ───────────────────────────────────────────────────────────
         # Costo de lo vendido = unidades vendidas × costo_promedio del producto
-        mem = {}
-        if os.path.exists(config.MEMORIA_FILE):
-            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
-                mem = json.load(_f)
+        mem        = cargar_memoria()
         inventario = mem.get("inventario", {})
 
         # Índice de inventario por nombre normalizado
@@ -268,10 +259,7 @@ def proyeccion():
     """
     try:
         ahora     = datetime.now(config.COLOMBIA_TZ)
-        mem = {}
-        if os.path.exists(config.MEMORIA_FILE):
-            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
-                mem = json.load(_f)
+        mem       = cargar_memoria()
         caja_data = mem.get("caja_actual", {})
 
         # ── Base de caja actual ───────────────────────────────────────────

@@ -8,14 +8,9 @@ Importar con:  from routers.shared import _hoy, _hace_n_dias, ...
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
-from collections import defaultdict
 from datetime import datetime, timedelta
-from pathlib import Path
 
-import openpyxl
 from fastapi import HTTPException
 
 import config
@@ -30,125 +25,14 @@ def _hace_n_dias(n: int) -> datetime:
     return datetime.now(config.COLOMBIA_TZ) - timedelta(days=n)
 
 
-# ── Helper: leer Excel histórico ──────────────────────────────────────────────
+# ── Helper: leer ventas históricas (100 % PostgreSQL) ─────────────────────────
 def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list[dict]:
-    if not os.path.exists(config.EXCEL_FILE):
-        return []
-
-    try:
-        wb = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True, data_only=True)
-    except Exception:
-        return []
-
-    ahora = datetime.now(config.COLOMBIA_TZ)
-    hojas_candidatas = [
-        f"{config.MESES[ahora.month]} {ahora.year}",
-    ]
-    if ahora.month > 1:
-        hojas_candidatas.append(f"{config.MESES[ahora.month - 1]} {ahora.year}")
-    else:
-        hojas_candidatas.append(f"{config.MESES[12]} {ahora.year - 1}")
-
-    if dias is not None:
-        limite = (_hace_n_dias(dias)).strftime("%Y-%m-%d")
-    else:
-        limite = None
-
-    resultado = []
-    for nombre_hoja in hojas_candidatas:
-        if nombre_hoja not in wb.sheetnames:
-            continue
-        ws = wb[nombre_hoja]
-
-        # En modo read_only ws.max_column puede ser None y ws.cell() no es confiable.
-        # Leer headers iterando la fila exacta.
-        cols: dict[str, int] = {}
-        try:
-            for fila_hdr in ws.iter_rows(
-                min_row=config.EXCEL_FILA_HEADERS,
-                max_row=config.EXCEL_FILA_HEADERS,
-            ):
-                for cell in fila_hdr:
-                    if cell.value:
-                        cols[str(cell.value).lower().strip()] = cell.column
-                break
-        except Exception:
-            continue
-
-        def _col(*claves) -> int | None:
-            for k in claves:
-                if k in cols:
-                    return cols[k]
-            return None
-
-        c_fecha    = _col("fecha")
-        c_hora     = _col("hora")
-        c_producto = _col("producto")
-        c_cantidad = _col("cantidad")
-        c_precio   = _col("valor unitario", "precio unitario", "precio")
-        c_total    = _col("total")
-        c_alias    = _col("alias")
-        c_vendedor = _col("vendedor")
-        c_metodo   = _col("metodo de pago", "metodo pago", "método pago")
-        c_num      = _col("#", "consecutivo", "num", "consecutivo de venta")
-        c_unidad   = _col("unidad de medida", "unidad_medida", "unidad")
-
-        for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
-            if not any(fila):
-                continue
-
-            fecha_raw = fila[c_fecha - 1] if (c_fecha and c_fecha <= len(fila)) else None
-            if fecha_raw is None:
-                continue
-
-            if isinstance(fecha_raw, datetime):
-                fecha_str = fecha_raw.strftime("%Y-%m-%d")
-            else:
-                fecha_str = str(fecha_raw)[:10]
-
-            if limite and fecha_str < limite:
-                continue
-            if mes_actual and not fecha_str.startswith(f"{ahora.year}-{ahora.month:02d}"):
-                continue
-
-            def _v(col_idx):
-                if col_idx is None or col_idx > len(fila):
-                    return ""
-                v = fila[col_idx - 1]
-                return v if v is not None else ""
-
-            try:
-                total = float(str(_v(c_total)).replace(",", ".") or 0)
-            except (ValueError, TypeError):
-                total = 0.0
-
-            try:
-                precio_unit = float(str(_v(c_precio)).replace(",", ".") or 0)
-            except (ValueError, TypeError):
-                precio_unit = 0.0
-
-            resultado.append({
-                "num":             _v(c_num),
-                "fecha":           fecha_str,
-                "hora":            str(_v(c_hora)),
-                "id_cliente":      "CF",
-                "cliente":         "Consumidor Final",
-                "codigo_producto": "",
-                "producto":        str(_v(c_producto)),
-                "cantidad":        str(_v(c_cantidad)),
-                "unidad_medida":   str(_v(c_unidad)) or "Unidad",
-                "precio_unitario": precio_unit,
-                "total":           total,
-                "alias":           str(_v(c_alias)),
-                "vendedor":        str(_v(c_vendedor)),
-                "metodo":          str(_v(c_metodo)),
-            })
-
-    try:
-        wb.close()
-    except Exception:
-        pass
-    return resultado
+    """
+    Nombre mantenido por compatibilidad con los importadores existentes
+    (historico.py, clientes.py, chat.py, reportes.py).
+    Delega completamente a _leer_ventas_postgres(); sin fallback a Excel.
+    """
+    return _leer_ventas_postgres(dias=dias, mes_actual=mes_actual) or []
 
 
 # ── Helper: leer ventas desde Postgres ────────────────────────────────────────
@@ -156,9 +40,6 @@ def _leer_ventas_postgres(dias: int | None = None, mes_actual: bool = False) -> 
     """
     Lee ventas desde PostgreSQL (ventas + ventas_detalle) y devuelve el mismo
     formato de dicts que _leer_excel_rango().
-
-    Retorna None si Postgres no está disponible o falla, para que el caller
-    pueda recurrir a Excel como fallback.
     """
     try:
         import db as _db
@@ -262,74 +143,43 @@ def _stock_wayper(key: str, inventario: dict):
 
 def _leer_compras(dias: int | None = None) -> list[dict]:
     """
-    Lee compras recientes. PG-first; fallback a la hoja 'Compras' del Excel.
+    Lee compras recientes directamente desde PostgreSQL.
 
     Columnas devueltas (siempre presentes):
         fecha, hora, proveedor, producto, cantidad, costo_unitario, costo_total
     """
     import db as _db
 
-    # ── Fuente primaria: PostgreSQL ──────────────────────────────────────────
-    if _db.DB_DISPONIBLE:
-        try:
-            desde = (
-                (datetime.now(config.COLOMBIA_TZ) - timedelta(days=dias)).strftime("%Y-%m-%d")
-                if dias
-                else None
-            )
-            sql = """
-                SELECT fecha::text,
-                       COALESCE(hora::text, '')   AS hora,
-                       COALESCE(proveedor, '—')   AS proveedor,
-                       producto_nombre             AS producto,
-                       cantidad,
-                       COALESCE(costo_unitario, 0) AS costo_unitario,
-                       COALESCE(costo_total,    0) AS costo_total
-                FROM compras
-                {where}
-                ORDER BY fecha ASC, id ASC
-            """.format(where="WHERE fecha >= %s" if desde else "")
-            params = (desde,) if desde else None
-            rows = _db.query_all(sql, params)
-            return [dict(r) for r in rows]
-        except Exception as _e:
-            logger.warning("_leer_compras PG falló, usando Excel: %s", _e)
-
-    # ── Fallback: Excel ──────────────────────────────────────────────────────
-    if not os.path.exists(config.EXCEL_FILE):
+    if not _db.DB_DISPONIBLE:
         return []
+
     try:
-        wb = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True, data_only=True)
-    except Exception:
+        desde = (
+            (datetime.now(config.COLOMBIA_TZ) - timedelta(days=dias)).strftime("%Y-%m-%d")
+            if dias
+            else None
+        )
+        sql = """
+            SELECT fecha::text,
+                   COALESCE(hora::text, '')   AS hora,
+                   COALESCE(proveedor, '—')   AS proveedor,
+                   producto_nombre             AS producto,
+                   cantidad,
+                   COALESCE(costo_unitario, 0) AS costo_unitario,
+                   COALESCE(costo_total,    0) AS costo_total
+            FROM compras
+            {where}
+            ORDER BY fecha ASC, id ASC
+        """.format(where="WHERE fecha >= %s" if desde else "")
+        params = (desde,) if desde else None
+        rows = _db.query_all(sql, params)
+        return [dict(r) for r in rows]
+    except Exception as _e:
+        logger.warning("_leer_compras PG falló: %s", _e)
         return []
-    if "Compras" not in wb.sheetnames:
-        wb.close()
-        return []
-    ws     = wb["Compras"]
-    ahora  = datetime.now(config.COLOMBIA_TZ)
-    limite = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d") if dias else None
-    resultado = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if not any(row):
-            continue
-        fecha = str(row[0])[:10] if row[0] else ""
-        if limite and fecha < limite:
-            continue
-        resultado.append({
-            "fecha":          fecha,
-            "hora":           str(row[1] or ""),
-            "proveedor":      str(row[2] or "—"),
-            "producto":       str(row[3] or ""),
-            "cantidad":       _to_float(row[4]),
-            "costo_unitario": _to_float(row[5]),
-            "costo_total":    _to_float(row[6]),
-        })
-    wb.close()
-    return sorted(resultado, key=lambda x: x["fecha"])
 
 
-# Alias de compatibilidad — los 4 routers la importan con este nombre.
-# Redirige a _leer_compras (PG-first) sin necesidad de tocar los imports.
+# Alias de compatibilidad — los routers la importan con este nombre.
 _leer_excel_compras = _leer_compras
 
 

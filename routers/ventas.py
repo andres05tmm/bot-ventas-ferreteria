@@ -3,20 +3,17 @@ Router: Ventas — /ventas/* y /venta-rapida
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 from collections import defaultdict
 from datetime import datetime, timedelta
-from pathlib import Path
 
-import openpyxl
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
 
 import config
+from memoria import cargar_memoria
 from routers.shared import (
     _hoy, _hace_n_dias, _leer_ventas_postgres,
     _to_float, _cantidad_a_float, _stock_wayper,
@@ -43,10 +40,8 @@ def ventas_hoy():
         # Enriquecer con unidad_medida desde el catálogo (solo si falta)
         try:
             necesitan = [v for v in filtradas if not v.get("unidad_medida") or v["unidad_medida"] == "Unidad"]
-            if necesitan and os.path.exists(config.MEMORIA_FILE):
-                with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
-                    _mem = json.load(_f)
-                catalogo = _mem.get("catalogo", {})
+            if necesitan:
+                catalogo = cargar_memoria().get("catalogo", {})
 
                 def _unidad_para(nombre_prod: str) -> str:
                     if not nombre_prod:
@@ -92,10 +87,7 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
         cat_unidad: dict[str, str] = {}
-        if os.path.exists(config.MEMORIA_FILE):
-            with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
-                _mem = json.load(_f)
-            for prod in _mem.get("catalogo", {}).values():
+        for prod in cargar_memoria().get("catalogo", {}).values():
                 nombre_lower = (prod.get("nombre_lower") or prod.get("nombre", "")).lower().strip()
                 cat_unidad[nombre_lower] = prod.get("unidad_medida", "Unidad") or "Unidad"
 
@@ -227,10 +219,7 @@ def venta_rapida(payload: VentaRapidaPayload):
 
         _catalogo_cache = {}
         try:
-            if os.path.exists(config.MEMORIA_FILE):
-                with open(config.MEMORIA_FILE, encoding="utf-8") as _f:
-                    _mem = json.load(_f)
-                _catalogo_cache = _mem.get("catalogo", {})
+            _catalogo_cache = cargar_memoria().get("catalogo", {})
         except Exception:
             pass
 
@@ -340,10 +329,7 @@ def ventas_top2(
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
         cat_map: dict[str, str] = {}
-        if os.path.exists(config.MEMORIA_FILE):
-            with open(config.MEMORIA_FILE, encoding="utf-8") as f:
-                mem = json.load(f)
-            for v in mem.get("catalogo", {}).values():
+        for v in cargar_memoria().get("catalogo", {}).values():
                 nombre_lower = v.get("nombre_lower", "").strip()
                 cat_map[nombre_lower] = v.get("categoria", "Sin categoría")
 
