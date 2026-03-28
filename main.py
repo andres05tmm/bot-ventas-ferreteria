@@ -12,15 +12,13 @@ from telegram.ext import (
 )
 
 import config
-from excel import inicializar_excel
-from sheets import _obtener_hoja_sheets
 
 from handlers.comandos import (
-    comando_inicio, comando_excel, comando_ventas, comando_buscar,
+    comando_inicio, comando_ventas, comando_buscar,
     comando_borrar, comando_precios, comando_caja, comando_gastos,
     comando_inventario, comando_clientes, comando_nuevo_cliente, comando_grafica, comando_fiados, comando_abono,
     comando_pendientes,
-    manejar_callback_grafica, comando_sheets, comando_cerrar_dia,
+    manejar_callback_grafica, comando_cerrar_dia,
     comando_reset_ventas, comando_actualizar_catalogo, comando_consistencia,
     comando_exportar_precios, comando_keepalive, comando_dashboard,
     comando_agregar_producto, comando_actualizar_precio,
@@ -38,7 +36,6 @@ from keepalive import loop_keepalive
 
 def main():
     print(f"🚀 Iniciando FerreBot {config.VERSION}")
-    inicializar_excel()
 
     # Construir índice fuzzy al arrancar para que las búsquedas funcionen
     try:
@@ -50,22 +47,11 @@ def main():
     except Exception as e:
         print(f"⚠️ No se pudo construir índice fuzzy: {e}")
 
-    if config.SHEETS_ID:
-        print(f"📊 Google Sheets configurado: {config.SHEETS_ID}")
-        ws_test = _obtener_hoja_sheets()
-        if ws_test:
-            print("✅ Conexion a Google Sheets OK")
-        else:
-            print("⚠️ No se pudo conectar al Sheets")
-    else:
-        print("ℹ️ SHEETS_ID no configurado — funciones de Sheets desactivadas")
-
     app = Application.builder().token(config.TELEGRAM_TOKEN).build()
 
     # Comandos
     app.add_handler(CommandHandler("start",      comando_inicio))
     app.add_handler(CommandHandler("ayuda",      comando_inicio))
-    app.add_handler(CommandHandler("excel",      comando_excel))
     app.add_handler(CommandHandler("ventas",     comando_ventas))
     app.add_handler(CommandHandler("buscar",     comando_buscar))
     app.add_handler(CommandHandler("borrar",     comando_borrar))
@@ -90,7 +76,6 @@ def main():
     app.add_handler(CommandHandler("grafica",    comando_grafica))
     app.add_handler(CommandHandler("fiados",     comando_fiados))
     app.add_handler(CommandHandler("abono",      comando_abono))
-    app.add_handler(CommandHandler("sheets",     comando_sheets))
     app.add_handler(CommandHandler("cerrar",     comando_cerrar_dia))
     app.add_handler(CommandHandler("resetventas", comando_reset_ventas))
     app.add_handler(CommandHandler("catalogo",          comando_actualizar_catalogo))
