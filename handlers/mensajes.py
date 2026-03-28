@@ -319,8 +319,14 @@ async def _manejar_actualizacion_masiva(update, vendedor: str, pares: list):
                 linea = f"✅ {nombre_display}: ${int(precio):,} / ${int(precio_mayorista):,} ×50".replace(",", ".")
             elif fraccion:
                 try:
-                    precio_unit = round(precio / float(fraccion), 2)
-                except (ValueError, ZeroDivisionError):
+                    # float("1/4") lanza ValueError — parsear manualmente
+                    if "/" in str(fraccion):
+                        num, den = str(fraccion).split("/", 1)
+                        decimal_frac = int(num.strip()) / int(den.strip())
+                    else:
+                        decimal_frac = float(fraccion)
+                    precio_unit = round(precio / decimal_frac, 2) if decimal_frac else precio
+                except (ValueError, ZeroDivisionError, TypeError):
                     precio_unit = precio
                 _db.execute(
                     """

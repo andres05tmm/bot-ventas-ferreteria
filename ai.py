@@ -2153,35 +2153,18 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             fraccion = datos.get("fraccion", "").strip()
             precio   = float(datos.get("precio", 0))
             if producto and fraccion and precio:
-                import db as _db
-                prod_row = _db.query_one(
-                    "SELECT id FROM productos WHERE nombre_lower = %s AND activo = TRUE",
-                    [buscar_producto_en_catalogo(producto).get("nombre_lower", producto.lower())
-                     if buscar_producto_en_catalogo(producto) else producto.lower()]
-                )
-                if prod_row:
-                    try:
-                        precio_unit = round(precio / float(fraccion), 2)
-                    except (ValueError, ZeroDivisionError):
-                        precio_unit = precio
-                    _db.execute(
-                        """
-                        INSERT INTO productos_fracciones
-                            (producto_id, fraccion, precio_total, precio_unitario)
-                        VALUES (%s, %s, %s, %s)
-                        ON CONFLICT ON CONSTRAINT uq_prod_fraccion DO UPDATE
-                        SET precio_total    = EXCLUDED.precio_total,
-                            precio_unitario = EXCLUDED.precio_unitario
-                        """,
-                        (prod_row["id"], fraccion, round(precio), int(precio_unit)),
-                    )
+                # Intentar actualizar en catálogo (fuente única de verdad)
+                en_cat = actualizar_precio_en_catalogo(producto, precio, fraccion)
+                if en_cat:
+                    # Override RAM 5 min
                     _pf_prod = buscar_producto_en_catalogo(producto)
                     _pf_key  = _pf_prod.get("nombre_lower", producto.lower()) if _pf_prod else producto.lower()
                     _registrar_precio_reciente(_pf_key, precio, fraccion)
                     invalidar_cache_memoria()
-                    acciones.append(f"Precio de fracción guardado: {producto} {fraccion} = ${precio:,.0f}")
                 else:
-                    acciones.append(f"⚠️ Producto no encontrado en BD: {producto}")
+                    # Producto no en catálogo: nada que hacer, PG es la fuente de verdad
+                    pass
+                acciones.append(f"Precio de fracción guardado: {producto} {fraccion} = ${precio:,.0f}")
         except Exception as e:
             print(f"Error precio fraccion: {e}")
         texto_limpio = texto_limpio.replace(f'[PRECIO_FRACCION]{pf_json}[/PRECIO_FRACCION]', '')
@@ -2194,36 +2177,14 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             precio   = float(datos["precio"])
             fraccion = datos.get("fraccion")  # opcional: "1/4", "1/2", etc.
 
-            import db as _db
-            prod_enc = buscar_producto_en_catalogo(producto)
-            nombre_lower = prod_enc.get("nombre_lower", producto.lower()) if prod_enc else producto.lower()
-            prod_row = _db.query_one(
-                "SELECT id FROM productos WHERE nombre_lower = %s AND activo = TRUE", [nombre_lower]
-            )
-            if prod_row:
-                if fraccion:
-                    try:
-                        precio_unit = round(precio / float(fraccion), 2)
-                    except (ValueError, ZeroDivisionError):
-                        precio_unit = precio
-                    _db.execute(
-                        """
-                        INSERT INTO productos_fracciones
-                            (producto_id, fraccion, precio_total, precio_unitario)
-                        VALUES (%s, %s, %s, %s)
-                        ON CONFLICT ON CONSTRAINT uq_prod_fraccion DO UPDATE
-                        SET precio_total    = EXCLUDED.precio_total,
-                            precio_unitario = EXCLUDED.precio_unitario
-                        """,
-                        (prod_row["id"], fraccion, round(precio), int(precio_unit)),
-                    )
-                else:
-                    _db.execute(
-                        "UPDATE productos SET precio_unidad = %s, updated_at = NOW() WHERE id = %s",
-                        [round(precio), prod_row["id"]],
-                    )
-                _registrar_precio_reciente(nombre_lower, precio, fraccion)
-                invalidar_cache_memoria()
+            # Actualizar directo en PG (fuente única de verdad)
+            en_catalogo = actualizar_precio_en_catalogo(producto, precio, fraccion)
+
+            # Override RAM 5 min
+            prod_encontrado = buscar_producto_en_catalogo(producto)
+            nombre_lower_pc = prod_encontrado.get("nombre_lower", producto.lower()) if prod_encontrado else producto.lower()
+            _registrar_precio_reciente(nombre_lower_pc, precio, fraccion)
+            invalidar_cache_memoria()
 
             if fraccion:
                 acciones.append(f"🧠 Precio actualizado: {producto} {fraccion} = ${precio:,.0f}")
@@ -2246,32 +2207,38 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             if not prod:
                 acciones.append(f"⚠️ Producto no encontrado: {producto}")
             else:
-                import db as _db
-                prod_row = _db.query_one(
-                    "SELECT id, precio_unidad FROM productos WHERE nombre_lower = %s AND activo = TRUE",
-                    [prod.get("nombre_lower", producto.lower())]
+                import db as _db_pm
+                from memoria import invalidar_cache_memoria as _inv
+                prod_row_pm = _db_pm.query_one(
+                    "SELECT id, nombre, precio_unidad FROM productos "
+                    "WHERE nombre_lower = %s AND activo = TRUE",
+                    [prod.get("nombre_lower", producto.lower())],
                 )
-                if prod_row:
+                if prod_row_pm:
+                    prod_id_pm     = prod_row_pm["id"]
+                    nombre_display = prod_row_pm["nombre"]
                     if p_unidad > 0:
-                        _db.execute(
+                        _db_pm.execute(
                             "UPDATE productos SET precio_unidad = %s, updated_at = NOW() WHERE id = %s",
-                            [round(p_unidad), prod_row["id"]],
+                            [round(p_unidad), prod_id_pm],
                         )
-                    precio_bajo = round(p_unidad) if p_unidad > 0 else prod_row["precio_unidad"]
-                    _db.execute(
-                        """
-                        INSERT INTO productos_precio_cantidad
-                            (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
-                        VALUES (%s, %s, %s, %s)
-                        ON CONFLICT (producto_id) DO UPDATE
-                        SET umbral               = EXCLUDED.umbral,
-                            precio_bajo_umbral   = EXCLUDED.precio_bajo_umbral,
-                            precio_sobre_umbral  = EXCLUDED.precio_sobre_umbral
-                        """,
-                        (prod_row["id"], umbral, precio_bajo, round(p_mayorista) if p_mayorista > 0 else precio_bajo),
-                    )
-                    invalidar_cache_memoria()
-                    nombre_display = prod.get("nombre", producto)
+                    # Usar precio_unidad existente en BD como fallback para precio_bajo
+                    precio_bajo = round(p_unidad) if p_unidad > 0 else (prod_row_pm["precio_unidad"] or 0)
+                    if p_mayorista > 0 or p_unidad > 0:
+                        _db_pm.execute(
+                            """
+                            INSERT INTO productos_precio_cantidad
+                                (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
+                            VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (producto_id) DO UPDATE
+                            SET umbral              = EXCLUDED.umbral,
+                                precio_bajo_umbral  = EXCLUDED.precio_bajo_umbral,
+                                precio_sobre_umbral = EXCLUDED.precio_sobre_umbral
+                            """,
+                            (prod_id_pm, umbral, precio_bajo,
+                             round(p_mayorista) if p_mayorista > 0 else precio_bajo),
+                        )
+                    _inv()
                     msg = f"🧠 {nombre_display}: unidad=${p_unidad:,.0f}" if p_unidad else f"🧠 {nombre_display}"
                     if p_mayorista > 0:
                         msg += f" | mayorista ×{umbral}=${p_mayorista:,.0f}"
@@ -2287,15 +2254,16 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             nombre = datos.get("producto", "").strip()
             codigo = datos.get("codigo", "").strip()
             if nombre and codigo:
-                import db as _db
+                import db as _db_cp
                 prod = buscar_producto_en_catalogo(nombre)
                 if prod:
-                    _db.execute(
+                    filas = _db_cp.execute(
                         "UPDATE productos SET codigo = %s, updated_at = NOW() WHERE nombre_lower = %s",
-                        [codigo, prod.get("nombre_lower", nombre.lower())],
+                        [codigo, prod.get("nombre_lower")],
                     )
-                    invalidar_cache_memoria()
-                    acciones.append(f"Código guardado: {nombre} = {codigo}")
+                    if filas:
+                        invalidar_cache_memoria()
+                        acciones.append(f"Código guardado: {nombre} = {codigo}")
         except Exception as e:
             print(f"Error código producto: {e}")
         texto_limpio = texto_limpio.replace(f'[CODIGO_PRODUCTO]{cp_json}[/CODIGO_PRODUCTO]', '')
