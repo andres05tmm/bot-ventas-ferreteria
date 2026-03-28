@@ -970,22 +970,31 @@ async def _manejar_foto_factura_o_abono(update, context) -> bool:
             ruta_tmp = tmp.name
         await archivo.download_to_drive(ruta_tmp)
 
-        # Determinar proveedor desde memoria
-        from memoria import cargar_memoria
-        mem      = cargar_memoria()
-        facturas = mem.get("cuentas_por_pagar", [])
-        factura  = next((f for f in facturas if f["id"].upper() == fac_id.upper()), None)
-        if not factura:
+        # Buscar factura en PostgreSQL (fuente de verdad)
+        import db as _db
+        row = await asyncio.to_thread(
+            _db.query_one,
+            "SELECT id, proveedor, fecha FROM facturas_proveedores WHERE id = %s",
+            (fac_id.upper(),)
+        )
+        if not row:
             await update.message.reply_text(f"⚠️ Factura {fac_id} no encontrada.")
             return True
 
-        proveedor = factura["proveedor"]
+        proveedor = row["proveedor"]
+        fecha_fac = str(row.get("fecha", ""))[:10]
         hoy       = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
 
         if fac_factura:
-            nombre_archivo = f"{factura['fecha']}_{fac_id}.jpg"
+            nombre_archivo = f"{fecha_fac}_{fac_id}.jpg"
         else:
-            n_abono = len(factura.get("abonos", []))
+            # Contar abonos existentes para nombrar el comprobante
+            n_abono_row = await asyncio.to_thread(
+                _db.query_one,
+                "SELECT COUNT(*) AS n FROM facturas_abonos WHERE factura_id = %s",
+                (fac_id.upper(),)
+            )
+            n_abono = int((n_abono_row or {}).get("n", 0))
             nombre_archivo = f"{hoy}_{fac_id}_abono{n_abono}.jpg"
 
         # Subir a Cloudinary
@@ -997,9 +1006,9 @@ async def _manejar_foto_factura_o_abono(update, context) -> bool:
         except Exception:
             pass
 
-        carpeta    = f"ferreteria/{proveedor.lower().replace(' ', '_')}"
-        public_id  = nombre_archivo.replace(".jpg", "")
-        result     = await upload_foto_cloudinary(foto_bytes, public_id, carpeta)
+        carpeta   = f"ferreteria/{proveedor.lower().replace(' ', '_')}"
+        public_id = nombre_archivo.replace(".jpg", "")
+        result    = await upload_foto_cloudinary(foto_bytes, public_id, carpeta)
 
         if not result["ok"]:
             await update.message.reply_text(
@@ -1007,17 +1016,22 @@ async def _manejar_foto_factura_o_abono(update, context) -> bool:
             )
             return True
 
-        # Actualizar URL en la factura
-        from memoria import guardar_memoria
+        # Guardar URL en Postgres
         if fac_factura:
-            factura["foto_url"]    = result["url"]
-            factura["foto_nombre"] = nombre_archivo
+            await asyncio.to_thread(
+                _db.execute,
+                "UPDATE facturas_proveedores SET foto_url=%s, foto_nombre=%s WHERE id=%s",
+                (result["url"], nombre_archivo, fac_id.upper())
+            )
         else:
-            abonos = factura.get("abonos", [])
-            if abonos:
-                abonos[-1]["foto_url"]    = result["url"]
-                abonos[-1]["foto_nombre"] = nombre_archivo
-        guardar_memoria(mem, urgente=True)
+            await asyncio.to_thread(
+                _db.execute,
+                "UPDATE facturas_abonos SET foto_url=%s, foto_nombre=%s "
+                "WHERE factura_id=%s AND id = ("
+                "  SELECT id FROM facturas_abonos WHERE factura_id=%s ORDER BY id DESC LIMIT 1"
+                ")",
+                (result["url"], nombre_archivo, fac_id.upper(), fac_id.upper())
+            )
 
         tipo_txt = "factura" if fac_factura else "comprobante de abono"
         await update.message.reply_text(
