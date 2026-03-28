@@ -1368,38 +1368,46 @@ async def comando_actualizar_catalogo(update: Update, context: ContextTypes.DEFA
 
 async def comando_consistencia(update, context):
     """
-    Verifica consistencia del catálogo en memoria.
-    Sin comparación con Excel en Drive — compara solo la memoria interna.
-    Para una verificación completa adjunta BASE_DE_DATOS_PRODUCTOS.xlsx.
+    Verifica consistencia del catálogo en PostgreSQL.
+    Muestra productos sin precio, sin fracciones configuradas y totales por categoría.
     """
-    from precio_sync import verificar_consistencia
-    await update.message.reply_text("🔍 Verificando consistencia del catálogo en memoria…")
+    await update.message.reply_text("🔍 Verificando consistencia del catálogo en PG…")
     try:
-        resultado = await asyncio.to_thread(verificar_consistencia)
-        if "error" in resultado:
-            await update.message.reply_text(f"❌ Error: {resultado['error']}")
+        if not _db.DB_DISPONIBLE:
+            await update.message.reply_text("⚠️ Base de datos no disponible.")
             return
 
-        iguales    = resultado["iguales"]
-        diferentes = resultado["diferentes"]
-        solo_mem   = resultado["solo_memoria"]
-        solo_xls   = resultado["solo_excel"]
+        total = _db.query_one("SELECT COUNT(*) AS n FROM productos WHERE activo = TRUE")["n"]
+        sin_precio = _db.query_all(
+            "SELECT nombre FROM productos WHERE activo = TRUE AND precio_unidad = 0 ORDER BY nombre LIMIT 20"
+        )
+        sin_fracciones = _db.query_one(
+            """SELECT COUNT(*) AS n FROM productos p
+               WHERE p.activo = TRUE
+                 AND NOT EXISTS (SELECT 1 FROM productos_fracciones pf WHERE pf.producto_id = p.id)
+                 AND NOT EXISTS (SELECT 1 FROM productos_precio_cantidad pc WHERE pc.producto_id = p.id)
+                 AND p.precio_unidad = 0"""
+        )["n"]
+        por_cat = _db.query_all(
+            """SELECT categoria, COUNT(*) AS n
+               FROM productos WHERE activo = TRUE
+               GROUP BY categoria ORDER BY n DESC LIMIT 10"""
+        )
 
-        lineas = [
-            "📊 CONSISTENCIA DE PRECIOS", "─" * 30,
-            f"✅ Iguales:          {iguales}",
-            f"⚠️  Con diferencias: {len(diferentes)}",
-            f"🧠 Solo en memoria:  {len(solo_mem)}",
-            f"📋 Solo en Excel:    {len(solo_xls)}",
-        ]
-        if not diferentes and not solo_mem and not solo_xls:
-            lineas += ["", "🎉 ¡Todo sincronizado correctamente!"]
-        elif diferentes:
-            lineas += ["", "── DIFERENCIAS DE PRECIO ──"]
-            for d in diferentes[:5]:
-                lineas.append(f"\n📦 {d['nombre']}")
-                for diff in d["diffs"]:
-                    lineas.append(f"   {diff}")
+        lineas = ["📊 CONSISTENCIA DEL CATÁLOGO (PG)", "─" * 32,
+                  f"📦 Total productos activos: {total}",
+                  f"❌ Sin precio unitario:     {len(sin_precio)}",
+                  f"⚠️  Sin precios completos:   {sin_fracciones}",
+                  "", "── Por categoría ──"]
+        for r in por_cat:
+            lineas.append(f"  {r['categoria'] or '(sin cat)':<30} {r['n']:>4}")
+
+        if sin_precio:
+            lineas += ["", "── Sin precio (primeros 20) ──"]
+            lineas += [f"  • {r['nombre']}" for r in sin_precio]
+
+        if not sin_precio and sin_fracciones == 0:
+            lineas += ["", "🎉 ¡Todo consistente!"]
 
         await update.message.reply_text("\n".join(lineas))
     except Exception as e:
@@ -1412,40 +1420,84 @@ async def comando_consistencia(update, context):
 
 async def comando_exportar_precios(update, context):
     """
-    Vuelca precios de memoria a un Excel temporal y lo envía en el chat.
-    Sin subir a Drive.
+    Genera un Excel con todos los precios directamente desde PostgreSQL y lo envía en el chat.
     """
-    await update.message.reply_text("📤 Exportando precios…")
+    await update.message.reply_text("📤 Exportando precios desde PG…")
     try:
-        from precio_sync import exportar_catalogo_a_excel
-        resultado    = await asyncio.to_thread(exportar_catalogo_a_excel)
-        actualizados = resultado["actualizados"]
-        sin_match    = resultado["sin_match"]
-        errores      = resultado["errores"]
+        if not _db.DB_DISPONIBLE:
+            await update.message.reply_text("⚠️ Base de datos no disponible.")
+            return
 
-        lineas = [
-            "📤 EXPORTACIÓN COMPLETADA", "─" * 30,
-            f"✅ Productos actualizados: {actualizados}",
-        ]
-        if sin_match:
-            lineas.append(f"⚠️  No encontrados: {len(sin_match)}")
-        if errores:
-            lineas.append(f"❌ Errores: {len(errores)}")
-        await update.message.reply_text("\n".join(lineas))
+        productos   = _db.query_all(
+            "SELECT id, nombre, categoria, precio_unidad FROM productos WHERE activo = TRUE ORDER BY nombre"
+        )
+        fracciones  = _db.query_all(
+            "SELECT producto_id, fraccion, precio_total FROM productos_fracciones ORDER BY producto_id, fraccion"
+        )
+        por_cant    = _db.query_all(
+            "SELECT producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral FROM productos_precio_cantidad"
+        )
 
-        if sin_match:
-            try:
-                from precio_sync import generar_reporte_discrepancias
-                reporte_data = {"sin_match": sin_match, "diferentes": [], "solo_memoria": [], "solo_excel": []}
-                ruta = await asyncio.to_thread(generar_reporte_discrepancias, reporte_data)
-                with open(ruta, "rb") as f:
-                    await update.message.reply_document(
-                        document=f, filename="reporte_exportacion.xlsx",
-                        caption="📎 Productos en memoria no encontrados en Excel"
-                    )
-                os.remove(ruta)
-            except Exception as e:
-                await update.message.reply_text(f"⚠️ No se pudo generar el reporte: {e}")
+        # Índices para lookup rápido
+        frac_idx  = {}
+        for f in fracciones:
+            frac_idx.setdefault(f["producto_id"], []).append(f)
+        cant_idx  = {r["producto_id"]: r for r in por_cant}
+
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+        import tempfile
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Precios"
+
+        HEADERS = ["Nombre", "Categoría", "Precio Unidad",
+                   "3/4", "1/2", "1/4", "1/8", "1/16",
+                   "Mayorista (umbral)", "Precio mayorista"]
+        for col, h in enumerate(HEADERS, 1):
+            c = ws.cell(row=1, column=col, value=h)
+            c.font      = Font(bold=True, color="FFFFFF")
+            c.fill      = PatternFill("solid", fgColor="1A56DB")
+            c.alignment = Alignment(horizontal="center")
+
+        FRACS = ["3/4", "1/2", "1/4", "1/8", "1/16"]
+        for i, prod in enumerate(productos, 2):
+            pid  = prod["id"]
+            fs   = {f["fraccion"]: f["precio_total"] for f in frac_idx.get(pid, [])}
+            pc   = cant_idx.get(pid)
+            row  = [
+                prod["nombre"],
+                prod["categoria"] or "",
+                prod["precio_unidad"],
+                *[fs.get(frac, "") for frac in FRACS],
+                pc["umbral"]               if pc else "",
+                pc["precio_sobre_umbral"]  if pc else "",
+            ]
+            for col, val in enumerate(row, 1):
+                ws.cell(row=i, column=col, value=val)
+
+        for col in range(1, len(HEADERS) + 1):
+            ws.column_dimensions[get_column_letter(col)].width = 20
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            ruta = tmp.name
+        wb.save(ruta)
+
+        await update.message.reply_text(
+            f"📤 EXPORTACIÓN COMPLETADA\n{'─'*30}\n"
+            f"✅ Productos exportados: {len(productos)}\n"
+            f"📊 Con fracciones:       {len(frac_idx)}\n"
+            f"💰 Con precio mayorista: {len(cant_idx)}"
+        )
+        with open(ruta, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename="catalogo_precios_pg.xlsx",
+                caption="📎 Catálogo de precios desde PostgreSQL"
+            )
+        os.remove(ruta)
     except Exception as e:
         await update.message.reply_text(f"❌ Error en exportación: {e}")
 
@@ -1822,8 +1874,7 @@ async def comando_actualizar_precio(update: Update, context: ContextTypes.DEFAUL
 
 async def _procesar_linea_precio(linea: str, update):
     import re as _re
-    from precio_sync import actualizar_precio as _ap
-    from memoria import buscar_producto_en_catalogo, invalidar_cache_memoria, cargar_memoria, guardar_memoria
+    from memoria import buscar_producto_en_catalogo, invalidar_cache_memoria, actualizar_precio_en_catalogo
 
     linea = linea.strip()
     if not linea:
@@ -1873,39 +1924,71 @@ async def _procesar_linea_precio(linea: str, update):
 
     nombre_display = prod["nombre"]
 
-    if precio_mayorista is not None:
-        mem  = cargar_memoria()
-        cat  = mem.get("catalogo", {})
-        clave = next((k for k,v in cat.items() if v.get("nombre_lower") == prod.get("nombre_lower","")), None)
-        if clave:
-            cat[clave]["precio_unidad"] = round(precio)
-            pxc = cat[clave].get("precio_por_cantidad", {})
-            pxc["precio_bajo_umbral"]  = round(precio)
-            pxc["precio_sobre_umbral"] = round(precio_mayorista)
-            if "umbral" not in pxc:
-                pxc["umbral"] = 50
-            cat[clave]["precio_por_cantidad"] = pxc
-            mem["catalogo"] = cat
-            guardar_memoria(mem)
+    # ── Buscar el producto en PG ──────────────────────────────────────────────
+    if not _db.DB_DISPONIBLE:
+        await update.message.reply_text("⚠️ Base de datos no disponible."); return
+
+    prod_pg = _db.query_one(
+        "SELECT id FROM productos WHERE nombre_lower = %s AND activo = TRUE",
+        (prod.get("nombre_lower", nombre_display.lower()),),
+    )
+    if not prod_pg:
+        await update.message.reply_text(f"⚠️ '{nombre_display}' no encontrado en la base de datos."); return
+
+    prod_id = prod_pg["id"]
+
+    try:
+        if precio_mayorista is not None:
+            # ── Precio doble: unitario + mayorista ────────────────────────────
+            _db.execute(
+                "UPDATE productos SET precio_unidad=%s, updated_at=NOW() WHERE id=%s",
+                (round(precio), prod_id),
+            )
+            _db.execute(
+                """INSERT INTO productos_precio_cantidad
+                       (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
+                   VALUES (%s, 50, %s, %s)
+                   ON CONFLICT (producto_id) DO UPDATE
+                       SET precio_bajo_umbral  = EXCLUDED.precio_bajo_umbral,
+                           precio_sobre_umbral = EXCLUDED.precio_sobre_umbral""",
+                (prod_id, round(precio), round(precio_mayorista)),
+            )
+            # Mantener caché de memoria sincronizada
+            actualizar_precio_en_catalogo(nombre_display, round(precio), None)
             invalidar_cache_memoria()
-            try:
-                _ap(nombre_display, round(precio), fraccion)
-            except Exception:
-                pass
             await update.message.reply_text(
                 f"✅ {nombre_display}\n"
                 f"   Unitario: ${round(precio):,} → Mayorista: ${round(precio_mayorista):,}"
             )
-        else:
-            await update.message.reply_text(f"⚠️ No encontré '{nombre_raw}' en el catálogo.")
-        return
 
-    ok, desc = _ap(nombre_display, round(precio), fraccion)
-    if ok:
-        frac_txt = f" ({fraccion})" if fraccion else ""
-        await update.message.reply_text(f"✅ {nombre_display}{frac_txt} → ${round(precio):,}")
-    else:
-        await update.message.reply_text(f"⚠️ {desc}")
+        elif fraccion:
+            # ── Precio de fracción ────────────────────────────────────────────
+            rows = _db.execute(
+                "UPDATE productos_fracciones SET precio_total=%s WHERE producto_id=%s AND fraccion=%s",
+                (round(precio), prod_id, fraccion),
+            )
+            if rows == 0:
+                _db.execute(
+                    """INSERT INTO productos_fracciones (producto_id, fraccion, precio_total, precio_unitario)
+                       VALUES (%s, %s, %s, %s)""",
+                    (prod_id, fraccion, round(precio), round(precio)),
+                )
+            actualizar_precio_en_catalogo(nombre_display, round(precio), fraccion)
+            invalidar_cache_memoria()
+            await update.message.reply_text(f"✅ {nombre_display} ({fraccion}) → ${round(precio):,}")
+
+        else:
+            # ── Precio unitario simple ────────────────────────────────────────
+            _db.execute(
+                "UPDATE productos SET precio_unidad=%s, updated_at=NOW() WHERE id=%s",
+                (round(precio), prod_id),
+            )
+            actualizar_precio_en_catalogo(nombre_display, round(precio), None)
+            invalidar_cache_memoria()
+            await update.message.reply_text(f"✅ {nombre_display} → ${round(precio):,}")
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error guardando precio: {e}")
 
 
 async def manejar_mensaje_precio(update, mensaje: str) -> bool:

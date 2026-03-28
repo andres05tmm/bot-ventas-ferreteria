@@ -4,15 +4,13 @@ Gestión de cuentas por pagar, facturas y abonos.
 """
 from __future__ import annotations
 
-import json
+import asyncio
+import io
 import logging
 import os
-import tempfile
-from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 import config
@@ -20,6 +18,50 @@ from routers.shared import _hoy
 
 logger = logging.getLogger("ferrebot.api")
 router = APIRouter()
+
+
+# ── Cloudinary helper ─────────────────────────────────────────────────────────
+
+async def _subir_cloudinary(file_bytes: bytes, nombre_archivo: str, proveedor: str) -> dict:
+    """
+    Sube bytes a Cloudinary bajo ferreteria/facturas/<proveedor>/<nombre_archivo>.
+    Retorna {"ok": True, "url": "...", "nombre": "..."}
+           {"ok": False, "error": "..."}
+
+    Variables de entorno requeridas:
+        CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+    """
+    try:
+        import cloudinary
+        import cloudinary.uploader
+
+        cloudinary.config(
+            cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", ""),
+            api_key    = os.environ.get("CLOUDINARY_API_KEY",    ""),
+            api_secret = os.environ.get("CLOUDINARY_API_SECRET", ""),
+        )
+
+        slug      = proveedor.lower().replace(" ", "_")
+        public_id = f"ferreteria/facturas/{slug}/{nombre_archivo.rsplit('.', 1)[0]}"
+
+        def _do_upload():
+            return cloudinary.uploader.upload(
+                io.BytesIO(file_bytes),
+                public_id     = public_id,
+                overwrite     = True,
+                resource_type = "auto",      # acepta pdf e imagen
+            )
+
+        result = await asyncio.to_thread(_do_upload)
+        url    = result.get("secure_url", "")
+        logger.info(f"[Cloudinary] 📎 {nombre_archivo} → {proveedor} → {url}")
+        return {"ok": True, "url": url, "nombre": nombre_archivo}
+
+    except ImportError:
+        return {"ok": False, "error": "cloudinary no instalado — pip install cloudinary"}
+    except Exception as e:
+        logger.error(f"[Cloudinary] ❌ Error subiendo {nombre_archivo}: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 # ── Modelos ───────────────────────────────────────────────────────────────────
@@ -92,7 +134,6 @@ async def subir_foto_factura(fac_id: str, foto: UploadFile = File(...)):
     """Sube la foto de una factura a Cloudinary y actualiza la URL en PostgreSQL."""
     try:
         import db as _db
-        from drive import subir_foto_factura as _subir
 
         if not _db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
@@ -113,16 +154,8 @@ async def subir_foto_factura(fac_id: str, foto: UploadFile = File(...)):
         fecha_factura  = factura.get("fecha") or _hoy()
         nombre_archivo = f"{fecha_factura}_{fac_id}{ext}"
 
-        contenido = await foto.read()
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp.write(contenido)
-            ruta_tmp = tmp.name
-
-        resultado = _subir(ruta_tmp, nombre_archivo, factura["proveedor"])
-        try:
-            os.unlink(ruta_tmp)
-        except Exception:
-            pass
+        contenido  = await foto.read()
+        resultado  = await _subir_cloudinary(contenido, nombre_archivo, factura["proveedor"])
 
         if not resultado["ok"]:
             raise HTTPException(status_code=500, detail=resultado.get("error", "Error subiendo foto"))
@@ -184,7 +217,6 @@ async def subir_foto_abono(fac_id: str, foto: UploadFile = File(...)):
     """Sube la foto del comprobante de abono y la adjunta al último abono en PostgreSQL."""
     try:
         import db as _db
-        from drive import subir_foto_factura as _subir
 
         if not _db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
@@ -209,23 +241,14 @@ async def subir_foto_abono(fac_id: str, foto: UploadFile = File(...)):
         elif foto.content_type == "application/pdf":
             ext = ".pdf"
 
-        n_abono        = _db.query_one(
+        n_abono = _db.query_one(
             "SELECT COUNT(*) AS n FROM facturas_abonos WHERE factura_id = %s",
             (fac_id.upper(),),
         )["n"]
-        hoy            = _hoy()
-        nombre_archivo = f"{hoy}_{fac_id}_abono{n_abono}{ext}"
+        nombre_archivo = f"{_hoy()}_{fac_id}_abono{n_abono}{ext}"
 
         contenido = await foto.read()
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp.write(contenido)
-            ruta_tmp = tmp.name
-
-        resultado = _subir(ruta_tmp, nombre_archivo, factura["proveedor"])
-        try:
-            os.unlink(ruta_tmp)
-        except Exception:
-            pass
+        resultado = await _subir_cloudinary(contenido, nombre_archivo, factura["proveedor"])
 
         if not resultado["ok"]:
             raise HTTPException(status_code=500, detail=resultado.get("error", "Error subiendo foto"))

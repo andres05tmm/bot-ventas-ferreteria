@@ -58,12 +58,145 @@ from memoria import (
     guardar_fiado_movimiento, abonar_fiado,
     actualizar_precio_en_catalogo,
 )
-from excel import (
-    obtener_todos_los_datos, obtener_resumen_ventas,
-    generar_excel_personalizado, guardar_cliente_nuevo,
-    inicializar_excel, buscar_clientes_multiples, _normalizar,
-)
-from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible
+from excel import generar_excel_personalizado
+from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, _normalizar
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HELPERS PG — reemplazan funciones de excel.py
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _pg_fila_a_cliente(row: dict) -> dict:
+    """Adapta fila PG al formato dict que espera el código existente (claves estilo Excel)."""
+    return {
+        "Nombre tercero":         row.get("nombre", ""),
+        "Tipo de identificacion": row.get("tipo_id", ""),
+        "Identificacion":         row.get("identificacion", ""),
+        "Fecha registro":         row.get("fecha_registro", ""),
+    }
+
+
+def _pg_resumen_ventas() -> dict | None:
+    """Total y conteo de ventas del mes actual. Reemplaza obtener_resumen_ventas()."""
+    if not _db.DB_DISPONIBLE:
+        return None
+    row = _db.query_one(
+        """SELECT COUNT(*) AS num_ventas, COALESCE(SUM(total), 0) AS total
+           FROM ventas
+           WHERE DATE_TRUNC('month', fecha) = DATE_TRUNC('month', CURRENT_DATE)"""
+    )
+    return {"total": float(row["total"]), "num_ventas": int(row["num_ventas"])} if row else None
+
+
+def _pg_todos_los_datos(limite: int = 300) -> list:
+    """Historial de ventas con detalle. Reemplaza obtener_todos_los_datos()."""
+    if not _db.DB_DISPONIBLE:
+        return []
+    rows = _db.query_all(
+        """SELECT v.fecha::text, v.hora::text, v.cliente_nombre, v.vendedor,
+                  v.metodo_pago, v.total,
+                  vd.producto_nombre, vd.cantidad, vd.precio_unitario,
+                  vd.total AS subtotal
+           FROM ventas v
+           LEFT JOIN ventas_detalle vd ON vd.venta_id = v.id
+           ORDER BY v.fecha DESC, v.id DESC
+           LIMIT %s""",
+        (limite,),
+    )
+    return [dict(r) for r in rows]
+
+
+def _pg_buscar_cliente(termino: str) -> tuple[dict | None, list]:
+    """Busca clientes en PG por nombre o cédula. Reemplaza buscar_cliente_con_resultado()."""
+    if not _db.DB_DISPONIBLE:
+        return None, []
+    termino_norm = _normalizar(termino)
+    palabras     = [p for p in termino_norm.split() if len(p) > 2]
+
+    # Búsqueda exacta por identificación
+    row = _db.query_one(
+        """SELECT nombre, tipo_id, identificacion,
+                  created_at::text AS fecha_registro
+           FROM clientes WHERE identificacion = %s""",
+        (termino.strip(),),
+    )
+    if row:
+        c = _pg_fila_a_cliente(row)
+        return c, [c]
+
+    if not palabras:
+        return None, []
+
+    todos = _db.query_all(
+        "SELECT nombre, tipo_id, identificacion, created_at::text AS fecha_registro FROM clientes"
+    )
+    candidatos = []
+    for r in todos:
+        nombre_n = _normalizar(r["nombre"])
+        if any(p in nombre_n for p in palabras):
+            candidatos.append(_pg_fila_a_cliente(r))
+    candidatos.sort(key=lambda x: len(x.get("Nombre tercero", "")))
+    return (candidatos[0] if len(candidatos) == 1 else None), candidatos
+
+
+def _pg_clientes_recientes(limite: int = 5) -> list:
+    """Últimos N clientes registrados. Reemplaza obtener_clientes_recientes()."""
+    if not _db.DB_DISPONIBLE:
+        return []
+    rows = _db.query_all(
+        """SELECT nombre, tipo_id, identificacion, created_at::text AS fecha_registro
+           FROM clientes ORDER BY created_at DESC LIMIT %s""",
+        (limite,),
+    )
+    return [_pg_fila_a_cliente(r) for r in rows]
+
+
+def _pg_guardar_cliente(nombre, tipo_id, identificacion,
+                        tipo_persona="Natural", correo="", telefono="") -> bool:
+    """INSERT de cliente en PG. Reemplaza guardar_cliente_nuevo()."""
+    if not _db.DB_DISPONIBLE:
+        return False
+    try:
+        _db.execute(
+            """INSERT INTO clientes
+                   (nombre, tipo_id, identificacion, tipo_persona, correo, telefono)
+               VALUES (%s, %s, %s, %s, %s, %s)
+               ON CONFLICT DO NOTHING""",
+            (
+                nombre.upper().strip(),
+                tipo_id,
+                identificacion.strip() or None,
+                tipo_persona,
+                correo.strip()   or None,
+                telefono.strip() or None,
+            ),
+        )
+        return True
+    except Exception as e:
+        logging.getLogger("ferrebot.ai").error(f"Error guardando cliente en PG: {e}")
+        return False
+
+
+def _pg_borrar_cliente(termino: str) -> tuple[bool, str]:
+    """DELETE de cliente en PG. Reemplaza borrar_cliente()."""
+    if not _db.DB_DISPONIBLE:
+        return False, "Base de datos no disponible."
+    termino_norm = _normalizar(termino)
+    row = _db.query_one(
+        "SELECT id, nombre FROM clientes WHERE identificacion = %s", (termino.strip(),)
+    )
+    if not row:
+        todos    = _db.query_all("SELECT id, nombre FROM clientes")
+        palabras = [p for p in termino_norm.split() if len(p) > 2]
+        for r in todos:
+            nombre_n = _normalizar(r["nombre"])
+            if nombre_n == termino_norm or (palabras and all(p in nombre_n for p in palabras)):
+                row = r
+                break
+    if not row:
+        return False, f"No encontré un cliente que coincida con '{termino}'."
+    _db.execute("DELETE FROM clientes WHERE id = %s", (row["id"],))
+    return True, f"✅ Cliente '{row['nombre']}' borrado del sistema."
+
 
 # ─────────────────────────────────────────────
 # ALIAS DE FERRETERÍA (pre-procesamiento)
@@ -277,7 +410,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         except Exception:
             pass
 
-    resumen               = obtener_resumen_ventas()
+    resumen               = _pg_resumen_ventas()
     resumen_excel_total   = resumen["total"]      if resumen else 0
     resumen_excel_cantidad = resumen["num_ventas"] if resumen else 0
 
@@ -301,9 +434,9 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     _es_dash = dashboard_mode  # activado desde procesar_con_claude/_stream cuando viene del dashboard
     if _es_analisis or _es_dash:
         try:
-            todos       = obtener_todos_los_datos()
             _limite     = 300 if _es_dash else 200
-            datos_texto = json.dumps(todos[-_limite:], ensure_ascii=False, default=str) if todos else "Sin datos aun"
+            todos       = _pg_todos_los_datos(_limite)
+            datos_texto = json.dumps(todos, ensure_ascii=False, default=str) if todos else "Sin datos aun"
         except Exception:
             datos_texto = "Sin datos aun"
     else:
@@ -1005,14 +1138,13 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     _msg_norm = _normalizar(mensaje_usuario)
     if any(p in _msg_norm for p in palabras_recientes) and "cliente" in _msg_norm:
         try:
-            from excel import obtener_clientes_recientes
-            recientes = obtener_clientes_recientes(5)
+            recientes = _pg_clientes_recientes(5)
             if recientes:
                 lineas = []
                 for c in recientes:
                     nombre = c.get("Nombre tercero", "")
-                    id_c   = c.get("Identificacion", "") or c.get("Identificacion", "")
-                    tipo   = c.get("Tipo de identificacion", "") or c.get("Tipo de identificacion", "")
+                    id_c   = c.get("Identificacion", "")
+                    tipo   = c.get("Tipo de identificacion", "")
                     fecha  = c.get("Fecha registro", "Sin fecha")
                     lineas.append(f"  - {nombre} ({tipo}: {id_c}) — registrado: {fecha}")
                 clientes_recientes_texto = (
@@ -1030,7 +1162,6 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     _menciona_cliente = any(ind in mensaje_usuario.lower() for ind in _indicadores_cliente)
     if _menciona_cliente:
         try:
-            from excel import buscar_cliente_con_resultado
             # Extraer nombre despues de "para", "a nombre de", "de parte de", etc.
             _match_nombre = re.search(
                 r'(?:para|a nombre de|de parte de|cuenta de)\s+([A-Za-záéíóúÁÉÍÓÚñÑ]+(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑ]+){0,3})',
@@ -1043,7 +1174,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
                                     if len(p) > 3 and p not in stopwords]
                 termino_cliente = " ".join(palabras_cliente[:4]) if palabras_cliente else ""
             if termino_cliente:
-                cliente_unico, candidatos_cli = buscar_cliente_con_resultado(termino_cliente)
+                cliente_unico, candidatos_cli = _pg_buscar_cliente(termino_cliente)
 
                 if len(candidatos_cli) == 1:
                     c      = candidatos_cli[0]
@@ -2028,13 +2159,12 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         ventas_con_metodo.clear()
 
     def _tiene_cliente_desconocido(ventas: list) -> str | None:
-        from excel import buscar_cliente_con_resultado
         for v in ventas:
             nombre_cliente = v.get("cliente", "").strip()
             if not nombre_cliente or nombre_cliente.lower() in ("consumidor final", "cf", ""):
                 continue
             try:
-                _, candidatos = buscar_cliente_con_resultado(nombre_cliente)
+                _, candidatos = _pg_buscar_cliente(nombre_cliente)
                 if not candidatos:
                     return nombre_cliente
                 # Verificar que algún candidato coincida con al menos 2 palabras
@@ -2085,7 +2215,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             nombre = datos.get("nombre", "").strip()
             id_num = str(datos.get("identificacion", "")).strip()
             if nombre and id_num:
-                ok = guardar_cliente_nuevo(
+                ok = _pg_guardar_cliente(
                     nombre, datos.get("tipo_id", "Cedula de ciudadania"), id_num,
                     datos.get("tipo_persona", "Natural"),
                     datos.get("correo", ""), datos.get("telefono", ""),
@@ -2138,8 +2268,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             datos  = json.loads(bc_json.strip())
             nombre = datos.get("nombre", "").strip()
             if nombre:
-                from excel import borrar_cliente
-                exito, msg = borrar_cliente(nombre)
+                exito, msg = _pg_borrar_cliente(nombre)
                 acciones.append(msg)
         except Exception as e:
             print(f"Error borrando cliente: {e}")
@@ -2361,8 +2490,6 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             abono    = float(datos.get("abono", 0))
             if cliente and cargo > 0:
                 saldo = guardar_fiado_movimiento(cliente, concepto, cargo, abono)
-                from excel import registrar_fiado_en_excel
-                registrar_fiado_en_excel(cliente, concepto, cargo, abono, saldo)
                 acciones.append(f"Fiado registrado: {cliente} debe ${saldo:,.0f}")
         except Exception as e:
             print(f"Error fiado: {e}")
@@ -2377,12 +2504,9 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             if cliente and monto > 0:
                 ok, msg = abonar_fiado(cliente, monto)
                 if ok:
-                    from excel import registrar_fiado_en_excel
                     from memoria import cargar_fiados
                     fiados      = cargar_fiados()
                     cliente_key = next((k for k in fiados if k.lower() in cliente.lower() or cliente.lower() in k.lower()), cliente)
-                    saldo       = fiados.get(cliente_key, {}).get("saldo", 0)
-                    registrar_fiado_en_excel(cliente_key, "Abono", 0, monto, saldo)
                 acciones.append(msg)
         except Exception as e:
             print(f"Error abono fiado: {e}")
