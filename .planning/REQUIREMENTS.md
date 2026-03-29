@@ -74,11 +74,11 @@
 
 ### Tests
 
-- [ ] **TST-01**: `tests/test_price_cache.py` — tests de thread safety para la cache
-- [ ] **TST-02**: `tests/test_middleware.py` — tests del decorador `@protegido`
+- [x] **TST-01**: `tests/test_price_cache.py` — tests de thread safety para la cache
+- [x] **TST-02**: `tests/test_middleware.py` — tests del decorador `@protegido`
 - [ ] **TST-03**: `tests/test_catalogo_service.py` y `tests/test_inventario_service.py`
 - [ ] **TST-04**: `tests/test_caja_service.py` y `tests/test_fiados_service.py`
-- [ ] **TST-05**: `python -m pytest tests/ -v --ignore=test_suite.py` pasa en verde
+- [x] **TST-05**: `python -m pytest tests/ -v --ignore=test_suite.py` pasa en verde
 - [ ] **TST-06**: `test_suite.py` original permanece sin modificar y sigue pasando
 
 ---

@@ -99,7 +99,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: Task J (Phase 1 modules) — `tests/test_price_cache.py` (thread-safety, concurrent reads/writes) + `tests/test_middleware.py` (decorator behavior, fail-open, functools.wraps)
+- [x] 04-01: Task J (Phase 1 modules) — `tests/test_price_cache.py` (thread-safety, concurrent reads/writes) + `tests/test_middleware.py` (decorator behavior, fail-open, functools.wraps)
 - [ ] 04-02: Task J (Phase 1 services) — `tests/test_catalogo_service.py` + `tests/test_inventario_service.py` (mock `db.query_*`; verify return contracts)
 - [ ] 04-03: Task J (Phase 2 services) — `tests/test_caja_service.py` + `tests/test_fiados_service.py` (mock db; verify thin wrapper symbol count)
 
@@ -115,7 +115,7 @@ Phases execute in order: 1 → 2 → 3. Phase 4 (tests) runs in parallel with ea
 | 1. Infrastructure Creation | 0/5 | Not started | - |
 | 2. Wiring | 1/3 | In Progress|  |
 | 3. Reduction | 1/1 | Complete   | 2026-03-29 |
-| 4. Tests | 0/3 | Not started | - |
+| 4. Tests | 1/3 | In Progress|  |
 
 ---
 
