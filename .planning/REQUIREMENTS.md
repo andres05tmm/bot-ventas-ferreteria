@@ -45,11 +45,11 @@
 
 ### HandlersModulares
 
-- [ ] **HDL-01**: `handlers/comandos.py` se convierte en re-export hub — todos los nombres originales re-exportados
-- [ ] **HDL-02**: Los ~50 handlers están distribuidos en archivos temáticos: `cmd_ventas`, `cmd_inventario`, `cmd_clientes`, `cmd_caja`, `cmd_admin` (mínimo)
-- [ ] **HDL-03**: Cada handler usa `@protegido` de `from middleware import protegido`
-- [ ] **HDL-04**: `main.py` no requiere ningún cambio — sus imports de `handlers.comandos` siguen funcionando
-- [ ] **HDL-05**: No existe `with threading.Lock():` que contenga un `await` en ningún `cmd_*.py`
+- [x] **HDL-01**: `handlers/comandos.py` se convierte en re-export hub — todos los nombres originales re-exportados
+- [x] **HDL-02**: Los ~50 handlers están distribuidos en archivos temáticos: `cmd_ventas`, `cmd_inventario`, `cmd_clientes`, `cmd_caja`, `cmd_admin` (mínimo)
+- [x] **HDL-03**: Cada handler usa `@protegido` de `from middleware import protegido`
+- [x] **HDL-04**: `main.py` no requiere ningún cambio — sus imports de `handlers.comandos` siguen funcionando
+- [x] **HDL-05**: No existe `with threading.Lock():` que contenga un `await` en ningún `cmd_*.py`
 
 ### AIPrompts
 

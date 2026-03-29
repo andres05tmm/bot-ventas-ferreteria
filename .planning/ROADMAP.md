@@ -8,7 +8,7 @@ FerreBot is a live Telegram bot + FastAPI in production on Railway. This roadmap
 
 ## Phases
 
-- [ ] **Phase 1: Infrastructure Creation** - Create all new modules additively — nothing existing imports them yet (Tasks A, B, C, D, E — fully parallel)
+- [x] **Phase 1: Infrastructure Creation** - Create all new modules additively — nothing existing imports them yet (Tasks A, B, C, D, E — fully parallel)
 - [ ] **Phase 2: Wiring** - Integrate new modules into existing code: auth-gate handlers, extract prompts/Excel, thin-wrap memoria.py (Tasks F, G, H)
 - [ ] **Phase 3: Reduction** - Shrink ai.py from 2685 to ~800 lines and rename to ai/__init__.py (Task I)
 - [ ] **Phase 4: Tests** - Unit tests for every new module; runs in parallel alongside all phases (Task J)
@@ -31,11 +31,11 @@ FerreBot is a live Telegram bot + FastAPI in production on Railway. This roadmap
 **Plans**: 5 plans
 
 Plans:
-- [ ] 01-01: Task A — `middleware/` auth + rate limiting (`@protegido` decorator, `AUTHORIZED_CHAT_IDS` env var, fail-open for empty list)
-- [ ] 01-02: Task B — `ai/price_cache.py` thread-safe cache (PRIORITY: fixes active production race condition; creates `ai/` directory WITHOUT `ai/__init__.py`)
-- [ ] 01-03: Task C — `migrations/` directory (move all `migrate_*.py`, add `__init__.py`, add `if __name__ == "__main__"` guards)
-- [ ] 01-04: Task D — `services/catalogo_service.py` (extract catalog CRUD from `memoria.py`, identical signatures, imports only `config` + `db`)
-- [ ] 01-05: Task E — `services/inventario_service.py` (extract inventory logic; preserve `descontar_inventario()` return contract `(bool, str|None, float|None)`)
+- [x] 01-01: Task A — `middleware/` auth + rate limiting (`@protegido` decorator, `AUTHORIZED_CHAT_IDS` env var, fail-open for empty list)
+- [x] 01-02: Task B — `ai/price_cache.py` thread-safe cache (PRIORITY: fixes active production race condition; creates `ai/` directory WITHOUT `ai/__init__.py`)
+- [x] 01-03: Task C — `migrations/` directory (move all `migrate_*.py`, add `__init__.py`, add `if __name__ == "__main__"` guards)
+- [x] 01-04: Task D — `services/catalogo_service.py` (extract catalog CRUD from `memoria.py`, identical signatures, imports only `config` + `db`)
+- [x] 01-05: Task E — `services/inventario_service.py` (extract inventory logic; preserve `descontar_inventario()` return contract `(bool, str|None, float|None)`)
 
 > **RISK — Task B (race condition fix):** `ai/price_cache.py` must be created inside a new `ai/` directory but WITHOUT `ai/__init__.py`. If `ai/__init__.py` is created here, Python will shadow `ai.py` and all 5+ callers of `from ai import procesar_con_claude` will break immediately. Verify after commit: `python -c "import ai; print(type(ai.procesar_con_claude))"`.
 
@@ -57,7 +57,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: Task F — `handlers/cmd_*.py` split + `@protegido` (split comandos.py into cmd_ventas, cmd_inventario, cmd_clientes, cmd_caja, cmd_admin; convert comandos.py to re-export hub; depends on Task A)
+- [x] 02-01: Task F — `handlers/cmd_*.py` split + `@protegido` (split comandos.py into cmd_ventas, cmd_inventario, cmd_clientes, cmd_caja, cmd_admin; convert comandos.py to re-export hub; depends on Task A)
 - [ ] 02-02: Task G — `ai/prompts.py` + `ai/excel_gen.py` (extract from ai.py; pure functions only; no `ai/__init__.py` yet; depends on Task B)
 - [ ] 02-03: Task H — `services/caja_service.py` + `services/fiados_service.py` + thin wrapper `memoria.py` (depends on Tasks D+E; highest breakage risk)
 
@@ -113,7 +113,7 @@ Phases execute in order: 1 → 2 → 3. Phase 4 (tests) runs in parallel with ea
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Infrastructure Creation | 0/5 | Not started | - |
-| 2. Wiring | 0/3 | Not started | - |
+| 2. Wiring | 1/3 | In Progress|  |
 | 3. Reduction | 0/1 | Not started | - |
 | 4. Tests | 0/3 | Not started | - |
 
