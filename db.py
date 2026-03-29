@@ -54,6 +54,7 @@ def init_db() -> bool:
             dsn=database_url,
             cursor_factory=RealDictCursor,
             connect_timeout=5,
+            options="-c statement_timeout=8000",   # abortar queries colgadas > 8s
         )
         # Verificar conectividad real
         with _get_conn() as conn:
@@ -94,6 +95,7 @@ def _reconectar() -> None:
         dsn=_dsn,
         cursor_factory=RealDictCursor,
         connect_timeout=5,
+        options="-c statement_timeout=8000",   # mismo timeout que init
     )
     logger.info("[DB] Pool reconectado exitosamente")
 
@@ -508,3 +510,31 @@ def obtener_nombre_id_cliente(termino: str) -> tuple[str, str]:
     if row:
         return str(row.get("identificacion") or "CF"), str(row.get("nombre") or "Consumidor Final")
     return "CF", "Consumidor Final"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WRAPPERS ASYNC — no bloquean el event loop de FastAPI/asyncio
+# Uso: await db.query_all_async(sql, params)  en vez de db.query_all(sql, params)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import asyncio as _asyncio
+
+
+async def query_all_async(sql: str, params=None) -> list[dict]:
+    """Versión async de query_all — delega a un thread del pool para no bloquear asyncio."""
+    return await _asyncio.to_thread(query_all, sql, params)
+
+
+async def query_one_async(sql: str, params=None) -> dict | None:
+    """Versión async de query_one."""
+    return await _asyncio.to_thread(query_one, sql, params)
+
+
+async def execute_async(sql: str, params=None) -> int:
+    """Versión async de execute."""
+    return await _asyncio.to_thread(execute, sql, params)
+
+
+async def execute_returning_async(sql: str, params=None) -> dict | None:
+    """Versión async de execute_returning."""
+    return await _asyncio.to_thread(execute_returning, sql, params)

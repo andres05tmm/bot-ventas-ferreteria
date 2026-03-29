@@ -40,6 +40,18 @@ import config  # noqa: E402
 import db as _db  # noqa: E402
 _db.init_db()  # determina DB_DISPONIBLE una vez; no falla si DATABASE_URL ausente
 
+# ── Warm-up del cache en background ──────────────────────────────────────────
+# Precarga la memoria desde PG para que el primer request de chat no espere.
+if _db.DB_DISPONIBLE:
+    def _warmup_cache() -> None:
+        try:
+            from memoria import cargar_memoria
+            cargar_memoria()
+            log.info("🔥 Cache de memoria precargado al arranque (warm-up)")
+        except Exception as e:
+            log.warning(f"⚠️ Warm-up cache falló (no fatal): {e}")
+    threading.Thread(target=_warmup_cache, name="cache-warmup", daemon=True).start()
+
 # ── API en hilo SECUNDARIO (daemon) ────────────────────────────────────────────
 def _run_api() -> None:
     import uvicorn

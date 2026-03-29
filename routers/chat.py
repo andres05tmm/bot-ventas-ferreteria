@@ -6,10 +6,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
@@ -32,7 +34,7 @@ def _session_chat_id(session_id: str) -> int:
     return -(abs(hash(session_id)) % (10 ** 9))
 
 
-def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
+async def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
     """
     Construye el bloque de contexto enriquecido para el asistente del dashboard.
     Incluye: ventas del día, catálogo completo, top productos, histórico, compras,
@@ -333,7 +335,7 @@ def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> str:
         if _db_hist.DB_DISPONIBLE:
             _hoy_d = datetime.now(config.COLOMBIA_TZ).date()
             _desde = (_hoy_d - timedelta(days=29)).strftime("%Y-%m-%d")
-            _rows_hist = _db_hist.query_all(
+            _rows_hist = await _db_hist.query_all_async(
                 """SELECT fecha::text, ventas, gastos, abonos_proveedores
                    FROM historico_ventas
                    WHERE fecha >= %s
@@ -530,7 +532,7 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat_ia(req: ChatRequest):
+async def chat_ia(req: ChatRequest, request: Request):
     """
     Endpoint de chat IA para el dashboard.
 
@@ -550,6 +552,8 @@ async def chat_ia(req: ChatRequest):
     from ventas_state import ventas_pendientes, registrar_ventas_con_metodo_async, _estado_lock
 
     log = logging.getLogger("ferrebot.api")
+    request_id = getattr(request.state, "request_id", uuid.uuid4().hex[:8])
+    t0 = time.perf_counter()
 
     # ── RAMA B: Confirmación de pago desde botón ─────────────────────────────
     if req.confirmar_pago:
@@ -591,7 +595,7 @@ async def chat_ia(req: ChatRequest):
         _chat_id = _session_chat_id(req.session_id)
 
         # ── Contexto dinámico del dashboard (datos reales en cada llamada) ──
-        contexto_dash = _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
+        contexto_dash = await _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
 
         # Inyectar flag ##DASHBOARD## para que ai.py active modo dashboard
         mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
@@ -675,21 +679,23 @@ async def chat_ia(req: ChatRequest):
               and not a.startswith("CLIENTE_DESCONOCIDO:")]
             texto_final = "\n".join(otras) if otras else "(Sin respuesta)"
 
-        return {
+        result = {
             "ok": True,
             "respuesta": texto_final,
             "acciones": {"ventas": 0, "gastos": gastos_registrados},
             "pendiente": False,
         }
+        log.info(f"[{request_id}] /chat completado en {int((time.perf_counter()-t0)*1000)}ms")
+        return result
 
     except Exception as e:
-        log.error(f"[/chat] Error: {e}", exc_info=True)
+        log.error(f"[{request_id}] /chat ERROR ({int((time.perf_counter()-t0)*1000)}ms): {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 
 @router.post("/chat/stream")
-async def chat_stream(req: ChatRequest):
+async def chat_stream(req: ChatRequest, request: Request):
     """
     Endpoint SSE para el dashboard con streaming token-a-token.
     Emite eventos:
@@ -701,6 +707,8 @@ async def chat_stream(req: ChatRequest):
     from ventas_state import ventas_pendientes, registrar_ventas_con_metodo_async, _estado_lock
 
     log = logging.getLogger("ferrebot.api")
+    request_id = getattr(request.state, "request_id", uuid.uuid4().hex[:8])
+    t0 = time.perf_counter()
 
     if not req.mensaje or not req.mensaje.strip():
         async def _err():
@@ -712,7 +720,7 @@ async def chat_stream(req: ChatRequest):
     async def generate():
         try:
             mensaje_formateado = f"{req.nombre}: {req.mensaje.strip()}"
-            contexto_dash = _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
+            contexto_dash = await _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
             mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
             full_text = ""
             modelo_usado = None  # capturar qué modelo se usó
@@ -792,10 +800,11 @@ async def chat_stream(req: ChatRequest):
                 "opciones_pago": opciones_pago,
                 "modelo": modelo_usado,
             }
+            log.info(f"[{request_id}] /chat/stream completado en {int((time.perf_counter()-t0)*1000)}ms")
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
         except Exception as exc:
-            log.error(f"[/chat/stream] {exc}", exc_info=True)
+            log.error(f"[{request_id}] /chat/stream ERROR ({int((time.perf_counter()-t0)*1000)}ms): {exc}", exc_info=True)
             yield f"data: {json.dumps({'type':'error','message':str(exc)})}\n\n"
 
     return StreamingResponse(
@@ -844,7 +853,7 @@ async def briefing_matutino():
             saludo = "buenas noches"
 
         # Construir contexto completo
-        contexto = _construir_contexto_dashboard("briefing", tab_activo="Resumen")
+        contexto = await _construir_contexto_dashboard("briefing", tab_activo="Resumen")
 
         prompt = (
             f"Andrés, {saludo}. "

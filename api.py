@@ -19,15 +19,19 @@ Toda la lógica de negocio vive en routers/:
 
 from __future__ import annotations
 
+import logging
+import time
+import uuid
 from dotenv import load_dotenv
 load_dotenv()
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 from routers import ventas, catalogo, caja, clientes, reportes, historico, chat, proveedores
@@ -39,6 +43,41 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# ── Middleware: request_id + timing en cada request ───────────────────────────
+_req_logger = logging.getLogger("ferrebot.request")
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """
+    Adjunta un request_id corto a cada request y loguea método, path,
+    status y tiempo de respuesta. Con esto es posible correlacionar
+    errores de cualquier logger con el request que los causó.
+
+    Ejemplo de log:
+      [a3f9c1b2] POST /chat → 200 (342ms)
+      [a3f9c1b2] POST /chat → ERROR (1023ms): ...
+    """
+    async def dispatch(self, request: Request, call_next):
+        request_id = uuid.uuid4().hex[:8]
+        request.state.request_id = request_id
+        t0 = time.perf_counter()
+        try:
+            response = await call_next(request)
+            ms = int((time.perf_counter() - t0) * 1000)
+            _req_logger.info(
+                f"[{request_id}] {request.method} {request.url.path}"
+                f" → {response.status_code} ({ms}ms)"
+            )
+            response.headers["X-Request-ID"] = request_id
+            return response
+        except Exception as exc:
+            ms = int((time.perf_counter() - t0) * 1000)
+            _req_logger.error(
+                f"[{request_id}] {request.method} {request.url.path}"
+                f" → ERROR ({ms}ms): {exc}"
+            )
+            raise
+
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

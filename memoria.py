@@ -136,25 +136,49 @@ def _cargar_desde_postgres() -> dict:
     }
 
 
+def _reload_cache_background() -> None:
+    """
+    Recarga el cache desde PostgreSQL en un hilo daemon.
+    Patrón stale-while-revalidate: el request ya fue servido con el dato viejo;
+    este hilo actualiza el cache para el siguiente request.
+    """
+    global _cache, _cache_ts
+    import db as _db
+    if not _db.DB_DISPONIBLE:
+        return
+    try:
+        nuevo = _cargar_desde_postgres()
+        with _cache_lock:
+            _cache = nuevo
+            _cache_ts = time.monotonic()
+        logger.debug("[CACHE] Recargado en background (stale-while-revalidate)")
+    except Exception as e:
+        logger.warning(f"[CACHE] Error en recarga background: {e}")
+
+
 def cargar_memoria() -> dict:
     global _cache, _cache_ts
     with _cache_lock:
         ahora = time.monotonic()
-        cache_vigente = (
-            _cache is not None
-            and _cache_ts is not None
-            and (ahora - _cache_ts) < _CACHE_TTL
-        )
-        if cache_vigente:
-            return _cache
-        if _cache is not None:
-            logger.debug("[CACHE] TTL expirado — recargando desde PostgreSQL")
+
+        if _cache is not None and _cache_ts is not None:
+            edad = ahora - _cache_ts
+            if edad < _CACHE_TTL:
+                # Cache vigente → retorno inmediato
+                return _cache
+            # TTL expirado: servir el dato viejo AHORA y recargar en background
+            # El usuario no espera; el próximo request ya tendrá el dato fresco.
+            logger.debug("[CACHE] TTL expirado — sirviendo stale, recargando en background")
+            import threading as _t
+            _t.Thread(target=_reload_cache_background, daemon=True, name="cache-reload").start()
+            return _cache  # retorno inmediato con dato stale
+
+        # Primera carga (cache es None) — bloqueante, solo ocurre al arranque
         import db as _db
         if _db.DB_DISPONIBLE:
             _cache = _cargar_desde_postgres()
             _cache_ts = ahora
         else:
-            # DB no disponible — estructura mínima en RAM (sin fallback JSON)
             logger.warning("DB no disponible — cargar_memoria() retorna estructura vacía")
             _cache = {
                 "precios": {}, "catalogo": {}, "negocio": {},
