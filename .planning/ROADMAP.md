@@ -10,7 +10,7 @@ FerreBot is a live Telegram bot + FastAPI in production on Railway. This roadmap
 
 - [x] **Phase 1: Infrastructure Creation** - Create all new modules additively — nothing existing imports them yet (Tasks A, B, C, D, E — fully parallel)
 - [ ] **Phase 2: Wiring** - Integrate new modules into existing code: auth-gate handlers, extract prompts/Excel, thin-wrap memoria.py (Tasks F, G, H)
-- [ ] **Phase 3: Reduction** - Shrink ai.py from 2685 to ~800 lines and rename to ai/__init__.py (Task I)
+- [x] **Phase 3: Reduction** - Shrink ai.py from 2685 to ~800 lines and rename to ai/__init__.py (Task I) (completed 2026-03-29)
 - [ ] **Phase 4: Tests** - Unit tests for every new module; runs in parallel alongside all phases (Task J)
 
 ---
@@ -80,7 +80,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 03-01: Task I — clean `ai.py` and rename to `ai/__init__.py` (remove extracted code; atomic `mv ai.py ai/__init__.py`; verify all callers)
+- [x] 03-01: Task I — clean `ai.py` and rename to `ai/__init__.py` (remove extracted code; atomic `mv ai.py ai/__init__.py`; verify all callers)
 
 > **RISK — Task I (naming collision — HIGH RISK):** `mv ai.py ai/__init__.py` is an atomic operation. Python cannot have both `ai.py` and `ai/__init__.py` — the rename must happen in a single commit with no intermediate broken state. Immediately after: `python -c "from ai import procesar_con_claude, procesar_acciones; print('OK')"`. Never delete `ai.py` in one commit and create `ai/__init__.py` in a separate commit.
 
@@ -114,7 +114,7 @@ Phases execute in order: 1 → 2 → 3. Phase 4 (tests) runs in parallel with ea
 |-------|----------------|--------|-----------|
 | 1. Infrastructure Creation | 0/5 | Not started | - |
 | 2. Wiring | 1/3 | In Progress|  |
-| 3. Reduction | 0/1 | Not started | - |
+| 3. Reduction | 1/1 | Complete   | 2026-03-29 |
 | 4. Tests | 0/3 | Not started | - |
 
 ---

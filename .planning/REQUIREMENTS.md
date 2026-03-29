@@ -68,9 +68,9 @@
 
 ### AILimpio
 
-- [ ] **AI-01**: `ai.py` reducido a ~800 líneas eliminando código movido a `ai/price_cache`, `ai/prompts`, `ai/excel_gen`
-- [ ] **AI-02**: `ai.py` renombrado a `ai/__init__.py` — `from ai import procesar_con_claude` sigue funcionando
-- [ ] **AI-03**: No existe `ai/__init__.py` hasta que Task I se ejecute (evita shadow de `ai.py`)
+- [x] **AI-01**: `ai.py` reducido a ~800 líneas eliminando código movido a `ai/price_cache`, `ai/prompts`, `ai/excel_gen`
+- [x] **AI-02**: `ai.py` renombrado a `ai/__init__.py` — `from ai import procesar_con_claude` sigue funcionando
+- [x] **AI-03**: No existe `ai/__init__.py` hasta que Task I se ejecute (evita shadow de `ai.py`)
 
 ### Tests
 
