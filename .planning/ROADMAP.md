@@ -11,7 +11,7 @@ FerreBot is a live Telegram bot + FastAPI in production on Railway. This roadmap
 - [x] **Phase 1: Infrastructure Creation** - Create all new modules additively — nothing existing imports them yet (Tasks A, B, C, D, E — fully parallel)
 - [ ] **Phase 2: Wiring** - Integrate new modules into existing code: auth-gate handlers, extract prompts/Excel, thin-wrap memoria.py (Tasks F, G, H)
 - [x] **Phase 3: Reduction** - Shrink ai.py from 2685 to ~800 lines and rename to ai/__init__.py (Task I) (completed 2026-03-29)
-- [ ] **Phase 4: Tests** - Unit tests for every new module; runs in parallel alongside all phases (Task J)
+- [x] **Phase 4: Tests** - Unit tests for every new module; runs in parallel alongside all phases (Task J) (completed 2026-03-29)
 
 ---
 
@@ -101,7 +101,7 @@ Plans:
 Plans:
 - [x] 04-01: Task J (Phase 1 modules) — `tests/test_price_cache.py` (thread-safety, concurrent reads/writes) + `tests/test_middleware.py` (decorator behavior, fail-open, functools.wraps)
 - [x] 04-02: Task J (Phase 1 services) — `tests/test_catalogo_service.py` + `tests/test_inventario_service.py` (mock `db.query_*`; verify return contracts)
-- [ ] 04-03: Task J (Phase 2 services) — `tests/test_caja_service.py` + `tests/test_fiados_service.py` (mock db; verify thin wrapper symbol count)
+- [x] 04-03: Task J (Phase 2 services) — `tests/test_caja_service.py` + `tests/test_fiados_service.py` (mock db; verify thin wrapper symbol count)
 
 ---
 
@@ -115,7 +115,7 @@ Phases execute in order: 1 → 2 → 3. Phase 4 (tests) runs in parallel with ea
 | 1. Infrastructure Creation | 0/5 | Not started | - |
 | 2. Wiring | 1/3 | In Progress|  |
 | 3. Reduction | 1/1 | Complete   | 2026-03-29 |
-| 4. Tests | 2/3 | In Progress|  |
+| 4. Tests | 3/3 | Complete   | 2026-03-29 |
 
 ---
 

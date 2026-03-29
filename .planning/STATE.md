@@ -2,24 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-03-29T23:36:13.411Z"
+status: complete
+last_updated: "2026-03-29T23:41:38Z"
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 12
-  completed_plans: 11
+  completed_plans: 12
 ---
 
 # Project State
 
 ## Current Position
 
-Phase: 04 (tests) — EXECUTING
-Plan: 3 of 3
-**Active phase:** Phase 4 — EXECUTING
-**Last completed:** Plan 04-02 — 22 unit tests for catalogo_service + inventario_service, descontar_inventario 3-tuple contract tested (2026-03-29)
-**Next action:** Execute Plan 04-03 (remaining service tests: caja_service, fiados_service).
+Phase: 04 (tests) — COMPLETE
+Plan: 3 of 3 (ALL PLANS COMPLETE)
+**Active phase:** Phase 4 — COMPLETE
+**Last completed:** Plan 04-03 — 23 unit tests for caja_service + fiados_service, thin wrapper smoke tests confirming memoria.py re-exports (2026-03-29)
+**Next action:** Project milestone complete — all 4 phases, 12 plans executed. Full suite: 62 tests, 0 failed.
+
+**Last session:** Completed 04-03-PLAN.md at 2026-03-29T23:41:38Z
 
 ---
 
@@ -55,6 +57,8 @@ All 5 tasks implemented before PLAN.md artifacts were generated. Completed retro
 | 2026-03-29 | Absolute imports kept in ai/__init__.py | `from ai.prompts import` (not relative) matches existing codebase convention |
 | 2026-03-29 | Patch target is `memoria.cargar_memoria` in tests | Lazy `from memoria import cargar_memoria` inside function bodies resolves at call time — patching at source module works |
 | 2026-03-29 | guardar_inventario patched at services level in tests | Intercepts PG writes before _upsert_inventario_producto_postgres → db calls in unit tests |
+| 2026-03-29 | Thin wrapper smoke tests pop sys.modules['memoria'] stub to load real module, assert hasattr, restore stub | Isolates test suite without polluting other tests; works before and after thin wrapper migration |
+| 2026-03-29 | abonar_fiado contract tests patch guardar_fiado_movimiento | Isolates (bool, str) return type contract from DB RuntimeError dependency |
 
 ---
 
@@ -72,15 +76,25 @@ All 5 tasks implemented before PLAN.md artifacts were generated. Completed retro
 ### Plan 04-01: Middleware + Price Cache Tests ✓ (2026-03-29)
 
 **What shipped:**
+
 - `tests/test_middleware.py` — 10 tests for RateLimiter and @protegido decorator
 - `tests/test_price_cache.py` — 8 tests for ai/price_cache TTL, thread-safety, invalidation
 
 ### Plan 04-02: Catalogo + Inventario Service Tests ✓ (2026-03-29)
 
 **What shipped:**
+
 - `tests/test_catalogo_service.py` — 12 tests: buscar_producto_en_catalogo, buscar_multiples_en_catalogo, obtener_precio_para_cantidad, obtener_precios_como_texto
 - `tests/test_inventario_service.py` — 10 tests: descontar_inventario 3-tuple contract, verificar_alertas_inventario, buscar_clave_inventario, cargar_inventario
 - sys.modules stub injection pattern established for config/db/memoria
+
+### Plan 04-03: Caja + Fiados Service Tests ✓ (2026-03-29)
+
+**What shipped:**
+
+- `tests/test_caja_service.py` — 10 tests: cargar_caja fallback dict, postgres path mock, obtener_resumen_caja open/closed/no-DB, cargar_gastos_hoy empty list fallback, guardar_caja/guardar_gasto RuntimeError without DB
+- `tests/test_fiados_service.py` — 13 tests: cargar_fiados DB/fallback paths, abonar_fiado (bool, str) tuple contract, client-not-found, resumen_fiados, detalle_fiado_cliente + 2 thin wrapper smoke tests
+- Full suite: 62 tests passed, 0 failed across all 6 test files
 
 ---
 
