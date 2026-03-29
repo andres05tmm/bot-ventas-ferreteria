@@ -2,24 +2,24 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-03-29T13:30:06.107Z"
+status: phase_complete
+last_updated: "2026-03-29T00:00:00.000Z"
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
 
 ## Current Position
 
-Phase: 02 (wiring) — EXECUTING
-Plan: 3 of 3
-**Active phase:** Phase 2 — Wiring
-**Last completed:** Plan 02-02 — AI Prompts + Excel Extraction (2026-03-29)
-**Next action:** Execute 02-03-PLAN.md (services/caja_service + fiados_service + thin wrapper memoria.py, Tarea H)
+Phase: 02 (wiring) — COMPLETE ✓
+Plan: 3 of 3 — COMPLETE
+**Active phase:** Phase 3 — Cleanup (ai.py reduction)
+**Last completed:** Plan 02-03 — Caja/Fiados services + thin wrapper memoria.py (2026-03-29)
+**Next action:** Plan Phase 3 (Tarea I — clean ai.py from 2685 to ~800 lines)
 
 ---
 
@@ -76,6 +76,17 @@ All 5 tasks implemented before PLAN.md artifacts were generated. Completed retro
 - `handlers/cmd_proveedores.py` — upload_foto_cloudinary + 5 handlers
 - `handlers/cmd_admin.py` — 4 handlers
 - `handlers/comandos.py` — re-export hub de 48 líneas con __all__ de 38 nombres
+
+### Plan 02-03: Caja/Fiados Services + Thin Wrapper ✓ (2026-03-29)
+
+**What shipped:**
+
+- `services/caja_service.py` — cargar_caja, guardar_caja, obtener_resumen_caja, cargar_gastos_hoy, guardar_gasto + 4 private helpers
+- `services/fiados_service.py` — cargar_fiados, guardar_fiado_movimiento, abonar_fiado, resumen_fiados, detalle_fiado_cliente + _buscar_cliente_fiado
+- `memoria.py` — thin wrapper 2147→1120 lines, re-exports all 41 public symbols from services/
+- Zero callers changed — all 60+ call sites continue working unchanged
+
+---
 
 ### Plan 02-02: AI Prompts + Excel Extraction ✓ (2026-03-29)
 
