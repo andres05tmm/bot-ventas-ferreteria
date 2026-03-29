@@ -29,7 +29,7 @@ El bot no se rompe durante la refactorización — cada commit deja `python main
 - [ ] `handlers/cmd_*.py` — dividir comandos.py en archivos temáticos con `@protegido`
 - [ ] `ai/prompts.py` + `ai/excel_gen.py` — extraer prompts y generación Excel de ai.py
 - [ ] `services/caja_service.py` + `fiados_service.py` + thin wrapper `memoria.py`
-- [ ] `ai.py` reducido de 2685 → ~800 líneas (después de extraer módulos)
+- [x] `ai.py` reducido de 2685 → 1256 líneas, convertido en `ai/__init__.py` package — Validated in Phase 03: reduction
 - [ ] `tests/` — tests unitarios por módulo nuevo
 
 ### Out of Scope
@@ -91,4 +91,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-28 after initialization*
+*Last updated: 2026-03-29 after Phase 03 (reduction) complete*
