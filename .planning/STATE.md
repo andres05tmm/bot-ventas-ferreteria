@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-29T13:17:29.831Z"
+last_updated: "2026-03-29T13:30:06.107Z"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -16,10 +16,10 @@ progress:
 ## Current Position
 
 Phase: 02 (wiring) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 **Active phase:** Phase 2 — Wiring
-**Last completed:** Plan 02-01 — Handler Split (2026-03-29)
-**Next action:** Execute 02-02-PLAN.md (ai/prompts.py + ai/excel_gen.py extraction, Tarea G)
+**Last completed:** Plan 02-02 — AI Prompts + Excel Extraction (2026-03-29)
+**Next action:** Execute 02-03-PLAN.md (services/caja_service + fiados_service + thin wrapper memoria.py, Tarea H)
 
 ---
 
@@ -49,6 +49,8 @@ All 5 tasks implemented before PLAN.md artifacts were generated. Completed retro
 | 2026-03-28 | `rate_limiter` exportado además de `protegido` desde middleware | Flexibilidad para Fase 2 sin cambiar el __init__.py |
 | 2026-03-29 | `manejar_flujo_agregar_producto` y `manejar_mensaje_precio` excluidos de `@protegido` | Son flujos conversacionales llamados desde mensajes.py, no command handlers registrados en main.py |
 | 2026-03-29 | Re-export hub en `comandos.py` mantiene backward compat | main.py y mensajes.py no necesitan cambios mientras se divide el monolito |
+| 2026-03-29 | Lazy imports en `_construir_parte_dinamica` para `ai._pg_*` y `memoria.*` | Evita dependencia circular — ai.py importa memoria al top level, ai/prompts.py no puede importar ai al top level |
+| 2026-03-29 | `ai.py` queda byte-identical hasta Tarea I | Extracciones son copias aditivas; borrado solo en Fase 3 cuando todo esté verificado |
 
 ---
 
@@ -74,6 +76,15 @@ All 5 tasks implemented before PLAN.md artifacts were generated. Completed retro
 - `handlers/cmd_proveedores.py` — upload_foto_cloudinary + 5 handlers
 - `handlers/cmd_admin.py` — 4 handlers
 - `handlers/comandos.py` — re-export hub de 48 líneas con __all__ de 38 nombres
+
+### Plan 02-02: AI Prompts + Excel Extraction ✓ (2026-03-29)
+
+**What shipped:**
+
+- `ai/prompts.py` — 1370 líneas: _ALIAS_FERRETERIA, aplicar_alias_ferreteria, _construir_parte_estatica, _construir_catalogo_imagen, _construir_parte_dinamica (toda la lógica de matching de productos), _calcular_historial, MODELO_HAIKU, MODELO_SONNET, _elegir_modelo
+- `ai/excel_gen.py` — 97 líneas: generar_excel_personalizado, editar_excel_con_claude
+- `ai.py` byte-identical — borrado en Tarea I (Fase 3)
+- `ai/__init__.py` NO creado — namespace package preservado
 
 ---
 

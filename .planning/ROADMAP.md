@@ -58,7 +58,7 @@ Plans:
 
 Plans:
 - [x] 02-01: Task F — `handlers/cmd_*.py` split + `@protegido` (split comandos.py into cmd_ventas, cmd_inventario, cmd_clientes, cmd_caja, cmd_admin; convert comandos.py to re-export hub; depends on Task A)
-- [ ] 02-02: Task G — `ai/prompts.py` + `ai/excel_gen.py` (extract from ai.py; pure functions only; no `ai/__init__.py` yet; depends on Task B)
+- [x] 02-02: Task G — `ai/prompts.py` + `ai/excel_gen.py` (extract from ai.py; pure functions only; no `ai/__init__.py` yet; depends on Task B)
 - [ ] 02-03: Task H — `services/caja_service.py` + `services/fiados_service.py` + thin wrapper `memoria.py` (depends on Tasks D+E; highest breakage risk)
 
 > **RISK — Task F (handler split):** Move handlers in logical groups, one commit per group. Never remove a function from `comandos.py` before the re-export line for that function is already in place and verified. Pre-task: map all ~50 command names to their target `cmd_*.py` file before writing code.
