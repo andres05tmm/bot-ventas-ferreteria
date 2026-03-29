@@ -520,7 +520,9 @@ class VentaVariaRequest(BaseModel):
 @router.post("/ventas/varia")
 async def registrar_venta_varia(req: VentaVariaRequest):
     """
-    Registra una venta no especificada para cuadrar caja.
+    Registra una venta sin detalle de productos para cuadrar caja.
+    Marca sin_detalle=True en ventas_detalle — no descuenta inventario
+    y queda excluida del análisis de productos.
     """
     from ventas_state import registrar_ventas_con_metodo_async
 
@@ -538,6 +540,7 @@ async def registrar_venta_varia(req: VentaVariaRequest):
         "total":           round(req.monto),
         "precio_unitario": round(req.monto),
         "metodo_pago":     metodo,
+        "sin_detalle":     True,   # ← no descuenta inventario, excluida de análisis
     }
 
     try:

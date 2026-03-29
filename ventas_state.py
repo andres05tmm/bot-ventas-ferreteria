@@ -200,16 +200,19 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
             "precio_u":    precio_u_pg,
             "valor_final": valor_final,
             "alias":       venta.get("alias"),
+            "sin_detalle": venta.get("sin_detalle", False),
         })
 
         cliente_txt = f" | {nombre_c}" if nombre_c != "Consumidor Final" else ""
         confirmaciones.append(f"• {cantidad_legible} {producto} ${valor_final:,.0f}{cliente_txt}")
 
-        # Descontar inventario (solo si el producto está registrado).
+        # Descontar inventario (solo si el producto está registrado y no es venta sin detalle).
         # descontar_inventario() siempre retorna (bool, str|None, float|None).
-        descontado, alerta, cantidad_restante = descontar_inventario(producto, cantidad)
-        if descontado and alerta:
-            confirmaciones.append(alerta)
+        es_sin_detalle = venta.get("sin_detalle", False)
+        if not es_sin_detalle:
+            descontado, alerta, cantidad_restante = descontar_inventario(producto, cantidad)
+            if descontado and alerta:
+                confirmaciones.append(alerta)
 
     # Actualizar caja
     caja = cargar_caja()
@@ -250,11 +253,11 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
                     _db.execute(
                         """INSERT INTO ventas_detalle
                                (venta_id, producto_nombre, cantidad, unidad_medida,
-                                precio_unitario, total, alias_usado)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                                precio_unitario, total, alias_usado, sin_detalle)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                         (venta_id, item["producto"], item["cantidad"],
                          item["unidad"], item["precio_u"], item["valor_final"],
-                         item.get("alias"))
+                         item.get("alias"), item.get("sin_detalle", False))
                     )
     except Exception as e:
         logging.getLogger("ferrebot.ventas_state").warning(
