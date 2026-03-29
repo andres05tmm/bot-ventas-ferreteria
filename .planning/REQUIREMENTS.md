@@ -53,10 +53,10 @@
 
 ### AIPrompts
 
-- [ ] **PRM-01**: `ai/prompts.py` contiene las funciones de construcción de prompts extraídas de `ai.py`
-- [ ] **PRM-02**: Las funciones en `ai/prompts.py` son puras — no hacen llamadas a `db` ni `memoria`
-- [ ] **PRM-03**: `ai/excel_gen.py` contiene la lógica de generación Excel extraída de `ai.py`
-- [ ] **PRM-04**: `ai/excel_gen.py` importa solo `openpyxl` y `config`
+- [x] **PRM-01**: `ai/prompts.py` contiene las funciones de construcción de prompts extraídas de `ai.py`
+- [x] **PRM-02**: Las funciones en `ai/prompts.py` son puras — no hacen llamadas a `db` ni `memoria`
+- [x] **PRM-03**: `ai/excel_gen.py` contiene la lógica de generación Excel extraída de `ai.py`
+- [x] **PRM-04**: `ai/excel_gen.py` importa solo `openpyxl` y `config`
 
 ### ServiciosCajaFiados
 

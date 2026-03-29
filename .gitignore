@@ -8,3 +8,9 @@ dashboard/dist/
 memoria.json
 BASE_DE_DATOS_PRODUCTOS.xlsx
 -e "\n# Datos runtime - nunca al repo\n*.json\n*.xlsx" 
+
+# Obsidian vault — notas de gestión de proyecto
+_obsidian/.obsidian/workspace.json
+_obsidian/.obsidian/workspace-mobile.json
+_obsidian/.obsidian/cache
+_obsidian/.trash/

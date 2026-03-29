@@ -1,8 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node \"C:/Users/Dell/.claude/get-shit-done/bin/gsd-tools.cjs\" commit \"docs: initialize project\" --files .planning/PROJECT.md)",
-      "Bash(node \"C:/Users/Dell/.claude/get-shit-done/bin/gsd-tools.cjs\" commit \"docs: create roadmap \\(5 phases\\)\" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md CLAUDE.md)"
+      "Bash(node \"C:/Users/Dell/.claude/get-shit-done/bin/gsd-tools.cjs\" generate-claude-md)",
+      "Bash(node:*)"
     ]
   }
 }
