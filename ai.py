@@ -1242,10 +1242,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         caja_texto   = ""
         gastos_texto = ""
 
-    aviso_drive = (
-        "AVISO: Google Drive no disponible. Los datos se guardan localmente."
-        if not config._get_drive_disponible() else ""
-    )
+    aviso_drive = ""  # Drive eliminado — sistema 100% PostgreSQL
 
     # ── Cuentas por pagar (facturas de proveedores) ───────────────────────────
     _kw_proveedores = ["deuda", "debo", "factura", "proveedor", "abono a", "le pague",
