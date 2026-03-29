@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-29T23:30:56.654Z"
+last_updated: "2026-03-29T23:36:13.411Z"
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -16,10 +16,10 @@ progress:
 ## Current Position
 
 Phase: 04 (tests) — EXECUTING
-Plan: 2 of 3
-**Active phase:** Phase 3 — DONE
-**Last completed:** Plan 03-01 — ai.py reduced 2685→1256 lines, renamed to ai/__init__.py (2026-03-29)
-**Next action:** All refactoring phases complete. Phase 4 (tests) or done.
+Plan: 3 of 3
+**Active phase:** Phase 4 — EXECUTING
+**Last completed:** Plan 04-02 — 22 unit tests for catalogo_service + inventario_service, descontar_inventario 3-tuple contract tested (2026-03-29)
+**Next action:** Execute Plan 04-03 (remaining service tests: caja_service, fiados_service).
 
 ---
 
@@ -53,6 +53,8 @@ All 5 tasks implemented before PLAN.md artifacts were generated. Completed retro
 | 2026-03-29 | `ai.py` queda byte-identical hasta Tarea I | Extracciones son copias aditivas; borrado solo en Fase 3 cuando todo esté verificado |
 | 2026-03-29 | Tasks 1+2 committed atomically (03-01) | `from ai.X import` in ai.py fails while ai.py is a file — rename must happen with edits in same commit |
 | 2026-03-29 | Absolute imports kept in ai/__init__.py | `from ai.prompts import` (not relative) matches existing codebase convention |
+| 2026-03-29 | Patch target is `memoria.cargar_memoria` in tests | Lazy `from memoria import cargar_memoria` inside function bodies resolves at call time — patching at source module works |
+| 2026-03-29 | guardar_inventario patched at services level in tests | Intercepts PG writes before _upsert_inventario_producto_postgres → db calls in unit tests |
 
 ---
 
@@ -61,7 +63,24 @@ All 5 tasks implemented before PLAN.md artifacts were generated. Completed retro
 | Risk | Mitigation | Status |
 |------|-----------|--------|
 | `ai/__init__.py` accidental en Fase 3 | Verificar `python -c "import ai; print(type(ai.procesar_con_claude))"` después de cada commit | RESOLVED — Fase 3 completa |
-| `descontar_inventario()` return contract | Documetado en docstring con ⚠️; `ventas_state.py` línea 210 es el caller crítico | Activo |
+| `descontar_inventario()` return contract | Documetado en docstring con ⚠️; `ventas_state.py` línea 210 es el caller crítico — contrato verificado en test_inventario_service.py | MITIGATED |
+
+---
+
+## Phase 4 Progress
+
+### Plan 04-01: Middleware + Price Cache Tests ✓ (2026-03-29)
+
+**What shipped:**
+- `tests/test_middleware.py` — 10 tests for RateLimiter and @protegido decorator
+- `tests/test_price_cache.py` — 8 tests for ai/price_cache TTL, thread-safety, invalidation
+
+### Plan 04-02: Catalogo + Inventario Service Tests ✓ (2026-03-29)
+
+**What shipped:**
+- `tests/test_catalogo_service.py` — 12 tests: buscar_producto_en_catalogo, buscar_multiples_en_catalogo, obtener_precio_para_cantidad, obtener_precios_como_texto
+- `tests/test_inventario_service.py` — 10 tests: descontar_inventario 3-tuple contract, verificar_alertas_inventario, buscar_clave_inventario, cargar_inventario
+- sys.modules stub injection pattern established for config/db/memoria
 
 ---
 
