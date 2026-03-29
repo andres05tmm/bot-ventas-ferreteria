@@ -30,7 +30,7 @@ El bot no se rompe durante la refactorización — cada commit deja `python main
 - [ ] `ai/prompts.py` + `ai/excel_gen.py` — extraer prompts y generación Excel de ai.py
 - [ ] `services/caja_service.py` + `fiados_service.py` + thin wrapper `memoria.py`
 - [x] `ai.py` reducido de 2685 → 1256 líneas, convertido en `ai/__init__.py` package — Validated in Phase 03: reduction
-- [ ] `tests/` — tests unitarios por módulo nuevo
+- [x] `tests/` — 62 tests unitarios por módulo nuevo (middleware, price_cache, catalogo, inventario, caja, fiados) — Validated in Phase 04: tests
 
 ### Out of Scope
 
