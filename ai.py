@@ -59,6 +59,7 @@ from memoria import (
     actualizar_precio_en_catalogo,
 )
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, _normalizar
+import db as _db  # noqa: E402 — necesario para helpers PG (_pg_resumen_ventas, etc.)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GENERACIÓN DE EXCEL (autocontenida — sin depender de excel.py)
