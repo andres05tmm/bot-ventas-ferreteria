@@ -76,6 +76,30 @@ function saveMessages(m) {
   try { sessionStorage.setItem(MSGS_KEY, JSON.stringify(m.slice(-60))) } catch {}
 }
 
+// ── Posición del panel (drag) ────────────────────────────────────────────────
+const PANEL_W = 368
+const PANEL_H = 560
+const POS_KEY = 'fw_panel_pos'
+function loadPanelPos() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(POS_KEY))
+    if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') return saved
+  } catch {}
+  return null
+}
+function getDefaultPos() {
+  return {
+    x: Math.max(8, window.innerWidth  - PANEL_W - 24),
+    y: Math.max(8, window.innerHeight - PANEL_H - 24),
+  }
+}
+function clampPos(x, y) {
+  return {
+    x: Math.max(8, Math.min(x, window.innerWidth  - PANEL_W - 8)),
+    y: Math.max(8, Math.min(y, window.innerHeight - PANEL_H - 8)),
+  }
+}
+
 // ── Formatear hora ──────────────────────────────────────────────────────────
 function fmtTime(ts) {
   if (!ts) return ''
@@ -118,7 +142,6 @@ const CSS = `
   .fw-panel {
     font-family: 'DM Sans', system-ui, sans-serif;
     position: fixed;
-    bottom: 24px; right: 24px;
     z-index: 9999;
     width: 368px; height: 560px;
     border-radius: 22px;
@@ -128,6 +151,12 @@ const CSS = `
     overflow: visible;
     animation: fw-pop .24s cubic-bezier(.34,1.56,.64,1) forwards;
     border: 1px solid rgba(0,0,0,.07);
+    transition: box-shadow .15s;
+  }
+  .fw-panel.dragging {
+    box-shadow: 0 8px 16px rgba(0,0,0,.08), 0 20px 48px rgba(0,0,0,.22), 0 40px 72px rgba(0,0,0,.14);
+    animation: none;
+    cursor: grabbing;
   }
 
   .fw-header {
@@ -138,7 +167,16 @@ const CSS = `
     position: relative;
     border-radius: 22px 22px 0 0;
     overflow: visible;
+    cursor: grab;
+    user-select: none;
   }
+  .fw-header.dragging { cursor: grabbing; }
+  .fw-drag-grip {
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0.45; flex-shrink: 0; pointer-events: none;
+    transition: opacity .15s;
+  }
+  .fw-header:hover .fw-drag-grip { opacity: 0.7; }
   .fw-header::before {
     content: ''; position: absolute; top: -28px; right: -16px;
     width: 90px; height: 90px; border-radius: 50%;
@@ -530,6 +568,11 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
   const [opcionesPago, setOpcionesPago] = useState(null)
   const [streamText, setStreamText] = useState('')
 
+  // ── Drag ────────────────────────────────────────────────────────────────────
+  const [pos, setPos]       = useState(() => loadPanelPos() || getDefaultPos())
+  const [dragging, setDragging] = useState(false)
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 })
+
   const [grabando, setGrabando]         = useState(false)
   const [transcribiendo, setTranscribiendo] = useState(false)
   const [recSeconds, setRecSeconds]     = useState(0) // timer de grabación
@@ -547,6 +590,40 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
   const lastMsgRef   = useRef(null)  // último mensaje fallido (para reintentar)
 
   useEffect(() => { injectCSS() }, [])
+
+  // ── Drag handlers ────────────────────────────────────────────────────────────
+  const onHeaderMouseDown = useCallback((e) => {
+    // No iniciar drag si se hizo clic en un botón/input
+    if (e.target.closest('button, input, select, textarea')) return
+    e.preventDefault()
+    dragRef.current = { active: true, startX: e.clientX, startY: e.clientY, originX: pos.x, originY: pos.y }
+    setDragging(true)
+  }, [pos])
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!dragRef.current.active) return
+      const dx = e.clientX - dragRef.current.startX
+      const dy = e.clientY - dragRef.current.startY
+      const next = clampPos(dragRef.current.originX + dx, dragRef.current.originY + dy)
+      setPos(next)
+    }
+    const onUp = () => {
+      if (!dragRef.current.active) return
+      dragRef.current.active = false
+      setDragging(false)
+      setPos(p => {
+        try { sessionStorage.setItem(POS_KEY, JSON.stringify(p)) } catch {}
+        return p
+      })
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup',   onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup',   onUp)
+    }
+  }, [])
 
   // Persistir
   useEffect(() => { saveMessages(messages) }, [messages])
@@ -890,10 +967,25 @@ ${d.briefing}`,
 
   // ── Panel ─────────────────────────────────────────────────────────────────
   return (
-    <div className="fw-panel">
+    <div
+      className={`fw-panel${dragging ? ' dragging' : ''}`}
+      style={{ top: pos.y, left: pos.x }}
+    >
 
-      {/* Header */}
-      <div className="fw-header" onClick={() => menuOpen && setMenuOpen(false)}>
+      {/* Header — arrastrable */}
+      <div
+        className={`fw-header${dragging ? ' dragging' : ''}`}
+        onMouseDown={onHeaderMouseDown}
+        onClick={() => menuOpen && setMenuOpen(false)}
+      >
+        {/* Grip icon */}
+        <div className="fw-drag-grip">
+          <svg width="12" height="14" viewBox="0 0 12 14" fill="rgba(255,255,255,0.9)">
+            <circle cx="3" cy="2.5" r="1.3"/><circle cx="9" cy="2.5" r="1.3"/>
+            <circle cx="3" cy="7"   r="1.3"/><circle cx="9" cy="7"   r="1.3"/>
+            <circle cx="3" cy="11.5" r="1.3"/><circle cx="9" cy="11.5" r="1.3"/>
+          </svg>
+        </div>
         <div className="fw-avatar"><IcoWrench s={20} /></div>
         <div style={{ flex: 1 }}>
           <div className="fw-hname">Asistente Ferretería</div>
