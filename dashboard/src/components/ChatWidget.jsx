@@ -76,28 +76,54 @@ function saveMessages(m) {
   try { sessionStorage.setItem(MSGS_KEY, JSON.stringify(m.slice(-60))) } catch {}
 }
 
-// ── Posición del panel (drag) ────────────────────────────────────────────────
+// ── Posición drag (FAB y Panel) ───────────────────────────────────────────────
 const PANEL_W = 368
 const PANEL_H = 560
-const POS_KEY = 'fw_panel_pos'
-function loadPanelPos() {
+const FAB_W   = 56
+const FAB_H   = 56
+const FAB_POS_KEY   = 'fw_fab_pos'
+const PANEL_POS_KEY = 'fw_panel_pos'
+
+function loadPos(key) {
   try {
-    const saved = JSON.parse(sessionStorage.getItem(POS_KEY))
-    if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') return saved
+    const s = JSON.parse(sessionStorage.getItem(key))
+    if (s && typeof s.x === 'number' && typeof s.y === 'number') return s
   } catch {}
   return null
 }
-function getDefaultPos() {
+function savePos(key, pos) {
+  try { sessionStorage.setItem(key, JSON.stringify(pos)) } catch {}
+}
+function getDefaultFabPos() {
+  return {
+    x: Math.max(8, window.innerWidth  - FAB_W   - 24),
+    y: Math.max(8, window.innerHeight - FAB_H   - 24),
+  }
+}
+function getDefaultPanelPos() {
   return {
     x: Math.max(8, window.innerWidth  - PANEL_W - 24),
     y: Math.max(8, window.innerHeight - PANEL_H - 24),
   }
 }
-function clampPos(x, y) {
+function clampFab(x, y) {
+  return {
+    x: Math.max(8, Math.min(x, window.innerWidth  - FAB_W   - 8)),
+    y: Math.max(8, Math.min(y, window.innerHeight - FAB_H   - 8)),
+  }
+}
+function clampPanel(x, y) {
   return {
     x: Math.max(8, Math.min(x, window.innerWidth  - PANEL_W - 8)),
     y: Math.max(8, Math.min(y, window.innerHeight - PANEL_H - 8)),
   }
+}
+function getXY(e) {
+  if (e.touches && e.touches.length > 0)
+    return { x: e.touches[0].clientX, y: e.touches[0].clientY }
+  if (e.changedTouches && e.changedTouches.length > 0)
+    return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }
+  return { x: e.clientX, y: e.clientY }
 }
 
 // ── Formatear hora ──────────────────────────────────────────────────────────
@@ -169,6 +195,7 @@ const CSS = `
     overflow: visible;
     cursor: grab;
     user-select: none;
+    touch-action: none;
   }
   .fw-header.dragging { cursor: grabbing; }
   .fw-drag-grip {
@@ -466,20 +493,22 @@ const CSS = `
   }
 
   .fw-fab {
-    position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+    position: fixed; z-index: 9999;
     width: 56px; height: 56px; border-radius: 17px;
     background: linear-gradient(135deg, #B81D0C 0%, #D93018 60%, #E84020 100%);
-    border: none; cursor: pointer;
+    border: none; cursor: grab;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 4px 14px rgba(180,30,12,.42), 0 1px 4px rgba(0,0,0,.18);
     animation: fw-pulse 2.8s ease infinite;
     transition: transform .15s, box-shadow .15s;
+    touch-action: none;
   }
   .fw-fab:hover {
     transform: scale(1.07) translateY(-1px);
     box-shadow: 0 8px 22px rgba(180,30,12,.5), 0 2px 6px rgba(0,0,0,.2);
     animation: none;
   }
+  .fw-fab.dragging { cursor: grabbing; transform: scale(1.08); animation: none; }
   .fw-fab:active { transform: scale(.95); }
   .fw-fab-dot {
     position: absolute; top: -3px; right: -3px;
@@ -489,19 +518,12 @@ const CSS = `
 
   /* ── Mobile ── */
   @media (max-width: 767px) {
-    .fw-fab {
-      bottom: calc(78px + env(safe-area-inset-bottom, 0px));
-      right: 14px;
+    .fw-footer {
+      border-radius: 0;
+      padding-bottom: max(11px, env(safe-area-inset-bottom, 11px));
     }
     .fw-panel {
-      bottom: calc(62px + env(safe-area-inset-bottom, 0px));
-      right: 0;
-      left: 0;
-      width: 100%;
-      max-width: 100%;
-      border-radius: 20px 20px 0 0;
-      height: calc(100dvh - 140px);
-      max-height: calc(100dvh - 140px);
+      width: min(368px, calc(100vw - 16px));
     }
   }
 `
@@ -569,9 +591,11 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
   const [streamText, setStreamText] = useState('')
 
   // ── Drag ────────────────────────────────────────────────────────────────────
-  const [pos, setPos]       = useState(() => loadPanelPos() || getDefaultPos())
+  const [fabPos,   setFabPos]   = useState(() => loadPos(FAB_POS_KEY)   || getDefaultFabPos())
+  const [panelPos, setPanelPos] = useState(() => loadPos(PANEL_POS_KEY) || getDefaultPanelPos())
   const [dragging, setDragging] = useState(false)
-  const dragRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 })
+  // { active, startX, startY, originX, originY, moved, target: 'fab'|'panel' }
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0, moved: false, target: 'panel' })
 
   const [grabando, setGrabando]         = useState(false)
   const [transcribiendo, setTranscribiendo] = useState(false)
@@ -591,37 +615,55 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
 
   useEffect(() => { injectCSS() }, [])
 
-  // ── Drag handlers ────────────────────────────────────────────────────────────
-  const onHeaderMouseDown = useCallback((e) => {
-    // No iniciar drag si se hizo clic en un botón/input
-    if (e.target.closest('button, input, select, textarea')) return
-    e.preventDefault()
-    dragRef.current = { active: true, startX: e.clientX, startY: e.clientY, originX: pos.x, originY: pos.y }
+  // ── Drag: lógica unificada mouse + touch para FAB y panel ────────────────────
+  const startDrag = useCallback((e, target) => {
+    if (target === 'panel' && e.target?.closest('button, input, select, textarea')) return
+    if (e.cancelable) e.preventDefault()
+    const { x, y } = getXY(e)
+    const origin = target === 'fab' ? fabPos : panelPos
+    dragRef.current = { active: true, startX: x, startY: y, originX: origin.x, originY: origin.y, moved: false, target }
     setDragging(true)
-  }, [pos])
+  }, [fabPos, panelPos])
 
   useEffect(() => {
     const onMove = (e) => {
       if (!dragRef.current.active) return
-      const dx = e.clientX - dragRef.current.startX
-      const dy = e.clientY - dragRef.current.startY
-      const next = clampPos(dragRef.current.originX + dx, dragRef.current.originY + dy)
-      setPos(next)
+      const { x, y } = getXY(e)
+      const dx = x - dragRef.current.startX
+      const dy = y - dragRef.current.startY
+      if (!dragRef.current.moved && Math.abs(dx) + Math.abs(dy) > 5)
+        dragRef.current.moved = true
+      if (!dragRef.current.moved) return
+      if (e.cancelable) e.preventDefault()
+      const nx = dragRef.current.originX + dx
+      const ny = dragRef.current.originY + dy
+      if (dragRef.current.target === 'fab') {
+        setFabPos(clampFab(nx, ny))
+      } else {
+        setPanelPos(clampPanel(nx, ny))
+      }
     }
-    const onUp = () => {
+    const onUp = (e) => {
       if (!dragRef.current.active) return
       dragRef.current.active = false
       setDragging(false)
-      setPos(p => {
-        try { sessionStorage.setItem(POS_KEY, JSON.stringify(p)) } catch {}
-        return p
-      })
+      if (dragRef.current.target === 'fab') {
+        setFabPos(p => { savePos(FAB_POS_KEY, p); return p })
+        // Si no se movió, abrir el panel (equivale a click)
+        if (!dragRef.current.moved) setOpen(true)
+      } else {
+        setPanelPos(p => { savePos(PANEL_POS_KEY, p); return p })
+      }
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup',   onUp)
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend',  onUp)
     return () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup',   onUp)
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend',  onUp)
     }
   }, [])
 
@@ -959,7 +1001,13 @@ ${d.briefing}`,
 
   // ── FAB ──────────────────────────────────────────────────────────────────
   if (!open) return (
-    <button className="fw-fab" onClick={() => setOpen(true)} title="Asistente IA">
+    <button
+      className={`fw-fab${dragging ? ' dragging' : ''}`}
+      style={{ top: fabPos.y, left: fabPos.x }}
+      onMouseDown={e => startDrag(e, 'fab')}
+      onTouchStart={e => startDrag(e, 'fab')}
+      title="Asistente IA"
+    >
       <IcoFab />
       <div className="fw-fab-dot" />
     </button>
@@ -969,13 +1017,14 @@ ${d.briefing}`,
   return (
     <div
       className={`fw-panel${dragging ? ' dragging' : ''}`}
-      style={{ top: pos.y, left: pos.x }}
+      style={{ top: panelPos.y, left: panelPos.x }}
     >
 
-      {/* Header — arrastrable */}
+      {/* Header — arrastrable mouse + touch */}
       <div
         className={`fw-header${dragging ? ' dragging' : ''}`}
-        onMouseDown={onHeaderMouseDown}
+        onMouseDown={e => startDrag(e, 'panel')}
+        onTouchStart={e => startDrag(e, 'panel')}
         onClick={() => menuOpen && setMenuOpen(false)}
       >
         {/* Grip icon */}
