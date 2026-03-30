@@ -5,7 +5,9 @@
       "Bash(node:*)",
       "Bash(python:*)",
       "Bash(python -c \":*)",
-      "Skill(gsd:execute-phase)"
+      "Skill(gsd:execute-phase)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
