@@ -198,6 +198,31 @@ export function Card({ children, style = {} }) {
   )
 }
 
+export function GlassCard({ children, style = {} }) {
+  const t = useTheme()
+  const isCaramelo = t.id === 'caramelo'
+  return (
+    <div style={{
+      position:       'relative',
+      background:     isCaramelo ? 'rgba(255,255,255,0.72)' : t.cardGrad,
+      backdropFilter: isCaramelo ? 'blur(12px)'             : undefined,
+      WebkitBackdropFilter: isCaramelo ? 'blur(12px)'       : undefined,
+      border:         isCaramelo
+        ? '0.5px solid rgba(200,32,14,0.12)'
+        : `1px solid ${t.border}`,
+      borderRadius:   14,
+      padding:        20,
+      boxShadow:      isCaramelo
+        ? '0 2px 12px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(200,32,14,0.08)'
+        : t.shadowCard,
+      overflow:       'hidden',
+      ...style,
+    }}>
+      {children}
+    </div>
+  )
+}
+
 export function KpiCard({ label, value, sub, color, icon }) {
   const t = useTheme()
   const c = color || t.accent
