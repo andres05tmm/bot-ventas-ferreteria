@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   useTheme, useFetch, Card, SectionTitle, Spinner, ErrorMsg,
@@ -105,7 +105,7 @@ function ExportDropdown({ disabled }) {
   }
 
   // Cerrar al hacer clic fuera
-  useMemo(() => {
+  useEffect(() => {
     if (!open) return
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
     document.addEventListener('mousedown', handler)
