@@ -313,7 +313,7 @@ export default function TabHistoricoVentas() {
             </div>
           </>
         )}
-      </Card>
+      </GlassCard>
 
       {/* ── Toast ──────────────────────────────────────────────────────── */}
       {msg && (
@@ -398,7 +398,7 @@ export default function TabHistoricoVentas() {
               </tfoot>
             </table>
           </div>
-        </Card>
+        </GlassCard>
       )}
 
       {/* ── Acciones ───────────────────────────────────────────────────── */}
@@ -450,7 +450,7 @@ export default function TabHistoricoVentas() {
           El total de hoy se actualiza en vivo desde Google Sheets
           · Al ejecutar <code style={{ color: t.accent }}>/cerrar</code> queda guardado en el histórico automáticamente
         </p>
-      </Card>
+      </GlassCard>
     </div>
   )
 }
