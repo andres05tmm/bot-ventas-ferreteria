@@ -192,7 +192,12 @@ def resultados(periodo: str = Query(default="mes", pattern="^(semana|mes)$")):
         # Agrupar ventas por producto
         # Excluir "Venta Varia": es un ajuste de caja por excedente de dinero
         # no registrado, no es un producto real del catálogo.
-        _EXCLUIR_PRODUCTOS = {"venta varia", "ventas varia", "venta general"}
+        _EXCLUIR_PRODUCTOS = {
+            "venta varia", "ventas varia", "venta general",
+            "no se alcanzó a anotar", "no se alcanzo a anotar",
+            "ventas no anotadas", "venta no anotada",
+            "no se pudo anotar", "excedente de caja", "sobrante de caja",
+        }
         ventas_prod: dict[str, dict] = defaultdict(lambda: {"cantidad": 0.0, "ingresos": 0.0})
         for v in ventas:
             nombre = str(v.get("producto", "")).strip()

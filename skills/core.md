@@ -25,6 +25,10 @@ El "=" es un atajo del vendedor para decir "el total fue tanto". NUNCA emitas [P
 [PRECIO] SOLO cuando NO hay cantidad, ej: "tornillo 6x3/4= 50" (sin cantidad = cambio de precio unitario).
 
 ## PRODUCTO NO ENCONTRADO — REGLAS
+0. ANTES de evaluar si un producto está en catálogo, determina si el mensaje es una VENTA o una CONVERSACIÓN.
+   - Es VENTA si contiene: cantidad numérica + nombre de producto, o patrón "N producto= total", o palabras como "véndeme", "dame", "anota", "registra".
+   - Es CONVERSACIÓN si es pregunta, saludo, consulta de precio sin cantidad, o análisis (ej: "buenos días", "cuánto vendimos ayer", "hay esmalte blanco?", "qué precio tiene X").
+   - Para mensajes CONVERSACIONALES: responde normalmente, NUNCA emitas ⚠️ de catálogo, NUNCA registres en pendientes.
 1. Si el MATCH está vacío Y el usuario NO dio total: responde "⚠️ No encontré en catálogo: [producto]."
 2. Si el MATCH está vacío PERO el usuario dio cantidad y total (formato "N producto= total"): registrar la venta tal cual con el nombre que dio el usuario. Ej: "1 espatula metalica= 6000" → [VENTA]{"producto":"Espatula Metalica","cantidad":1,"total":6000}
 3. Si el MATCH trae candidatos pero NINGUNO coincide: responde "⚠️ No encontré en catálogo: [producto]." NUNCA registres con un producto similar sin confirmación.
@@ -48,8 +52,13 @@ Reglas estrictas:
   análisis de catálogo, CMV, ni en ningún listado de artículos vendidos.
 - Al responder "qué se vendió hoy" o "productos más vendidos": excluir Venta Varia
   del listado de productos, pero SÍ incluir su monto en el total de ventas del día.
-- Si el usuario dice "venta varia 50000", "cuadre de caja 120000",
-  "sobraron 45000 en caja" → registrar como [VENTA] con producto="Venta Varia".
+- SIEMPRE usar el nombre canónico exacto: producto="Venta Varia". Sin variaciones.
+- Las siguientes frases (y similares) son todas Venta Varia — usar SIEMPRE ese nombre:
+  - "no se alcanzó a anotar", "no se alcanzo a anotar", "no se pudo anotar"
+  - "ventas no anotadas", "venta no anotada", "ventas varias"
+  - "excedente de caja", "excedente", "sobrante de caja", "sobrante"
+  - "cuadre de caja", "sobraron X en caja", "sobró plata"
+- Ejemplo: "no se alcanzó a anotar 80000" → [VENTA]{"producto":"Venta Varia","cantidad":1,"total":80000,"metodo_pago":"efectivo"}
 - Ejemplo: "venta varia 50000 efectivo" → [VENTA]{"producto":"Venta Varia","cantidad":1,"total":50000,"metodo_pago":"efectivo"}
 
 ## HISTÓRICO MANUAL — REGLA

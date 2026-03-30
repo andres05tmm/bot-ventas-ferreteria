@@ -61,6 +61,13 @@ from handlers.dispatch import (
 
 logger = logging.getLogger("ferrebot.mensajes")
 
+# Guard: solo guardar en productos_pendientes si el mensaje original parece una venta real
+_ES_PATRON_VENTA = re.compile(
+    r'^\s*(\d[\d.,]*)\s+\w|'
+    r'\bvend[eé]\b|\bdame\b|\banota\b|\bregistra\b',
+    re.IGNORECASE
+)
+
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
     """Delega a callbacks._enviar_botones_pago (importado al nivel de módulo)."""
@@ -297,46 +304,48 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             await update.message.reply_text(_aviso_no_encontrado)
 
             # ── Guardar productos no encontrados en memoria ────────────────
-            try:
-                # Regex flexible: acepta con/sin tilde, aplanar multilinea
-                _aviso_flat = " ".join(_aviso_no_encontrado.splitlines())
-                _match_pend = re.search(
-                    r'no encontr[eé] en cat[aá]logo[:\s]+(.+)',
-                    _aviso_flat,
-                    re.IGNORECASE
-                )
-                if _match_pend:
-                    _nombres_raw = _match_pend.group(1).strip().rstrip('.')
-                    # Pueden venir separados por coma o "y"
-                    _nombres_lista = [
-                        n.strip().strip('"\'').lower()
-                        for n in re.split(r',| y ', _nombres_raw)
-                        if n.strip()
-                    ]
-                    import db as _db_pend
-                    if not _db_pend.DB_DISPONIBLE:
-                        logger.warning("[PENDIENTES] Base de datos no disponible — no se guardaron pendientes")
-                    else:
-                        _hoy = datetime.now().strftime("%Y-%m-%d")
-                        _hora = datetime.now().strftime("%H:%M")
-                        _nuevos = 0
-                        for _np in _nombres_lista:
-                            if not _np:
-                                continue
-                            _existe = _db_pend.query_one(
-                                "SELECT id FROM productos_pendientes WHERE LOWER(nombre) = LOWER(%s) AND fecha = %s",
-                                (_np, _hoy),
-                            )
-                            if not _existe:
-                                _db_pend.execute(
-                                    "INSERT INTO productos_pendientes (nombre, fecha, hora) VALUES (%s, %s, %s)",
-                                    (_np, _hoy, _hora),
+            # Solo guardar si el mensaje original parece una venta real (no conversación)
+            if _ES_PATRON_VENTA.search(_mensaje_para_claude or mensaje or ""):
+                try:
+                    # Regex flexible: acepta con/sin tilde, aplanar multilinea
+                    _aviso_flat = " ".join(_aviso_no_encontrado.splitlines())
+                    _match_pend = re.search(
+                        r'no encontr[eé] en cat[aá]logo[:\s]+(.+)',
+                        _aviso_flat,
+                        re.IGNORECASE
+                    )
+                    if _match_pend:
+                        _nombres_raw = _match_pend.group(1).strip().rstrip('.')
+                        # Pueden venir separados por coma o "y"
+                        _nombres_lista = [
+                            n.strip().strip('"\'').lower()
+                            for n in re.split(r',| y ', _nombres_raw)
+                            if n.strip()
+                        ]
+                        import db as _db_pend
+                        if not _db_pend.DB_DISPONIBLE:
+                            logger.warning("[PENDIENTES] Base de datos no disponible — no se guardaron pendientes")
+                        else:
+                            _hoy = datetime.now().strftime("%Y-%m-%d")
+                            _hora = datetime.now().strftime("%H:%M")
+                            _nuevos = 0
+                            for _np in _nombres_lista:
+                                if not _np:
+                                    continue
+                                _existe = _db_pend.query_one(
+                                    "SELECT id FROM productos_pendientes WHERE LOWER(nombre) = LOWER(%s) AND fecha = %s",
+                                    (_np, _hoy),
                                 )
-                                _nuevos += 1
-                        if _nuevos:
-                            logger.info(f"[PENDIENTES] +{_nuevos} productos guardados en PG: {_nombres_lista}")
-            except Exception as _e_pend:
-                logger.warning(f"[PENDIENTES] Error guardando pendientes: {_e_pend}")
+                                if not _existe:
+                                    _db_pend.execute(
+                                        "INSERT INTO productos_pendientes (nombre, fecha, hora) VALUES (%s, %s, %s)",
+                                        (_np, _hoy, _hora),
+                                    )
+                                    _nuevos += 1
+                            if _nuevos:
+                                logger.info(f"[PENDIENTES] +{_nuevos} productos guardados en PG: {_nombres_lista}")
+                except Exception as _e_pend:
+                    logger.warning(f"[PENDIENTES] Error guardando pendientes: {_e_pend}")
 
         if texto_respuesta and not pago_pend_aviso and not cliente_desconocido and not pedir_metodo and not confirmacion_accion:
             await update.message.reply_text(texto_respuesta)

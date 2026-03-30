@@ -24,6 +24,14 @@ logger = logging.getLogger("ferrebot.api")
 
 router = APIRouter()
 
+# Nombres que representan ajuste de caja (Venta Varia) y deben excluirse de rankings
+_PRODUCTOS_EXCLUIR_TOP: frozenset[str] = frozenset({
+    "venta varia", "ventas varia", "venta general",
+    "no se alcanzó a anotar", "no se alcanzo a anotar",
+    "ventas no anotadas", "venta no anotada",
+    "no se pudo anotar", "excedente de caja", "sobrante de caja",
+})
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/ventas/hoy")
@@ -94,7 +102,7 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
         por_producto: dict[str, dict] = {}
         for v in ventas:
             nombre = str(v.get("producto", "")).strip()
-            if not nombre:
+            if not nombre or nombre.lower().strip() in _PRODUCTOS_EXCLUIR_TOP:
                 continue
             cantidad  = _cantidad_a_float(v.get("cantidad", 0))
             total     = _to_float(v.get("total", 0))
@@ -356,7 +364,7 @@ def ventas_top2(
         })
         for v in ventas:
             nombre = str(v.get("producto", "")).strip()
-            if not nombre:
+            if not nombre or nombre.lower().strip() in _PRODUCTOS_EXCLUIR_TOP:
                 continue
             total = _to_float(v.get("total", 0))
             acum[nombre]["ingresos"]   += total

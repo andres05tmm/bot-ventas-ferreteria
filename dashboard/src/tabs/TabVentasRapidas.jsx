@@ -5,13 +5,25 @@ import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../compone
 
 // ── Hook detección móvil ──────────────────────────────────────────────────────
 function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768)
+  const getIsMobile = () => {
+    if (typeof window === 'undefined') return false
+    // Usar window.innerWidth, no screen — screen no se actualiza bien en todos los browsers al rotar
+    return window.innerWidth < 768
+  }
+  const [v, setV] = useState(getIsMobile)
   useEffect(() => {
-    const fn = () => setIsMobile(window.innerWidth < 768)
-    window.addEventListener('resize', fn)
-    return () => window.removeEventListener('resize', fn)
+    const handler = () => {
+      // Esperar 150ms después de rotate para que el DOM se estabilice
+      setTimeout(() => setV(getIsMobile()), 150)
+    }
+    window.addEventListener('resize', handler)
+    window.addEventListener('orientationchange', handler)
+    return () => {
+      window.removeEventListener('resize', handler)
+      window.removeEventListener('orientationchange', handler)
+    }
   }, [])
-  return isMobile
+  return v
 }
 
 // ── Favoritos persistidos ─────────────────────────────────────────────────────
@@ -1768,7 +1780,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const totalItems = carrito.reduce((s, c) => s + (c.qty || 1), 0)
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative', overflow: 'hidden', maxWidth: '100vw' }}>
       <style>{`
         .vr-filtros::-webkit-scrollbar { display: none }
         .vr-filtros { -ms-overflow-style: none; scrollbar-width: none }
@@ -1780,6 +1792,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         gridTemplateColumns: '1fr 310px',
         gap: 16, alignItems: 'start',
         paddingBottom: isMobile ? 150 : 0,
+        width: '100%', minWidth: 0, overflow: 'hidden',
       }}>
 
       {/* ══ PANEL IZQUIERDO ══ */}
@@ -2000,6 +2013,7 @@ export default function TabVentasRapidas({ refreshKey }) {
           borderTop: `1px solid ${t.border}`,
           boxShadow: '0 -4px 20px rgba(0,0,0,.15)',
           display: 'flex', gap: 8,
+          boxSizing: 'border-box',
         }}>
           {/* Botón ver/editar carrito */}
           <button

@@ -121,11 +121,15 @@ const BOTTOM_TABS = ['Ventas Rápidas','Resumen','Historial','Caja']
 function useIsMobile() {
   const getIsMobile = () => {
     if (typeof window === 'undefined') return false
-    return Math.min(window.screen.width, window.screen.height) < 768
+    // Usar window.innerWidth, no screen — screen no se actualiza bien en todos los browsers al rotar
+    return window.innerWidth < 768
   }
   const [v, setV] = useState(getIsMobile)
   useEffect(() => {
-    const handler = () => setTimeout(() => setV(getIsMobile()), 50)
+    const handler = () => {
+      // Esperar 150ms después de rotate para que el DOM se estabilice
+      setTimeout(() => setV(getIsMobile()), 150)
+    }
     window.addEventListener('resize', handler)
     window.addEventListener('orientationchange', handler)
     return () => {

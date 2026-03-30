@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Ferretería Punto Rojo — Dashboard</title>
 
     <!-- PWA -->
@@ -28,6 +28,18 @@
       @media (orientation: landscape) {
         body > #root   { display: none; }
         #landscape-msg { display: flex; }
+      }
+    </style>
+
+    <!-- Portrait lock — funciona en browser sin PWA -->
+    <style>
+      html, body {
+        overflow-x: hidden;
+        max-width: 100vw;
+        touch-action: pan-y;
+      }
+      @media screen and (orientation: landscape) and (max-height: 500px) {
+        html { transform: rotate(-90deg); transform-origin: left top; width: 100vh; height: 100vw; overflow-x: hidden; position: absolute; top: 100%; left: 0; }
       }
     </style>
   </head>
