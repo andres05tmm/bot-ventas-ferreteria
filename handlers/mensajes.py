@@ -31,13 +31,13 @@ from telegram.ext import ContextTypes
 
 # ── propios ───────────────────────────────────────────────────────────────────
 import config
-from ai import procesar_con_claude, procesar_acciones, procesar_acciones_async, editar_excel_con_claude
+from ai import procesar_con_claude, procesar_acciones, procesar_acciones_async
 from ventas_state import (
     agregar_al_historial, get_historial,
     ventas_pendientes, clientes_en_proceso, _estado_lock,
-    get_chat_lock, registrar_ventas_con_metodo, mensajes_standby,
+    get_chat_lock,
     limpiar_pendientes_expirados,
-    esperando_correccion, ventas_esperando_cliente,
+    esperando_correccion,
     agregar_a_standby,
     mensaje_contexto_pendiente,
 )
@@ -48,10 +48,16 @@ from memoria import invalidar_cache_memoria, importar_catalogo_desde_excel
 from handlers.callbacks import (
     _enviar_botones_pago as _botones_central,
     _enviar_confirmacion_con_metodo,
-    _procesar_siguiente_standby,
 )
 from handlers.parsing import parsear_actualizacion_masiva as _parsear_actualizacion_masiva
 from handlers.cliente_flujo import enviar_pregunta_cliente as _enviar_pregunta_cliente
+from handlers.dispatch import (
+    manejar_flujo_cliente,
+    manejar_flujo_excel,
+    manejar_flujo_pago_texto,
+    manejar_flujo_correccion,
+    manejar_rechazo_cliente,
+)
 
 logger = logging.getLogger("ferrebot.mensajes")
 
@@ -170,7 +176,7 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    # ── Flujo paso a paso de agregar producto ──
+    # ── Flujos con handlers propios (sin cambio) ──
     if await manejar_flujo_agregar_producto(update, context):
         return
 
@@ -179,405 +185,17 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     if await manejar_mensaje_precio(update, mensaje):
         return
 
-    # ── Flujo paso a paso de creación de cliente ──
-    with _estado_lock:
-        en_proceso = clientes_en_proceso.get(chat_id)
-    if en_proceso:
-        paso        = en_proceso.get("paso")
-        texto_lower = mensaje.strip().lower()
-
-        if paso == "nombre":
-            en_proceso["nombre"] = mensaje.strip().upper()
-            en_proceso["paso"]   = "tipo_id"
-            with _estado_lock:
-                clientes_en_proceso[chat_id] = en_proceso
-            await _enviar_pregunta_cliente(update.message, chat_id)
-            return
-
-        elif paso == "identificacion":
-            en_proceso["identificacion"] = mensaje.strip()
-            en_proceso["paso"]           = "tipo_persona"
-            with _estado_lock:
-                clientes_en_proceso[chat_id] = en_proceso
-            await _enviar_pregunta_cliente(update.message, chat_id)
-            return
-
-        elif paso == "correo":
-            correo               = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
-            en_proceso["correo"] = correo
-            en_proceso["paso"]   = "telefono"
-            with _estado_lock:
-                clientes_en_proceso[chat_id] = en_proceso
-            await update.message.reply_text("¿Cuál es el teléfono? (escribe 'no tiene' si no aplica)")
-            return
-
-        elif paso == "telefono":
-            telefono               = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
-            en_proceso["telefono"] = telefono
-            with _estado_lock:
-                clientes_en_proceso.pop(chat_id, None)
-            def _insertar_cliente_pg():
-                import db as _db
-                if not _db.DB_DISPONIBLE:
-                    return False
-                try:
-                    _db.execute(
-                        """INSERT INTO clientes
-                               (nombre, tipo_id, identificacion, tipo_persona, correo, telefono)
-                           VALUES (%s, %s, %s, %s, %s, %s)
-                           ON CONFLICT DO NOTHING""",
-                        (
-                            en_proceso["nombre"].upper().strip(),
-                            en_proceso["tipo_id"],
-                            en_proceso["identificacion"].strip() or None,
-                            en_proceso["tipo_persona"],
-                            en_proceso.get("correo", "").strip() or None,
-                            telefono.strip() or None,
-                        ),
-                    )
-                    return True
-                except Exception as _e:
-                    logger.error("Error INSERT cliente PG: %s", _e)
-                    return False
-
-            ok = await asyncio.to_thread(_insertar_cliente_pg)
-            invalidar_cache_memoria()
-            if ok:
-                tipo_map     = {"CC": "Cédula de ciudadanía", "NIT": "NIT", "CE": "Cédula de extranjería"}
-                tipo_legible = tipo_map.get(en_proceso.get("tipo_id", ""), en_proceso.get("tipo_id", ""))
-                await update.message.reply_text(
-                    f"✅ Cliente creado exitosamente:\n\n"
-                    f"👤 {en_proceso['nombre']}\n"
-                    f"📄 {tipo_legible}: {en_proceso['identificacion']}\n"
-                    f"🏷️ {en_proceso.get('tipo_persona', '')}\n"
-                    f"📧 {en_proceso.get('correo', '') or 'Sin correo'}\n"
-                    f"📞 {telefono or 'Sin teléfono'}"
-                )
-                # Continuar con la venta pendiente si existe
-                with _estado_lock:
-                    datos_espera = ventas_esperando_cliente.pop(chat_id, None)
-                    ventas_pend  = list(ventas_pendientes.get(chat_id, []))
-                if ventas_pend:
-                    metodo = ventas_pend[0].get("metodo_pago", "").lower()
-                    if metodo in ("efectivo", "transferencia", "datafono"):
-                        await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_pend, metodo)
-                    else:
-                        await _enviar_botones_pago(update.message, chat_id, ventas_pend)
-            else:
-                await update.message.reply_text("⚠️ No pude guardar el cliente. Intenta de nuevo.")
-            return
-
-    # ── Excel cargado por el usuario ──
-    excel_temp   = context.user_data.get("excel_temp")
-    excel_nombre = context.user_data.get("excel_nombre")
-    if excel_temp and os.path.exists(excel_temp):
-        try:
-            await update.message.reply_text("⚙️ Procesando tu Excel...")
-            codigo = await editar_excel_con_claude(mensaje, excel_temp, excel_nombre, vendedor, chat_id)
-
-            if codigo.strip() == "IMPOSIBLE":
-                await update.message.reply_text("No pude hacer eso con el Excel. Intenta con otra instrucción.")
-                return
-
-            rutas_sospechosas  = re.findall(r'''load_workbook\s*\(\s*['"]([^'"]+)['"]''', codigo)
-            rutas_sospechosas += re.findall(r'''\.save\s*\(\s*['"]([^'"]+)['"]''', codigo)
-            for ruta_en_codigo in rutas_sospechosas:
-                if ruta_en_codigo != excel_temp and ruta_en_codigo not in (excel_nombre, f"modificado_{excel_nombre}"):
-                    await update.message.reply_text("No puedo ejecutar esa operación por seguridad.")
-                    return
-
-            namespace_seguro = {
-                "__builtins__": {
-                    "range": range, "len": len, "enumerate": enumerate,
-                    "int": int, "float": float, "str": str, "bool": bool,
-                    "list": list, "dict": dict, "tuple": tuple, "set": set,
-                    "min": min, "max": max, "sum": sum, "abs": abs,
-                    "round": round, "sorted": sorted, "zip": zip,
-                    "isinstance": isinstance, "print": print,
-                    "Exception": Exception, "ValueError": ValueError,
-                    "TypeError": TypeError, "KeyError": KeyError,
-                },
-                "openpyxl": openpyxl,
-                "json":     __import__("json"),
-            }
-            await asyncio.to_thread(exec, compile(codigo, "<string>", "exec"), namespace_seguro)
-
-            await update.message.reply_text("✅ Excel modificado. Aquí está el resultado:")
-            with open(excel_temp, "rb") as f:
-                await update.message.reply_document(document=f, filename=f"modificado_{excel_nombre}")
-
-            context.user_data.pop("excel_temp", None)
-            context.user_data.pop("excel_nombre", None)
-            if os.path.exists(excel_temp):
-                os.remove(excel_temp)
-            return
-        except Exception:
-            print(f"Error editando Excel: {traceback.format_exc()}")
-            await update.message.reply_text("Tuve un problema editando el Excel. Intenta con una instrucción diferente.")
-            return
-
-    # ── Interceptar método de pago escrito como texto ──
-    with _estado_lock:
-        _ventas_pend = list(ventas_pendientes.get(chat_id, []))
-
-    if _ventas_pend:
-        _cancelar_palabras = {"olvida", "olvidala", "olvídala", "cancela", "cancelar",
-                              "no registres", "borra", "descarta"}
-        _msg_norm = mensaje.strip().lower()
-        if any(p in _msg_norm for p in _cancelar_palabras):
-            with _estado_lock:
-                ventas_pendientes.pop(chat_id, None)
-                standby_pendiente = mensajes_standby.pop(chat_id, [])
-            await update.message.reply_text("🗑️ Venta cancelada.")
-
-            # CORRECCIÓN punto 7: usar _procesar_siguiente_standby en lugar del loop directo
-            # para garantizar la cadena correcta uno por uno
-            if standby_pendiente:
-                await _procesar_siguiente_standby(
-                    context.bot, update.message, chat_id, standby_pendiente, vendedor
-                )
-            return
-
-        _metodos_texto = {
-            "efectivo": "efectivo", "cash": "efectivo", "contado": "efectivo",
-            "transferencia": "transferencia", "transfer": "transferencia",
-            "nequi": "transferencia", "daviplata": "transferencia", "bancolombia": "transferencia",
-            "datafono": "datafono", "datáfono": "datafono", "tarjeta": "datafono",
-        }
-        metodo_detectado = _metodos_texto.get(mensaje.strip().lower())
-        if metodo_detectado:
-            with _estado_lock:
-                ventas = ventas_pendientes.pop(chat_id, [])
-            if ventas:
-                confirmaciones = await asyncio.to_thread(
-                    registrar_ventas_con_metodo, ventas, metodo_detectado, vendedor, chat_id
-                )
-                emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo_detectado, "✅")
-                await update.message.reply_text(
-                    f"✅ Venta registrada — {emoji} {metodo_detectado.capitalize()}\n\n" + "\n".join(confirmaciones)
-                )
-            with _estado_lock:
-                standby_list = mensajes_standby.pop(chat_id, [])
-
-            # CORRECCIÓN punto 7: usar _procesar_siguiente_standby en lugar del loop directo
-            if standby_list:
-                await _procesar_siguiente_standby(
-                    context.bot, update.message, chat_id, standby_list, vendedor
-                )
-            return
-
-    # ── Modo modificación/corrección de venta ──
-    with _estado_lock:
-        en_correccion = esperando_correccion.pop(chat_id, False)
-
-    if en_correccion == "modificar":
-        with _estado_lock:
-            ventas_actuales = list(ventas_pendientes.get(chat_id, []))
-
-        metodo_original = None
-        if ventas_actuales and ventas_actuales[0].get("metodo_pago"):
-            metodo_original = ventas_actuales[0]["metodo_pago"]
-
-        # ── PARSER RÁPIDO: agregar productos no encontrados sin Claude ──────
-        # Formato: "modificar = 2---Tornillo especial=5000, 1---Clavija=3000"
-        # o línea por línea:
-        #   2---Tornillo especial=5000
-        #   1---Clavija=3000
-
-        # ── Parser de acciones explícitas ─────────────────────────────────
-        # Prefijo obligatorio para evitar confusión con correcciones normales:
-        #   añadir/agregar N nombre = total  → agrega producto a la venta
-        #   quitar/eliminar/borrar nombre    → elimina de la venta
-        #   reemplazar nombre [por N nuevo=total] → quita y opcionalmente agrega
-        # Sin prefijo → va a Claude (correcciones de precio, cantidad, etc.)
-
-        # Patrón con cantidad obligatoria: "2 nombre = 5000"
-        _PATRON_ITEM_MOD = re.compile(
-            r'(\d+(?:[.,]\d+)?)\s+([a-zA-Z\xe1\xe9\xed\xf3\xfa\xf1\xc1\xc9\xcd\xd3\xda\xd1][^=]+?)\s*=\s*(\d+)',
-            re.IGNORECASE
-        )
-        # Patrón sin cantidad (default=1): "nombre = 5000"
-        _PATRON_ITEM_MOD_SIN_CANT = re.compile(
-            r'([a-zA-Z\xe1\xe9\xed\xf3\xfa\xf1\xc1\xc9\xcd\xd3\xda\xd1][^=]+?)\s*=\s*(\d+)',
-            re.IGNORECASE
-        )
-
-        def _parse_accion_mod(msg):
-            ml = msg.strip().lower()
-            _PREFIJOS_ANADIR = ('añadir ', 'anadir ', 'agregar ', 'añade ', 'añade:', 'anadir:', 'agrega ', 'agrega:')
-            if ml.startswith(_PREFIJOS_ANADIR):
-                resto = re.sub(r'^(a[nñ]ad[ei][r]?|agreg[ao][r]?)[:\s]+', '', msg.strip(), flags=re.IGNORECASE).strip()
-                m = _PATRON_ITEM_MOD.match(resto)
-                if m:
-                    return {'accion': 'anadir',
-                            'cantidad': float(m.group(1).replace(',', '.')),
-                            'producto': m.group(2).strip(),
-                            'total': int(m.group(3))}
-                # Sin cantidad explícita → default 1
-                m2 = _PATRON_ITEM_MOD_SIN_CANT.match(resto)
-                if m2:
-                    return {'accion': 'anadir',
-                            'cantidad': 1,
-                            'producto': m2.group(1).strip(),
-                            'total': int(m2.group(2))}
-            if ml.startswith(('quitar ', 'eliminar ', 'borrar ', 'sacar ', 'quita ', 'quita:', 'elimina ', 'borra ')):
-                resto = re.sub(r'^(quitar|eliminar|borrar|sacar)\s+(los?\s+|las?\s+)?',
-                                    '', msg.strip(), flags=re.IGNORECASE)
-                return {'accion': 'quitar', 'termino': resto.strip()}
-            if ml.startswith(('reemplazar ', 'cambiar ')):
-                resto = re.sub(r'^(reemplazar|cambiar)\s+', '', msg.strip(), flags=re.IGNORECASE)
-                if re.search(r'\s+por\s+', resto, flags=re.IGNORECASE):
-                    partes = re.split(r'\s+por\s+', resto, maxsplit=1, flags=re.IGNORECASE)
-                    m = _PATRON_ITEM_MOD.match(partes[1].strip())
-                    if m:
-                        return {'accion': 'reemplazar',
-                                'termino': partes[0].strip(),
-                                'cantidad': float(m.group(1).replace(',', '.')),
-                                'producto': m.group(2).strip(),
-                                'total': int(m.group(3))}
-                return {'accion': 'quitar', 'termino': resto.strip()}
-            return None
-
-        _acciones_parsed = []
-        for _linea in mensaje.strip().splitlines():
-            _linea = _linea.strip()
-            if not _linea:
-                continue
-            _a = _parse_accion_mod(_linea)
-            if _a:
-                _acciones_parsed.append(_a)
-            else:
-                _acciones_parsed = []
-                break
-
-        if _acciones_parsed:
-            with _estado_lock:
-                _venta_actual = list(ventas_pendientes.get(chat_id, []))
-            _resumen_cambios = []
-            for _ac in _acciones_parsed:
-                if _ac['accion'] == 'anadir':
-                    _venta_actual.append({
-                        "producto":    _ac['producto'],
-                        "cantidad":    _ac['cantidad'],
-                        "total":       _ac['total'],
-                        "metodo_pago": metodo_original or "",
-                    })
-                    _resumen_cambios.append(f"\u2795 {_ac['cantidad']:g} {_ac['producto']} ${_ac['total']:,}")
-                elif _ac['accion'] == 'quitar':
-                    _t = _ac['termino'].lower()
-                    _antes = len(_venta_actual)
-                    _venta_actual = [v for v in _venta_actual if _t not in v.get('producto','').lower()]
-                    if len(_venta_actual) < _antes:
-                        _resumen_cambios.append(f"\u2796 {_ac['termino']} (eliminado)")
-                    else:
-                        _resumen_cambios.append(f"\u26a0\ufe0f No encontr\xe9 '{_ac['termino']}' en la venta")
-                elif _ac['accion'] == 'reemplazar':
-                    _t = _ac['termino'].lower()
-                    _venta_actual = [v for v in _venta_actual if _t not in v.get('producto','').lower()]
-                    _venta_actual.append({
-                        "producto":    _ac['producto'],
-                        "cantidad":    _ac['cantidad'],
-                        "total":       _ac['total'],
-                        "metodo_pago": metodo_original or "",
-                    })
-                    _resumen_cambios.append(
-                        f"\U0001f501 {_ac['termino']} \u2192 {_ac['cantidad']:g} {_ac['producto']} ${_ac['total']:,}"
-                    )
-            with _estado_lock:
-                ventas_pendientes[chat_id] = _venta_actual
-            _total_general = sum(v.get("total", 0) for v in _venta_actual)
-            await update.message.reply_text(
-                "\n".join(_resumen_cambios) + f"\nTotal venta: ${_total_general:,.0f}"
-            )
-            if metodo_original:
-                await _enviar_confirmacion_con_metodo(update.message, chat_id, _venta_actual, metodo_original)
-            else:
-                await _enviar_botones_pago(update.message, chat_id, _venta_actual)
-            return
-        # ── Fin parser — sin prefijo reconocido, va a Claude normal ──────────
-
-        resumen_venta = json.dumps(ventas_actuales, ensure_ascii=False)
-
-        prompt_modificacion = (
-            "El vendedor tiene esta venta pendiente de confirmar:\n"
-            + resumen_venta
-            + "\n\nEl vendedor quiere modificarla con esta instrucción: "
-            + mensaje
-            + "\n\nAplica EXACTAMENTE los cambios pedidos a la venta (modifica cantidad, precio, "
-            "quita o agrega productos según corresponda). "
-            "Luego emite los [VENTA] actualizados con los datos correctos y confirma los cambios en texto. "
-            "IMPORTANTE: emite [VENTA] para TODOS los productos que quedan en la venta (no solo el modificado). "
-            + (f"IMPORTANTE: mantén metodo_pago={metodo_original} en todos los [VENTA]." if metodo_original else "")
-        )
-        historial = get_historial(chat_id)
-        agregar_al_historial(chat_id, "user", prompt_modificacion)
-
-        with _estado_lock:
-            ventas_pendientes.pop(chat_id, None)
-
-        respuesta_raw                         = await procesar_con_claude(prompt_modificacion, vendedor, historial)
-        texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
-        agregar_al_historial(chat_id, "assistant", texto_respuesta)
-
-        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
-        with _estado_lock:
-            ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
-
-        if ventas_nuevas:
-            # Nota del cambio en una sola linea, sin el resumen completo
-            nota = texto_respuesta.split("\n")[0] if texto_respuesta else ""
-            if confirmacion_accion:
-                metodo_conocido = confirmacion_accion.split(":", 1)[1]
-                await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_conocido, nota=nota)
-            elif metodo_original:
-                with _estado_lock:
-                    for v in ventas_pendientes.get(chat_id, []):
-                        v["metodo_pago"] = metodo_original
-                await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_nuevas, metodo_original, nota=nota)
-            else:
-                if nota:
-                    await update.message.reply_text(nota)
-                await _enviar_botones_pago(update.message, chat_id, ventas_nuevas)
-        elif texto_respuesta:
-            await update.message.reply_text(texto_respuesta)
+    # ── Flujos extraídos a dispatch.py ──
+    if await manejar_flujo_cliente(update, chat_id, mensaje):
         return
-
-    elif en_correccion:
-        historial = get_historial(chat_id)
-        agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
-        respuesta_raw                         = await procesar_con_claude(f"{vendedor}: {mensaje}", vendedor, historial)
-        texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
-        agregar_al_historial(chat_id, "assistant", texto_respuesta)
-        if texto_respuesta:
-            await update.message.reply_text(texto_respuesta)
-        confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
-        with _estado_lock:
-            ventas = ventas_pendientes.get(chat_id, [])
-        if confirmacion_accion:
-            metodo_conocido = confirmacion_accion.split(":", 1)[1]
-            await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas, metodo_conocido)
-        elif "PEDIR_METODO_PAGO" in acciones:
-            await _enviar_botones_pago(update.message, chat_id, ventas)
+    if await manejar_flujo_excel(update, context, chat_id, mensaje):
         return
-
-    # ── Respuesta "no" a la pregunta de crear cliente ──
-    with _estado_lock:
-        _esperando_cliente_yn = ventas_pendientes.get(chat_id) and not clientes_en_proceso.get(chat_id)
-
-    if _esperando_cliente_yn:
-        _msg_lower    = mensaje.strip().lower()
-        _respuesta_no = {"no", "nop", "nope", "nel", "sin cliente", "registra sin cliente", "registra asi"}
-        if _msg_lower in _respuesta_no or _msg_lower.startswith("no "):
-            with _estado_lock:
-                ventas_para_registrar = list(ventas_pendientes.get(chat_id, []))
-            if ventas_para_registrar:
-                await update.message.reply_text("👍 Registrando la venta sin crear el cliente...")
-                metodo_conocido = ventas_para_registrar[0].get("metodo_pago", "").lower()
-                if metodo_conocido:
-                    await _enviar_confirmacion_con_metodo(update.message, chat_id, ventas_para_registrar, metodo_conocido)
-                else:
-                    await _enviar_botones_pago(update.message, chat_id, ventas_para_registrar)
-                return
+    if await manejar_flujo_pago_texto(update, context, chat_id, mensaje, vendedor):
+        return
+    if await manejar_flujo_correccion(update, context, chat_id, mensaje, vendedor):
+        return
+    if await manejar_rechazo_cliente(update, chat_id, mensaje):
+        return
 
     # ── Actualización de precios: ahora es SOLO via /actualizar_precio ──
     # (Eliminada la intercepción automática que confundía ventas con precios)
