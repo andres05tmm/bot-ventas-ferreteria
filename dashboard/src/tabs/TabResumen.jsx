@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -223,9 +224,15 @@ function TopRow({ p, i, max, t }) {
   )
 }
 
+const kpiVariants = {
+  hidden:  { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
+}
+
 export default function TabResumen({ refreshKey }) {
   const t = useTheme()
   const isMobile = useIsMobile()
+  const prefersReducedMotion = useReducedMotion()
   const [periodo, setPeriodo] = useState('semana')
 
   const { data: resumen, loading: lRes, error: eRes } = useFetch('/ventas/resumen', [refreshKey])
@@ -265,8 +272,13 @@ export default function TabResumen({ refreshKey }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
-        <KpiBig
+      <motion.div
+        style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}
+        initial={prefersReducedMotion ? false : 'hidden'}
+        animate="visible"
+        variants={{ visible: { transition: { staggerChildren: 0.08 } } }}
+      >
+        <motion.div variants={kpiVariants}><KpiBig
           label="Ventas hoy"
           value={cop(r.total_hoy)}
           sub="Acumulado del día"
@@ -275,48 +287,48 @@ export default function TabResumen({ refreshKey }) {
             : 'Sin comparativa aún'}
           icon="💰"
           color={t.green}
-        />
-        <KpiBig
+        /></motion.div>
+        <motion.div variants={kpiVariants}><KpiBig
           label="Pedidos hoy"
           value={r.pedidos_hoy ?? 0}
           sub="Transacciones"
           pill={r.pedidos_hoy > 0 ? `Ticket prom: ${cop(r.ticket_prom)}` : 'Sin ventas aún'}
           icon="🧾"
           color={t.accent}
-        />
-        <KpiBig
+        /></motion.div>
+        <motion.div variants={kpiVariants}><KpiBig
           label="Stock con alerta"
           value={alertasData?.total ?? '—'}
           sub={alertasData?.total > 0 ? 'Sin precio o agotados' : 'Sin alertas'}
           pill={alertasData?.total > 0 ? 'Ver en Inventario' : 'Todo en orden'}
           icon="⚠️"
           color={alertasData?.total > 0 ? t.yellow : t.green}
-        />
-        <KpiBig
+        /></motion.div>
+        <motion.div variants={kpiVariants}><KpiBig
           label="Ticket promedio"
           value={cop(r.ticket_prom)}
           sub="Últimos 7 días"
           pill="Promedio por venta"
           icon="🧮"
           color={t.textSub}
-        />
-        <KpiBig
+        /></motion.div>
+        <motion.div variants={kpiVariants}><KpiBig
           label="Total semana"
           value={cop(r.total_semana)}
           sub="Últimos 7 días"
           pill="Ver gráfica abajo"
           icon="📅"
           color={t.blue}
-        />
-        <KpiBig
+        /></motion.div>
+        <motion.div variants={kpiVariants}><KpiBig
           label="Total mes"
           value={cop(r.total_mes)}
           sub="Mes en curso"
           pill="Acumulado mensual"
           icon="🗓️"
           color={t.textSub}
-        />
-      </div>
+        /></motion.div>
+      </motion.div>
 
       {/* Gráfica */}
       <Card>
