@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
-  API_BASE, cop, useTheme, Card, KpiCard,
+  API_BASE, cop, useTheme, Card, GlassCard, KpiCard,
   SectionTitle, Spinner, useIsMobile,
 } from '../components/shared.jsx'
 
@@ -239,7 +239,7 @@ export default function TabHistoricoVentas() {
       </div>
 
       {/* ── Calendario ─────────────────────────────────────────────────── */}
-      <Card style={{ padding: mobile ? 10 : 16, marginBottom: 16 }}>
+      <GlassCard style={{ padding: mobile ? 10 : 16, marginBottom: 16 }}>
         {loading ? <Spinner /> : (
           <>
             {/* Header días */}
@@ -345,7 +345,7 @@ export default function TabHistoricoVentas() {
 
       {/* ── Tabla de desglose por día ──────────────────────────────────── */}
       {filasTabla.length > 0 && (
-        <Card style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+        <GlassCard style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
           <div style={{
             padding: '10px 14px', borderBottom: `1px solid ${t.border}`,
             display: 'flex', alignItems: 'center', gap: 8,
@@ -402,7 +402,7 @@ export default function TabHistoricoVentas() {
       )}
 
       {/* ── Acciones ───────────────────────────────────────────────────── */}
-      <Card style={{ padding: 14 }}>
+      <GlassCard style={{ padding: 14 }}>
         <div style={{
           display: 'flex', flexWrap: 'wrap', gap: 8,
           alignItems: 'center',

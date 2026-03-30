@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import {
-  useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg,
+  useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard, Spinner, ErrorMsg,
   PeriodBtn, EmptyState, cop, num, API_BASE,
 } from '../components/shared.jsx'
 
@@ -110,7 +110,7 @@ export default function TabCompras({ refreshKey }) {
 
       {/* Formulario nueva compra */}
       {formOpen && (
-        <Card>
+        <GlassCard>
           <SectionTitle>Registrar Compra</SectionTitle>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
             <div style={{ gridColumn: '1 / -1' }}>
@@ -182,11 +182,11 @@ export default function TabCompras({ refreshKey }) {
           }}>
             {guardando ? 'Guardando…' : '📦 Registrar compra'}
           </button>
-        </Card>
+        </GlassCard>
       )}
 
       {sinDatos ? (
-        <Card>
+        <GlassCard>
           <div style={{ padding: '32px 24px', textAlign: 'center' }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
             <div style={{ color: t.text, fontWeight: 600, marginBottom: 8 }}>Sin compras registradas</div>
@@ -205,7 +205,7 @@ export default function TabCompras({ refreshKey }) {
               Ej: /compra 20 brocha 2" a 2500
             </div>
           </div>
-        </Card>
+        </GlassCard>
       ) : (
         <>
           {/* KPIs */}
@@ -218,7 +218,7 @@ export default function TabCompras({ refreshKey }) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             {/* Por proveedor */}
-            <Card>
+            <GlassCard>
               <SectionTitle>Por Proveedor</SectionTitle>
               {porProv.length === 0 ? <EmptyState /> : (
                 <>
@@ -246,10 +246,10 @@ export default function TabCompras({ refreshKey }) {
                   </div>
                 </>
               )}
-            </Card>
+            </GlassCard>
 
             {/* Top productos más comprados */}
-            <Card>
+            <GlassCard>
               <SectionTitle>Productos más Comprados</SectionTitle>
               {porProd.length === 0 ? <EmptyState /> : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -267,11 +267,11 @@ export default function TabCompras({ refreshKey }) {
                   ))}
                 </div>
               )}
-            </Card>
+            </GlassCard>
           </div>
 
           {/* Tabla de compras */}
-          <Card style={{ padding: 0 }}>
+          <GlassCard style={{ padding: 0 }}>
             <div style={{ padding: '14px 18px', borderBottom: `1px solid ${t.border}` }}>
               <SectionTitle>Detalle de Compras</SectionTitle>
             </div>
@@ -319,7 +319,7 @@ export default function TabCompras({ refreshKey }) {
                 </tfoot>
               </table>
             </div>
-          </Card>
+          </GlassCard>
         </>
       )}
     </div>

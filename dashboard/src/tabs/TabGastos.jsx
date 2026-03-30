@@ -4,7 +4,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
-  useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg,
+  useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard, Spinner, ErrorMsg,
   PeriodBtn, EmptyState, cop, API_BASE,
   useIsMobile,
 } from '../components/shared.jsx'
@@ -114,7 +114,7 @@ export default function TabGastos({ refreshKey }) {
 
       {/* Formulario nuevo gasto */}
       {formOpen && (
-        <Card>
+        <GlassCard>
           <SectionTitle>Registrar Gasto</SectionTitle>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10, marginBottom: 12 }}>
             <div>
@@ -186,7 +186,7 @@ export default function TabGastos({ refreshKey }) {
           }}>
             {guardando ? 'Guardando…' : '💸 Registrar gasto'}
           </button>
-        </Card>
+        </GlassCard>
       )}
 
       {/* KPIs */}
@@ -198,16 +198,16 @@ export default function TabGastos({ refreshKey }) {
       </div>
 
       {gastos.length === 0 ? (
-        <Card>
+        <GlassCard>
           <EmptyState msg="Sin gastos registrados en este período." />
-        </Card>
+        </GlassCard>
       ) : (
         <>
           {/* Gráficas */}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             {/* Histórico diario */}
             {dias > 1 && (
-              <Card>
+              <GlassCard>
                 <SectionTitle>Gastos por Día</SectionTitle>
                 <ResponsiveContainer width="100%" height={180}>
                   <BarChart data={historico} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
@@ -224,11 +224,11 @@ export default function TabGastos({ refreshKey }) {
                     <Bar dataKey="total" fill="#f87171" radius={[3, 3, 0, 0]} maxBarSize={28} />
                   </BarChart>
                 </ResponsiveContainer>
-              </Card>
+              </GlassCard>
             )}
 
             {/* Por categoría */}
-            <Card>
+            <GlassCard>
               <SectionTitle>Por Categoría</SectionTitle>
               {porCat.length === 0 ? <EmptyState /> : (
                 <>
@@ -256,11 +256,11 @@ export default function TabGastos({ refreshKey }) {
                   </div>
                 </>
               )}
-            </Card>
+            </GlassCard>
           </div>
 
           {/* Tabla detalle */}
-          <Card style={{ padding: 0 }}>
+          <GlassCard style={{ padding: 0 }}>
             <div style={{ padding: '14px 18px', borderBottom: `1px solid ${t.border}` }}>
               <SectionTitle>Detalle de Gastos</SectionTitle>
             </div>
@@ -310,7 +310,7 @@ export default function TabGastos({ refreshKey }) {
                 </tfoot>
               </table>
             </div>
-          </Card>
+          </GlassCard>
         </>
       )}
     </div>

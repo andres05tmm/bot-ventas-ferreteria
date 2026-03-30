@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useTheme, useFetch, Card, SectionTitle, KpiCard, Spinner, ErrorMsg, cop, useIsMobile, API_BASE } from '../components/shared.jsx'
+import { useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard, Spinner, ErrorMsg, cop, useIsMobile, API_BASE } from '../components/shared.jsx'
 
 function MetodoRow({ label, valor, icon, t }) {
   if (!valor) return null
@@ -138,7 +138,7 @@ export default function TabCaja({ refreshKey }) {
       )}
 
       {/* Estado + Acciones */}
-      <Card style={{ padding: '14px 18px' }}>
+      <GlassCard style={{ padding: '14px 18px' }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           flexWrap: 'wrap', gap: 10,
@@ -200,7 +200,7 @@ export default function TabCaja({ refreshKey }) {
             </button>
           </div>
         )}
-      </Card>
+      </GlassCard>
 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 10 }}>
@@ -211,7 +211,7 @@ export default function TabCaja({ refreshKey }) {
       </div>
 
       {/* Venta Varia */}
-      <Card style={{ padding: '14px 18px' }}>
+      <GlassCard style={{ padding: '14px 18px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontWeight: 600, fontSize: 13, color: t.text }}>
@@ -323,11 +323,11 @@ export default function TabCaja({ refreshKey }) {
             </div>
           </div>
         )}
-      </Card>
+      </GlassCard>
 
       {/* Desglose por método */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
-        <Card>
+        <GlassCard>
           <SectionTitle>Ingresos por Método</SectionTitle>
           <MetodoRow label="Efectivo"      valor={d.efectivo}       icon="💵" t={t} />
           <MetodoRow label="Transferencia" valor={d.transferencias} icon="📲" t={t} />
@@ -342,9 +342,9 @@ export default function TabCaja({ refreshKey }) {
             <span style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>TOTAL</span>
             <span style={{ color: t.green, fontSize: 16, fontWeight: 700 }}>{cop(d.total_ventas)}</span>
           </div>
-        </Card>
+        </GlassCard>
 
-        <Card>
+        <GlassCard>
           <SectionTitle>Resumen Efectivo</SectionTitle>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {[
@@ -364,11 +364,11 @@ export default function TabCaja({ refreshKey }) {
               <span style={{ color: t.accent, fontSize: 16, fontWeight: 700 }}>{cop(d.efectivo_esperado)}</span>
             </div>
           </div>
-        </Card>
+        </GlassCard>
       </div>
 
       {/* Gastos del día */}
-      <Card style={{ padding: 0 }}>
+      <GlassCard style={{ padding: 0 }}>
         <div style={{ padding: '14px 18px', borderBottom: `1px solid ${t.border}` }}>
           <SectionTitle>Gastos del Día ({gastos.length})</SectionTitle>
         </div>
@@ -407,7 +407,7 @@ export default function TabCaja({ refreshKey }) {
             </table>
           </div>
         )}
-      </Card>
+      </GlassCard>
     </div>
   )
 }

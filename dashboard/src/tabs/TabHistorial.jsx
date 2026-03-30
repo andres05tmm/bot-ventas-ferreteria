@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  useTheme, useFetch, Card, SectionTitle, Spinner, ErrorMsg,
+  useTheme, useFetch, Card, GlassCard, SectionTitle, Spinner, ErrorMsg,
   PeriodBtn, StyledInput, EmptyState, Th, cop, API_BASE,
   useIsMobile,
 } from '../components/shared.jsx'
@@ -524,7 +524,7 @@ export default function TabHistorial({ refreshKey }) {
       </div>
 
       {/* Tabla */}
-      <Card style={{padding:0}}>
+      <GlassCard style={{padding:0}}>
         <div style={{padding:'14px 18px',borderBottom:`1px solid ${t.border}`}}>
           <SectionTitle>
             Ventas del Día — {new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}
@@ -634,7 +634,7 @@ export default function TabHistorial({ refreshKey }) {
             )
           }
         </div>
-      </Card>
+      </GlassCard>
     </div>
   )
 }

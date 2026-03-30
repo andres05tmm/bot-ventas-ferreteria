@@ -4,7 +4,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts'
 import {
-  useTheme, useFetch, Card, SectionTitle, KpiCard,
+  useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard,
   Spinner, ErrorMsg, PeriodBtn, EmptyState, cop, num,
   useIsMobile,
 } from '../components/shared.jsx'
@@ -27,7 +27,7 @@ function EstadoResultados({ d, periodo, t }) {
   ]
 
   return (
-    <Card>
+    <GlassCard>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <SectionTitle>Estado de Resultados · {periodo === 'semana' ? 'Esta Semana' : 'Este Mes'}</SectionTitle>
         {!d.tiene_cmv && (
@@ -153,7 +153,7 @@ function EstadoResultados({ d, periodo, t }) {
           )}
         </div>
       )}
-    </Card>
+    </GlassCard>
   )
 }
 
@@ -165,7 +165,7 @@ function ProyeccionCaja({ pd, t }) {
   const hoy      = pd.dia_del_mes
 
   return (
-    <Card>
+    <GlassCard>
       <SectionTitle>Proyección de Caja — Cierre del Mes</SectionTitle>
 
       {!pd.tiene_datos ? (
@@ -261,7 +261,7 @@ function ProyeccionCaja({ pd, t }) {
           </div>
         </>
       )}
-    </Card>
+    </GlassCard>
   )
 }
 
@@ -270,7 +270,7 @@ function GraficaHistorica({ historico, t }) {
   if (!historico?.length) return null
   const data = historico.map(h => ({ dia: fmtDia(h.fecha), ventas: h.ventas, gastos: h.gastos, neto: h.ventas - h.gastos }))
   return (
-    <Card>
+    <GlassCard>
       <SectionTitle>Ventas vs Gastos por Día</SectionTitle>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
@@ -286,7 +286,7 @@ function GraficaHistorica({ historico, t }) {
           <Bar dataKey="gastos" name="Gastos" fill="#f87171"   radius={[3,3,0,0]} maxBarSize={22} />
         </BarChart>
       </ResponsiveContainer>
-    </Card>
+    </GlassCard>
   )
 }
 

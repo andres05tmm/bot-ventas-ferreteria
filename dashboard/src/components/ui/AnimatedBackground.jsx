@@ -48,7 +48,7 @@ export default function AnimatedBackground() {
         this.vx    = (Math.random() - 0.5) * (0.2 + Math.random() * 0.4)
         this.vy    = (Math.random() - 0.5) * (0.2 + Math.random() * 0.4)
         this.r     = Math.random() * 2 + 1
-        this.alpha = Math.random() * 0.06 + 0.06
+        this.alpha = Math.random() * 0.07 + 0.08
       }
       update() {
         // Repulsión suave del cursor
@@ -107,13 +107,13 @@ export default function AnimatedBackground() {
           cx: canvas.width  * 0.82 + Math.cos(t_anim * 0.6)  * 70,
           cy: canvas.height * 0.72 + Math.sin(t_anim * 0.8)  * 50,
           r:  180,
-          a:  0.10,
+          a:  0.13,
         },
         {
           cx: canvas.width  * 0.50 + Math.sin(t_anim * 0.45) * 55,
           cy: canvas.height * 0.10 + Math.cos(t_anim * 0.65) * 35,
           r:  150,
-          a:  0.08,
+          a:  0.13,
         },
       ]
 

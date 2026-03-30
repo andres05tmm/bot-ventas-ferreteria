@@ -4,7 +4,7 @@
  */
 import { useState, useCallback, useRef } from 'react'
 import {
-  useTheme, useFetch, Card, SectionTitle, KpiCard,
+  useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard,
   Spinner, ErrorMsg, cop, useIsMobile, API_BASE, StyledInput,
 } from '../components/shared.jsx'
 
@@ -567,7 +567,7 @@ function ResumenProveedores({ data, t, mobile }) {
   if (!provs.length) return null
 
   return (
-    <Card style={{ padding: 14, marginBottom: 16 }}>
+    <GlassCard style={{ padding: 14, marginBottom: 16 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: t.textMuted, marginBottom: 10,
                     letterSpacing: '.05em' }}>
         DEUDA POR PROVEEDOR
@@ -593,7 +593,7 @@ function ResumenProveedores({ data, t, mobile }) {
           </div>
         )
       })}
-    </Card>
+    </GlassCard>
   )
 }
 
@@ -685,7 +685,7 @@ export default function TabProveedores({ refreshKey }) {
 
       {/* ── Lista de facturas ───────────────────────────────────────────── */}
       {facturas.length === 0 ? (
-        <Card style={{ padding: 32, textAlign: 'center' }}>
+        <GlassCard style={{ padding: 32, textAlign: 'center' }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}>📄</div>
           <div style={{ color: t.textMuted, fontSize: 14 }}>
             {filtro === 'pendientes'
@@ -695,7 +695,7 @@ export default function TabProveedores({ refreshKey }) {
           <div style={{ color: t.textMuted, fontSize: 12, marginTop: 6 }}>
             Usa "/factura Proveedor Total" en Telegram o el botón "Nueva Factura"
           </div>
-        </Card>
+        </GlassCard>
       ) : (
         facturas.map(fac => (
           <FacturaCard

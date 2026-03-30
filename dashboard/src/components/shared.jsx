@@ -1,5 +1,31 @@
 // ── shared.jsx — Componentes y utilidades globales de FerreBot Dashboard ──────
 import { createContext, useContext, useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// useCountUp — anima un número de 0 al target en `duration` ms (easeOut cúbico)
+// ─────────────────────────────────────────────────────────────────────────────
+export function useCountUp(target, duration = 800) {
+  const [val, setVal] = useState(0)
+  useEffect(() => {
+    if (target === null || target === undefined || target === 0) {
+      setVal(0)
+      return
+    }
+    let rafId
+    const start = performance.now()
+    const step = (now) => {
+      const elapsed  = now - start
+      const progress = Math.min(elapsed / duration, 1)
+      const eased    = 1 - Math.pow(1 - progress, 3)
+      setVal(target * eased)
+      if (progress < 1) rafId = requestAnimationFrame(step)
+    }
+    rafId = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(rafId)
+  }, [target, duration])
+  return val
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEMAS
@@ -179,7 +205,7 @@ export function Card({ children, style = {} }) {
       position:     'relative',
       background:   t.cardGrad,
       border:       `1px solid ${t.border}`,
-      borderRadius: 14,
+      borderRadius: 16,
       padding:      20,
       boxShadow:    t.shadowCard,
       overflow:     'hidden',
@@ -210,7 +236,7 @@ export function GlassCard({ children, style = {} }) {
       border:         isCaramelo
         ? '0.5px solid rgba(200,32,14,0.12)'
         : `1px solid ${t.border}`,
-      borderRadius:   14,
+      borderRadius:   16,
       padding:        20,
       boxShadow:      isCaramelo
         ? '0 2px 12px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(200,32,14,0.08)'
@@ -224,25 +250,50 @@ export function GlassCard({ children, style = {} }) {
 }
 
 export function KpiCard({ label, value, sub, color, icon }) {
-  const t = useTheme()
-  const c = color || t.accent
-  const [hov, setHov] = useState(false)
+  const t         = useTheme()
+  const c         = color || t.accent
+  const isCaramelo = t.id === 'caramelo'
+
+  // Count-up: parse numeric value from formatted string or raw number
+  const rawNum = (() => {
+    if (typeof value === 'number') return value
+    if (typeof value !== 'string') return null
+    // strip $ and Colombian thousands sep (dots), keep digits
+    const cleaned = value.replace(/\$/g, '').replace(/\./g, '').replace(/,.*$/, '').trim()
+    const n = parseInt(cleaned, 10)
+    return isNaN(n) ? null : n
+  })()
+  const animated  = useCountUp(rawNum ?? 0, 800)
+  const displayVal = rawNum !== null
+    ? (value.startsWith('$')
+        ? '$' + Math.round(animated).toLocaleString('es-CO')
+        : Math.round(animated).toLocaleString('es-CO'))
+    : value
+
   return (
-    <div
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+      whileHover={{ scale: 1.02 }}
       style={{
         flex: 1, minWidth: 160,
         position: 'relative',
-        background: hov
-          ? `linear-gradient(135deg, ${c}10 0%, ${t.card} 60%)`
+        background: isCaramelo
+          ? 'rgba(255,255,255,0.72)'
           : t.cardGrad,
-        border: `1px solid ${hov ? c + '50' : t.border}`,
-        borderRadius: 14,
+        backdropFilter:       isCaramelo ? 'blur(12px)' : undefined,
+        WebkitBackdropFilter: isCaramelo ? 'blur(12px)' : undefined,
+        border: isCaramelo
+          ? `0.5px solid rgba(200,32,14,0.14)`
+          : `1px solid ${t.border}`,
+        borderRadius: 16,
         padding: '16px 18px 16px 22px',
         cursor: 'default',
-        transition: 'all 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
-        boxShadow: hov ? `0 0 0 1px ${c}30, 0 8px 28px ${c}15` : t.shadowCard,
+        transition: 'border-color 0.2s ease, box-shadow 0.2s ease, background 0.22s cubic-bezier(0.4,0,0.2,1)',
+        boxShadow: isCaramelo
+          ? '0 2px 12px rgba(0,0,0,0.07), 0 0 0 0.5px rgba(200,32,14,0.08)'
+          : t.shadowCard,
         overflow: 'hidden',
       }}
     >
@@ -253,35 +304,32 @@ export function KpiCard({ label, value, sub, color, icon }) {
         width: 3,
         background: `linear-gradient(180deg, ${c}00, ${c}, ${c}00)`,
         borderRadius: 99,
-        opacity: hov ? 1 : 0.5,
-        transition: 'opacity 0.22s',
+        opacity: 0.6,
       }}/>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
           <div style={{
-            fontSize: 11, fontWeight: 600, color: t.textMuted,
+            fontSize: 10, fontWeight: 600, color: t.textMuted,
             letterSpacing: '.06em', textTransform: 'uppercase',
             marginBottom: 10,
           }}>
             {label}
           </div>
           <div style={{
-            fontSize: hov ? 24 : 22,
+            fontSize: 24,
             fontWeight: 700,
-            color: hov ? c : t.text,
+            color: t.text,
             letterSpacing: '-0.03em',
             fontVariantNumeric: 'tabular-nums',
-            transition: 'font-size 0.2s ease, color 0.2s ease',
             lineHeight: 1.1,
           }}>
-            {value}
+            {displayVal}
           </div>
           {sub && (
             <div style={{
               fontSize: 11, color: c, marginTop: 7,
-              fontWeight: 500, opacity: hov ? 1 : 0.8,
-              transition: 'opacity 0.2s',
+              fontWeight: 500, opacity: 0.85,
             }}>{sub}</div>
           )}
         </div>
@@ -289,16 +337,14 @@ export function KpiCard({ label, value, sub, color, icon }) {
           <div style={{
             width: 36, height: 36,
             borderRadius: 10,
-            background: hov ? `${c}18` : t.accentSub,
+            background: isCaramelo ? `${c}12` : t.accentSub,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 18,
-            transition: 'all 0.22s ease',
-            transform: hov ? 'scale(1.1) rotate(-5deg)' : 'scale(1)',
             flexShrink: 0,
           }}>{icon}</div>
         )}
       </div>
-    </div>
+    </motion.div>
   )
 }
 

@@ -7,7 +7,7 @@ import {
 import {
   useTheme, useFetch, Card, GlassCard, SectionTitle, Spinner, ErrorMsg,
   PeriodBtn, EmptyState, cop, num, API_BASE,
-  useIsMobile,
+  useIsMobile, useCountUp,
 } from '../components/shared.jsx'
 
 function fmtFecha(s) {
@@ -51,58 +51,69 @@ const MEDALLAS      = ['🥇','🥈','🥉']
 
 // ── KPI hover: glow borde agresivo + número que crece ────────────────────────
 function KpiBig({ label, value, sub, color, icon, pill }) {
-  const t   = useTheme()
-  const c   = color || t.accent
-  const [hov, setHov] = useState(false)
+  const t          = useTheme()
+  const c          = color || t.accent
+  const isCaramelo = t.id === 'caramelo'
+
+  // Count-up: parse numeric from formatted string or raw number
+  const rawNum = (() => {
+    if (typeof value === 'number') return value
+    if (typeof value !== 'string') return null
+    const cleaned = value.replace(/\$/g, '').replace(/\./g, '').replace(/,.*$/, '').trim()
+    const n = parseInt(cleaned, 10)
+    return isNaN(n) ? null : n
+  })()
+  const animated   = useCountUp(rawNum ?? 0, 800)
+  const displayVal = rawNum !== null
+    ? (value.startsWith('$')
+        ? '$' + Math.round(animated).toLocaleString('es-CO')
+        : Math.round(animated).toLocaleString('es-CO'))
+    : value
 
   return (
-    <div
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
+    <motion.div
+      whileHover={{ scale: 1.02 }}
       style={{
-        background: t.card,
-        border: `1px solid ${hov ? c : t.border}`,
-        borderRadius: 12,
+        background: isCaramelo ? 'rgba(255,255,255,0.72)' : t.card,
+        backdropFilter:       isCaramelo ? 'blur(12px)' : undefined,
+        WebkitBackdropFilter: isCaramelo ? 'blur(12px)' : undefined,
+        border: isCaramelo
+          ? `0.5px solid rgba(200,32,14,0.14)`
+          : `1px solid ${t.border}`,
+        borderRadius: 16,
         padding: '18px 20px',
         flex: 1, minWidth: 150,
         cursor: 'default',
-        transition: 'border-color .2s ease, box-shadow .25s ease',
-        boxShadow: hov
-          ? `0 0 0 3px ${c}44, 0 0 16px ${c}22`
-          : 'none',
+        transition: 'border-color .2s ease, box-shadow .2s ease',
+        boxShadow: isCaramelo
+          ? '0 2px 12px rgba(0,0,0,0.07), 0 0 0 0.5px rgba(200,32,14,0.08)'
+          : t.shadowCard,
       }}
     >
       {/* Header: label + ícono */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 500, letterSpacing: '.07em', textTransform: 'uppercase' }}>
+        <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase' }}>
           {label}
         </span>
-        <span style={{
-          fontSize: 18,
-          opacity: hov ? 1 : .45,
-          transform: hov ? 'scale(1.18)' : 'scale(1)',
-          transition: 'opacity .2s, transform .2s ease',
-          display: 'inline-block',
-        }}>{icon}</span>
+        <span style={{ fontSize: 18, opacity: .55, display: 'inline-block' }}>{icon}</span>
       </div>
 
-      {/* Valor — crece en hover */}
+      {/* Valor con count-up */}
       <div style={{
-        fontSize: hov ? 26 : 22,
-        fontWeight: 500,
-        color: hov ? c : t.text,
+        fontSize: 24,
+        fontWeight: 700,
+        color: t.text,
         letterSpacing: '-0.03em', lineHeight: 1,
         fontVariantNumeric: 'tabular-nums',
-        transition: 'font-size .2s ease, color .2s ease',
         marginBottom: 10,
       }}>
-        {value}
+        {displayVal}
       </div>
 
       {/* Sub */}
       {sub && <div style={{ fontSize: 11, color: t.textMuted }}>{sub}</div>}
 
-      {/* Pill revelado */}
+      {/* Pill */}
       {pill && (
         <div style={{
           display: 'inline-block', marginTop: 8,
@@ -110,14 +121,11 @@ function KpiBig({ label, value, sub, color, icon, pill }) {
           background: c + '1a', color: c,
           border: `1px solid ${c}44`,
           fontWeight: 600,
-          opacity: hov ? 1 : 0,
-          transform: hov ? 'translateY(0)' : 'translateY(5px)',
-          transition: 'opacity .2s ease, transform .2s ease',
         }}>
           {pill}
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -442,7 +450,7 @@ export default function TabResumen({ refreshKey }) {
 
       {/* Vendedores */}
       {vendedoresData.length > 0 && (
-        <Card>
+        <GlassCard>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, paddingBottom: 10, borderBottom: `1px solid ${t.border}` }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Vendedores · Hoy</span>
             <span style={{ fontSize: 11, color: t.textMuted }}>
@@ -454,7 +462,7 @@ export default function TabResumen({ refreshKey }) {
               <VendedorRow key={i} v={v} i={i} maxTotal={maxVendedor} t={t} />
             ))}
           </div>
-        </Card>
+        </GlassCard>
       )}
 
     </div>
