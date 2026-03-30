@@ -1,7 +1,7 @@
 // Service Worker — Ferretería Punto Rojo Dashboard
 // Estrategia: Network First para la API, Cache First para assets estáticos
 
-const CACHE_NAME = 'puntorojo-v1'
+const CACHE_NAME = 'puntorojo-v2'
 
 // Assets que se cachean al instalar
 const PRECACHE = [

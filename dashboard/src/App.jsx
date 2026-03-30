@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { ThemeContext, THEMES, useTheme } from './components/shared.jsx'
 import TabResumen         from './tabs/TabResumen.jsx'
 import TabTopProductos    from './tabs/TabTopProductos.jsx'
@@ -706,6 +706,54 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
   )
 }
 
+// ── Error Boundary ────────────────────────────────────────────────────────────
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error }
+  }
+  render() {
+    if (this.state.hasError) {
+      const msg = this.state.error?.message || String(this.state.error)
+      return (
+        <div style={{
+          minHeight: '100vh', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          background: '#FDF6EE', padding: 32, fontFamily: 'system-ui, sans-serif',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: 32, maxWidth: 560,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.10)', border: '1px solid #F5C6C2',
+          }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+            <h2 style={{ color: '#C8200E', margin: '0 0 8px', fontSize: 18 }}>
+              Error al cargar el dashboard
+            </h2>
+            <pre style={{
+              background: '#FFF0EE', borderRadius: 8, padding: 12,
+              fontSize: 12, color: '#7A2A20', overflowX: 'auto', whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word', margin: '0 0 16px',
+            }}>{msg}</pre>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                background: '#C8200E', color: '#fff', border: 'none',
+                borderRadius: 8, padding: '8px 20px', cursor: 'pointer', fontSize: 14,
+              }}
+            >
+              Recargar
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function App() {
   const [themeId, setThemeId] = useState(
     () => localStorage.getItem('ferrebot_theme') || 'caramelo'
@@ -718,8 +766,10 @@ export default function App() {
   }
 
   return (
-    <ThemeContext.Provider value={THEMES[themeId]}>
-      <AppShell themeId={themeId} setThemeId={handleSetThemeId} refreshRef={refreshRef}/>
-    </ThemeContext.Provider>
+    <ErrorBoundary>
+      <ThemeContext.Provider value={THEMES[themeId]}>
+        <AppShell themeId={themeId} setThemeId={handleSetThemeId} refreshRef={refreshRef}/>
+      </ThemeContext.Provider>
+    </ErrorBoundary>
   )
 }
