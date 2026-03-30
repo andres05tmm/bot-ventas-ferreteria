@@ -263,7 +263,9 @@ def venta_rapida(payload: VentaRapidaPayload):
                 "producto_id":     _prod_id_map.get(item.nombre.lower().strip()),
             })
 
-        ahora = _dt.datetime.now()
+        # ⚠️ Usar hora Colombia (no UTC del servidor Railway) para que la fecha
+        # coincida con los filtros del dashboard que también usan COLOMBIA_TZ.
+        ahora = _dt.datetime.now(config.COLOMBIA_TZ).replace(tzinfo=None)
 
         with _db._get_conn() as conn:
             with conn.cursor() as cur:
