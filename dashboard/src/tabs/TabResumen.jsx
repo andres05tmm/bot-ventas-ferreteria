@@ -65,7 +65,7 @@ function KpiBig({ label, value, sub, color, icon, pill }) {
   })()
   const animated   = useCountUp(rawNum ?? 0, 800)
   const displayVal = rawNum !== null
-    ? (value.startsWith('$')
+    ? (typeof value === 'string' && value.startsWith('$')
         ? '$' + Math.round(animated).toLocaleString('es-CO')
         : Math.round(animated).toLocaleString('es-CO'))
     : value
