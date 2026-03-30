@@ -272,6 +272,10 @@ CREATE TABLE IF NOT EXISTS ventas_detalle (
     alias_usado     VARCHAR(200)
 );
 
+-- Columna para marcar ventas sin detalle de producto (Venta Varia / ajuste de caja)
+-- Se agrega con IF NOT EXISTS para no romper en tablas ya existentes
+ALTER TABLE ventas_detalle ADD COLUMN IF NOT EXISTS sin_detalle BOOLEAN DEFAULT FALSE;
+
 -- Indices para consultas frecuentes
 CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha);
 CREATE INDEX IF NOT EXISTS idx_ventas_consecutivo ON ventas(consecutivo);

@@ -41,10 +41,11 @@ def _leer_ventas_postgres(dias: int | None = None, mes_actual: bool = False) -> 
     Lee ventas desde PostgreSQL (ventas + ventas_detalle) y devuelve el mismo
     formato de dicts que _leer_excel_rango().
 
-    NOTA: Excluye filas con sin_detalle=TRUE (Venta Varia). Esas son ajustes de
-    caja por excedente de dinero no registrado, no son productos reales. Sus
-    montos sí cuentan en el total de ventas del día (ventas_resumen los suma
-    directamente desde la tabla, sin pasar por aquí).
+    NOTA: Excluye filas marcadas como sin_detalle=TRUE O cuyo nombre sea
+    "Venta Varia" / variantes. Esas son ajustes de caja por excedente de
+    dinero no registrado, no son productos reales. Sus montos sí cuentan en
+    el total de ventas del día (ventas_resumen los suma directamente desde la
+    tabla ventas, sin pasar por aquí).
     """
     try:
         import db as _db
@@ -70,7 +71,10 @@ def _leer_ventas_postgres(dias: int | None = None, mes_actual: bool = False) -> 
                 COALESCE(v.metodo_pago, '') AS metodo
             FROM ventas v
             JOIN ventas_detalle d ON d.venta_id = v.id
-            WHERE (d.sin_detalle IS NULL OR d.sin_detalle = FALSE)
+            WHERE LOWER(d.producto_nombre) NOT IN (
+                'venta varia', 'ventas varia', 'venta general'
+            )
+            AND (d.sin_detalle IS NULL OR d.sin_detalle = FALSE)
         """
         params: list = []
 
