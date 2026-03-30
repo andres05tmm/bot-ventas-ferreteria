@@ -101,7 +101,10 @@ function ExportDropdown({ disabled }) {
     const url = `${API_BASE}/export/ventas.xlsx?periodo=${periodo}`
     const a = document.createElement('a')
     a.href = url
+    a.download = `ventas_${periodo}.xlsx`
+    document.body.appendChild(a)
     a.click()
+    document.body.removeChild(a)
   }
 
   // Cerrar al hacer clic fuera
@@ -516,7 +519,7 @@ export default function TabHistorial({ refreshKey }) {
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <StyledInput value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar..." style={{width:200}}/>
-          <ExportDropdown disabled={todasVentas.length === 0} />
+          <ExportDropdown disabled={false} />
         </div>
       </div>
 
