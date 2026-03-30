@@ -4,8 +4,7 @@ FerreBot es un bot de Telegram para Ferretería Punto Rojo (Cartagena, Colombia)
 Los vendedores registran ventas por voz o texto, Claude AI interpreta los mensajes,
 y un dashboard React muestra analíticas en tiempo real.
 
-**Estado actual:** PostgreSQL en producción (Railway). Refactorización v2.0 completada (97 tests, todos verdes).
-**Objetivo actual:** Refactorización v3.0 — dividir `_procesar_mensaje` y `_construir_parte_dinamica`.
+**Estado actual:** PostgreSQL en producción (Railway). Refactorización v3.0 completada — 145 tests verdes.
 
 ---
 
@@ -50,7 +49,7 @@ y un dashboard React muestra analíticas en tiempo real.
 
 ---
 
-## Arquitectura actual (post refactorización v2.0 — estado real)
+## Arquitectura actual (post refactorización v3.0 — estado real)
 
 ```
 config.py        ← configuración central, clientes API, timezone Colombia
@@ -61,7 +60,7 @@ ventas_state.py  ← estado thread-safe de ventas en curso (NO TOCAR sin tests)
 
 ai/
   __init__.py        ← motor Claude: procesar_con_claude, _pg_* helpers (~690 líneas)
-  prompts.py         ← system prompt: _construir_parte_dinamica (1069 líneas — objetivo v3.0)
+  prompts.py         ← system prompt: _construir_parte_dinamica (1069 líneas)
   response_builder.py← parsing de acciones [VENTA]/[GASTO]/[EXCEL] — NUEVO en v2.0 (~629 líneas)
   excel_gen.py       ← generación y edición de Excel con Claude
   price_cache.py     ← cache RAM thread-safe de precios recientes
@@ -75,11 +74,10 @@ services/
   fiados_service.py     ← fiados, abonos, resumen por cliente
 
 handlers/
-  mensajes.py      ← _procesar_mensaje (619 líneas — objetivo v3.0) + audio/foto/doc (~1297 total)
+  mensajes.py      ← _procesar_mensaje (619 líneas) + audio/foto/doc (~1297 total)
   callbacks.py     ← botones inline (~650 líneas)
-  parsing.py       ← parseo puro de texto sin efectos — NUEVO en v2.0 (~178 líneas)
-  cliente_flujo.py ← wizard de creación de cliente (preguntas/botones) — NUEVO en v2.0 (~52 líneas)
-                     PENDIENTE: absorber _insertar_cliente_pg desde _procesar_mensaje (fase 02 v3.0)
+  parsing.py       ← parseo puro de texto sin efectos (~178 líneas)
+  cliente_flujo.py ← wizard de creación de cliente (preguntas/botones) (~52 líneas)
   comandos.py      ← re-export hub de los cmd_*.py
   cmd_ventas.py, cmd_inventario.py (~1011 líneas), cmd_clientes.py,
   cmd_caja.py, cmd_proveedores.py, cmd_admin.py
@@ -94,48 +92,13 @@ routers/
   clientes.py, proveedores.py, reportes.py, shared.py
 
 migrations/      ← 7 scripts numerados 001-007 (todos ejecutados)
-tests/           ← 97 tests, 0 failed
+tests/           ← 145 tests, 0 failed
   test_caja_service.py, test_catalogo_service.py, test_fiados_service.py,
   test_inventario_service.py, test_middleware.py, test_price_cache.py,
   test_callbacks.py, test_response_builder.py,
-  test_router_chat.py, test_router_historico.py, test_router_ventas.py
+  test_router_chat.py, test_router_historico.py, test_router_ventas.py,
+  test_router_catalogo.py, test_router_caja.py, test_cmd_inventario.py
 ```
-
----
-
-## Lo que falta (objetivo v3.0)
-
-| Archivo | Líneas | Problema | Plan |
-|---|---|---|---|
-| `handlers/mensajes.py` | 1297 | `_procesar_mensaje` (619L) mezcla 5 flujos distintos | Extraer `dispatch.py` + `intent.py`; completar `cliente_flujo.py` |
-| `ai/prompts.py` | 1370 | `_construir_parte_dinamica` (1069L) en una función | Extraer `prompt_context.py` + `prompt_products.py` |
-| `routers/catalogo.py` | 784 | 0 tests | `tests/test_router_catalogo.py` |
-| `routers/caja.py` | 437 | 0 tests | `tests/test_router_caja.py` |
-| `handlers/cmd_inventario.py` | 1011 | 0 tests | `tests/test_cmd_inventario.py` |
-
-Ver `.planning/milestones/v3.0-refactoring/` para los planes detallados.
-
-**Archivos nuevos que existirán al final de v3.0:**
-- `handlers/dispatch.py` — flujos especiales no-Claude (~350L)
-- `handlers/intent.py` — detección de intención (~60L)
-- `ai/prompt_context.py` — contexto de negocio para el prompt (~300L)
-- `ai/prompt_products.py` — precálculos de productos para el prompt (~700L)
-
----
-
-## Cómo ejecutar una fase v3.0
-
-```bash
-# Fase 01 — red de seguridad (tests routers)
-claude "Lee .planning/milestones/v3.0-refactoring/01-tests-routers-catalogo-caja-PLAN.md completamente y ejecútalo paso a paso sin saltarte ninguna verificación"
-
-# /clear — contexto limpio entre fases
-
-# Fase 02 — split _procesar_mensaje
-claude "Lee .planning/milestones/v3.0-refactoring/02-split-procesar-mensaje-PLAN.md completamente y ejecútalo paso a paso sin saltarte ninguna verificación"
-```
-
-Orden obligatorio: `01 → 02 → 03 → 04`. Ver README en el directorio del milestone.
 
 ---
 
@@ -226,9 +189,9 @@ AUTHORIZED_CHAT_IDS   # IDs separados por coma — enforced por middleware/auth.
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
-**FerreBot — Refactorización v3.0**
+**FerreBot — Refactorización v3.0 completada**
 
-FerreBot es un bot de Telegram para Ferretería Punto Rojo (Cartagena, Colombia) que permite a vendedores registrar ventas por voz o texto usando IA (Claude). La refactorización v3.0 divide los dos últimos monolitos: `_procesar_mensaje` (619 líneas) en `handlers/mensajes.py` y `_construir_parte_dinamica` (1069 líneas) en `ai/prompts.py`. El bot debe permanecer operativo en cada commit.
+FerreBot es un bot de Telegram para Ferretería Punto Rojo (Cartagena, Colombia) que permite a vendedores registrar ventas por voz o texto usando IA (Claude). Refactorización v3.0 completada — 145 tests verdes, cobertura extendida a routers y handlers de inventario.
 
 **Core Value:** El bot no se rompe durante la refactorización — cada commit deja `python main.py` arrancando sin errores.
 
