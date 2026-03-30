@@ -61,6 +61,7 @@ def _leer_ventas_postgres(dias: int | None = None, mes_actual: bool = False) -> 
                 COALESCE(v.hora::text, '') AS hora,
                 COALESCE(v.cliente_nombre, 'Consumidor Final') AS cliente,
                 CASE WHEN v.cliente_id IS NULL THEN 'CF' ELSE v.cliente_id::text END AS id_cliente,
+                COALESCE(p.codigo, '') AS codigo_producto,
                 d.producto_nombre AS producto,
                 d.cantidad::text AS cantidad,
                 COALESCE(d.unidad_medida, 'Unidad') AS unidad_medida,
@@ -71,6 +72,7 @@ def _leer_ventas_postgres(dias: int | None = None, mes_actual: bool = False) -> 
                 COALESCE(v.metodo_pago, '') AS metodo
             FROM ventas v
             JOIN ventas_detalle d ON d.venta_id = v.id
+            LEFT JOIN productos p ON p.id = d.producto_id
             WHERE LOWER(d.producto_nombre) NOT IN (
                 'venta varia', 'ventas varia', 'venta general'
             )
@@ -102,7 +104,7 @@ def _leer_ventas_postgres(dias: int | None = None, mes_actual: bool = False) -> 
                 "hora":            str(r.get("hora", "")),
                 "id_cliente":      str(r.get("id_cliente", "CF")),
                 "cliente":         str(r.get("cliente", "Consumidor Final")),
-                "codigo_producto": "",
+                "codigo_producto": str(r.get("codigo_producto", "")),
                 "producto":        str(r.get("producto", "")),
                 "cantidad":        str(r.get("cantidad", "")),
                 "unidad_medida":   str(r.get("unidad_medida", "Unidad")) or "Unidad",

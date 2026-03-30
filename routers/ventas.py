@@ -566,10 +566,11 @@ def export_ventas_xlsx(
     """
     Genera y descarga un archivo Excel con ventas filtradas por período.
     ?periodo=hoy | semana | mes | todo  (default: todo)
+    Usa el formato visual de Ferretería Punto Rojo (banner rojo, tabla oscura).
     """
     import io
     import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
     try:
@@ -596,21 +597,25 @@ def export_ventas_xlsx(
 
         sql = f"""
             SELECT
-                v.consecutivo,
-                v.fecha::text                                   AS fecha,
-                COALESCE(v.hora::text, '')                      AS hora,
-                COALESCE(v.cliente_nombre, 'Consumidor Final')  AS cliente,
-                d.producto_nombre                               AS producto,
-                d.cantidad::text                                AS cantidad,
-                COALESCE(d.unidad_medida, 'Unidad')             AS unidad_medida,
-                COALESCE(d.precio_unitario, 0)::float           AS precio_unitario,
-                COALESCE(d.total, 0)::float                     AS total,
-                COALESCE(v.vendedor, '')                        AS vendedor,
-                COALESCE(v.metodo_pago, '')                     AS metodo_pago
+                v.fecha::text                                               AS fecha,
+                COALESCE(v.hora::text, '')                                  AS hora,
+                CASE WHEN v.cliente_id IS NULL THEN 'CF'
+                     ELSE v.cliente_id::text END                            AS id_cliente,
+                COALESCE(v.cliente_nombre, 'Consumidor Final')              AS cliente,
+                COALESCE(p.codigo, '')                                      AS codigo_producto,
+                d.producto_nombre                                           AS producto,
+                COALESCE(d.unidad_medida, 'Unidad')                        AS unidad_medida,
+                d.cantidad::text                                            AS cantidad,
+                COALESCE(d.precio_unitario, 0)::float                      AS precio_unitario,
+                COALESCE(d.total, 0)::float                                 AS total,
+                v.consecutivo                                               AS consecutivo,
+                COALESCE(v.vendedor, '')                                    AS vendedor,
+                COALESCE(v.metodo_pago, '')                                 AS metodo_pago
             FROM ventas v
             JOIN ventas_detalle d ON d.venta_id = v.id
+            LEFT JOIN productos p ON p.id = d.producto_id
             WHERE 1=1 {filtro_fecha}
-            ORDER BY v.fecha DESC, v.consecutivo DESC
+            ORDER BY v.fecha DESC, v.consecutivo DESC, d.id
         """
         rows = _db.query_all(sql, params if params else None)
 
@@ -620,46 +625,161 @@ def export_ventas_xlsx(
         logger.error(f"Error generando export ventas.xlsx: {e}")
         raise HTTPException(status_code=503, detail=f"Error consultando base de datos: {e}")
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Ventas"
+    # ── Colores y estilos (extraídos del formato.xlsx) ──────────────────────────
+    ROJO_OSCURO  = "C00000"   # fondo banner principal
+    ROJO_MEDIO   = "E00000"   # franja separadora
+    NEGRO_HEADER = "1A1A1A"   # fondo encabezados de columna
+    BORDE_OSCURO = "1A1A1A"   # color borde exterior
+    BORDE_INTERNO= "444444"   # color borde entre columnas
 
+    fill_banner  = PatternFill("solid", fgColor=ROJO_OSCURO)
+    fill_franja  = PatternFill("solid", fgColor=ROJO_MEDIO)
+    fill_header  = PatternFill("solid", fgColor=NEGRO_HEADER)
+    fill_blanco  = PatternFill("solid", fgColor="FFFFFF")
+    fill_alt     = PatternFill("solid", fgColor="FFF0F0")   # rosa muy suave para filas alternas
+
+    borde_ext_thick = Side(border_style="thick",  color=BORDE_OSCURO)
+    borde_int_thin  = Side(border_style="thin",   color=BORDE_INTERNO)
+    borde_none      = Side(border_style=None)
+
+    def borde_fila(col_idx, n_cols, top=None, bottom=None):
+        izq = borde_ext_thick if col_idx == 1      else borde_int_thin
+        der = borde_ext_thick if col_idx == n_cols else borde_int_thin
+        return Border(left=izq, right=der,
+                      top=top or borde_none, bottom=bottom or borde_none)
+
+    # ── Workbook ────────────────────────────────────────────────────────────────
+    wb   = openpyxl.Workbook()
+    ws   = wb.active
+
+    labels_periodo = {
+        "hoy":    f"Hoy — {ahora.strftime('%d/%m/%Y')}",
+        "semana": f"Última semana — hasta {ahora.strftime('%d/%m/%Y')}",
+        "mes":    f"{ahora.strftime('%B %Y').capitalize()}",
+        "todo":   "Acumulado total",
+    }
+    titulo_periodo = labels_periodo.get(periodo, "Ventas")
+    ws.title = titulo_periodo[:31]   # Excel limita a 31 chars el nombre de hoja
+
+    # ── Columnas: orden igual al formato.xlsx ────────────────────────────────────
+    # A=fecha B=hora C=id_cliente D=cliente E=codigo F=producto
+    # G=unidad H=cantidad I=precio_unit J=total K=consecutivo L=vendedor M=metodo
     COLUMNAS = [
-        "consecutivo", "fecha", "hora", "cliente", "producto",
-        "cantidad", "unidad_medida", "precio_unitario", "total",
-        "vendedor", "metodo_pago",
+        "fecha", "hora", "id_cliente", "cliente", "codigo_producto", "producto",
+        "unidad_medida", "cantidad", "precio_unitario", "total",
+        "consecutivo", "vendedor", "metodo_pago",
     ]
+    HEADERS = [
+        "FECHA", "HORA", "ID CLIENTE", "CLIENTE", "CODIGO DEL PRODUCTO", "PRODUCTO",
+        "UNIDAD DE MEDIDA", "CANTIDAD", "VALOR UNITARIO", "TOTAL",
+        "CONSECUTIVO DE VENTA", "VENDEDOR", "METODO DE PAGO",
+    ]
+    ANCHOS = [16.33, 12.55, 14.44, 24.11, 19.44, 26.89, 16.66, 13.33, 17.55, 13.0, 20.33, 18.55, 19.44]
+    N = len(COLUMNAS)
 
-    header_font  = Font(bold=True, color="FFFFFF")
-    header_fill  = PatternFill("solid", fgColor="1B56E1")
-    header_align = Alignment(horizontal="center")
-    for col_idx, nombre in enumerate(COLUMNAS, 1):
-        celda = ws.cell(row=1, column=col_idx, value=nombre.upper().replace("_", " "))
-        celda.font      = header_font
-        celda.fill      = header_fill
-        celda.alignment = header_align
-
-    anchos = [14, 12, 8, 25, 35, 10, 14, 16, 14, 18, 14]
-    for col_idx, ancho in enumerate(anchos, 1):
+    for col_idx, ancho in enumerate(ANCHOS, 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = ancho
 
-    alt_fill = PatternFill("solid", fgColor="EFF6FF")
-    for row_idx, row in enumerate(rows, 2):
+    # ── FILA 1: Banner rojo ──────────────────────────────────────────────────────
+    ws.row_dimensions[1].height = 72.0
+    for col_idx in range(1, N + 1):
+        c = ws.cell(row=1, column=col_idx)
+        c.fill = fill_banner
+        top  = borde_ext_thick
+        left  = borde_ext_thick if col_idx == 1 else borde_none
+        right = borde_ext_thick if col_idx == N else borde_none
+        c.border = Border(left=left, right=right, top=top, bottom=borde_none)
+
+    # Celdas A1:D1 fusionadas (espacio para logo / nombre)
+    ws.merge_cells("A1:D1")
+    ws["A1"].value     = "FERRETERÍA PUNTO ROJO"
+    ws["A1"].font      = Font(name="Calibri", bold=True, size=16, color="FFFFFF")
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+
+    # Título del informe en K1 (alineado a la derecha como en el template)
+    ws["K1"].value     = f"Registro de Ventas — {titulo_periodo}"
+    ws["K1"].font      = Font(name="Calibri", italic=True, size=11, color="FFBABA")
+    ws["K1"].alignment = Alignment(horizontal="right", vertical="center")
+    ws["K1"].border    = Border(top=borde_ext_thick, right=borde_none)
+
+    # ── FILA 2: Franja separadora roja media ─────────────────────────────────────
+    ws.row_dimensions[2].height = 9.6
+    for col_idx in range(1, N + 1):
+        c = ws.cell(row=2, column=col_idx)
+        c.fill   = fill_franja
+        c.border = Border(bottom=borde_ext_thick)
+
+    # ── FILA 3: Encabezados de columna ───────────────────────────────────────────
+    ws.row_dimensions[3].height = 30.0
+    for col_idx, nombre in enumerate(HEADERS, 1):
+        c = ws.cell(row=3, column=col_idx, value=nombre)
+        c.font      = Font(name="Sylfaen", bold=True, size=10, color="FFFFFF")
+        c.fill      = fill_header
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        izq  = borde_ext_thick if col_idx == 1 else borde_int_thin
+        der  = borde_ext_thick if col_idx == N else borde_int_thin
+        c.border = Border(left=izq, right=der)
+
+    # ── FILAS DE DATOS ────────────────────────────────────────────────────────────
+    total_general = 0.0
+    for row_idx, row in enumerate(rows, 4):
+        ws.row_dimensions[row_idx].height = 19.95
+        es_par = (row_idx % 2 == 0)
+        fill_fila = fill_alt if es_par else fill_blanco
+
         for col_idx, clave in enumerate(COLUMNAS, 1):
             valor = row.get(clave)
-            celda = ws.cell(row=row_idx, column=col_idx, value=valor)
-            celda.alignment = Alignment(horizontal="center")
-            if row_idx % 2 == 0:
-                celda.fill = alt_fill
-            if clave in ("precio_unitario", "total"):
-                celda.number_format = "$#,##0.00"
+            c = ws.cell(row=row_idx, column=col_idx, value=valor)
+            c.fill   = fill_fila
+            c.font   = Font(name="Calibri", size=10)
+            c.border = borde_fila(col_idx, N)
 
+            if clave in ("precio_unitario", "total"):
+                c.number_format = '"$"#,##0;[Red]("$"#,##0)'
+                c.alignment     = Alignment(horizontal="right", vertical="center")
+            elif clave == "cantidad":
+                c.alignment = Alignment(horizontal="center", vertical="center")
+            elif clave in ("consecutivo",):
+                c.alignment = Alignment(horizontal="center", vertical="center")
+                c.font      = Font(name="Calibri", size=10, bold=True, color="C00000")
+            else:
+                c.alignment = Alignment(horizontal="center", vertical="center")
+
+        total_general += float(row.get("total") or 0)
+
+    # ── FILA DE TOTALES ───────────────────────────────────────────────────────────
+    total_row = len(rows) + 4
+    ws.row_dimensions[total_row].height = 22.0
+    for col_idx in range(1, N + 1):
+        c = ws.cell(row=total_row, column=col_idx)
+        c.fill   = PatternFill("solid", fgColor=NEGRO_HEADER)
+        izq  = borde_ext_thick if col_idx == 1 else borde_int_thin
+        der  = borde_ext_thick if col_idx == N else borde_int_thin
+        c.border = Border(left=izq, right=der, top=borde_ext_thick, bottom=borde_ext_thick)
+
+    # Etiqueta "TOTAL GENERAL" abarcando las primeras 9 columnas
+    ws.merge_cells(f"A{total_row}:I{total_row}")
+    ct = ws[f"A{total_row}"]
+    ct.value     = f"TOTAL GENERAL  ({len(rows)} registros)"
+    ct.font      = Font(name="Sylfaen", bold=True, size=10, color="FFFFFF")
+    ct.alignment = Alignment(horizontal="right", vertical="center")
+
+    # Valor total en columna J
+    cj = ws.cell(row=total_row, column=10, value=total_general)
+    cj.font         = Font(name="Sylfaen", bold=True, size=11, color="FFFFFF")
+    cj.number_format = '"$"#,##0;[Red]("$"#,##0)'
+    cj.alignment    = Alignment(horizontal="right", vertical="center")
+
+    # ── Inmovilizar filas del encabezado ─────────────────────────────────────────
+    ws.freeze_panes = "A4"
+
+    # ── Guardar y devolver ────────────────────────────────────────────────────────
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
 
-    labels = {"hoy": "hoy", "semana": "semana", "mes": "mes", "todo": "todas"}
-    nombre_archivo = f"ventas_{labels.get(periodo, 'todas')}_{ahora.strftime('%Y-%m-%d')}.xlsx"
+    labels_archivo = {"hoy": "hoy", "semana": "semana", "mes": "mes", "todo": "acumulado"}
+    nombre_archivo = f"ventas_{labels_archivo.get(periodo, 'total')}_{ahora.strftime('%Y-%m-%d')}.xlsx"
 
     return StreamingResponse(
         buffer,
