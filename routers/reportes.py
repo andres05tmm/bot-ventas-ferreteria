@@ -137,14 +137,44 @@ def resultados(periodo: str = Query(default="mes", pattern="^(semana|mes)$")):
         # ── 1. INGRESOS ──────────────────────────────────────────────────────
         dias_rango = 7 if periodo == "semana" else None
         es_mes     = periodo == "mes"
+        # ventas con detalle (para CMV): excluye "Venta Varia" y sin_detalle
         ventas     = _leer_excel_rango(dias=dias_rango, mes_actual=es_mes)
 
-        total_ventas = sum(_to_float(v.get("total", 0)) for v in ventas)
+        # ── Total de ventas REAL desde historico_ventas (misma fuente que Histórico) ─
+        # historico_ventas es la fuente de verdad: incluye días registrados
+        # manualmente, Venta Varia y sin_detalle. Es exactamente lo que el
+        # tab Histórico muestra.
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
-        # Ventas por día para gráfica
-        ventas_por_dia: dict[str, float] = defaultdict(float)
-        for v in ventas:
-            ventas_por_dia[v["fecha"]] += _to_float(v.get("total", 0))
+        hoy_str = ahora.strftime("%Y-%m-%d")
+
+        if periodo == "semana":
+            fecha_limite_v = (ahora - timedelta(days=7)).strftime("%Y-%m-%d")
+            rows_hist = _db.query_all(
+                "SELECT fecha::text AS fecha, ventas FROM historico_ventas WHERE fecha >= %s AND fecha <= %s ORDER BY fecha",
+                [fecha_limite_v, hoy_str],
+            )
+        else:
+            primer_dia_v = ahora.replace(day=1).strftime("%Y-%m-%d")
+            rows_hist = _db.query_all(
+                "SELECT fecha::text AS fecha, ventas FROM historico_ventas WHERE fecha >= %s AND fecha <= %s ORDER BY fecha",
+                [primer_dia_v, hoy_str],
+            )
+
+        ventas_por_dia: dict[str, float] = {str(r["fecha"])[:10]: float(r["ventas"] or 0) for r in rows_hist}
+
+        # Inyectar el total de hoy en vivo desde la tabla ventas
+        # (historico_ventas solo se actualiza al cierre del día)
+        total_hoy_vivo = float((_db.query_one(
+            "SELECT COALESCE(SUM(total), 0)::float AS t FROM ventas WHERE fecha = %s",
+            [hoy_str],
+        ) or {}).get("t", 0))
+        if total_hoy_vivo > 0:
+            ventas_por_dia[hoy_str] = total_hoy_vivo
+
+        total_ventas = sum(ventas_por_dia.values())
 
         # ── 2. CMV ───────────────────────────────────────────────────────────
         # Costo de lo vendido = unidades vendidas × costo_promedio del producto
