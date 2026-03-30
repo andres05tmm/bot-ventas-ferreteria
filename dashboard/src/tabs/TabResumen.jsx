@@ -5,7 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
-  useTheme, useFetch, Card, SectionTitle, Spinner, ErrorMsg,
+  useTheme, useFetch, Card, GlassCard, SectionTitle, Spinner, ErrorMsg,
   PeriodBtn, EmptyState, cop, num, API_BASE,
   useIsMobile,
 } from '../components/shared.jsx'
@@ -331,7 +331,7 @@ export default function TabResumen({ refreshKey }) {
       </motion.div>
 
       {/* Gráfica */}
-      <Card>
+      <GlassCard>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
@@ -377,11 +377,11 @@ export default function TabResumen({ refreshKey }) {
               </AreaChart>
             </ResponsiveContainer>
           )}
-      </Card>
+      </GlassCard>
 
       {/* Métodos + Top 5 */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
-        <Card>
+        <GlassCard>
           <SectionTitle>Métodos de Pago · Hoy</SectionTitle>
           {!ventasHoy
             ? <Spinner />
@@ -411,9 +411,9 @@ export default function TabResumen({ refreshKey }) {
               </>
             )
           }
-        </Card>
+        </GlassCard>
 
-        <Card>
+        <GlassCard>
           <SectionTitle>Top 5 Productos · Esta Semana</SectionTitle>
           {!top5
             ? <Spinner />
@@ -437,7 +437,7 @@ export default function TabResumen({ refreshKey }) {
               </>
             )
           }
-        </Card>
+        </GlassCard>
       </div>
 
       {/* Vendedores */}
