@@ -9,70 +9,103 @@ export const THEMES = {
   caramelo: {
     id: 'caramelo',
     label: '☀️ Claro',
-    bg:         '#F5F0E8',
-    header:     '#FFFDF9',
+    bg:         '#F2EDE4',
+    bgPattern:  `radial-gradient(circle at 20% 50%, rgba(212,32,16,0.03) 0%, transparent 50%),
+                 radial-gradient(circle at 80% 20%, rgba(212,32,16,0.02) 0%, transparent 40%),
+                 #F2EDE4`,
+    header:     'rgba(255,253,249,0.92)',
+    headerBlur: 'blur(12px)',
     card:       '#FFFFFF',
-    cardHover:  '#FDF8F2',
-    border:     '#E8E0D4',
-    borderSoft: '#F0EAE0',
+    cardHover:  '#FDF9F4',
+    cardGrad:   'linear-gradient(135deg, #FFFFFF 0%, #FDF9F4 100%)',
+    border:     '#E4DDD3',
+    borderSoft: '#EDE8E0',
     text:       '#1C1410',
     textSub:    '#4A3F35',
     textMuted:  '#9C8E82',
     accent:     '#D42010',
-    accentSub:  '#D4201012',
+    accentSub:  'rgba(212,32,16,0.08)',
     accentHov:  '#A81808',
+    accentGlow: 'rgba(212,32,16,0.15)',
     green:      '#1A7A3C',
+    greenSub:   'rgba(26,122,60,0.08)',
     yellow:     '#C47A10',
+    yellowSub:  'rgba(196,122,16,0.08)',
     blue:       '#2056C8',
+    blueSub:    'rgba(32,86,200,0.08)',
     tableAlt:   '#FDFAF6',
-    tableFoot:  '#F7F2EA',
-    shadow:     '0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.06)',
+    tableFoot:  '#F5F0E8',
+    shadow:     '0 1px 2px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.06)',
+    shadowHov:  '0 4px 8px rgba(0,0,0,0.06), 0 12px 32px rgba(0,0,0,0.10)',
+    shadowCard: '0 0 0 1px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.06)',
   },
   // ── Tema oscuro: pizarra profunda ─────────────────────────────────────────
   forja: {
     id: 'forja',
     label: '🌙 Oscuro',
-    bg:         '#111318',
-    header:     '#16191F',
-    card:       '#1E2128',
-    cardHover:  '#252931',
-    border:     '#2C3040',
-    borderSoft: '#242834',
-    text:       '#EBE6DE',
-    textSub:    '#A8A098',
-    textMuted:  '#585460',
+    bg:         '#0D1117',
+    bgPattern:  `radial-gradient(ellipse at 10% 20%, rgba(232,48,32,0.06) 0%, transparent 40%),
+                 radial-gradient(ellipse at 90% 80%, rgba(96,144,248,0.04) 0%, transparent 40%),
+                 #0D1117`,
+    header:     'rgba(22,27,34,0.90)',
+    headerBlur: 'blur(16px)',
+    card:       '#161B22',
+    cardHover:  '#1C2128',
+    cardGrad:   'linear-gradient(135deg, #161B22 0%, #1C2128 100%)',
+    border:     '#21262D',
+    borderSoft: '#1A1F26',
+    text:       '#E6EDF3',
+    textSub:    '#8B949E',
+    textMuted:  '#484F58',
     accent:     '#E83020',
-    accentSub:  '#E8302016',
+    accentSub:  'rgba(232,48,32,0.12)',
     accentHov:  '#C02018',
-    green:      '#34D060',
-    yellow:     '#F0A020',
-    blue:       '#6090F8',
-    tableAlt:   '#191C24',
-    tableFoot:  '#14171E',
-    shadow:     '0 2px 8px rgba(0,0,0,.4), 0 8px 32px rgba(0,0,0,.3)',
+    accentGlow: 'rgba(232,48,32,0.20)',
+    green:      '#3FB950',
+    greenSub:   'rgba(63,185,80,0.10)',
+    yellow:     '#D29922',
+    yellowSub:  'rgba(210,153,34,0.10)',
+    blue:       '#58A6FF',
+    blueSub:    'rgba(88,166,255,0.10)',
+    tableAlt:   '#111318',
+    tableFoot:  '#0D1117',
+    shadow:     '0 1px 0 rgba(255,255,255,0.04), 0 4px 24px rgba(0,0,0,0.40)',
+    shadowHov:  '0 0 0 1px rgba(232,48,32,0.20), 0 8px 32px rgba(0,0,0,0.50)',
+    shadowCard: '0 0 0 1px rgba(255,255,255,0.05), 0 4px 16px rgba(0,0,0,0.30)',
   },
   // ── Tema medio: carbón con calidez ────────────────────────────────────────
   brasa: {
     id: 'brasa',
     label: '🔥 Brasa',
-    bg:         '#0E0C0A',
-    header:     '#141210',
-    card:       '#1C1916',
-    cardHover:  '#242018',
-    border:     '#302A24',
-    borderSoft: '#261F18',
+    bg:         '#100C08',
+    bgPattern:  `radial-gradient(ellipse at 15% 30%, rgba(240,52,24,0.08) 0%, transparent 45%),
+                 radial-gradient(ellipse at 85% 70%, rgba(240,52,24,0.05) 0%, transparent 40%),
+                 #100C08`,
+    header:     'rgba(20,18,16,0.92)',
+    headerBlur: 'blur(12px)',
+    card:       '#1C1714',
+    cardHover:  '#231E1A',
+    cardGrad:   'linear-gradient(135deg, #1C1714 0%, #211C18 100%)',
+    border:     '#2E2620',
+    borderSoft: '#241E18',
     text:       '#F0E8DC',
     textSub:    '#C0A890',
-    textMuted:  '#705848',
+    textMuted:  '#6A5040',
     accent:     '#F03418',
-    accentSub:  '#F0341814',
+    accentSub:  'rgba(240,52,24,0.12)',
     accentHov:  '#C02810',
+    accentGlow: 'rgba(240,52,24,0.25)',
     green:      '#40C870',
+    greenSub:   'rgba(64,200,112,0.10)',
     yellow:     '#F8A830',
+    yellowSub:  'rgba(248,168,48,0.10)',
     blue:       '#7098F0',
+    blueSub:    'rgba(112,152,240,0.10)',
     tableAlt:   '#181410',
-    tableFoot:  '#141008',
-    shadow:     '0 2px 8px rgba(0,0,0,.5), 0 8px 32px rgba(240,52,24,.08)',
+    tableFoot:  '#120E0A',
+    shadow:     '0 1px 0 rgba(255,255,255,0.03), 0 4px 20px rgba(0,0,0,0.50)',
+    shadowHov:  '0 0 0 1px rgba(240,52,24,0.25), 0 8px 32px rgba(240,52,24,0.12)',
+    shadowCard: '0 0 0 1px rgba(255,255,255,0.04), 0 4px 20px rgba(0,0,0,0.40)',
   },
 }
 
@@ -99,7 +132,7 @@ export function num(n) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API_BASE — centralizado aquí para evitar imports circulares
+// API_BASE
 // ─────────────────────────────────────────────────────────────────────────────
 export const API_BASE = (() => {
   try {
@@ -110,7 +143,7 @@ export const API_BASE = (() => {
 })()
 
 // ─────────────────────────────────────────────────────────────────────────────
-// useFetch — acepta deps array para recargar al cambiar refreshKey
+// useFetch
 // ─────────────────────────────────────────────────────────────────────────────
 export function useFetch(path, deps = []) {
   const [data,    setData]    = useState(null)
@@ -143,13 +176,23 @@ export function Card({ children, style = {} }) {
   const t = useTheme()
   return (
     <div style={{
-      background:   t.card,
+      position:     'relative',
+      background:   t.cardGrad,
       border:       `1px solid ${t.border}`,
-      borderRadius: 10,
+      borderRadius: 14,
       padding:      20,
-      boxShadow:    t.shadow,
+      boxShadow:    t.shadowCard,
+      overflow:     'hidden',
       ...style,
     }}>
+      {/* Accent line top */}
+      <div style={{
+        position:   'absolute',
+        top:        0, left: 16, right: 16,
+        height:     2,
+        background: `linear-gradient(90deg, transparent, ${t.accent}40, transparent)`,
+        borderRadius: 99,
+      }}/>
       {children}
     </div>
   )
@@ -165,44 +208,69 @@ export function KpiCard({ label, value, sub, color, icon }) {
       onMouseLeave={() => setHov(false)}
       style={{
         flex: 1, minWidth: 160,
-        background: t.card,
-        border: `1px solid ${hov ? c : t.border}`,
-        borderRadius: 12,
-        padding: '16px 18px',
+        position: 'relative',
+        background: hov
+          ? `linear-gradient(135deg, ${c}10 0%, ${t.card} 60%)`
+          : t.cardGrad,
+        border: `1px solid ${hov ? c + '50' : t.border}`,
+        borderRadius: 14,
+        padding: '16px 18px 16px 22px',
         cursor: 'default',
-        transition: 'border-color .2s ease, box-shadow .25s ease',
-        boxShadow: hov
-          ? `0 0 0 3px ${c}44, 0 0 12px ${c}22`
-          : 'none',
+        transition: 'all 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
+        boxShadow: hov ? `0 0 0 1px ${c}30, 0 8px 28px ${c}15` : t.shadowCard,
+        overflow: 'hidden',
       }}
     >
+      {/* Left accent bar */}
+      <div style={{
+        position: 'absolute',
+        left: 0, top: '20%', bottom: '20%',
+        width: 3,
+        background: `linear-gradient(180deg, ${c}00, ${c}, ${c}00)`,
+        borderRadius: 99,
+        opacity: hov ? 1 : 0.5,
+        transition: 'opacity 0.22s',
+      }}/>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 500, color: t.textSub, letterSpacing: '.02em', marginBottom: 10 }}>
+          <div style={{
+            fontSize: 11, fontWeight: 600, color: t.textMuted,
+            letterSpacing: '.06em', textTransform: 'uppercase',
+            marginBottom: 10,
+          }}>
             {label}
           </div>
           <div style={{
-            fontSize: hov ? 24 : 20,
-            fontWeight: 400,
+            fontSize: hov ? 24 : 22,
+            fontWeight: 700,
             color: hov ? c : t.text,
-            letterSpacing: '-0.02em',
+            letterSpacing: '-0.03em',
             fontVariantNumeric: 'tabular-nums',
-            transition: 'font-size .2s ease, color .2s ease',
+            transition: 'font-size 0.2s ease, color 0.2s ease',
+            lineHeight: 1.1,
           }}>
             {value}
           </div>
           {sub && (
-            <div style={{ fontSize: 11, color: c, marginTop: 6 }}>{sub}</div>
+            <div style={{
+              fontSize: 11, color: c, marginTop: 7,
+              fontWeight: 500, opacity: hov ? 1 : 0.8,
+              transition: 'opacity 0.2s',
+            }}>{sub}</div>
           )}
         </div>
         {icon && (
-          <span style={{
-            fontSize: 20,
-            opacity: hov ? 1 : .5,
-            transition: 'opacity .2s ease, transform .2s ease',
-            transform: hov ? 'scale(1.15)' : 'scale(1)',
-            display: 'inline-block',
-          }}>{icon}</span>
+          <div style={{
+            width: 36, height: 36,
+            borderRadius: 10,
+            background: hov ? `${c}18` : t.accentSub,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 18,
+            transition: 'all 0.22s ease',
+            transform: hov ? 'scale(1.1) rotate(-5deg)' : 'scale(1)',
+            flexShrink: 0,
+          }}>{icon}</div>
         )}
       </div>
     </div>
@@ -213,13 +281,17 @@ export function SectionTitle({ children }) {
   const t = useTheme()
   return (
     <h2 style={{
-      fontSize:      14,
-      fontWeight:    500,
+      fontSize:      13,
+      fontWeight:    700,
       color:         t.textSub,
-      marginBottom:  14,
+      marginBottom:  16,
       paddingBottom: 10,
       borderBottom:  `1px solid ${t.border}`,
-      letterSpacing: '.02em',
+      letterSpacing: '.04em',
+      textTransform: 'uppercase',
+      display:       'flex',
+      alignItems:    'center',
+      gap:           8,
     }}>
       {children}
     </h2>
@@ -229,32 +301,36 @@ export function SectionTitle({ children }) {
 export function Spinner() {
   const t = useTheme()
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 48, color: t.textMuted, gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 48, color: t.textMuted, gap: 12 }}>
       <div style={{
-        width: 18, height: 18,
+        width: 28, height: 28,
         border: `2px solid ${t.border}`,
         borderTopColor: t.accent,
         borderRadius: '50%',
-        animation: 'spin .7s linear infinite',
+        animation: 'spin .65s linear infinite',
       }} />
-      <span style={{ fontSize: 12 }}>Cargando...</span>
+      <span style={{ fontSize: 12, letterSpacing: '.04em' }}>Cargando...</span>
     </div>
   )
 }
 
 export function ErrorMsg({ msg }) {
   const t = useTheme()
-  const isDark = ['dark','mid'].includes(t.id)
+  const isDark = t.id !== 'caramelo'
   return (
     <div style={{
-      background:   isDark ? '#1a0808' : '#fef2f2',
-      border:       `1px solid ${t.accent}44`,
-      borderRadius: 8,
+      background:   isDark ? `${t.accent}10` : '#fef2f2',
+      border:       `1px solid ${t.accent}40`,
+      borderRadius: 10,
       padding:      '12px 16px',
       color:        isDark ? '#f87171' : t.accent,
       fontSize:     13,
+      display:      'flex',
+      alignItems:   'center',
+      gap:          8,
     }}>
-      ⚠️ {msg}
+      <span style={{ fontSize: 16 }}>⚠️</span>
+      {msg}
     </div>
   )
 }
@@ -262,8 +338,13 @@ export function ErrorMsg({ msg }) {
 export function EmptyState({ msg = 'Sin datos para este período.' }) {
   const t = useTheme()
   return (
-    <div style={{ padding: '32px 24px', textAlign: 'center', color: t.textMuted, fontSize: 12 }}>
-      {msg}
+    <div style={{
+      padding: '40px 24px', textAlign: 'center',
+      color: t.textMuted, fontSize: 12,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+    }}>
+      <div style={{ fontSize: 28, opacity: 0.4 }}>📭</div>
+      <span>{msg}</span>
     </div>
   )
 }
@@ -273,14 +354,16 @@ export function Badge({ children, color }) {
   const col = color || t.accent
   return (
     <span style={{
-      display:      'inline-block',
-      padding:      '2px 9px',
+      display:      'inline-flex',
+      alignItems:   'center',
+      padding:      '3px 10px',
       borderRadius: 99,
-      background:   col + '22',
+      background:   col + '18',
       color:        col,
-      border:       `1px solid ${col}44`,
+      border:       `1px solid ${col}35`,
       fontSize:     10,
-      fontWeight:   600,
+      fontWeight:   700,
+      letterSpacing: '.04em',
       whiteSpace:   'nowrap',
     }}>
       {children}
@@ -294,19 +377,19 @@ export function PeriodBtn({ children, active, onClick }) {
     <button
       onClick={onClick}
       style={{
-        background:   active ? t.accent : 'transparent',
+        background:   active ? t.accent : t.accentSub,
         border:       `1px solid ${active ? t.accent : t.border}`,
         color:        active ? '#fff' : t.textMuted,
         fontSize:     11,
         padding:      '5px 14px',
-        borderRadius: 7,
+        borderRadius: 8,
         cursor:       'pointer',
         fontFamily:   'inherit',
         transition:   'all .15s',
-        fontWeight:   active ? 600 : 400,
+        fontWeight:   active ? 700 : 500,
       }}
-      onMouseEnter={e => { if (!active) { e.currentTarget.style.borderColor = t.accent; e.currentTarget.style.color = t.text } }}
-      onMouseLeave={e => { if (!active) { e.currentTarget.style.borderColor = t.border;  e.currentTarget.style.color = t.textMuted } }}
+      onMouseEnter={e => { if (!active) { e.currentTarget.style.borderColor = t.accent + '60'; e.currentTarget.style.color = t.text } }}
+      onMouseLeave={e => { if (!active) { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textMuted } }}
     >
       {children}
     </button>
@@ -315,7 +398,6 @@ export function PeriodBtn({ children, active, onClick }) {
 
 export function StyledInput({ value, onChange, placeholder, style = {} }) {
   const t = useTheme()
-  // iOS Safari hace zoom en inputs con font-size < 16px — forzamos 16px en móvil
   const isMob = typeof window !== 'undefined' && window.screen &&
     Math.min(window.screen.width, window.screen.height) < 768
   return (
@@ -327,16 +409,22 @@ export function StyledInput({ value, onChange, placeholder, style = {} }) {
         background:   t.card,
         border:       `1px solid ${t.border}`,
         color:        t.text,
-        padding:      '7px 12px',
-        borderRadius: 7,
-        fontSize:     isMob ? 16 : 11,
+        padding:      '8px 12px',
+        borderRadius: 9,
+        fontSize:     isMob ? 16 : 12,
         outline:      'none',
         fontFamily:   'inherit',
-        transition:   'border-color .15s',
+        transition:   'border-color .15s, box-shadow .15s',
         ...style,
       }}
-      onFocus={e => e.currentTarget.style.borderColor = t.accent + '88'}
-      onBlur={e  => e.currentTarget.style.borderColor = t.border}
+      onFocus={e => {
+        e.currentTarget.style.borderColor = t.accent + '80'
+        e.currentTarget.style.boxShadow = `0 0 0 3px ${t.accent}15`
+      }}
+      onBlur={e => {
+        e.currentTarget.style.borderColor = t.border
+        e.currentTarget.style.boxShadow = 'none'
+      }}
     />
   )
 }
@@ -345,13 +433,13 @@ export function Th({ children, center, right }) {
   const t = useTheme()
   return (
     <th style={{
-      padding:       '9px 14px',
+      padding:       '10px 14px',
       textAlign:     center ? 'center' : right ? 'right' : 'left',
       fontSize:      10,
-      color:         t.textSub,
+      color:         t.textMuted,
       textTransform: 'uppercase',
-      letterSpacing: '.05em',
-      fontWeight:    600,
+      letterSpacing: '.06em',
+      fontWeight:    700,
       borderBottom:  `1px solid ${t.border}`,
       whiteSpace:    'nowrap',
     }}>
@@ -360,10 +448,8 @@ export function Th({ children, center, right }) {
   )
 }
 
-// ── Hook detección móvil — exportado para todos los tabs ─────────────────────
+// ── Hook detección móvil ──────────────────────────────────────────────────────
 export function useIsMobile() {
-  // matchMedia es más confiable que innerWidth en PWA Android —
-  // innerWidth puede reportar el valor pre-viewport en el primer render.
   const mq = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)')
     : null
@@ -374,22 +460,18 @@ export function useIsMobile() {
     if (!mq) return
     const fn = (e) => setV(e.matches)
 
-    // API moderna (Chrome 79+, Safari 14+)
     if (mq.addEventListener) {
       mq.addEventListener('change', fn)
     } else {
-      mq.addListener(fn)   // fallback legacy
+      mq.addListener(fn)
     }
 
-    // También escuchar orientationchange y visualViewport
-    // por si el PWA reporta el viewport tarde al arrancar
     const onResize = () => setV(window.matchMedia('(max-width: 767px)').matches)
     window.addEventListener('orientationchange', onResize)
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', onResize)
     }
 
-    // Re-check al montar (por si el valor inicial fue incorrecto)
     setV(window.matchMedia('(max-width: 767px)').matches)
 
     return () => {

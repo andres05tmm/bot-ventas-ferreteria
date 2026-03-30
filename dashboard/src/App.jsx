@@ -1,20 +1,51 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { ThemeContext, THEMES, useTheme } from './components/shared.jsx'
-import TabResumen       from './tabs/TabResumen.jsx'
-import TabTopProductos  from './tabs/TabTopProductos.jsx'
-import TabInventario    from './tabs/TabInventario.jsx'
-import TabHistorial     from './tabs/TabHistorial.jsx'
-import TabCaja          from './tabs/TabCaja.jsx'
-import TabGastos        from './tabs/TabGastos.jsx'
-import TabCompras       from './tabs/TabCompras.jsx'
-import TabKardex        from './tabs/TabKardex.jsx'
-import TabResultados    from './tabs/TabResultados.jsx'
-import TabVentasRapidas from './tabs/TabVentasRapidas.jsx'
+import TabResumen         from './tabs/TabResumen.jsx'
+import TabTopProductos    from './tabs/TabTopProductos.jsx'
+import TabInventario      from './tabs/TabInventario.jsx'
+import TabHistorial       from './tabs/TabHistorial.jsx'
+import TabCaja            from './tabs/TabCaja.jsx'
+import TabGastos          from './tabs/TabGastos.jsx'
+import TabCompras         from './tabs/TabCompras.jsx'
+import TabKardex          from './tabs/TabKardex.jsx'
+import TabResultados      from './tabs/TabResultados.jsx'
+import TabVentasRapidas   from './tabs/TabVentasRapidas.jsx'
 import TabHistoricoVentas from './tabs/TabHistoricoVentas.jsx'
-import TabProveedores   from './tabs/TabProveedores.jsx'
-import ChatWidget        from './components/ChatWidget.jsx'
+import TabProveedores     from './tabs/TabProveedores.jsx'
+import ChatWidget          from './components/ChatWidget.jsx'
 
-// Logo SVG vectorial
+// ── Iconos SVG limpios (sin emojis) ──────────────────────────────────────────
+function Icon({ name, size = 20, color = 'currentColor', strokeWidth = 1.75 }) {
+  const paths = {
+    'Resumen':        'M3 3v18h18M7 16l4-5 4 4 4-6',
+    'Ventas Rápidas': 'M13 2L3 14h9l-1 8 10-12h-9l1-8z',
+    'Top 10':         'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
+    'Inventario':     'M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zM16 3H8L6 7h12l-2-4z',
+    'Historial':      'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+    'Caja':           'M2 9h20M2 9a2 2 0 012-2h16a2 2 0 012 2M2 9v9a2 2 0 002 2h16a2 2 0 002-2V9M12 14v3m0 0l-2-2m2 2l2-2',
+    'Gastos':         'M17 7l-10 10M7 7h10v10',
+    'Compras':        'M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v9a2 2 0 01-2 2h-2M14 22a2 2 0 100-4 2 2 0 000 4zM5 22a2 2 0 100-4 2 2 0 000 4z',
+    'Kárdex':         'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+    'Resultados':     'M22 12h-4l-3 9L9 3l-3 9H2',
+    'Histórico':      'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+    'Proveedores':    'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
+    'Más':            'M4 6h16M4 12h16M4 18h16',
+    'Cerrar':         'M6 18L18 6M6 6l12 12',
+    'Refresh':        'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth={strokeWidth}
+      strokeLinecap="round" strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ display: 'block', flexShrink: 0 }}
+    >
+      <path d={paths[name] || paths['Más']}/>
+    </svg>
+  )
+}
+
+// ── Logo SVG vectorial ────────────────────────────────────────────────────────
 function Logo({ size = 40, themeId }) {
   const isDark = themeId !== 'caramelo'
   const red    = themeId === 'brasa' ? '#F03418' : '#D42010'
@@ -40,12 +71,10 @@ function Logo({ size = 40, themeId }) {
         </filter>
       </defs>
 
-      {/* Círculo con gradiente */}
       <circle cx={cx} cy={cy} r={r} fill="url(#lgr)" filter="url(#shdw)"/>
       <circle cx={cx} cy={cy} r={r - 0.5}
         fill="none" stroke="rgba(255,255,255,.18)" strokeWidth="1.2"/>
 
-      {/* Icono llave inglesa */}
       <g transform={`translate(${cx},${cy}) rotate(-40)`}>
         <rect x={-size*0.075} y={-size*0.48} width={size*0.15} height={size*0.54}
           rx={size*0.075} fill="white" opacity="0.96"/>
@@ -58,21 +87,16 @@ function Logo({ size = 40, themeId }) {
           fill="none" stroke={red} strokeWidth="2" opacity="0.88"/>
       </g>
 
-      {/* Texto superior FERRETERÍA */}
       <text x={size + 10} y={h * 0.41}
         fontFamily="'Sora',system-ui,sans-serif"
         fontSize={h * 0.225} fontWeight="500" letterSpacing="0.16em"
-        fill={sub}
-      >FERRETERÍA</text>
+        fill={sub}>FERRETERÍA</text>
 
-      {/* Texto principal PUNTO ROJO */}
       <text x={size + 8} y={h * 0.82}
         fontFamily="'Sora',system-ui,sans-serif"
         fontSize={h * 0.41} fontWeight="800" letterSpacing="-0.025em"
-        fill={txt}
-      >PUNTO ROJO</text>
+        fill={txt}>PUNTO ROJO</text>
 
-      {/* Línea roja decorativa */}
       <rect x={size + 8} y={h * 0.875} width={size * 2.0} height={h * 0.06}
         rx={h * 0.03} fill={red} opacity="0.8"/>
     </svg>
@@ -90,25 +114,17 @@ const TABS = [
   'Resumen','Ventas Rápidas','Top 10','Inventario','Historial',
   'Caja','Gastos','Compras','Kárdex','Resultados','Histórico','Proveedores',
 ]
-const TAB_ICONS = {
-  'Resumen':'📊','Ventas Rápidas':'⚡','Top 10':'🏆','Inventario':'📦',
-  'Historial':'🧾','Caja':'💰','Gastos':'💸','Compras':'🚚',
-  'Kárdex':'📋','Resultados':'📈','Histórico':'📅', 'Proveedores':'🏦',
-}
+
+// Tabs fijos en la barra inferior
 const BOTTOM_TABS = ['Ventas Rápidas','Resumen','Historial','Caja']
 
 function useIsMobile() {
-  // Usa Math.min(screen.width, screen.height) = el lado corto del dispositivo físico.
-  // Esto NO cambia con la orientación (portrait ↔ landscape), así que el layout
-  // nunca flippea a "desktop" cuando el celular se inclina levemente.
   const getIsMobile = () => {
     if (typeof window === 'undefined') return false
     return Math.min(window.screen.width, window.screen.height) < 768
   }
   const [v, setV] = useState(getIsMobile)
   useEffect(() => {
-    // setTimeout de 50ms para que el browser actualice screen dims
-    // antes de que re-evaluemos
     const handler = () => setTimeout(() => setV(getIsMobile()), 50)
     window.addEventListener('resize', handler)
     window.addEventListener('orientationchange', handler)
@@ -120,18 +136,21 @@ function useIsMobile() {
   return v
 }
 
-// Header Desktop
+// ── Header Desktop ────────────────────────────────────────────────────────────
 function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterval,
                          lastRefresh, onRefresh, countdown }) {
   const t      = useTheme()
   const isDark = themeId !== 'caramelo'
   return (
     <header style={{
-      background: t.header, borderBottom: `1px solid ${t.border}`,
+      background: t.header,
+      backdropFilter: t.headerBlur,
+      WebkitBackdropFilter: t.headerBlur,
+      borderBottom: `1px solid ${t.border}`,
       position: 'sticky', top: 0, zIndex: 30,
       boxShadow: isDark
-        ? '0 1px 0 rgba(255,255,255,.03), 0 8px 32px rgba(0,0,0,.35)'
-        : '0 1px 0 rgba(0,0,0,.05), 0 4px 20px rgba(0,0,0,.05)',
+        ? '0 1px 0 rgba(255,255,255,.04), 0 8px 32px rgba(0,0,0,.40)'
+        : '0 1px 0 rgba(0,0,0,.04), 0 4px 20px rgba(0,0,0,.06)',
     }}>
       <div style={{
         maxWidth: 1400, margin: '0 auto', padding: '0 28px',
@@ -141,7 +160,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
         <div style={{ display:'flex', alignItems:'center', gap: 12, flexShrink: 0 }}>
           <Logo size={40} themeId={themeId}/>
           <span style={{
-            fontSize: 9, fontWeight: 700, letterSpacing: '.15em',
+            fontSize: 9, fontWeight: 800, letterSpacing: '.18em',
             color: t.accent, background: t.accentSub,
             border: `1px solid ${t.accent}30`,
             borderRadius: 99, padding: '3px 9px', textTransform: 'uppercase',
@@ -156,7 +175,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
               borderRadius: 10, padding: '6px 12px',
               fontSize: 11, color: t.textSub, fontWeight: 500,
             }}>
-              <span style={{ fontSize: 13, opacity: .8 }}>🕐</span>
+              <span style={{ fontSize: 13, opacity: .7 }}>🕐</span>
               <span style={{ fontVariantNumeric: 'tabular-nums' }}>{lastRefresh}</span>
               {refreshInterval > 0 && countdown > 0 && (
                 <span style={{
@@ -169,11 +188,13 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
           )}
 
           <button onClick={onRefresh} title="Actualizar" style={{
-            background: t.accentSub, border: `1.5px solid ${t.accent}44`,
+            background: t.accentSub, border: `1.5px solid ${t.accent}40`,
             color: t.accent, borderRadius: 10, width: 38, height: 38,
-            fontSize: 17, cursor: 'pointer', display: 'flex',
+            cursor: 'pointer', display: 'flex',
             alignItems: 'center', justifyContent: 'center', transition: 'all .15s',
-          }}>↺</button>
+          }}>
+            <Icon name="Refresh" size={16} color={t.accent} strokeWidth={2}/>
+          </button>
 
           <div style={{ width:1, height:22, background:t.border, opacity:.5, margin:'0 2px' }}/>
 
@@ -239,7 +260,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
               animation: 'pulse 2.5s ease infinite',
             }}/>
             <span style={{ fontWeight: 600 }}>Bot activo</span>
-            <span style={{ opacity: .35 }}>·</span>
+            <span style={{ opacity: .3 }}>·</span>
             <span style={{ color: t.textMuted }}>
               {new Date().toLocaleDateString('es-CO', { weekday:'short', day:'numeric', month:'short' })}
             </span>
@@ -250,47 +271,69 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
   )
 }
 
-// Header Móvil
+// ── Header Móvil ─────────────────────────────────────────────────────────────
 function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
   const t    = useTheme()
   const tIds = Object.keys(THEMES)
   return (
     <header style={{
-      background: t.header, borderBottom: `1px solid ${t.border}`,
+      background: t.header,
+      backdropFilter: t.headerBlur,
+      WebkitBackdropFilter: t.headerBlur,
+      borderBottom: `1px solid ${t.border}`,
       position: 'sticky', top: 0, zIndex: 30, height: 58,
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       padding: '0 16px',
-      boxShadow: themeId !== 'caramelo' ? '0 4px 20px rgba(0,0,0,.4)' : '0 2px 12px rgba(0,0,0,.06)',
+      boxShadow: themeId !== 'caramelo'
+        ? '0 4px 24px rgba(0,0,0,.45)'
+        : '0 2px 12px rgba(0,0,0,.06)',
     }}>
-      <Logo size={34} themeId={themeId}/>
-      <span style={{ fontSize: 12, color: t.textMuted, fontWeight: 600, display:'flex', alignItems:'center', gap: 5 }}>
-        {TAB_ICONS[activeTab]} {activeTab}
-      </span>
+      <Logo size={32} themeId={themeId}/>
+
+      {/* Tab activo centrado */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        background: t.accentSub,
+        border: `1px solid ${t.accent}25`,
+        borderRadius: 99,
+        padding: '5px 12px',
+      }}>
+        <Icon name={activeTab} size={13} color={t.accent} strokeWidth={2.2}/>
+        <span style={{ fontSize: 11, color: t.accent, fontWeight: 700, letterSpacing: '.02em' }}>
+          {activeTab === 'Ventas Rápidas' ? 'Ventas' : activeTab}
+        </span>
+      </div>
+
       <div style={{ display:'flex', gap: 6 }}>
         <button onClick={onRefresh} style={{
-          background: t.accentSub, border: `1.5px solid ${t.accent}44`,
-          color: t.accent, borderRadius: 9, width: 36, height: 36,
-          fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>↺</button>
+          background: t.accentSub, border: `1.5px solid ${t.accent}40`,
+          color: t.accent, borderRadius: 10, width: 36, height: 36,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Icon name="Refresh" size={15} color={t.accent} strokeWidth={2.2}/>
+        </button>
         <button onClick={() => {
           const i = tIds.indexOf(themeId)
           setThemeId(tIds[(i + 1) % tIds.length])
         }} style={{
           background: t.card, border: `1px solid ${t.border}`,
-          color: t.textMuted, borderRadius: 9, width: 36, height: 36,
-          fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: t.textMuted, borderRadius: 10, width: 36, height: 36,
+          fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>{THEMES[themeId]?.label.split(' ')[0] ?? '🎨'}</button>
       </div>
     </header>
   )
 }
 
-// Tabs Desktop
+// ── Tabs Nav Desktop ──────────────────────────────────────────────────────────
 function TabsNavDesktop({ activeTab, setTab }) {
   const t = useTheme()
   return (
     <nav style={{
-      background: t.header, borderBottom: `1px solid ${t.border}`,
+      background: t.header,
+      backdropFilter: t.headerBlur,
+      WebkitBackdropFilter: t.headerBlur,
+      borderBottom: `1px solid ${t.border}`,
       position: 'sticky', top: 66, zIndex: 20,
     }}>
       <div style={{
@@ -302,11 +345,11 @@ function TabsNavDesktop({ activeTab, setTab }) {
           return (
             <button key={tab} onClick={() => setTab(tab)} style={{
               position: 'relative', background: 'transparent', border: 'none',
-              borderBottom: `2.5px solid ${active ? t.accent : 'transparent'}`,
+              borderBottom: `2px solid ${active ? t.accent : 'transparent'}`,
               color: active ? t.accent : t.textMuted,
-              fontSize: 12.5, fontWeight: active ? 700 : 450,
-              padding: '12px 15px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
-              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 12, fontWeight: active ? 700 : 500,
+              padding: '12px 14px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: 7,
               transition: 'color .15s, border-color .15s',
             }}>
               {active && (
@@ -316,7 +359,9 @@ function TabsNavDesktop({ activeTab, setTab }) {
                   pointerEvents: 'none',
                 }}/>
               )}
-              <span style={{ position: 'relative', fontSize: 14 }}>{TAB_ICONS[tab]}</span>
+              <span style={{ position: 'relative', display: 'flex' }}>
+                <Icon name={tab} size={14} color={active ? t.accent : t.textMuted} strokeWidth={active ? 2.2 : 1.75}/>
+              </span>
               <span style={{ position: 'relative' }}>{tab}</span>
             </button>
           )
@@ -326,21 +371,31 @@ function TabsNavDesktop({ activeTab, setTab }) {
   )
 }
 
-// Bottom Nav Móvil
+// ── Bottom Nav Móvil — pill indicator style ───────────────────────────────────
 function BottomNav({ activeTab, setTab }) {
   const t = useTheme()
   const [open, setOpen] = useState(false)
   const others     = TABS.filter(x => !BOTTOM_TABS.includes(x))
   const isInOthers = !BOTTOM_TABS.includes(activeTab)
 
+  const allBottomItems = [...BOTTOM_TABS, 'Más']
+
   return (
     <>
       <div style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
-        background: t.header, borderTop: `1px solid ${t.border}`,
-        display: 'flex', height: 'calc(62px + env(safe-area-inset-bottom, 0px))',
+        background: t.header,
+        backdropFilter: t.headerBlur,
+        WebkitBackdropFilter: t.headerBlur,
+        borderTop: `1px solid ${t.border}`,
+        display: 'flex',
+        height: 'calc(64px + env(safe-area-inset-bottom, 0px))',
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-        boxShadow: '0 -8px 32px rgba(0,0,0,.2)',
+        boxShadow: '0 -8px 32px rgba(0,0,0,.18)',
+        padding: '0 8px',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        alignItems: 'center',
+        gap: 4,
       }}>
         {BOTTOM_TABS.map(tab => {
           const active = activeTab === tab
@@ -348,62 +403,129 @@ function BottomNav({ activeTab, setTab }) {
             <button key={tab} onClick={() => { setTab(tab); setOpen(false) }} style={{
               flex: 1, background: 'none', border: 'none',
               display: 'flex', flexDirection: 'column', alignItems: 'center',
-              justifyContent: 'center', gap: 3, cursor: 'pointer',
-              color: active ? t.accent : t.textMuted,
-              borderTop: `2.5px solid ${active ? t.accent : 'transparent'}`,
-              transition: 'all .15s',
+              justifyContent: 'center', gap: 4, cursor: 'pointer',
+              padding: '8px 4px',
+              borderRadius: 12,
+              position: 'relative',
+              transition: 'all .18s',
             }}>
-              <span style={{ fontSize: 21 }}>{TAB_ICONS[tab]}</span>
-              <span style={{ fontSize: 9, fontWeight: active ? 700 : 400 }}>
+              {/* Pill indicator activo */}
+              {active && (
+                <div style={{
+                  position: 'absolute',
+                  top: 6, left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: 36, height: 34,
+                  background: t.accentSub,
+                  borderRadius: 10,
+                  border: `1px solid ${t.accent}25`,
+                }}/>
+              )}
+              <span style={{ position: 'relative', zIndex: 1, display: 'flex' }}>
+                <Icon
+                  name={tab}
+                  size={19}
+                  color={active ? t.accent : t.textMuted}
+                  strokeWidth={active ? 2.2 : 1.75}
+                />
+              </span>
+              <span style={{
+                position: 'relative', zIndex: 1,
+                fontSize: 9, fontWeight: active ? 700 : 500,
+                color: active ? t.accent : t.textMuted,
+                letterSpacing: '.01em',
+              }}>
                 {tab === 'Ventas Rápidas' ? 'Ventas' : tab}
               </span>
             </button>
           )
         })}
+
+        {/* Botón Más */}
         <button onClick={() => setOpen(v => !v)} style={{
           flex: 1, background: 'none', border: 'none',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', gap: 3, cursor: 'pointer',
-          color: isInOthers ? t.accent : t.textMuted,
-          borderTop: `2.5px solid ${isInOthers ? t.accent : 'transparent'}`,
-          transition: 'all .15s',
+          justifyContent: 'center', gap: 4, cursor: 'pointer',
+          padding: '8px 4px',
+          borderRadius: 12,
+          position: 'relative',
+          transition: 'all .18s',
         }}>
-          <span style={{ fontSize: 21 }}>{open ? '✕' : '☰'}</span>
-          <span style={{ fontSize: 9, fontWeight: isInOthers ? 700 : 400 }}>
-            {isInOthers ? activeTab.slice(0, 6) : 'Más'}
+          {(isInOthers || open) && (
+            <div style={{
+              position: 'absolute',
+              top: 6, left: '50%',
+              transform: 'translateX(-50%)',
+              width: 36, height: 34,
+              background: isInOthers ? t.accentSub : `${t.textMuted}15`,
+              borderRadius: 10,
+              border: `1px solid ${isInOthers ? t.accent + '25' : t.border}`,
+            }}/>
+          )}
+          <span style={{ position: 'relative', zIndex: 1, display: 'flex' }}>
+            <Icon
+              name={open ? 'Cerrar' : 'Más'}
+              size={19}
+              color={isInOthers ? t.accent : t.textMuted}
+              strokeWidth={1.75}
+            />
+          </span>
+          <span style={{
+            position: 'relative', zIndex: 1,
+            fontSize: 9, fontWeight: isInOthers ? 700 : 500,
+            color: isInOthers ? t.accent : t.textMuted,
+            letterSpacing: '.01em',
+          }}>
+            {isInOthers ? activeTab.slice(0, 7) : 'Más'}
           </span>
         </button>
       </div>
 
+      {/* Drawer menú expandido */}
       {open && (
         <div onClick={() => setOpen(false)} style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)',
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.60)',
           zIndex: 99, display: 'flex', flexDirection: 'column',
-          justifyContent: 'flex-end', backdropFilter: 'blur(4px)',
+          justifyContent: 'flex-end', backdropFilter: 'blur(6px)',
+          WebkitBackdropFilter: 'blur(6px)',
         }}>
           <div onClick={e => e.stopPropagation()} style={{
-            background: t.card, borderRadius: '20px 20px 0 0',
-            padding: '16px 0',
+            background: t.card,
+            borderRadius: '20px 20px 0 0',
+            padding: '20px 0',
             paddingBottom: 'calc(72px + env(safe-area-inset-bottom, 0px))',
-            animation: 'drawerUp .22s cubic-bezier(.22,1,.36,1)',
+            animation: 'drawerUp .2s cubic-bezier(.22,1,.36,1)',
+            border: `1px solid ${t.border}`,
+            borderBottom: 'none',
           }}>
             <style>{`@keyframes drawerUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
-            <div style={{ display:'flex', justifyContent:'center', marginBottom: 16 }}>
-              <div style={{ width: 40, height: 4, borderRadius: 99, background: t.border }}/>
+
+            {/* Handle */}
+            <div style={{ display:'flex', justifyContent:'center', marginBottom: 18 }}>
+              <div style={{ width: 36, height: 4, borderRadius: 99, background: t.border }}/>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4, padding: '0 12px' }}>
+
+            <div style={{ padding: '0 8px', marginBottom: 10 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: t.textMuted, letterSpacing: '.10em', textTransform: 'uppercase', padding: '0 8px' }}>
+                Más secciones
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6, padding: '0 12px' }}>
               {others.map(tab => {
                 const active = activeTab === tab
                 return (
                   <button key={tab} onClick={() => { setTab(tab); setOpen(false) }} style={{
-                    background: active ? t.accentSub : 'none',
-                    border: active ? `1px solid ${t.accent}30` : '1px solid transparent',
+                    background: active ? t.accentSub : `${t.textMuted}08`,
+                    border: active ? `1px solid ${t.accent}30` : `1px solid ${t.border}`,
                     display: 'flex', flexDirection: 'column', alignItems: 'center',
-                    gap: 6, padding: '14px 6px', cursor: 'pointer',
-                    color: active ? t.accent : t.text, borderRadius: 14,
+                    gap: 8, padding: '14px 6px', cursor: 'pointer',
+                    color: active ? t.accent : t.text,
+                    borderRadius: 14,
+                    transition: 'all .15s',
                   }}>
-                    <span style={{ fontSize: 24 }}>{TAB_ICONS[tab]}</span>
-                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 400, textAlign: 'center' }}>{tab}</span>
+                    <Icon name={tab} size={22} color={active ? t.accent : t.textMuted} strokeWidth={active ? 2.2 : 1.75}/>
+                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, textAlign: 'center', lineHeight: 1.2 }}>{tab}</span>
                   </button>
                 )
               })}
@@ -415,16 +537,16 @@ function BottomNav({ activeTab, setTab }) {
   )
 }
 
-// Footer
+// ── Footer ────────────────────────────────────────────────────────────────────
 function Footer() {
   const t = useTheme()
   return (
     <footer style={{
-      borderTop: `1px solid ${t.border}`, padding: '12px 28px', marginTop: 24,
+      borderTop: `1px solid ${t.border}`, padding: '14px 28px', marginTop: 24,
       maxWidth: 1400, margin: '24px auto 0', width: '100%',
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     }}>
-      <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 500 }}>
+      <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 600, letterSpacing: '.04em' }}>
         Ferretería Punto Rojo · Dashboard v5
       </span>
       <div style={{ display:'flex', alignItems:'center', gap: 7 }}>
@@ -433,14 +555,14 @@ function Footer() {
           background: '#34D060', boxShadow: '0 0 6px rgba(52,208,96,.5)',
         }}/>
         <span style={{ fontSize: 10, color: t.textMuted }}>
-          Google Sheets · Excel · memoria.json
+          PostgreSQL · Railway
         </span>
       </div>
     </footer>
   )
 }
 
-// App Shell
+// ── App Shell ─────────────────────────────────────────────────────────────────
 function AppShell({ themeId, setThemeId, refreshRef }) {
   const t        = useTheme()
   const isMobile = useIsMobile()
@@ -459,7 +581,6 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
     if (refreshInterval > 0) setCountdown(refreshInterval)
   }, [refreshInterval])
 
-  // Exponer doRefresh al ChatWidget para auto-refresh post-registro
   useEffect(() => {
     if (refreshRef) refreshRef.current = doRefresh
   }, [doRefresh, refreshRef])
@@ -478,46 +599,43 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
     return () => clearInterval(tick)
   }, [refreshInterval])
 
-  // ── Bloquear orientación portrait en mobile ──────────────────────────────
   useEffect(() => {
     if (!isMobile) return
     const lock = async () => {
-      try {
-        await screen.orientation.lock('portrait')
-      } catch {
-        // Si el navegador no soporta el lock (ej: iOS Safari) o el usuario
-        // tiene el bloqueo del sistema activo, simplemente ignoramos el error
-      }
+      try { await screen.orientation.lock('portrait') } catch {}
     }
     lock()
-    return () => {
-      try { screen.orientation.unlock() } catch {}
-    }
+    return () => { try { screen.orientation.unlock() } catch {} }
   }, [isMobile])
 
   return (
     <div style={{
       fontFamily: "'Sora', system-ui, sans-serif",
-      background: t.bg, minHeight: '100dvh', color: t.text, fontSize: 13,
-      transition: 'background .25s, color .25s',
+      background: t.bgPattern,
+      minHeight: '100dvh',
+      color: t.text,
+      fontSize: 13,
+      transition: 'background .3s, color .25s',
     }}>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap');
         *, *::before, *::after { box-sizing:border-box; margin:0; padding:0 }
+        html { -webkit-text-size-adjust: 100% }
         button { font-family:inherit; cursor:pointer }
         button:focus, input:focus { outline:none }
         input::placeholder { color:${t.textMuted}; opacity:1 }
-        @keyframes spin  { to { transform:rotate(360deg) } }
-        @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(.88)} }
-        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+        @keyframes spin    { to { transform:rotate(360deg) } }
+        @keyframes pulse   { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(.88)} }
+        @keyframes fadeIn  { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes slideIn { from{opacity:0;transform:translateX(-6px)} to{opacity:1;transform:translateX(0)} }
         ::-webkit-scrollbar       { width:3px; height:3px }
         ::-webkit-scrollbar-track { background:transparent }
-        ::-webkit-scrollbar-thumb { background:${t.accent}55; border-radius:99px }
-        .tab-content { animation:fadeIn .2s ease forwards }
+        ::-webkit-scrollbar-thumb { background:${t.accent}50; border-radius:99px }
+        .tab-content { animation:fadeIn .22s ease forwards }
         @media (orientation: landscape) and (max-height: 500px) {
-          .landscape-block {
-            display: flex !important;
-          }
+          .landscape-block { display: flex !important; }
         }
+        * { -webkit-tap-highlight-color: transparent }
       `}</style>
 
       {isMobile ? (
@@ -535,29 +653,28 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
       <main style={{
         maxWidth: isMobile ? '100%' : 1400, margin: '0 auto',
         padding: isMobile ? '14px 12px' : '24px 28px',
-        // 62px nav + env(safe-area-inset-bottom) para iPhones con notch + 16px extra
-        paddingBottom: isMobile ? 'calc(62px + env(safe-area-inset-bottom, 0px) + 16px)' : 24,
+        paddingBottom: isMobile ? 'calc(72px + env(safe-area-inset-bottom, 0px) + 16px)' : 24,
       }}>
         <div className="tab-content" key={tab}>
-          {tab==='Resumen'        && <TabResumen       refreshKey={refreshKey}/>}
-          {tab==='Ventas Rápidas' && <TabVentasRapidas refreshKey={refreshKey}/>}
-          {tab==='Top 10'         && <TabTopProductos  refreshKey={refreshKey}/>}
-          {tab==='Inventario'     && <TabInventario    refreshKey={refreshKey}/>}
-          {tab==='Historial'      && <TabHistorial     refreshKey={refreshKey}/>}
-          {tab==='Caja'           && <TabCaja          refreshKey={refreshKey}/>}
-          {tab==='Gastos'         && <TabGastos        refreshKey={refreshKey}/>}
-          {tab==='Compras'        && <TabCompras       refreshKey={refreshKey}/>}
-          {tab==='Kárdex'         && <TabKardex        refreshKey={refreshKey}/>}
-          {tab==='Resultados'     && <TabResultados    refreshKey={refreshKey}/>}
-          {tab==='Histórico'      && <TabHistoricoVentas refreshKey={refreshKey}/>}
-          {tab==='Proveedores'     && <TabProveedores     refreshKey={refreshKey}/>}
+          {tab==='Resumen'          && <TabResumen         refreshKey={refreshKey}/>}
+          {tab==='Ventas Rápidas'   && <TabVentasRapidas   refreshKey={refreshKey}/>}
+          {tab==='Top 10'           && <TabTopProductos    refreshKey={refreshKey}/>}
+          {tab==='Inventario'       && <TabInventario      refreshKey={refreshKey}/>}
+          {tab==='Historial'        && <TabHistorial       refreshKey={refreshKey}/>}
+          {tab==='Caja'             && <TabCaja            refreshKey={refreshKey}/>}
+          {tab==='Gastos'           && <TabGastos          refreshKey={refreshKey}/>}
+          {tab==='Compras'          && <TabCompras         refreshKey={refreshKey}/>}
+          {tab==='Kárdex'           && <TabKardex          refreshKey={refreshKey}/>}
+          {tab==='Resultados'       && <TabResultados      refreshKey={refreshKey}/>}
+          {tab==='Histórico'        && <TabHistoricoVentas refreshKey={refreshKey}/>}
+          {tab==='Proveedores'      && <TabProveedores     refreshKey={refreshKey}/>}
         </div>
       </main>
 
       {!isMobile && <Footer/>}
       {isMobile  && <BottomNav activeTab={tab} setTab={setTab}/>}
 
-      {/* Bloqueo visual landscape — se muestra si el orientation lock falla */}
+      {/* Bloqueo visual landscape */}
       {isMobile && (
         <div className="landscape-block" style={{
           display: 'none',
@@ -575,16 +692,13 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
         </div>
       )}
 
-      <ChatWidget
-        activeTab={tab}
-        onRefresh={doRefresh}
-      />
+      <ChatWidget activeTab={tab} onRefresh={doRefresh}/>
     </div>
   )
 }
 
 export default function App() {
-  const [themeId, setThemeId] = useState('caramelo')
+  const [themeId, setThemeId] = useState('forja')
   const refreshRef = useRef(null)
   return (
     <ThemeContext.Provider value={THEMES[themeId]}>
