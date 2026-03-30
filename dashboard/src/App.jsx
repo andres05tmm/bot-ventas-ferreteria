@@ -13,6 +13,7 @@ import TabVentasRapidas   from './tabs/TabVentasRapidas.jsx'
 import TabHistoricoVentas from './tabs/TabHistoricoVentas.jsx'
 import TabProveedores     from './tabs/TabProveedores.jsx'
 import ChatWidget          from './components/ChatWidget.jsx'
+import AnimatedBackground  from './components/ui/AnimatedBackground.jsx'
 
 // ── Iconos SVG limpios (sin emojis) ──────────────────────────────────────────
 function Icon({ name, size = 20, color = 'currentColor', strokeWidth = 1.75 }) {
@@ -615,7 +616,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
   return (
     <div style={{
       fontFamily: "'Sora', system-ui, sans-serif",
-      background: t.bgPattern,
+      background: t.id === 'caramelo' ? 'transparent' : t.bgPattern,
       minHeight: '100dvh',
       color: t.text,
       fontSize: 13,
@@ -623,6 +624,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap');
+        ${t.id === 'caramelo' ? 'html,body{background:#faf9f7}' : ''}
         *, *::before, *::after { box-sizing:border-box; margin:0; padding:0 }
         html { -webkit-text-size-adjust: 100% }
         button { font-family:inherit; cursor:pointer }
@@ -642,6 +644,8 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
         * { -webkit-tap-highlight-color: transparent }
       `}</style>
 
+      <AnimatedBackground />
+
       {isMobile ? (
         <HeaderMobile themeId={themeId} setThemeId={setThemeId} onRefresh={doRefresh} activeTab={tab}/>
       ) : (
@@ -658,6 +662,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
         maxWidth: isMobile ? '100%' : 1400, margin: '0 auto',
         padding: isMobile ? '14px 12px' : '24px 28px',
         paddingBottom: isMobile ? 'calc(72px + env(safe-area-inset-bottom, 0px) + 16px)' : 24,
+        position: 'relative', zIndex: 1,
       }}>
         <div className="tab-content" key={tab}>
           {tab==='Resumen'          && <TabResumen         refreshKey={refreshKey}/>}
