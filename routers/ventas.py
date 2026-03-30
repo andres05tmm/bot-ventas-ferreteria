@@ -232,6 +232,20 @@ def venta_rapida(payload: VentaRapidaPayload):
                     return prod_val.get("unidad_medida", "Unidad")
             return item.unidad_medida or "Unidad"
 
+        # ── Resolver producto_id para cada item (búsqueda por nombre) ──────────
+        nombres_productos = [item.nombre for item in payload.productos]
+        _prod_id_map: dict[str, int] = {}
+        try:
+            placeholders = ", ".join(["%s"] * len(nombres_productos))
+            rows_prod = _db.query_all(
+                f"SELECT id, nombre FROM productos WHERE LOWER(TRIM(nombre)) = ANY(ARRAY[{placeholders}]::text[])",
+                [n.lower().strip() for n in nombres_productos],
+            )
+            for r in rows_prod:
+                _prod_id_map[r["nombre"].lower().strip()] = r["id"]
+        except Exception:
+            pass
+
         items_calc = []
         for item in payload.productos:
             try:
@@ -246,6 +260,7 @@ def venta_rapida(payload: VentaRapidaPayload):
                 "cant_num":        cant_num,
                 "precio_unitario": round(item.total / cant_num, 2),
                 "unidad":          _resolver_unidad(item),
+                "producto_id":     _prod_id_map.get(item.nombre.lower().strip()),
             })
 
         ahora = _dt.datetime.now()
@@ -281,8 +296,8 @@ def venta_rapida(payload: VentaRapidaPayload):
                         """
                         INSERT INTO ventas_detalle
                             (venta_id, producto_nombre, cantidad,
-                             precio_unitario, total, unidad_medida)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                             precio_unitario, total, unidad_medida, producto_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             venta_id,
@@ -291,6 +306,7 @@ def venta_rapida(payload: VentaRapidaPayload):
                             ic["precio_unitario"],
                             ic["item"].total,
                             ic["unidad"],
+                            ic.get("producto_id"),
                         ),
                     )
             conn.commit()
@@ -602,7 +618,13 @@ def export_ventas_xlsx(
                 CASE WHEN v.cliente_id IS NULL THEN 'CF'
                      ELSE v.cliente_id::text END                            AS id_cliente,
                 COALESCE(v.cliente_nombre, 'Consumidor Final')              AS cliente,
-                COALESCE(p.codigo, '')                                      AS codigo_producto,
+                COALESCE(
+                    p.codigo,
+                    (SELECT p2.codigo FROM productos p2
+                     WHERE LOWER(TRIM(p2.nombre)) = LOWER(TRIM(d.producto_nombre))
+                     LIMIT 1),
+                    ''
+                )                                                           AS codigo_producto,
                 d.producto_nombre                                           AS producto,
                 COALESCE(d.unidad_medida, 'Unidad')                        AS unidad_medida,
                 d.cantidad::text                                            AS cantidad,
