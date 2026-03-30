@@ -1804,6 +1804,7 @@ export default function TabVentasRapidas({ refreshKey }) {
           display: 'flex', alignItems: 'center', gap: 6,
           overflowX: 'auto', paddingBottom: 4,
           flexWrap: isMobile ? 'nowrap' : 'wrap',
+          WebkitOverflowScrolling: 'touch',
         }}>
           {filtros.map(f => {
             const activo = filtro === f.key
@@ -1873,7 +1874,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         {subcatsDisp.length > 0 && !busq.trim() && (
           <div style={{
             display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 12,
-            scrollbarWidth: 'none',
+            scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch',
           }}>
             <style>{`.sc-bar::-webkit-scrollbar{display:none}`}</style>
             <button
