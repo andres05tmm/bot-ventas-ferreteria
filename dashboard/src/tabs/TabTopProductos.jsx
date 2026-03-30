@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  useTheme, useFetch, Spinner, ErrorMsg, EmptyState, cop, num,
+  useTheme, useFetch, GlassCard, Spinner, ErrorMsg, EmptyState, cop, num,
 } from '../components/shared.jsx'
 
 // ── Paleta ────────────────────────────────────────────────────────────────────
@@ -300,9 +300,15 @@ function HBarChart({ top, criterio, t }) {
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
 function KpiCard({ label, value, sub, accent, t }) {
+  const isCaramelo = t.id === 'caramelo'
   return (
     <div style={{
-      background: t.card, border: `1px solid ${t.border}`, borderRadius: 14,
+      background: isCaramelo ? 'rgba(255,255,255,0.72)' : t.card,
+      backdropFilter: isCaramelo ? 'blur(12px)' : undefined,
+      WebkitBackdropFilter: isCaramelo ? 'blur(12px)' : undefined,
+      border: isCaramelo ? '0.5px solid rgba(200,32,14,0.12)' : `1px solid ${t.border}`,
+      borderRadius: 16,
+      boxShadow: isCaramelo ? '0 2px 12px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(200,32,14,0.08)' : t.shadowCard,
       padding: '16px 20px', flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden',
     }}>
       <div style={{ position: 'absolute', top: -18, right: -18, width: 72, height: 72, borderRadius: '50%', background: `${accent}10`, pointerEvents: 'none' }}/>
@@ -584,22 +590,22 @@ export default function TabTopProductos({ refreshKey }) {
 
           {/* Gráfico */}
           {vista === 'grafico' && (
-            <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, padding: '22px 24px 10px' }}>
+            <GlassCard style={{ padding: '22px 24px 10px' }}>
               <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 18 }}>
                 Top 10 — {criterio === 'frecuencia' ? 'Veces vendido' : 'Ingresos generados'}
               </div>
               <HBarChart top={top} criterio={criterio} t={t} />
-            </div>
+            </GlassCard>
           )}
 
           {/* Tabla */}
           {vista === 'tabla' && (
-            <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, overflow: 'hidden' }}>
+            <GlassCard style={{ padding: 0, overflow: 'hidden' }}>
               <div style={{ padding: '14px 18px', borderBottom: `1px solid ${t.border}` }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: t.text }}>Detalle completo</span>
               </div>
               <TablaDetalle top={top} criterio={criterio} t={t} />
-            </div>
+            </GlassCard>
           )}
         </>
       )}
