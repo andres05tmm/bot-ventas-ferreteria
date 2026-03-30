@@ -160,10 +160,13 @@ def resultados(periodo: str = Query(default="mes", pattern="^(semana|mes)$")):
                 inv_idx[clave.replace("_", " ")] = datos
 
         # Agrupar ventas por producto
+        # Excluir "Venta Varia": es un ajuste de caja por excedente de dinero
+        # no registrado, no es un producto real del catálogo.
+        _EXCLUIR_PRODUCTOS = {"venta varia", "ventas varia", "venta general"}
         ventas_prod: dict[str, dict] = defaultdict(lambda: {"cantidad": 0.0, "ingresos": 0.0})
         for v in ventas:
             nombre = str(v.get("producto", "")).strip()
-            if not nombre:
+            if not nombre or nombre.lower() in _EXCLUIR_PRODUCTOS:
                 continue
             cant = _to_float(v.get("cantidad", 1))
             ventas_prod[nombre]["cantidad"] += cant

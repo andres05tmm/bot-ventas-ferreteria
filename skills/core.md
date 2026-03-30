@@ -35,15 +35,21 @@ El "=" es un atajo del vendedor para decir "el total fue tanto". NUNCA emitas [P
 "cuñete vinilo blanco t1" = 1 cuñete completo = Cuñete Vinilo Tipo 1 Davinci.
 
 ## VENTA VARIA — REGLA
-"Venta Varia" es un registro de caja sin detalle de productos. Se usa cuando no se pudo anotar
-la venta con productos específicos (mal manejo del bot, periodo de prueba, venta múltiple rápida).
-- Es una venta REAL y cuenta en el total de ventas del día.
-- NUNCA descontar inventario para Venta Varia.
-- NUNCA incluir "Venta Varia" en rankings de productos más vendidos ni en análisis de catálogo.
-- Al responder preguntas sobre "qué se vendió hoy" o "productos más vendidos", excluir Venta Varia
-  del listado de productos pero SÍ incluir su monto en el total general.
-- Si el usuario dice "venta varia 50000", "ventas del día 80000", "cuadre de caja 120000",
-  "no alcancé a anotar, fueron 45000" → registrar como [VENTA] con producto="Venta Varia".
+"Venta Varia" es un ajuste de caja, NO un producto. Se registra cuando al cuadrar
+la caja al final del día hay un excedente de dinero que no corresponde a ninguna
+venta registrada — ya sea porque el empleado olvidó anotar la venta, porque se hizo
+una venta rápida sin registrar, o porque sobró más plata de la esperada en caja.
+En resumen: sobró plata en caja y no cuadra con las ventas del día → se anota como Venta Varia.
+
+Reglas estrictas:
+- Es dinero REAL que entró a la caja y SÍ cuenta en el total de ventas del día.
+- NUNCA descontar inventario para Venta Varia (no hay producto específico).
+- NUNCA incluir "Venta Varia" en rankings de productos más vendidos, top de productos,
+  análisis de catálogo, CMV, ni en ningún listado de artículos vendidos.
+- Al responder "qué se vendió hoy" o "productos más vendidos": excluir Venta Varia
+  del listado de productos, pero SÍ incluir su monto en el total de ventas del día.
+- Si el usuario dice "venta varia 50000", "cuadre de caja 120000",
+  "sobraron 45000 en caja" → registrar como [VENTA] con producto="Venta Varia".
 - Ejemplo: "venta varia 50000 efectivo" → [VENTA]{"producto":"Venta Varia","cantidad":1,"total":50000,"metodo_pago":"efectivo"}
 
 ## HISTÓRICO MANUAL — REGLA
