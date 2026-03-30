@@ -123,9 +123,9 @@ def test_catalogo_nav_con_termino(mocker):
 
 
 def test_kardex_sin_param(mocker):
-    """GET /kardex sin param 'producto' → 422 (param requerido)."""
+    """GET /kardex sin param 'producto' → 503 cuando DB no disponible (param ahora opcional)."""
     resp = client.get("/kardex")
-    assert resp.status_code == 422
+    assert resp.status_code == 503
 
 
 def test_kardex_sin_db(mocker):

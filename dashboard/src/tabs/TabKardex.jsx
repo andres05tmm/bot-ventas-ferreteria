@@ -142,7 +142,7 @@ export default function TabKardex({ refreshKey }) {
   const [query,    setQuery]    = useState('')
 
   const { data, loading, error } = useFetch(
-    query ? `/kardex?q=${encodeURIComponent(query)}` : '/kardex',
+    query ? `/kardex?producto=${encodeURIComponent(query)}` : '/kardex',
     [query, refreshKey]
   )
 

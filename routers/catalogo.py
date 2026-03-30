@@ -263,67 +263,148 @@ def catalogo_nav(q: str = Query(default="")):
 # =============================================================================
 # GET /kardex
 # =============================================================================
+def _kardex_item(prod_id: int, prod_nombre: str, dias: int) -> dict:
+    """Construye el dict de un producto para la respuesta /kardex."""
+    fecha_inicio = _hace_n_dias(dias)
+
+    compras = db.query_all(
+        """
+        SELECT fecha, proveedor, cantidad, costo_unitario, costo_total
+        FROM compras
+        WHERE producto_id = %s AND fecha >= %s
+        ORDER BY fecha ASC, id ASC
+        """,
+        [prod_id, fecha_inicio],
+    )
+    ventas = db.query_all(
+        """
+        SELECT v.fecha, v.consecutivo, v.cliente_nombre,
+               vd.cantidad, vd.precio_unitario, vd.total
+        FROM ventas_detalle vd
+        JOIN ventas v ON v.id = vd.venta_id
+        WHERE vd.producto_id = %s AND v.fecha >= %s
+        ORDER BY v.fecha ASC, v.id ASC
+        """,
+        [prod_id, fecha_inicio],
+    )
+    inv_row = db.query_one(
+        "SELECT cantidad, costo_promedio FROM inventario WHERE producto_id = %s",
+        [prod_id],
+    )
+    stock_actual    = float(inv_row["cantidad"])     if inv_row else 0.0
+    costo_prom_act  = float(inv_row["costo_promedio"]) if inv_row else 0.0
+
+    # Unificar movimientos (ascendente para calcular saldo corriente)
+    movs_raw: list[dict] = []
+    for c in compras:
+        movs_raw.append({
+            "tipo":          "entrada",
+            "fecha_sort":    c["fecha"],
+            "fecha":         str(c["fecha"])[:10] if c["fecha"] else "",
+            "hora":          str(c["fecha"])[11:16] if c["fecha"] and len(str(c["fecha"])) > 10 else "",
+            "concepto":      f"Compra — {c['proveedor'] or 'Proveedor'}",
+            "entrada":       float(c["cantidad"] or 0),
+            "salida":        0.0,
+            "costo_unitario": float(c["costo_unitario"] or 0),
+        })
+    for v in ventas:
+        movs_raw.append({
+            "tipo":          "salida",
+            "fecha_sort":    v["fecha"],
+            "fecha":         str(v["fecha"])[:10] if v["fecha"] else "",
+            "hora":          str(v["fecha"])[11:16] if v["fecha"] and len(str(v["fecha"])) > 10 else "",
+            "concepto":      f"Venta #{v['consecutivo']} — {v['cliente_nombre'] or 'Cliente'}",
+            "entrada":       0.0,
+            "salida":        float(v["cantidad"] or 0),
+            "costo_unitario": costo_prom_act,
+        })
+
+    movs_raw.sort(key=lambda x: (x["fecha_sort"] or "", x["tipo"]))
+
+    # Calcular saldo corriente y costo promedio por movimiento (ascendente)
+    saldo          = 0.0
+    costo_prom_cur = costo_prom_act
+    for m in movs_raw:
+        if m["tipo"] == "entrada":
+            nueva_cant   = saldo + m["entrada"]
+            if nueva_cant > 0:
+                costo_prom_cur = (
+                    (saldo * costo_prom_cur + m["entrada"] * m["costo_unitario"]) / nueva_cant
+                )
+            saldo = nueva_cant
+        else:
+            saldo = max(0.0, saldo - m["salida"])
+        m["saldo"]         = round(saldo, 4)
+        m["costo_promedio"] = round(costo_prom_cur, 2)
+        m["valor_total"]   = round(
+            m["entrada"] * m["costo_unitario"] if m["tipo"] == "entrada"
+            else m["salida"] * costo_prom_cur,
+            2,
+        )
+        del m["fecha_sort"]
+
+    total_entradas = sum(m["entrada"] for m in movs_raw)
+    salidas_est    = max(0.0, round(total_entradas - stock_actual, 4))
+
+    return {
+        "producto":         prod_nombre,
+        "movimientos":      list(reversed(movs_raw)),  # más reciente primero
+        "total_entradas":   round(total_entradas, 4),
+        "salidas_est":      salidas_est,
+        "stock_actual":     round(stock_actual, 4),
+        "costo_promedio":   round(costo_prom_act, 2),
+        "valor_inventario": round(stock_actual * costo_prom_act, 2),
+    }
+
+
 @router.get("/kardex")
 def kardex(
-    producto: str = Query(..., description="Nombre o key del producto"),
-    dias: int     = Query(30, description="Días hacia atrás"),
+    producto: Optional[str] = Query(None, description="Nombre o key del producto (opcional)"),
+    dias: int                = Query(30,   description="Días hacia atrás"),
 ):
-    """Kardex de movimientos (ventas + compras) de un producto desde PostgreSQL."""
+    """
+    Kardex de inventario desde PostgreSQL.
+    Sin parámetros → todos los productos activos con stock o historial de compras.
+    Con ?producto=... → filtrado por ese producto.
+    """
     try:
         if not db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
-        from memoria import buscar_producto_en_catalogo
-        prod = buscar_producto_en_catalogo(producto)
-        if not prod:
-            raise HTTPException(status_code=404, detail=f"Producto '{producto}' no encontrado")
+        if producto:
+            # ── Modo filtrado ──────────────────────────────────────────────
+            from memoria import buscar_producto_en_catalogo
+            prod = buscar_producto_en_catalogo(producto)
+            if not prod:
+                raise HTTPException(status_code=404, detail=f"Producto '{producto}' no encontrado")
+            prod_row = db.query_one(
+                "SELECT id FROM productos WHERE nombre_lower = %s AND activo = TRUE",
+                [prod["nombre_lower"]],
+            )
+            if not prod_row:
+                raise HTTPException(status_code=404, detail="Producto no encontrado en BD")
+            items = [_kardex_item(prod_row["id"], prod["nombre"], dias)]
+        else:
+            # ── Todos los productos con historial de compras ───────────────
+            prods = db.query_all(
+                """
+                SELECT DISTINCT p.id, p.nombre
+                FROM productos p
+                JOIN compras c ON c.producto_id = p.id
+                WHERE p.activo = TRUE
+                ORDER BY p.nombre
+                """,
+                [],
+            )
+            items = [_kardex_item(r["id"], r["nombre"], dias) for r in prods]
 
-        prod_row = db.query_one(
-            "SELECT id FROM productos WHERE nombre_lower = %s AND activo = TRUE",
-            [prod["nombre_lower"]],
-        )
-        if not prod_row:
-            raise HTTPException(status_code=404, detail="Producto no encontrado en BD")
-
-        prod_id      = prod_row["id"]
-        fecha_inicio = _hace_n_dias(dias)
-
-        ventas = db.query_all(
-            """
-            SELECT v.fecha, v.consecutivo,
-                   vd.cantidad, vd.precio_unitario, vd.total,
-                   v.cliente_nombre, v.metodo_pago
-            FROM ventas_detalle vd
-            JOIN ventas v ON v.id = vd.venta_id
-            WHERE vd.producto_id = %s AND v.fecha >= %s
-            ORDER BY v.fecha DESC, v.id DESC
-            """,
-            [prod_id, fecha_inicio],
-        )
-
-        compras = db.query_all(
-            """
-            SELECT fecha, proveedor, cantidad, costo_unitario, costo_total
-            FROM compras
-            WHERE producto_id = %s AND fecha >= %s
-            ORDER BY fecha DESC, id DESC
-            """,
-            [prod_id, fecha_inicio],
-        )
-
-        inv_row      = db.query_one(
-            "SELECT cantidad, costo_promedio FROM inventario WHERE producto_id = %s", [prod_id]
-        )
-        stock_actual = float(inv_row["cantidad"]) if inv_row else None
+        tiene_datos     = len(items) > 0
+        valor_inv_total = sum(i["valor_inventario"] for i in items)
 
         return {
-            "producto":      prod["nombre"],
-            "stock_actual":  stock_actual,
-            "dias":          dias,
-            "ventas":        [dict(r) for r in ventas],
-            "compras":       [dict(r) for r in compras],
-            "total_ventas":  len(ventas),
-            "total_compras": len(compras),
+            "kardex":                items,
+            "valor_inventario_total": round(valor_inv_total, 2),
+            "tiene_datos":           tiene_datos,
         }
     except HTTPException:
         raise

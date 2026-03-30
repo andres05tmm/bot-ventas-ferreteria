@@ -21,8 +21,27 @@
 
     <!-- Splash screen color en iOS -->
     <meta name="msapplication-TileColor" content="#C8200E" />
+
+    <!-- Fallback CSS para navegadores sin screen.orientation.lock -->
+    <style>
+      #landscape-msg { display: none; }
+      @media (orientation: landscape) {
+        body > #root   { display: none; }
+        #landscape-msg { display: flex; }
+      }
+    </style>
   </head>
   <body>
+    <div id="landscape-msg" style="
+      position: fixed; inset: 0; z-index: 9999;
+      background: #1a1a1a; color: #fff;
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 16px; font-family: sans-serif; text-align: center;
+    ">
+      <div style="font-size: 48px;">&#x1F4F1;</div>
+      <div style="font-size: 18px; font-weight: 600;">Gira el teléfono</div>
+      <div style="font-size: 13px; opacity: .6;">Este dashboard está optimizado para modo vertical</div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <!-- Registrar Service Worker -->
