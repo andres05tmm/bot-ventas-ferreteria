@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   useTheme, useFetch, Card, SectionTitle, Spinner, ErrorMsg,
@@ -84,18 +84,74 @@ function UnidadBadge({ unidad, t }) {
   )
 }
 
-function exportCSV(ventas) {
-  const headers = ['#','Fecha','Hora','Producto','Cliente','Cantidad','Precio Unit.','Total','Vendedor','Método']
-  const rows = ventas.map(v => [
-    v.num, v.fecha, v.hora, v.producto, v.cliente||'Consumidor Final',
-    v.cantidad, v.precio_unitario, v.total, v.vendedor, v.metodo||'',
-  ])
-  const csv = [headers,...rows].map(r=>r.map(c=>`"${c}"`).join(',')).join('\n')
-  const blob = new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'})
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href=url; a.download=`ventas_${new Date().toISOString().slice(0,10)}.csv`; a.click()
-  URL.revokeObjectURL(url)
+function ExportDropdown({ disabled }) {
+  const t = useTheme()
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  const opciones = [
+    { label: '📅 Hoy',         periodo: 'hoy'    },
+    { label: '📆 Esta semana', periodo: 'semana' },
+    { label: '🗓️ Este mes',   periodo: 'mes'    },
+    { label: '📦 Todo',        periodo: 'todo'   },
+  ]
+
+  const descargar = (periodo) => {
+    setOpen(false)
+    const url = `${API_BASE}/export/ventas.xlsx?periodo=${periodo}`
+    const a = document.createElement('a')
+    a.href = url
+    a.click()
+  }
+
+  // Cerrar al hacer clic fuera
+  useMemo(() => {
+    if (!open) return
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        disabled={disabled}
+        onClick={() => setOpen(o => !o)}
+        style={{
+          background: t.accentSub, border: `1px solid ${t.accent}55`, color: t.accent,
+          borderRadius: 7, padding: '7px 13px', fontSize: 11, fontWeight: 600,
+          fontFamily: 'inherit', whiteSpace: 'nowrap', cursor: disabled ? 'not-allowed' : 'pointer',
+          display: 'flex', alignItems: 'center', gap: 5, opacity: disabled ? 0.5 : 1,
+        }}
+      >
+        ↓ Exportar Excel <span style={{ fontSize: 9 }}>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 50,
+          background: t.card, border: `1px solid ${t.border}`, borderRadius: 8,
+          boxShadow: '0 4px 16px #0002', minWidth: 160, overflow: 'hidden',
+        }}>
+          {opciones.map(op => (
+            <button
+              key={op.periodo}
+              onClick={() => descargar(op.periodo)}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                padding: '9px 14px', fontSize: 12, fontWeight: 500,
+                background: 'none', border: 'none', color: t.text,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = t.accentSub}
+              onMouseLeave={e => e.currentTarget.style.background = 'none'}
+            >
+              {op.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Modal Editar Venta (edita UNA línea) ─────────────────────────────────────
@@ -460,13 +516,7 @@ export default function TabHistorial({ refreshKey }) {
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <StyledInput value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar..." style={{width:200}}/>
-          {todasVentas.length>0&&(
-            <button onClick={()=>exportCSV(todasVentas)} style={{
-              background:t.accentSub,border:`1px solid ${t.accent}55`,color:t.accent,
-              borderRadius:7,padding:'7px 13px',fontSize:11,fontWeight:600,
-              fontFamily:'inherit',whiteSpace:'nowrap',cursor:'pointer',
-            }}>↓ Exportar CSV</button>
-          )}
+          <ExportDropdown disabled={todasVentas.length === 0} />
         </div>
       </div>
 

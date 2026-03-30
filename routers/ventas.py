@@ -560,9 +560,12 @@ async def registrar_venta_varia(req: VentaVariaRequest):
 # ── Export Excel on-demand ─────────────────────────────────────────────────────
 
 @router.get("/export/ventas.xlsx")
-def export_ventas_xlsx():
+def export_ventas_xlsx(
+    periodo: str = Query(default="todo", pattern="^(hoy|semana|mes|todo)$"),
+):
     """
-    Genera y descarga un archivo Excel con todas las ventas desde Postgres.
+    Genera y descarga un archivo Excel con ventas filtradas por período.
+    ?periodo=hoy | semana | mes | todo  (default: todo)
     """
     import io
     import openpyxl
@@ -574,24 +577,42 @@ def export_ventas_xlsx():
         if not _db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
-        sql = """
+        ahora = datetime.now(config.COLOMBIA_TZ)
+        params: list = []
+        filtro_fecha = ""
+
+        if periodo == "hoy":
+            filtro_fecha = "AND v.fecha = %s"
+            params.append(ahora.strftime("%Y-%m-%d"))
+        elif periodo == "semana":
+            fecha_inicio = (ahora - timedelta(days=7)).strftime("%Y-%m-%d")
+            filtro_fecha = "AND v.fecha >= %s"
+            params.append(fecha_inicio)
+        elif periodo == "mes":
+            primer_dia = ahora.replace(day=1).strftime("%Y-%m-%d")
+            filtro_fecha = "AND v.fecha >= %s"
+            params.append(primer_dia)
+        # "todo" → sin filtro de fecha
+
+        sql = f"""
             SELECT
                 v.consecutivo,
-                v.fecha::text          AS fecha,
-                COALESCE(v.hora::text, '')          AS hora,
-                COALESCE(v.cliente_nombre, 'Consumidor Final') AS cliente,
-                d.producto_nombre      AS producto,
-                d.cantidad::text       AS cantidad,
-                COALESCE(d.unidad_medida, 'Unidad') AS unidad_medida,
-                COALESCE(d.precio_unitario, 0)::float AS precio_unitario,
-                COALESCE(d.total, 0)::float           AS total,
-                COALESCE(v.vendedor, '')    AS vendedor,
-                COALESCE(v.metodo_pago, '') AS metodo_pago
+                v.fecha::text                                   AS fecha,
+                COALESCE(v.hora::text, '')                      AS hora,
+                COALESCE(v.cliente_nombre, 'Consumidor Final')  AS cliente,
+                d.producto_nombre                               AS producto,
+                d.cantidad::text                                AS cantidad,
+                COALESCE(d.unidad_medida, 'Unidad')             AS unidad_medida,
+                COALESCE(d.precio_unitario, 0)::float           AS precio_unitario,
+                COALESCE(d.total, 0)::float                     AS total,
+                COALESCE(v.vendedor, '')                        AS vendedor,
+                COALESCE(v.metodo_pago, '')                     AS metodo_pago
             FROM ventas v
             JOIN ventas_detalle d ON d.venta_id = v.id
+            WHERE 1=1 {filtro_fecha}
             ORDER BY v.fecha DESC, v.consecutivo DESC
         """
-        rows = _db.query_all(sql, [])
+        rows = _db.query_all(sql, params if params else None)
 
     except HTTPException:
         raise
@@ -637,8 +658,11 @@ def export_ventas_xlsx():
     wb.save(buffer)
     buffer.seek(0)
 
+    labels = {"hoy": "hoy", "semana": "semana", "mes": "mes", "todo": "todas"}
+    nombre_archivo = f"ventas_{labels.get(periodo, 'todas')}_{ahora.strftime('%Y-%m-%d')}.xlsx"
+
     return StreamingResponse(
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=ventas.xlsx"},
+        headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"},
     )
