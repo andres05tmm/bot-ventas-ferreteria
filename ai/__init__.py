@@ -324,8 +324,14 @@ async def procesar_con_claude(
                     "precio","vale","cuesta","cuanto vale","hay","stock","quedan"}
     _es_consulta = any(p in mensaje_usuario.lower() for p in _kw_no_venta)
 
+    # EXCEPCIÓN: venta varia siempre pasa a Claude aunque no esté en catálogo
+    _kw_venta_varia = {"venta varia", "ventas varia", "venta general",
+                       "ventas del dia", "ventas del día", "cuadre de caja",
+                       "cuadre caja", "no alcance a anotar", "no alcancé a anotar"}
+    _es_venta_varia = any(kw in mensaje_usuario.lower() for kw in _kw_venta_varia)
+
     # BLOQUEO MATCH-VACÍO: omitir cuando hay imagen (el texto puede venir vacío/genérico)
-    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode and not _tiene_imagen:
+    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode and not _tiene_imagen and not _es_venta_varia:
         # Extraer nombre del producto del mensaje para respuesta clara
         _msg_limpio = mensaje_usuario.strip().lower()
         # Quitar cantidades y unidades del inicio para aislar el nombre
@@ -607,7 +613,12 @@ async def procesar_con_claude_stream(
                     "top","mas vendido","gasto","caja","inventario","cliente",
                     "precio","vale","cuesta","cuanto vale","hay","stock","quedan"}
     _es_consulta = any(p in mensaje_usuario.lower() for p in _kw_consulta)
-    if _MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode:
+    # EXCEPCIÓN: venta varia siempre pasa a Claude aunque no esté en catálogo
+    _kw_venta_varia2 = {"venta varia", "ventas varia", "venta general",
+                        "ventas del dia", "ventas del día", "cuadre de caja",
+                        "cuadre caja", "no alcance a anotar", "no alcancé a anotar"}
+    _es_venta_varia2 = any(kw in mensaje_usuario.lower() for kw in _kw_venta_varia2)
+    if _MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode and not _es_venta_varia2:
         _msg_lp = re.sub(r'^[\d\s/\.]+', '', mensaje_usuario.strip().lower()).strip()
         _msg_lp = re.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_lp).strip()
         yield ("done", f"No tengo {_msg_lp} en el catálogo.")
