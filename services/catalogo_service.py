@@ -12,6 +12,14 @@ Imports permitidos: logging, re, db, config, utils, alias_manager, fuzzy_match.
 cargar_memoria() se importa de forma lazy dentro de las funciones para evitar
 ciclo de imports (catalogo_service → memoria → catalogo_service).
 NUNCA importar de ai, handlers, o memoria a nivel de módulo.
+
+Por qué lazy y no nivel de módulo:
+  memoria.py importa a config e inicia el cliente de Claude al importarse.
+  Si catalogo_service importara memoria al nivel de módulo, cualquier test
+  que haga `import catalogo_service` necesitaría variables de entorno reales.
+  El lazy import permite mockear memoria por test sin patching complejo.
+
+El patrón correcto para tests es el stub en sys.modules (ver tests/test_catalogo_service.py).
 """
 
 # -- stdlib --

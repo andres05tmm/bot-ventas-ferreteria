@@ -10,6 +10,37 @@ CORRECCIONES v4:
   - Firmas públicas cargar_memoria() y guardar_memoria() sin cambios (~151 referencias externas)
 """
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⚠️  ADVERTENCIA DE ARQUITECTURA — LEER ANTES DE MODIFICAR ESTE ARCHIVO
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# memoria.py es un THIN WRAPPER de re-export sobre los services reales.
+# Existen ~151 callers de `from memoria import X` en el proyecto.
+# Cambiar una firma aquí sin actualizar el service original rompe todo
+# silenciosamente, sin error de importación.
+#
+# TABLA DE RE-EXPORTS:
+#   cargar_memoria, buscar_producto_*, buscar_multiples_*,
+#   obtener_precios_como_texto, obtener_info_fraccion_producto,
+#   importar_catalogo_desde_excel, actualizar_precio_en_catalogo
+#       → services/catalogo_service.py
+#
+#   cargar_inventario
+#       → services/inventario_service.py
+#
+#   cargar_caja, guardar_gasto, obtener_resumen_caja, cargar_gastos_hoy
+#       → services/caja_service.py
+#
+#   guardar_fiado_movimiento, abonar_fiado
+#       → services/fiados_service.py
+#
+# MIGRACIÓN PROGRESIVA (no hacer todo de una vez):
+#   Preferir importar directamente desde el service en código nuevo:
+#     ✅  from services.catalogo_service import buscar_producto_en_catalogo
+#     ⚠️  from memoria import buscar_producto_en_catalogo  (funciona pero oculta dependencia)
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 import logging
 import json
 import os
