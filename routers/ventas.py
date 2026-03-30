@@ -677,8 +677,8 @@ def export_ventas_xlsx(
     ws   = wb.active
 
     labels_periodo = {
-        "hoy":    f"Hoy — {ahora.strftime('%d/%m/%Y')}",
-        "semana": f"Última semana — hasta {ahora.strftime('%d/%m/%Y')}",
+        "hoy":    f"Hoy — {ahora.strftime('%d-%m-%Y')}",
+        "semana": f"Última semana — hasta {ahora.strftime('%d-%m-%Y')}",
         "mes":    f"{ahora.strftime('%B %Y').capitalize()}",
         "todo":   "Acumulado total",
     }
