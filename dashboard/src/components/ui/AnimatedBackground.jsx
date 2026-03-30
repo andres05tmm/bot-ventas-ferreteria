@@ -1,5 +1,5 @@
 // -- AnimatedBackground.jsx --------------------------------------------------
-// Canvas aurora + partículas rojo Ferretería Punto Rojo.
+// Canvas aurora + partículas con repulsión al cursor — Ferretería Punto Rojo.
 // Solo activo en theme "caramelo" (light mode).
 // Respeta prefers-reduced-motion — no anima si el usuario lo pidió.
 // ---------------------------------------------------------------------------
@@ -20,15 +20,24 @@ export default function AnimatedBackground() {
     // Respetar prefers-reduced-motion
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
 
-    const COUNT    = 50
+    const COUNT    = 60
     const MAX_DIST = 120
+    const REPEL_R  = 80
+    const REPEL_F  = 0.018
+
     let animId
     let particles  = []
     let t_anim     = 0
+    let mouse      = { x: -9999, y: -9999 }
 
     function resize() {
       canvas.width  = window.innerWidth
       canvas.height = window.innerHeight
+    }
+
+    function onMouseMove(e) {
+      mouse.x = e.clientX
+      mouse.y = e.clientY
     }
 
     class Particle {
@@ -36,12 +45,26 @@ export default function AnimatedBackground() {
       reset() {
         this.x     = Math.random() * canvas.width
         this.y     = Math.random() * canvas.height
-        this.vx    = (Math.random() - 0.5) * 0.35
-        this.vy    = (Math.random() - 0.5) * 0.35
-        this.r     = Math.random() * 1.8 + 0.6
+        this.vx    = (Math.random() - 0.5) * (0.2 + Math.random() * 0.4)
+        this.vy    = (Math.random() - 0.5) * (0.2 + Math.random() * 0.4)
+        this.r     = Math.random() * 2 + 1
         this.alpha = Math.random() * 0.038 + 0.008
       }
       update() {
+        // Repulsión suave del cursor
+        const dx   = this.x - mouse.x
+        const dy   = this.y - mouse.y
+        const dist = Math.hypot(dx, dy)
+        if (dist < REPEL_R && dist > 0) {
+          const force = (REPEL_R - dist) / REPEL_R
+          this.vx += (dx / dist) * force * REPEL_F
+          this.vy += (dy / dist) * force * REPEL_F
+        }
+
+        // Amortiguación para evitar aceleración infinita
+        this.vx *= 0.995
+        this.vy *= 0.995
+
         this.x += this.vx
         this.y += this.vy
         if (this.x < 0 || this.x > canvas.width)  this.vx *= -1
@@ -55,36 +78,46 @@ export default function AnimatedBackground() {
       }
     }
 
-    function drawAuroras() {
-      t_anim += 0.004
-      const blobs = [
-        {
-          cx: canvas.width  * 0.15 + Math.sin(t_anim)         * 80,
-          cy: canvas.height * 0.25 + Math.cos(t_anim * 0.7)   * 50,
-          r:  canvas.width  * 0.40,
-          a:  0.055,
-        },
-        {
-          cx: canvas.width  * 0.82 + Math.cos(t_anim * 0.8)   * 60,
-          cy: canvas.height * 0.72 + Math.sin(t_anim * 1.1)   * 40,
-          r:  canvas.width  * 0.30,
-          a:  0.030,
-        },
-        {
-          cx: canvas.width  * 0.50 + Math.sin(t_anim * 0.55)  * 45,
-          cy: canvas.height * 0.08 + Math.cos(t_anim * 0.9)   * 28,
-          r:  canvas.width  * 0.22,
-          a:  0.022,
-        },
-      ]
-
-      blobs.forEach(({ cx, cy, r, a }) => {
-        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r)
+    // Dibuja un orbe con blur simulado vía círculos concéntricos
+    function drawOrb(cx, cy, r, alpha) {
+      const steps = 6
+      for (let i = steps; i >= 0; i--) {
+        const ratio  = i / steps
+        const radius = r * ratio
+        const a      = alpha * (1 - ratio) * (1 - ratio)
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
         g.addColorStop(0, `rgba(200,32,14,${a})`)
         g.addColorStop(1, 'rgba(200,32,14,0)')
         ctx.fillStyle = g
         ctx.fillRect(0, 0, canvas.width, canvas.height)
-      })
+      }
+    }
+
+    function drawAuroras() {
+      t_anim += 0.003
+
+      const orbs = [
+        {
+          cx: canvas.width  * 0.15 + Math.sin(t_anim * 0.7)  * 90,
+          cy: canvas.height * 0.25 + Math.cos(t_anim * 0.5)  * 60,
+          r:  190,
+          a:  0.09,
+        },
+        {
+          cx: canvas.width  * 0.82 + Math.cos(t_anim * 0.6)  * 70,
+          cy: canvas.height * 0.72 + Math.sin(t_anim * 0.8)  * 50,
+          r:  155,
+          a:  0.07,
+        },
+        {
+          cx: canvas.width  * 0.50 + Math.sin(t_anim * 0.45) * 55,
+          cy: canvas.height * 0.10 + Math.cos(t_anim * 0.65) * 35,
+          r:  120,
+          a:  0.06,
+        },
+      ]
+
+      orbs.forEach(({ cx, cy, r, a }) => drawOrb(cx, cy, r, a))
     }
 
     function drawConnections() {
@@ -99,7 +132,7 @@ export default function AnimatedBackground() {
             ctx.moveTo(particles[i].x, particles[i].y)
             ctx.lineTo(particles[j].x, particles[j].y)
             ctx.strokeStyle = `rgba(200,32,14,${alpha})`
-            ctx.lineWidth   = 0.5
+            ctx.lineWidth   = 0.4
             ctx.stroke()
           }
         }
@@ -119,9 +152,11 @@ export default function AnimatedBackground() {
     animate()
 
     window.addEventListener('resize', resize)
+    window.addEventListener('mousemove', onMouseMove)
     return () => {
       cancelAnimationFrame(animId)
       window.removeEventListener('resize', resize)
+      window.removeEventListener('mousemove', onMouseMove)
     }
   }, [t.id])
 

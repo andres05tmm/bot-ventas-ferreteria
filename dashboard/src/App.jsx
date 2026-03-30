@@ -638,7 +638,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
         ::-webkit-scrollbar-track { background:transparent }
         ::-webkit-scrollbar-thumb { background:${t.accent}50; border-radius:99px }
         .tab-content { animation:fadeIn .22s ease forwards }
-        @media (orientation: landscape) and (max-height: 500px) {
+        @media screen and (orientation: landscape) and (max-device-width: 900px) {
           .landscape-block { display: flex !important; }
         }
         * { -webkit-tap-highlight-color: transparent }
@@ -707,11 +707,19 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
 }
 
 export default function App() {
-  const [themeId, setThemeId] = useState('forja')
+  const [themeId, setThemeId] = useState(
+    () => localStorage.getItem('ferrebot_theme') || 'caramelo'
+  )
   const refreshRef = useRef(null)
+
+  function handleSetThemeId(id) {
+    setThemeId(id)
+    localStorage.setItem('ferrebot_theme', id)
+  }
+
   return (
     <ThemeContext.Provider value={THEMES[themeId]}>
-      <AppShell themeId={themeId} setThemeId={setThemeId} refreshRef={refreshRef}/>
+      <AppShell themeId={themeId} setThemeId={handleSetThemeId} refreshRef={refreshRef}/>
     </ThemeContext.Provider>
   )
 }
