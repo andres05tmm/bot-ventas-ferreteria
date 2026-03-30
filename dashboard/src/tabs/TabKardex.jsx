@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  useTheme, useFetch, Card, SectionTitle, KpiCard,
+  useTheme, useFetch, GlassCard, SectionTitle, KpiCard,
   Spinner, ErrorMsg, StyledInput, EmptyState, cop, num,
 } from '../components/shared.jsx'
 
@@ -181,7 +181,7 @@ export default function TabKardex({ refreshKey }) {
       {!loading && !error && (
         <>
           {!tieneDatos ? (
-            <Card>
+            <GlassCard>
               <div style={{ padding: '32px 24px', textAlign: 'center' }}>
                 <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
                 <div style={{ color: t.text, fontWeight: 600, fontSize: 14, marginBottom: 10 }}>
@@ -202,7 +202,7 @@ export default function TabKardex({ refreshKey }) {
                   Una vez registres compras, aquí verás entradas, salidas, saldos y costo promedio por producto.
                 </div>
               </div>
-            </Card>
+            </GlassCard>
           ) : (
             <>
               {/* KPIs */}
@@ -213,7 +213,7 @@ export default function TabKardex({ refreshKey }) {
 
               {/* Lista productos */}
               {items.length === 0 ? (
-                <Card><EmptyState msg="Sin resultados para la búsqueda." /></Card>
+                <GlassCard><EmptyState msg="Sin resultados para la búsqueda." /></GlassCard>
               ) : (
                 items.map(item => <ProductoKardex key={item.producto} item={item} t={t} />)
               )}
