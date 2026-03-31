@@ -1808,12 +1808,15 @@ export default function TabVentasRapidas({ refreshKey }) {
     if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
   }
   const confirmarKg = ({ kg, total, desc }) => {
+    const wasEmpty = carrito.length === 0
+    const nombre = modalKg.nombre
     setCarrito(p => [...p, {
       id: Date.now(), key: modalKg.key, nombre: modalKg.nombre,
       precio: total, qty: kg, total, desc, tipo: 'kg',
       unidad: modalKg.unidad_medida || 'Kg',
     }])
     setModalKg(null)
+    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
   }
   const confirmarFrac = ({ unidades, fracKey, total, desc }) => {
     const wasEmpty = carrito.length === 0
