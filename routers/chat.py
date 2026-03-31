@@ -1298,6 +1298,174 @@ async def briefing_matutino():
         }
 
 
+@router.get("/chat/reporte-datos")
+async def reporte_datos(periodo: str = Query(default="mes", pattern="^(semana|mes)$")):
+    """
+    Agrega en un solo JSON todos los datos necesarios para el reporte financiero PDF.
+    Llama internamente a las funciones de DB equivalentes a:
+    /ventas/resumen, /ventas/top, /gastos (periodo), /caja, /proveedores/resumen.
+    """
+    import db as _db
+    from collections import defaultdict
+
+    ahora = datetime.now(config.COLOMBIA_TZ)
+
+    if periodo == "semana":
+        fecha_inicio = (ahora - timedelta(days=7)).strftime("%Y-%m-%d")
+        dias_periodo = 7
+    else:
+        fecha_inicio = ahora.replace(day=1).strftime("%Y-%m-%d")
+        dias_periodo = ahora.day
+
+    fecha_hoy = ahora.strftime("%Y-%m-%d")
+
+    try:
+        # ── 1. Ingresos del período ────────────────────────────────────────────
+        ingresos_row = _db.query_one(
+            """
+            SELECT
+                COALESCE(SUM(d.total), 0)        AS ingresos,
+                COUNT(DISTINCT v.id)             AS transacciones
+            FROM ventas v
+            JOIN ventas_detalle d ON d.venta_id = v.id
+            WHERE v.fecha >= %s
+            """,
+            [fecha_inicio],
+        ) if _db.DB_DISPONIBLE else None
+
+        ingresos      = _to_float(ingresos_row["ingresos"])      if ingresos_row else 0.0
+        transacciones = int(ingresos_row["transacciones"])        if ingresos_row else 0
+        ticket_prom   = round(ingresos / transacciones, 0)        if transacciones else 0.0
+
+        # ── 2. Gastos operativos del período ──────────────────────────────────
+        gastos_rows = _db.query_all(
+            """
+            SELECT concepto, monto, COALESCE(categoria, 'General') AS categoria
+            FROM gastos
+            WHERE fecha >= %s
+            ORDER BY categoria, monto DESC
+            """,
+            [fecha_inicio],
+        ) if _db.DB_DISPONIBLE else []
+
+        gastos_por_cat: dict = defaultdict(float)
+        for g in gastos_rows:
+            gastos_por_cat[g["categoria"]] += _to_float(g["monto"])
+
+        gastos_operativos = sum(gastos_por_cat.values())
+        gastos_categorias = [
+            {"categoria": cat, "monto": monto}
+            for cat, monto in sorted(gastos_por_cat.items(), key=lambda x: -x[1])
+        ]
+
+        # ── 3. Estado de resultados ────────────────────────────────────────────
+        # Nota: sin estructura de costos en la DB, CMV se estima en 0
+        # (el negocio no tiene precio de costo registrado)
+        cmv            = 0.0
+        utilidad_bruta = ingresos - cmv
+        utilidad_neta  = utilidad_bruta - gastos_operativos
+
+        # ── 4. Top 5 productos del período ────────────────────────────────────
+        top_rows = _db.query_all(
+            """
+            SELECT
+                d.producto_nombre            AS producto,
+                COALESCE(SUM(d.cantidad), 0) AS unidades,
+                COALESCE(SUM(d.total), 0)    AS ingresos
+            FROM ventas v
+            JOIN ventas_detalle d ON d.venta_id = v.id
+            WHERE v.fecha >= %s
+            GROUP BY d.producto_nombre
+            ORDER BY SUM(d.total) DESC
+            LIMIT 5
+            """,
+            [fecha_inicio],
+        ) if _db.DB_DISPONIBLE else []
+
+        top_productos = [
+            {
+                "producto": r["producto"],
+                "unidades": _to_float(r["unidades"]),
+                "ingresos": _to_float(r["ingresos"]),
+            }
+            for r in top_rows
+        ]
+
+        # ── 5. Proyección de cierre de mes ────────────────────────────────────
+        caja_row = _db.query_one(
+            "SELECT efectivo, transferencias, datafono, monto_apertura FROM caja WHERE fecha = %s",
+            [fecha_hoy],
+        ) if _db.DB_DISPONIBLE else None
+
+        caja_actual = 0.0
+        if caja_row:
+            caja_actual = (
+                _to_float(caja_row.get("monto_apertura", 0))
+                + _to_float(caja_row.get("efectivo", 0))
+                - gastos_operativos  # aproximación
+            )
+
+        dias_restantes     = max(0, ahora.replace(day=1).replace(
+            month=ahora.month % 12 + 1 if ahora.month < 12 else 1,
+            year=ahora.year + (1 if ahora.month == 12 else 0),
+        ).toordinal() - ahora.toordinal() - 1)
+
+        prom_diario_ventas = round(ingresos / max(dias_periodo, 1), 0)
+        prom_diario_gastos = round(gastos_operativos / max(dias_periodo, 1), 0)
+        proyeccion_fin_mes = round(
+            caja_actual + (prom_diario_ventas - prom_diario_gastos) * dias_restantes, 0
+        )
+
+        proyeccion = {
+            "caja_actual":            caja_actual,
+            "proyeccion_fin_mes":     proyeccion_fin_mes,
+            "promedio_diario_ventas": prom_diario_ventas,
+            "promedio_diario_gastos": prom_diario_gastos,
+        }
+
+        # ── 6. Cuentas por pagar (proveedores) ───────────────────────────────
+        import asyncio as _asyncio
+        from memoria import listar_facturas
+        cuentas_pagar = []
+        try:
+            facturas = await _asyncio.to_thread(listar_facturas)
+            for f in facturas:
+                if f.get("estado") != "pagada" and _to_float(f.get("pendiente", 0)) > 0:
+                    cuentas_pagar.append({
+                        "proveedor": f.get("proveedor", "—"),
+                        "factura":   f.get("numero_factura") or f.get("id") or "—",
+                        "saldo":     _to_float(f.get("pendiente", 0)),
+                    })
+        except Exception:
+            pass
+
+        # ── 7. Respuesta ──────────────────────────────────────────────────────
+        return {
+            "ok":      True,
+            "periodo": periodo,
+            "fecha_generacion": ahora.strftime("%d/%m/%Y %H:%M"),
+            "estado_resultados": {
+                "ingresos":          ingresos,
+                "cmv":               cmv,
+                "utilidad_bruta":    utilidad_bruta,
+                "gastos_operativos": gastos_operativos,
+                "utilidad_neta":     utilidad_neta,
+            },
+            "indicadores": {
+                "ticket_promedio": ticket_prom,
+                "transacciones":   transacciones,
+            },
+            "gastos_categorias": gastos_categorias,
+            "top_productos":     top_productos,
+            "proyeccion":        proyeccion,
+            "cuentas_pagar":     cuentas_pagar,
+        }
+
+    except Exception as e:
+        logger.error(f"[/chat/reporte-datos] {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/chat/transcribir")
 async def transcribir_audio(audio: UploadFile = File(...)):
     """
