@@ -49,7 +49,7 @@ function Icon({ name, size = 20, color = 'currentColor', strokeWidth = 1.75 }) {
 // ── Logo SVG vectorial ────────────────────────────────────────────────────────
 function Logo({ size = 40, themeId }) {
   const isDark = themeId !== 'caramelo'
-  const red    = themeId === 'brasa' ? '#F03418' : '#D42010'
+  const red    = themeId === 'brasa' ? '#F03418' : '#C8200E'
   const txt    = isDark ? '#F0E8DC' : '#1C1410'
   const sub    = isDark ? 'rgba(240,232,220,.42)' : 'rgba(28,20,16,.38)'
   const w      = Math.round(size * 4.6)
@@ -333,6 +333,7 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
 // ── Tabs Nav Desktop ──────────────────────────────────────────────────────────
 function TabsNavDesktop({ activeTab, setTab }) {
   const t = useTheme()
+  const [hoveredTab, setHoveredTab] = useState(null)
   return (
     <nav style={{
       background: t.header,
@@ -344,30 +345,44 @@ function TabsNavDesktop({ activeTab, setTab }) {
       <div style={{
         maxWidth: 1400, margin: '0 auto', padding: '0 20px',
         display: 'flex', overflowX: 'auto',
+        scrollbarWidth: 'none', msOverflowStyle: 'none',
+        gap: 2,
+        alignItems: 'center',
       }}>
         {TABS.map(tab => {
-          const active = activeTab === tab
+          const active  = activeTab === tab
+          const hovered = hoveredTab === tab && !active
           return (
-            <button key={tab} onClick={() => setTab(tab)} style={{
-              position: 'relative', background: 'transparent', border: 'none',
-              borderBottom: `2px solid ${active ? t.accent : 'transparent'}`,
-              color: active ? t.accent : t.textMuted,
-              fontSize: 12, fontWeight: active ? 700 : 500,
-              padding: '12px 14px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
-              display: 'flex', alignItems: 'center', gap: 7,
-              transition: 'color .15s, border-color .15s',
-            }}>
+            <button
+              key={tab}
+              onClick={() => setTab(tab)}
+              onMouseEnter={() => setHoveredTab(tab)}
+              onMouseLeave={() => setHoveredTab(null)}
+              style={{
+                position: 'relative', border: 'none',
+                background: active
+                  ? t.accentSub
+                  : hovered ? `${t.accentSub}80` : 'transparent',
+                color: active ? t.accent : hovered ? t.textSub : t.textMuted,
+                fontSize: 12, fontWeight: active ? 700 : 500,
+                padding: '7px 13px', cursor: 'pointer', whiteSpace: 'nowrap',
+                display: 'flex', alignItems: 'center', gap: 7,
+                borderRadius: 8,
+                margin: '6px 0',
+                transition: 'color .15s, background .15s',
+                boxShadow: active ? `inset 0 0 0 1px ${t.accent}25` : 'none',
+              }}
+            >
+              <span style={{ display: 'flex' }}>
+                <Icon name={tab} size={13} color={active ? t.accent : hovered ? t.textSub : t.textMuted} strokeWidth={active ? 2.2 : 1.75}/>
+              </span>
+              <span>{tab}</span>
               {active && (
                 <span style={{
-                  position: 'absolute', inset: '4px 4px 0',
-                  background: t.accentSub, borderRadius: '8px 8px 0 0',
-                  pointerEvents: 'none',
+                  display: 'block', width: 4, height: 4, borderRadius: '50%',
+                  background: t.accent, opacity: 0.7, flexShrink: 0,
                 }}/>
               )}
-              <span style={{ position: 'relative', display: 'flex' }}>
-                <Icon name={tab} size={14} color={active ? t.accent : t.textMuted} strokeWidth={active ? 2.2 : 1.75}/>
-              </span>
-              <span style={{ position: 'relative' }}>{tab}</span>
             </button>
           )
         })}
@@ -619,12 +634,12 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
       background: t.id === 'caramelo' ? 'transparent' : t.bgPattern,
       minHeight: '100dvh',
       color: t.text,
-      fontSize: 13,
+      fontSize: 14,
       transition: 'background .3s, color .25s',
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap');
-        ${t.id === 'caramelo' ? 'html,body{background:#faf9f7}' : ''}
+        ${t.id === 'caramelo' ? 'html,body{background:#F8F5F1}' : ''}
         *, *::before, *::after { box-sizing:border-box; margin:0; padding:0 }
         html { -webkit-text-size-adjust: 100% }
         button { font-family:inherit; cursor:pointer }
@@ -637,6 +652,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
         ::-webkit-scrollbar       { width:3px; height:3px }
         ::-webkit-scrollbar-track { background:transparent }
         ::-webkit-scrollbar-thumb { background:${t.accent}50; border-radius:99px }
+        nav div::-webkit-scrollbar { display:none }
         .tab-content { animation:fadeIn .22s ease forwards }
         @media screen and (orientation: landscape) and (max-device-width: 900px) {
           .landscape-block { display: flex !important; }

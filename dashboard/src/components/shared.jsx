@@ -35,24 +35,24 @@ export const THEMES = {
   caramelo: {
     id: 'caramelo',
     label: '☀️ Claro',
-    bg:         '#F2EDE4',
-    bgPattern:  `radial-gradient(circle at 20% 50%, rgba(212,32,16,0.03) 0%, transparent 50%),
-                 radial-gradient(circle at 80% 20%, rgba(212,32,16,0.02) 0%, transparent 40%),
-                 #F2EDE4`,
-    header:     'rgba(255,253,249,0.92)',
-    headerBlur: 'blur(12px)',
+    bg:         '#F8F5F1',
+    bgPattern:  `radial-gradient(circle at 20% 50%, rgba(200,32,14,0.03) 0%, transparent 50%),
+                 radial-gradient(circle at 80% 20%, rgba(200,32,14,0.02) 0%, transparent 40%),
+                 #F8F5F1`,
+    header:     'rgba(255,254,252,0.96)',
+    headerBlur: 'blur(20px)',
     card:       '#FFFFFF',
-    cardHover:  '#FDF9F4',
-    cardGrad:   'linear-gradient(135deg, #FFFFFF 0%, #FDF9F4 100%)',
-    border:     '#E4DDD3',
-    borderSoft: '#EDE8E0',
+    cardHover:  '#FEFCF9',
+    cardGrad:   'linear-gradient(135deg, #FFFFFF 0%, #FEFCF9 100%)',
+    border:     '#EAE4DC',
+    borderSoft: '#F0EBE3',
     text:       '#1C1410',
     textSub:    '#4A3F35',
     textMuted:  '#9C8E82',
-    accent:     '#D42010',
-    accentSub:  'rgba(212,32,16,0.08)',
-    accentHov:  '#A81808',
-    accentGlow: 'rgba(212,32,16,0.15)',
+    accent:     '#C8200E',
+    accentSub:  'rgba(200,32,14,0.08)',
+    accentHov:  '#A01808',
+    accentGlow: 'rgba(200,32,14,0.15)',
     green:      '#1A7A3C',
     greenSub:   'rgba(26,122,60,0.08)',
     yellow:     '#C47A10',
@@ -61,9 +61,9 @@ export const THEMES = {
     blueSub:    'rgba(32,86,200,0.08)',
     tableAlt:   '#FDFAF6',
     tableFoot:  '#F5F0E8',
-    shadow:     '0 1px 2px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.06)',
-    shadowHov:  '0 4px 8px rgba(0,0,0,0.06), 0 12px 32px rgba(0,0,0,0.10)',
-    shadowCard: '0 0 0 1px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.06)',
+    shadow:     '0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.07)',
+    shadowHov:  '0 8px 28px rgba(0,0,0,0.13), 0 3px 10px rgba(0,0,0,0.07)',
+    shadowCard: '0 0 0 1px rgba(0,0,0,0.05), 0 2px 8px rgba(0,0,0,0.07)',
   },
   // ── Tema oscuro: pizarra profunda ─────────────────────────────────────────
   forja: {
@@ -200,24 +200,32 @@ export function useFetch(path, deps = []) {
 
 export function Card({ children, style = {} }) {
   const t = useTheme()
+  const [hovered, setHovered] = useState(false)
   return (
-    <div style={{
-      position:     'relative',
-      background:   t.cardGrad,
-      border:       `1px solid ${t.border}`,
-      borderRadius: 16,
-      padding:      20,
-      boxShadow:    t.shadowCard,
-      overflow:     'hidden',
-      ...style,
-    }}>
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position:     'relative',
+        background:   t.cardGrad,
+        border:       `1px solid ${hovered ? t.accent + '30' : t.border}`,
+        borderRadius: 16,
+        padding:      20,
+        boxShadow:    hovered ? t.shadowHov : t.shadowCard,
+        overflow:     'hidden',
+        transform:    hovered ? 'translateY(-2px)' : 'translateY(0)',
+        transition:   'transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease',
+        ...style,
+      }}
+    >
       {/* Accent line top */}
       <div style={{
         position:   'absolute',
         top:        0, left: 16, right: 16,
         height:     2,
-        background: `linear-gradient(90deg, transparent, ${t.accent}40, transparent)`,
+        background: `linear-gradient(90deg, transparent, ${t.accent}${hovered ? '60' : '40'}, transparent)`,
         borderRadius: 99,
+        transition: 'opacity 0.22s ease',
       }}/>
       {children}
     </div>
@@ -227,32 +235,44 @@ export function Card({ children, style = {} }) {
 export function GlassCard({ children, style = {} }) {
   const t = useTheme()
   const isCaramelo = t.id === 'caramelo'
+  const [hovered, setHovered] = useState(false)
   return (
-    <div style={{
-      position:       'relative',
-      background:     isCaramelo ? 'rgba(255,255,255,0.72)' : t.cardGrad,
-      backdropFilter: isCaramelo ? 'blur(12px)'             : undefined,
-      WebkitBackdropFilter: isCaramelo ? 'blur(12px)'       : undefined,
-      border:         isCaramelo
-        ? '0.5px solid rgba(200,32,14,0.12)'
-        : `1px solid ${t.border}`,
-      borderRadius:   16,
-      padding:        20,
-      boxShadow:      isCaramelo
-        ? '0 2px 12px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(200,32,14,0.08)'
-        : t.shadowCard,
-      overflow:       'hidden',
-      ...style,
-    }}>
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position:       'relative',
+        background:     isCaramelo
+          ? (hovered ? 'rgba(255,255,255,0.88)' : 'rgba(255,255,255,0.72)')
+          : t.cardGrad,
+        backdropFilter: isCaramelo ? 'blur(16px)'       : undefined,
+        WebkitBackdropFilter: isCaramelo ? 'blur(16px)' : undefined,
+        border:         isCaramelo
+          ? `0.5px solid rgba(200,32,14,${hovered ? '0.22' : '0.12'})`
+          : `1px solid ${hovered ? t.accent + '40' : t.border}`,
+        borderRadius:   16,
+        padding:        20,
+        boxShadow:      isCaramelo
+          ? (hovered
+              ? '0 8px 28px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(200,32,14,0.18)'
+              : '0 2px 12px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(200,32,14,0.08)')
+          : (hovered ? t.shadowHov : t.shadowCard),
+        overflow:       'hidden',
+        transform:      hovered ? 'translateY(-2px)' : 'translateY(0)',
+        transition:     'transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease',
+        ...style,
+      }}
+    >
       {children}
     </div>
   )
 }
 
 export function KpiCard({ label, value, sub, color, icon }) {
-  const t         = useTheme()
-  const c         = color || t.accent
+  const t          = useTheme()
+  const c          = color || t.accent
   const isCaramelo = t.id === 'caramelo'
+  const [hovered, setHovered] = useState(false)
 
   // Count-up: parse numeric value from formatted string or raw number
   const rawNum = (() => {
@@ -275,25 +295,29 @@ export function KpiCard({ label, value, sub, color, icon }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
-      whileHover={{ scale: 1.02 }}
+      whileHover={{ scale: 1.025, y: -3 }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         flex: 1, minWidth: 160,
         position: 'relative',
         background: isCaramelo
-          ? 'rgba(255,255,255,0.72)'
+          ? (hovered ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.72)')
           : t.cardGrad,
-        backdropFilter:       isCaramelo ? 'blur(12px)' : undefined,
-        WebkitBackdropFilter: isCaramelo ? 'blur(12px)' : undefined,
+        backdropFilter:       isCaramelo ? 'blur(16px)' : undefined,
+        WebkitBackdropFilter: isCaramelo ? 'blur(16px)' : undefined,
         border: isCaramelo
-          ? `0.5px solid rgba(200,32,14,0.14)`
-          : `1px solid ${t.border}`,
+          ? `0.5px solid rgba(200,32,14,${hovered ? '0.28' : '0.14'})`
+          : `1px solid ${hovered ? t.accent + '40' : t.border}`,
         borderRadius: 16,
         padding: '16px 18px 16px 22px',
         cursor: 'default',
-        transition: 'border-color 0.2s ease, box-shadow 0.2s ease, background 0.22s cubic-bezier(0.4,0,0.2,1)',
+        transition: 'border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease',
         boxShadow: isCaramelo
-          ? '0 2px 12px rgba(0,0,0,0.07), 0 0 0 0.5px rgba(200,32,14,0.08)'
-          : t.shadowCard,
+          ? (hovered
+              ? `0 8px 28px rgba(0,0,0,0.13), 0 0 0 1px ${c}22`
+              : '0 2px 12px rgba(0,0,0,0.07), 0 0 0 0.5px rgba(200,32,14,0.08)')
+          : (hovered ? t.shadowHov : t.shadowCard),
         overflow: 'hidden',
       }}
     >
@@ -304,7 +328,8 @@ export function KpiCard({ label, value, sub, color, icon }) {
         width: 3,
         background: `linear-gradient(180deg, ${c}00, ${c}, ${c}00)`,
         borderRadius: 99,
-        opacity: 0.6,
+        opacity: hovered ? 0.9 : 0.55,
+        transition: 'opacity 0.22s ease',
       }}/>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
