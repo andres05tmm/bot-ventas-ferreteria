@@ -109,6 +109,7 @@ function tipoProd(prod) {
   if (prod.nombre?.toLowerCase().includes('esmeril')) return 'cm'
   if (['MLT','MILILITROS','ML'].includes((prod.unidad_medida || '').toUpperCase())) return 'mlt'
   if (['GRM','GRAMOS','GR'].includes((prod.unidad_medida || '').toUpperCase())) return 'grm'
+  if (['KG','KGM'].includes((prod.unidad_medida || '').toUpperCase())) return 'kg'
   if (prod.precios_fraccion && Object.keys(prod.precios_fraccion).length > 0) return 'fraccion'
   return 'simple'
 }
@@ -732,6 +733,97 @@ function ModalGrm({ prod, onClose, onConfirm }) {
           </div>
         </div>
       )}
+    </Modal>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MODAL KG — Productos por kilo (Acronal, Yeso, Cemento Blanco, etc.)
+// ══════════════════════════════════════════════════════════════════════════════
+function ModalKg({ prod, onClose, onConfirm }) {
+  const t = useTheme()
+  const [kg, setKg] = useState('')
+  const [precioCustom, setPrecioCustom] = useState(null)
+  if (!prod) return null
+
+  const kgNum     = parseFloat(kg) || 0
+  const totalCalc = Math.round(kgNum * (prod.precio || 0))
+  const precioFinal = precioCustom !== null ? precioCustom : totalCalc
+  const valido    = kgNum > 0
+
+  const ACCESOS = [
+    { label: '½ kg',  kg: 0.5 },
+    { label: '1 kg',  kg: 1   },
+    { label: '1½ kg', kg: 1.5 },
+    { label: '2 kg',  kg: 2   },
+    { label: '2½ kg', kg: 2.5 },
+    { label: '3 kg',  kg: 3   },
+  ]
+
+  const kgDesc = (v) => {
+    const ent = Math.floor(v)
+    const med = (v % 1).toFixed(1) === '0.5'
+    if (med && ent === 0) return '½ kg'
+    if (med) return `${ent}½ kg`
+    return `${ent} kg`
+  }
+
+  const confirmar = () => {
+    if (!valido) return
+    onConfirm({ kg: kgNum, total: precioFinal, desc: kgDesc(kgNum) })
+  }
+
+  return (
+    <Modal show title={prod.nombre}
+      subtitle={`${cop(prod.precio)}/kg`}
+      onClose={onClose} onConfirm={confirmar} okDisabled={!valido}
+      okLabel="Agregar al carrito">
+
+      {/* Accesos rápidos */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 16 }}>
+        {ACCESOS.map(a => {
+          const activo = parseFloat(kg) === a.kg
+          return (
+            <button key={a.kg} onClick={() => { setKg(String(a.kg)); setPrecioCustom(null) }}
+              style={{
+                padding: '8px 4px', borderRadius: 8, cursor: 'pointer', textAlign: 'center',
+                background: activo ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#111'),
+                border: `1px solid ${activo ? t.accent : t.border}`,
+                color: activo ? t.accent : t.text,
+                fontSize: 12, fontFamily: 'inherit', transition: 'all .15s',
+              }}>
+              <div style={{ fontWeight: 600 }}>{a.label}</div>
+              <div style={{ fontSize: 10, color: t.textMuted, marginTop: 2 }}>
+                {cop(Math.round(a.kg * prod.precio))}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Input personalizado */}
+      <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
+        Cantidad personalizada (kg)
+      </div>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+        border: `1px solid ${t.accent}66`, borderRadius: 8,
+        padding: '10px 14px', marginBottom: 8,
+      }}>
+        <input autoFocus type="number" min="0.5" step="0.5" value={kg}
+          onChange={e => { setKg(e.target.value); setPrecioCustom(null) }}
+          style={{
+            flex: 1, background: 'transparent', border: 'none',
+            color: t.text, fontSize: 26, fontFamily: 'monospace',
+            outline: 'none', textAlign: 'center',
+            MozAppearance: 'textfield', appearance: 'textfield',
+          }}
+          placeholder="0"
+        />
+        <span style={{ fontSize: 13, color: t.textMuted }}>kg</span>
+      </div>
+      <PrecioEditor precioCalc={totalCalc} precioFinal={precioFinal} onChange={setPrecioCustom} desc={kgDesc(kgNum)} />
     </Modal>
   )
 }
@@ -1571,6 +1663,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [modalQty,  setModalQty]  = useState(null)
   const [modalMlt,  setModalMlt]  = useState(null)
   const [modalGrm,  setModalGrm]  = useState(null)
+  const [modalKg,   setModalKg]   = useState(null)
   const [toast,     setToast]     = useState(null)
   const [enviando,  setEnviando]  = useState(false)
   const [subcatFiltro,      setSubcatFiltro]      = useState(null)
@@ -1645,6 +1738,7 @@ export default function TabVentasRapidas({ refreshKey }) {
     if (prod.tipo === 'cm')       { setModalCm(prod);   return }
     if (prod.tipo === 'mlt')      { setModalMlt(prod);  return }
     if (prod.tipo === 'grm')      { setModalGrm(prod);  return }
+    if (prod.tipo === 'kg')       { setModalKg(prod);   return }
     // Simple: primer click = directo, segundo click = editar qty
     const ya = carrito.find(c => c.key === prod.key && c.tipo === 'simple')
     if (ya) { setModalQty(prod) }
@@ -1675,6 +1769,14 @@ export default function TabVentasRapidas({ refreshKey }) {
       unidad: modalGrm.unidad_medida || 'Gramos',
     }])
     setModalGrm(null)
+  }
+  const confirmarKg = ({ kg, total, desc }) => {
+    setCarrito(p => [...p, {
+      id: Date.now(), key: modalKg.key, nombre: modalKg.nombre,
+      precio: total, qty: kg, total, desc, tipo: 'kg',
+      unidad: modalKg.unidad_medida || 'Kg',
+    }])
+    setModalKg(null)
   }
   const confirmarFrac = ({ unidades, fracKey, total, desc }) => {
     // Calcular cantidad real: unidades enteras + fracción decimal
@@ -2125,6 +2227,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       {modalQty  && <ModalQty      key={modalQty.key}   prod={modalQty}  onClose={() => setModalQty(null)}  onConfirm={confirmarQty} />}
       {modalMlt  && <ModalMlt      key={modalMlt.key}   prod={modalMlt}  onClose={() => setModalMlt(null)}  onConfirm={confirmarMlt} />}
       {modalGrm  && <ModalGrm      key={modalGrm.key}   prod={modalGrm}  onClose={() => setModalGrm(null)}  onConfirm={confirmarGrm} />}
+      {modalKg   && <ModalKg       key={modalKg.key}    prod={modalKg}   onClose={() => setModalKg(null)}   onConfirm={confirmarKg}  />}
 
       {/* Toast */}
       {toast && (
