@@ -3,9 +3,12 @@ Router: Chat IA — /chat/*, /api/health
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
+import secrets
+import threading as _threading
 import time
 import uuid
 from collections import defaultdict
@@ -25,6 +28,330 @@ from routers.shared import (
 logger = logging.getLogger("ferrebot.api")
 
 router = APIRouter()
+
+# ── Consultas de ventas en lenguaje natural ───────────────────────────────────
+
+_temp_exports: dict = {}                           # token → {rows, params, expira}
+_temp_exports_lock  = _threading.Lock()
+
+
+def _limpiar_exports_expirados() -> None:
+    ahora = time.time()
+    with _temp_exports_lock:
+        expirados = [t for t, v in _temp_exports.items() if v["expira"] < ahora]
+        for t in expirados:
+            _temp_exports.pop(t, None)
+
+
+def _construir_sql_consulta(params: dict) -> tuple:
+    """
+    Construye SQL parametrizado a partir de los params que Claude emite en
+    [CONSULTA_VENTAS]{...}[/CONSULTA_VENTAS].  Nunca ejecuta SQL literal de Claude.
+    Columnas soportadas: periodo, vendedor, metodo, cliente, producto.
+    """
+    import re as _re
+    ahora = datetime.now(config.COLOMBIA_TZ)
+    wheres, valores = ["1=1"], []
+
+    periodo = (params.get("periodo") or "").lower().strip()
+    if periodo == "hoy":
+        wheres.append("v.fecha = %s")
+        valores.append(ahora.strftime("%Y-%m-%d"))
+    elif periodo in ("semana", "esta semana", "últimos 7 días", "ultimos 7 dias"):
+        wheres.append("v.fecha >= %s")
+        valores.append((ahora - timedelta(days=7)).strftime("%Y-%m-%d"))
+    elif periodo in ("mes", "este mes"):
+        wheres.append("v.fecha >= %s")
+        valores.append(ahora.replace(day=1).strftime("%Y-%m-%d"))
+    else:
+        m = _re.match(r"(\d+)\s*(dia|días|dias|semana|semanas)", periodo)
+        if m:
+            n = int(m.group(1)) * (7 if "semana" in m.group(2) else 1)
+            wheres.append("v.fecha >= %s")
+            valores.append((ahora - timedelta(days=n)).strftime("%Y-%m-%d"))
+
+    if params.get("vendedor"):
+        wheres.append("LOWER(COALESCE(v.vendedor,'')) LIKE %s")
+        valores.append(f"%{params['vendedor'].lower().strip()}%")
+    if params.get("metodo"):
+        wheres.append("LOWER(COALESCE(v.metodo_pago,'')) LIKE %s")
+        valores.append(f"%{params['metodo'].lower().strip()}%")
+    if params.get("cliente"):
+        wheres.append("LOWER(COALESCE(v.cliente_nombre,'')) LIKE %s")
+        valores.append(f"%{params['cliente'].lower().strip()}%")
+    if params.get("producto"):
+        wheres.append("LOWER(COALESCE(d.producto_nombre,'')) LIKE %s")
+        valores.append(f"%{params['producto'].lower().strip()}%")
+
+    sql = f"""
+        SELECT
+            v.fecha::text                                               AS fecha,
+            COALESCE(v.hora::text, '')                                  AS hora,
+            CASE WHEN v.cliente_id IS NULL THEN 'CF'
+                 ELSE v.cliente_id::text END                            AS id_cliente,
+            COALESCE(v.cliente_nombre, 'Consumidor Final')              AS cliente,
+            COALESCE(
+                p.codigo,
+                (SELECT p2.codigo FROM productos p2
+                 WHERE LOWER(TRIM(p2.nombre)) = LOWER(TRIM(d.producto_nombre))
+                 LIMIT 1),
+                ''
+            )                                                           AS codigo_producto,
+            d.producto_nombre                                           AS producto,
+            COALESCE(d.unidad_medida, 'Unidad')                        AS unidad_medida,
+            d.cantidad::text                                            AS cantidad,
+            COALESCE(d.precio_unitario, 0)::float                      AS precio_unitario,
+            COALESCE(d.total, 0)::float                                 AS total,
+            v.consecutivo                                               AS consecutivo,
+            COALESCE(v.vendedor, '')                                    AS vendedor,
+            COALESCE(v.metodo_pago, '')                                 AS metodo_pago
+        FROM ventas v
+        JOIN ventas_detalle d ON d.venta_id = v.id
+        LEFT JOIN productos p ON p.id = d.producto_id
+        WHERE {' AND '.join(wheres)}
+        ORDER BY v.fecha DESC, v.consecutivo DESC, d.id
+    """
+    return sql, valores
+
+
+def _formatear_resumen_consulta(rows: list, params: dict) -> str:
+    if not rows:
+        return "No encontré ventas con esos filtros."
+
+    total_general   = sum(float(r.get("total") or 0) for r in rows)
+    n_transacciones = len({r.get("consecutivo") for r in rows if r.get("consecutivo")})
+    periodo         = (params.get("periodo") or "").lower()
+    periodo_label   = {"hoy": "hoy", "semana": "últimos 7 días", "mes": "este mes"}.get(
+        periodo, periodo or "en total"
+    )
+
+    lineas = [
+        f"{n_transacciones} transacciones ({len(rows)} líneas), "
+        f"total ${total_general:,.0f} — {periodo_label}"
+    ]
+
+    por_vendedor: dict = {}
+    for r in rows:
+        v = str(r.get("vendedor") or "Sin vendedor").strip()
+        por_vendedor[v] = por_vendedor.get(v, 0) + float(r.get("total") or 0)
+    if len(por_vendedor) > 1:
+        lineas.append("Por vendedor:")
+        for v, t in sorted(por_vendedor.items(), key=lambda x: -x[1]):
+            lineas.append(f"  {v}: ${t:,.0f}")
+
+    por_metodo: dict = {}
+    for r in rows:
+        m = str(r.get("metodo_pago") or "Sin método").strip()
+        por_metodo[m] = por_metodo.get(m, 0) + float(r.get("total") or 0)
+    lineas.append("Por método de pago:")
+    for m, t in sorted(por_metodo.items(), key=lambda x: -x[1]):
+        lineas.append(f"  {m}: ${t:,.0f}")
+
+    if not params.get("producto"):
+        por_prod: dict = {}
+        for r in rows:
+            pr = str(r.get("producto") or "").strip()
+            if pr:
+                por_prod[pr] = por_prod.get(pr, 0) + float(r.get("total") or 0)
+        if por_prod:
+            lineas.append("Top productos:")
+            for pr, t in sorted(por_prod.items(), key=lambda x: -x[1])[:5]:
+                lineas.append(f"  {pr}: ${t:,.0f}")
+
+    return "\n".join(lineas)
+
+
+def _generar_excel_consulta(rows: list, params: dict) -> "io.BytesIO":
+    """Genera Excel con el mismo formato visual de export_ventas_xlsx."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    ahora  = datetime.now(config.COLOMBIA_TZ)
+
+    ROJO_OSCURO  = "C00000"
+    ROJO_MEDIO   = "E00000"
+    NEGRO_HEADER = "1A1A1A"
+    BORDE_OSCURO = "1A1A1A"
+    BORDE_INTERNO= "444444"
+
+    fill_banner = PatternFill("solid", fgColor=ROJO_OSCURO)
+    fill_franja = PatternFill("solid", fgColor=ROJO_MEDIO)
+    fill_header = PatternFill("solid", fgColor=NEGRO_HEADER)
+    fill_blanco = PatternFill("solid", fgColor="FFFFFF")
+    fill_alt    = PatternFill("solid", fgColor="FFF0F0")
+
+    borde_ext   = Side(border_style="thick", color=BORDE_OSCURO)
+    borde_int   = Side(border_style="thin",  color=BORDE_INTERNO)
+    borde_none  = Side(border_style=None)
+
+    def _borde(col_idx, n_cols, top=None, bottom=None):
+        izq = borde_ext if col_idx == 1      else borde_int
+        der = borde_ext if col_idx == n_cols else borde_int
+        return Border(left=izq, right=der, top=top or borde_none, bottom=bottom or borde_none)
+
+    periodo       = (params.get("periodo") or "").lower()
+    periodo_label = {
+        "hoy":    f"Hoy — {ahora.strftime('%d-%m-%Y')}",
+        "semana": f"Última semana — hasta {ahora.strftime('%d-%m-%Y')}",
+        "mes":    f"{ahora.strftime('%B %Y').capitalize()}",
+    }.get(periodo, f"Consulta — {ahora.strftime('%d-%m-%Y')}")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = periodo_label[:31]
+
+    COLUMNAS = [
+        "fecha", "hora", "id_cliente", "cliente", "codigo_producto", "producto",
+        "unidad_medida", "cantidad", "precio_unitario", "total",
+        "consecutivo", "vendedor", "metodo_pago",
+    ]
+    HEADERS = [
+        "FECHA", "HORA", "ID CLIENTE", "CLIENTE", "CODIGO DEL PRODUCTO", "PRODUCTO",
+        "UNIDAD DE MEDIDA", "CANTIDAD", "VALOR UNITARIO", "TOTAL",
+        "CONSECUTIVO DE VENTA", "VENDEDOR", "METODO DE PAGO",
+    ]
+    ANCHOS = [16.33, 12.55, 14.44, 24.11, 19.44, 26.89, 16.66, 13.33, 17.55, 13.0, 20.33, 18.55, 19.44]
+    N = len(COLUMNAS)
+
+    for ci, aw in enumerate(ANCHOS, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = aw
+
+    # Fila 1: Banner rojo
+    ws.row_dimensions[1].height = 72.0
+    for ci in range(1, N + 1):
+        c = ws.cell(row=1, column=ci)
+        c.fill   = fill_banner
+        c.border = Border(
+            left=borde_ext if ci == 1 else borde_none,
+            right=borde_ext if ci == N else borde_none,
+            top=borde_ext, bottom=borde_none,
+        )
+    ws.merge_cells("A1:D1")
+    ws["A1"].value     = "FERRETERÍA PUNTO ROJO"
+    ws["A1"].font      = Font(name="Calibri", bold=True, size=16, color="FFFFFF")
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws["K1"].value     = f"Registro de Ventas — {periodo_label}"
+    ws["K1"].font      = Font(name="Calibri", italic=True, size=11, color="FFBABA")
+    ws["K1"].alignment = Alignment(horizontal="right", vertical="center")
+    ws["K1"].border    = Border(top=borde_ext, right=borde_none)
+
+    # Fila 2: Franja
+    ws.row_dimensions[2].height = 9.6
+    for ci in range(1, N + 1):
+        c = ws.cell(row=2, column=ci)
+        c.fill   = fill_franja
+        c.border = Border(bottom=borde_ext)
+
+    # Fila 3: Headers
+    ws.row_dimensions[3].height = 30.0
+    for ci, nombre in enumerate(HEADERS, 1):
+        c = ws.cell(row=3, column=ci, value=nombre)
+        c.font      = Font(name="Sylfaen", bold=True, size=10, color="FFFFFF")
+        c.fill      = fill_header
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border    = Border(left=borde_ext if ci == 1 else borde_int,
+                             right=borde_ext if ci == N else borde_int)
+
+    # Filas de datos
+    total_general = 0.0
+    for ri, row in enumerate(rows, 4):
+        ws.row_dimensions[ri].height = 19.95
+        fill_fila = fill_alt if (ri % 2 == 0) else fill_blanco
+        for ci, clave in enumerate(COLUMNAS, 1):
+            c = ws.cell(row=ri, column=ci, value=row.get(clave))
+            c.fill   = fill_fila
+            c.font   = Font(name="Calibri", size=10)
+            c.border = _borde(ci, N)
+            if clave in ("precio_unitario", "total"):
+                c.number_format = '"$"#,##0;[Red]("$"#,##0)'
+                c.alignment     = Alignment(horizontal="right", vertical="center")
+            elif clave == "consecutivo":
+                c.alignment = Alignment(horizontal="center", vertical="center")
+                c.font      = Font(name="Calibri", size=10, bold=True, color="C00000")
+            else:
+                c.alignment = Alignment(horizontal="center", vertical="center")
+        total_general += float(row.get("total") or 0)
+
+    # Fila de totales
+    tr = len(rows) + 4
+    ws.row_dimensions[tr].height = 22.0
+    for ci in range(1, N + 1):
+        c = ws.cell(row=tr, column=ci)
+        c.fill   = PatternFill("solid", fgColor=NEGRO_HEADER)
+        c.border = Border(left=borde_ext if ci == 1 else borde_int,
+                          right=borde_ext if ci == N else borde_int,
+                          top=borde_ext, bottom=borde_ext)
+    ws.merge_cells(f"A{tr}:I{tr}")
+    ct = ws[f"A{tr}"]
+    ct.value     = f"TOTAL GENERAL  ({len(rows)} registros)"
+    ct.font      = Font(name="Sylfaen", bold=True, size=10, color="FFFFFF")
+    ct.alignment = Alignment(horizontal="right", vertical="center")
+    cj = ws.cell(row=tr, column=10, value=total_general)
+    cj.font         = Font(name="Sylfaen", bold=True, size=11, color="FFFFFF")
+    cj.number_format = '"$"#,##0;[Red]("$"#,##0)'
+    cj.alignment    = Alignment(horizontal="right", vertical="center")
+
+    ws.freeze_panes = "A4"
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+async def _procesar_consulta_ventas(texto_claude: str) -> tuple:
+    """
+    Detecta [CONSULTA_VENTAS]{...}[/CONSULTA_VENTAS] en la respuesta de Claude,
+    ejecuta la consulta parametrizada y devuelve (texto_final, url_descarga|None).
+    """
+    import re as _re
+    import json as _json
+
+    m = _re.search(r'\[CONSULTA_VENTAS\](.*?)\[/CONSULTA_VENTAS\]', texto_claude, _re.DOTALL)
+    if not m:
+        return texto_claude, None
+
+    texto_previo = texto_claude[:m.start()].strip()
+
+    try:
+        params = _json.loads(m.group(1).strip())
+    except Exception:
+        return texto_claude, None
+
+    try:
+        from db import query_all as _qa, DB_DISPONIBLE as _db_ok
+        if not _db_ok:
+            return (texto_previo + "\n" if texto_previo else "") + \
+                   "No hay conexión a la base de datos.", None
+
+        sql, valores = _construir_sql_consulta(params)
+        rows = [dict(r) for r in _qa(sql, valores if valores else None)]
+    except Exception as exc:
+        logger.error(f"[consulta_ventas] {exc}")
+        return (texto_previo + "\n" if texto_previo else "") + \
+               f"Error consultando base de datos: {exc}", None
+
+    tipo = str(params.get("tipo") or "texto").lower()
+
+    if tipo == "exportar":
+        _limpiar_exports_expirados()
+        token = secrets.token_urlsafe(16)
+        with _temp_exports_lock:
+            _temp_exports[token] = {
+                "rows":   rows,
+                "params": params,
+                "expira": time.time() + 1800,
+            }
+        n     = len({r.get("consecutivo") for r in rows if r.get("consecutivo")})
+        total = sum(float(r.get("total") or 0) for r in rows)
+        url   = f"/chat/export/{token}"
+        resp  = (f"{texto_previo}\n\n" if texto_previo else "") + \
+                f"Aquí está tu archivo ({n} transacciones — ${total:,.0f}):\n{url}"
+        return resp, url
+
+    resumen = _formatear_resumen_consulta(rows, params)
+    return (f"{texto_previo}\n\n" if texto_previo else "") + resumen, None
+
 
 # ── Chat IA desde el Dashboard ────────────────────────────────────────────────
 
@@ -434,7 +761,8 @@ async def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> s
         "ANALIZAR: tendencias de ventas, rentabilidad por producto, días buenos/malos, ticket promedio\n"
         "COMPARAR: esta semana vs semana pasada, este mes vs mes anterior\n"
         "ADVERTIR: stock bajo, deudas viejas, fiados altos, días sin ventas\n"
-        "RECORDAR: guarda decisiones y observaciones del negocio con [MEMORIA]\n\n"
+        "RECORDAR: guarda decisiones y observaciones del negocio con [MEMORIA]\n"
+        "CONSULTAR: ejecutar consultas de ventas en lenguaje natural con [CONSULTA_VENTAS]\n\n"
 
         "## FORMATO\n"
         "Para análisis: extenso, con números, con interpretación y recomendación al final.\n"
@@ -450,7 +778,13 @@ async def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> s
         "[FACTURA_PROVEEDOR]{...}[/FACTURA_PROVEEDOR] — nueva factura de proveedor\n"
         "[ABONO_PROVEEDOR]{...}[/ABONO_PROVEEDOR] — abono a factura de proveedor\n"
         "[INVENTARIO]{...}[/INVENTARIO] — actualizar stock\n"
-        "[MEMORIA]{tipo: decision|observacion, contenido: texto}[/MEMORIA]\n\n"
+        "[MEMORIA]{tipo: decision|observacion, contenido: texto}[/MEMORIA]\n"
+        '[CONSULTA_VENTAS]{"periodo":"hoy|semana|mes|N dias","vendedor":"nombre|null","metodo":"nequi|efectivo|datafono|null","cliente":"nombre|null","producto":"nombre|null","tipo":"texto|exportar"}[/CONSULTA_VENTAS] — consultar ventas\n'
+        "  Usa [CONSULTA_VENTAS] cuando el usuario pida datos específicos de ventas por vendedor, método de pago, cliente o producto.\n"
+        '  tipo="texto" devuelve resumen en el chat. tipo="exportar" genera un Excel descargable.\n'
+        "  Ejemplos: 'ventas de Carlos esta semana' → vendedor=Carlos, periodo=semana, tipo=texto\n"
+        "            'total por nequi este mes' → metodo=nequi, periodo=mes, tipo=texto\n"
+        "            'exportar ventas de hoy' → periodo=hoy, tipo=exportar\n\n"
 
         + (alertas_texto + "\n\n" if alertas_texto else "")
 
@@ -666,6 +1000,20 @@ async def chat_ia(req: ChatRequest, request: Request):
                     ],
                 }
 
+        # 3c. Consulta de ventas en lenguaje natural
+        if "[CONSULTA_VENTAS]" in respuesta_raw:
+            texto_consulta, url_descarga = await _procesar_consulta_ventas(respuesta_raw)
+            result = {
+                "ok":       True,
+                "respuesta": texto_consulta,
+                "acciones": {"ventas": 0, "gastos": 0},
+                "pendiente": False,
+            }
+            if url_descarga:
+                result["url_descarga"] = url_descarga
+            log.info(f"[{request_id}] /chat consulta_ventas en {int((time.perf_counter()-t0)*1000)}ms")
+            return result
+
         # 4. Sin ventas pendientes → respuesta normal
         if texto_limpio and texto_limpio.strip():
             texto_final = texto_limpio.strip()
@@ -744,6 +1092,23 @@ async def chat_stream(req: ChatRequest, request: Request):
                     yield f"data: {json.dumps({'type':'error','message':data})}\n\n"
                     return
 
+            # Consulta de ventas en lenguaje natural (antes de procesar otras acciones)
+            if "[CONSULTA_VENTAS]" in full_text:
+                texto_consulta, url_descarga = await _procesar_consulta_ventas(full_text)
+                payload = {
+                    "type":      "done",
+                    "respuesta": texto_consulta,
+                    "acciones":  {"ventas": 0, "gastos": 0},
+                    "pendiente": False,
+                    "opciones_pago": None,
+                    "modelo":    modelo_usado,
+                }
+                if url_descarga:
+                    payload["url_descarga"] = url_descarga
+                log.info(f"[{request_id}] /chat/stream consulta_ventas en {int((time.perf_counter()-t0)*1000)}ms")
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                return
+
             texto_limpio, acciones, _ = await procesar_acciones_async(
                 full_text, req.nombre, _chat_id
             )
@@ -817,6 +1182,41 @@ async def chat_stream(req: ChatRequest, request: Request):
         },
     )
 
+
+
+# ── Descarga de Excel temporal (consultas de ventas) ─────────────────────────
+
+@router.get("/chat/export/{token}")
+def chat_export_temp(token: str):
+    """
+    Descarga el Excel temporal generado por una consulta de ventas en el chat.
+    El token expira a los 30 minutos.
+    """
+    _limpiar_exports_expirados()
+    with _temp_exports_lock:
+        entry = _temp_exports.get(token)
+
+    if not entry:
+        raise HTTPException(status_code=404, detail="Enlace no encontrado o expirado")
+    if time.time() > entry["expira"]:
+        with _temp_exports_lock:
+            _temp_exports.pop(token, None)
+        raise HTTPException(status_code=410, detail="Enlace expirado")
+
+    try:
+        buf = _generar_excel_consulta(entry["rows"], entry["params"])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error generando Excel: {exc}")
+
+    ahora    = datetime.now(config.COLOMBIA_TZ)
+    periodo  = (entry["params"].get("periodo") or "consulta").lower().replace(" ", "_")
+    filename = f"ventas_{periodo}_{ahora.strftime('%Y-%m-%d')}.xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 # ── Transcripción de audio desde el Dashboard ─────────────────────────────────
