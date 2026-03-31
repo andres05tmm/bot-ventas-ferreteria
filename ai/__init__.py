@@ -44,7 +44,7 @@ from memoria import (
 )
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, _normalizar
 import db as _db  # noqa: E402 — necesario para helpers PG (_pg_resumen_ventas, etc.)
-from ai.excel_gen import generar_excel_personalizado, editar_excel_con_claude
+from ai.excel_gen import generar_excel_personalizado, editar_excel_con_claude, ejecutar_operacion_excel
 from ai.prompts import (
     aplicar_alias_ferreteria, _construir_parte_estatica,
     _construir_catalogo_imagen, _construir_parte_dinamica,

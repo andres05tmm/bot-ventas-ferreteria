@@ -17,8 +17,6 @@ import os
 import re
 import traceback
 
-import openpyxl
-
 logger = logging.getLogger("ferrebot.handlers.dispatch")
 
 
@@ -78,10 +76,11 @@ async def manejar_flujo_cliente(update, chat_id: int, mensaje: str) -> bool:
 async def manejar_flujo_excel(update, context, chat_id: int, mensaje: str) -> bool:
     """
     Maneja instrucciones sobre un Excel cargado previamente.
-    Mover L270-L317 de _procesar_mensaje.
+    Claude elige una operación predefinida y devuelve JSON con parámetros.
+    ejecutar_operacion_excel() aplica la operación — nunca se ejecuta código arbitrario.
     Retorna True si el mensaje fue procesado como instrucción de Excel.
     """
-    from ai import editar_excel_con_claude
+    from ai.excel_gen import editar_excel_con_claude, ejecutar_operacion_excel
 
     excel_temp   = context.user_data.get("excel_temp")
     excel_nombre = context.user_data.get("excel_nombre")
@@ -90,36 +89,18 @@ async def manejar_flujo_excel(update, context, chat_id: int, mensaje: str) -> bo
 
     try:
         await update.message.reply_text("⚙️ Procesando tu Excel...")
-        codigo = await editar_excel_con_claude(mensaje, excel_temp, excel_nombre, update.message.from_user.first_name or "Desconocido", chat_id)
+        operacion_dict = await editar_excel_con_claude(
+            mensaje, excel_temp, excel_nombre,
+            update.message.from_user.first_name or "Desconocido", chat_id,
+        )
 
-        if codigo.strip() == "IMPOSIBLE":
+        if operacion_dict.get("operacion") == "IMPOSIBLE":
             await update.message.reply_text("No pude hacer eso con el Excel. Intenta con otra instrucción.")
             return True
 
-        rutas_sospechosas  = re.findall(r'''load_workbook\s*\(\s*['"]([^'"]+)['"]''', codigo)
-        rutas_sospechosas += re.findall(r'''\.save\s*\(\s*['"]([^'"]+)['"]''', codigo)
-        for ruta_en_codigo in rutas_sospechosas:
-            if ruta_en_codigo != excel_temp and ruta_en_codigo not in (excel_nombre, f"modificado_{excel_nombre}"):
-                await update.message.reply_text("No puedo ejecutar esa operación por seguridad.")
-                return True
+        resultado = await asyncio.to_thread(ejecutar_operacion_excel, excel_temp, operacion_dict)
 
-        namespace_seguro = {
-            "__builtins__": {
-                "range": range, "len": len, "enumerate": enumerate,
-                "int": int, "float": float, "str": str, "bool": bool,
-                "list": list, "dict": dict, "tuple": tuple, "set": set,
-                "min": min, "max": max, "sum": sum, "abs": abs,
-                "round": round, "sorted": sorted, "zip": zip,
-                "isinstance": isinstance, "print": print,
-                "Exception": Exception, "ValueError": ValueError,
-                "TypeError": TypeError, "KeyError": KeyError,
-            },
-            "openpyxl": openpyxl,
-            "json":     __import__("json"),
-        }
-        await asyncio.to_thread(exec, compile(codigo, "<string>", "exec"), namespace_seguro)
-
-        await update.message.reply_text("✅ Excel modificado. Aquí está el resultado:")
+        await update.message.reply_text(f"✅ {resultado}\n\nAquí está el Excel modificado:")
         with open(excel_temp, "rb") as f:
             await update.message.reply_document(document=f, filename=f"modificado_{excel_nombre}")
 
@@ -129,7 +110,7 @@ async def manejar_flujo_excel(update, context, chat_id: int, mensaje: str) -> bo
             os.remove(excel_temp)
         return True
     except Exception:
-        print(f"Error editando Excel: {traceback.format_exc()}")
+        logger.error(f"Error editando Excel: {traceback.format_exc()}")
         await update.message.reply_text("Tuve un problema editando el Excel. Intenta con una instrucción diferente.")
         return True
 
