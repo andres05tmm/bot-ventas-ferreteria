@@ -34,19 +34,12 @@ from handlers.productos import comando_productos, manejar_callback_productos
 from keepalive import loop_keepalive
 
 
-def main():
-    print(f"🚀 Iniciando FerreBot {config.VERSION}")
-
-    # Construir índice fuzzy al arrancar para que las búsquedas funcionen
-    try:
-        from fuzzy_match import construir_indice
-        from memoria import cargar_memoria as _cm_init
-        _mem_init = _cm_init()
-        construir_indice(_mem_init.get("catalogo", {}))
-        print(f"🔍 Índice fuzzy construido: {len(_mem_init.get('catalogo', {}))} productos")
-    except Exception as e:
-        print(f"⚠️ No se pudo construir índice fuzzy: {e}")
-
+def build_app() -> Application:
+    """
+    Crea y configura el Application de python-telegram-bot con todos los handlers
+    registrados, sin arrancarlo. Puede usarse tanto desde main() como desde un
+    servidor externo (ej. FastAPI en start-bot.py).
+    """
     app = Application.builder().token(config.TELEGRAM_TOKEN).build()
 
     # Comandos
@@ -105,6 +98,24 @@ def main():
     app.add_handler(CallbackQueryHandler(manejar_callback_foto,    pattern="^foto_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_grafica,  pattern="^grafica_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_productos, pattern="^prod_"))
+
+    return app
+
+
+def main():
+    print(f"🚀 Iniciando FerreBot {config.VERSION}")
+
+    # Construir índice fuzzy al arrancar para que las búsquedas funcionen
+    try:
+        from fuzzy_match import construir_indice
+        from memoria import cargar_memoria as _cm_init
+        _mem_init = _cm_init()
+        construir_indice(_mem_init.get("catalogo", {}))
+        print(f"🔍 Índice fuzzy construido: {len(_mem_init.get('catalogo', {}))} productos")
+    except Exception as e:
+        print(f"⚠️ No se pudo construir índice fuzzy: {e}")
+
+    app = build_app()
 
     if config.WEBHOOK_URL:
         print(f"🌐 Iniciando en modo WEBHOOK: {config.WEBHOOK_URL}")

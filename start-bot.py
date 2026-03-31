@@ -1,17 +1,33 @@
 """
 start-bot.py — Lanzador del bot de Telegram para Railway (servicio separado).
 
+Usa FastAPI + uvicorn como servidor HTTP para recibir los webhooks de Telegram,
+en lugar del servidor interno de run_webhook(). Esto permite que Railway enrute
+el tráfico HTTPS (puerto 443 externo) al puerto $PORT interno correctamente.
+
+Flujo:
+  1. uvicorn escucha en 0.0.0.0:$PORT
+  2. Railway hace SSL termination y reenvía los POST de Telegram a ese puerto
+  3. El endpoint POST /{TELEGRAM_TOKEN} convierte el payload en un Update y
+     lo procesa con application.process_update()
+
 Requiere en Railway:
   - WEBHOOK_URL  = URL pública del servicio bot  (ej. https://ferrebot-xxx.railway.app)
   - PORT         = asignado por Railway automáticamente
-
-El servicio API corre por separado con:
-  uvicorn api:app --host 0.0.0.0 --port $PORT
+  - TELEGRAM_TOKEN, ANTHROPIC_API_KEY, OPENAI_API_KEY
 """
-import os
+
+# -- stdlib --
+import asyncio
+import logging
 import sys
 import threading
-import logging
+from contextlib import asynccontextmanager
+
+# -- terceros --
+import uvicorn
+from fastapi import FastAPI, Request, Response
+from telegram import Update
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -26,7 +42,7 @@ logging.getLogger("telegram.ext.Updater").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("start-bot")
 
-# ── Importar config (lee WEBHOOK_URL del entorno) ──────────────────────────────
+# -- propios --
 import config  # noqa: E402
 
 if not config.WEBHOOK_URL:
@@ -78,10 +94,77 @@ threading.Thread(
 ).start()
 log.info("📊 Histórico safety net iniciado")
 
-# ── Arrancar el bot (webhook mode) ────────────────────────────────────────────
-# main() detecta config.WEBHOOK_URL y llama a app.run_webhook(), que:
-#   - Registra el webhook con Telegram (set_webhook)
-#   - Levanta el servidor HTTP en 0.0.0.0:PORT para recibir updates
-log.info(f"🤖 Iniciando FerreBot en modo WEBHOOK: {config.WEBHOOK_URL}")
-from main import main  # noqa: E402
-main()
+# ── Construir índice fuzzy ─────────────────────────────────────────────────────
+try:
+    from fuzzy_match import construir_indice
+    from memoria import cargar_memoria as _cm_init
+    _mem_init = _cm_init()
+    construir_indice(_mem_init.get("catalogo", {}))
+    log.info(f"🔍 Índice fuzzy construido: {len(_mem_init.get('catalogo', {}))} productos")
+except Exception as e:
+    log.warning(f"⚠️ No se pudo construir índice fuzzy: {e}")
+
+# ── FastAPI + ciclo de vida del bot ───────────────────────────────────────────
+from main import build_app          # noqa: E402
+from keepalive import loop_keepalive  # noqa: E402
+
+_WEBHOOK_PATH = f"/{config.TELEGRAM_TOKEN}"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Inicia el Application de python-telegram-bot, registra el webhook con Telegram
+    y arranca el keepalive. Al apagarse, detiene el bot limpiamente.
+    """
+    tg_app = build_app()
+    app.state.tg_app = tg_app
+
+    await tg_app.initialize()
+    await tg_app.start()
+
+    # Registrar webhook: Telegram enviará los updates a WEBHOOK_URL/TOKEN
+    webhook_url = f"{config.WEBHOOK_URL}{_WEBHOOK_PATH}"
+    await tg_app.bot.set_webhook(
+        url=webhook_url,
+        allowed_updates=Update.ALL_TYPES,
+    )
+    log.info(f"✅ Webhook registrado: {webhook_url}")
+
+    # Keepalive del prompt cache de Anthropic
+    asyncio.create_task(loop_keepalive())
+
+    yield
+
+    # Apagado limpio
+    await tg_app.stop()
+    await tg_app.shutdown()
+    log.info("🛑 Bot detenido")
+
+
+fastapi_app = FastAPI(lifespan=lifespan)
+
+
+@fastapi_app.post(_WEBHOOK_PATH)
+async def telegram_webhook(request: Request) -> Response:
+    """Recibe un update de Telegram y lo despacha al bot."""
+    data = await request.json()
+    tg_app = request.app.state.tg_app
+    update = Update.de_json(data, tg_app.bot)
+    await tg_app.process_update(update)
+    return Response(status_code=200)
+
+
+@fastapi_app.get("/health")
+async def health() -> dict:
+    return {"status": "ok", "version": config.VERSION}
+
+
+# ── Arrancar uvicorn ───────────────────────────────────────────────────────────
+log.info(f"🤖 Iniciando FerreBot {config.VERSION} — FastAPI webhook en puerto {config.WEBHOOK_PORT}")
+uvicorn.run(
+    fastapi_app,
+    host="0.0.0.0",
+    port=config.WEBHOOK_PORT,
+    log_level="info",
+)
