@@ -259,13 +259,14 @@ function Modal({ show, onClose, title, subtitle, children, onConfirm, okLabel = 
       style={{
         position: 'fixed', inset: 0, background: '#000000cc',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 9998, padding: 16,
+        zIndex: 9999, padding: 16,
       }}
     >
       <div style={{
+        position: 'relative', zIndex: 10000,
         background: t.card, border: `1px solid ${t.accent}44`,
-        borderRadius: 14, width: '100%', maxWidth: 390,
-        maxHeight: '90vh', overflowY: 'auto',
+        borderRadius: 14, width: 'calc(100% - 32px)', maxWidth: 390,
+        maxHeight: '85vh', overflowY: 'auto',
         animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)',
       }}>
         <style>{`@keyframes mIn{from{opacity:0;transform:scale(.92) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}} input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}`}</style>
