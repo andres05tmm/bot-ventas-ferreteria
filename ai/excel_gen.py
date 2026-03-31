@@ -348,15 +348,29 @@ Si la instrucción no puede expresarse con ninguna operación disponible, respon
 
 Solo el JSON, sin explicaciones ni bloques de código."""
 
-    loop      = asyncio.get_event_loop()
-    respuesta = await loop.run_in_executor(
-        None,
-        lambda: config.claude_client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
-        )
-    )
+    loop = asyncio.get_event_loop()
+    respuesta = None
+    for _eg_intento in range(3):
+        try:
+            respuesta = await loop.run_in_executor(
+                None,
+                lambda: config.claude_client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=300,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            )
+            break
+        except Exception as _eg_e:
+            if _eg_intento < 2:
+                logger.warning(
+                    f"[excel_gen] Claude reintento {_eg_intento + 1}/2 en 2s: {_eg_e}"
+                )
+                await asyncio.sleep(2)
+            else:
+                logger.error(f"[excel_gen] Claude sin respuesta tras 3 intentos: {_eg_e}")
+                return {"operacion": "IMPOSIBLE"}
+
     texto = respuesta.content[0].text.strip()
     # Limpiar bloque de código si Claude lo incluyó igualmente
     if "```" in texto:

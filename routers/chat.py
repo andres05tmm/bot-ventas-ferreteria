@@ -936,7 +936,26 @@ async def transcribir_audio(audio: UploadFile = File(...)):
                 )
 
         import asyncio
-        resultado = await asyncio.to_thread(_transcribir)
+        resultado = None
+        for _tr_intento in range(3):
+            try:
+                resultado = await asyncio.to_thread(_transcribir)
+                break
+            except Exception as _tr_e:
+                if _tr_intento < 2:
+                    logging.getLogger("ferrebot.api").warning(
+                        f"[/chat/transcribir] Whisper reintento {_tr_intento + 1}/2 en 2s: {_tr_e}"
+                    )
+                    await asyncio.sleep(2)
+                else:
+                    logging.getLogger("ferrebot.api").error(
+                        f"[/chat/transcribir] Whisper sin respuesta tras 3 intentos: {_tr_e}"
+                    )
+                    raise HTTPException(
+                        status_code=503,
+                        detail="El asistente IA no está disponible ahora. Intenta de nuevo en unos momentos.",
+                    )
+
         texto = resultado.text.strip()
 
         if not texto:
@@ -944,6 +963,8 @@ async def transcribir_audio(audio: UploadFile = File(...)):
 
         return {"ok": True, "texto": texto}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logging.getLogger("ferrebot.api").error(f"[/chat/transcribir] {e}")
         raise HTTPException(status_code=500, detail=str(e))

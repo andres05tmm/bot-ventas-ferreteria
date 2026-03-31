@@ -535,15 +535,27 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"Si fue un día excepcional o muy flojo, dilo claramente."
         )
 
-        respuesta_analisis = await asyncio.to_thread(
-            lambda: config.claude_client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=400,
-                messages=[{"role": "user", "content": prompt_analisis}],
-            )
-        )
-        analisis_txt = respuesta_analisis.content[0].text.strip()
-        await update.message.reply_text(f"🧠 Análisis del día:\n\n{analisis_txt}")
+        respuesta_analisis = None
+        for _ca_intento in range(3):
+            try:
+                respuesta_analisis = await asyncio.to_thread(
+                    lambda: config.claude_client.messages.create(
+                        model="claude-sonnet-4-6",
+                        max_tokens=400,
+                        messages=[{"role": "user", "content": prompt_analisis}],
+                    )
+                )
+                break
+            except Exception as _ca_e:
+                if _ca_intento < 2:
+                    await asyncio.sleep(2)
+                else:
+                    print(f"[cerrar] Claude sin respuesta tras 3 intentos: {_ca_e}")
+                    respuesta_analisis = None
+
+        if respuesta_analisis:
+            analisis_txt = respuesta_analisis.content[0].text.strip()
+            await update.message.reply_text(f"🧠 Análisis del día:\n\n{analisis_txt}")
 
     except Exception as e_an:
         print(f"[cerrar] Error en análisis Claude: {e_an}")

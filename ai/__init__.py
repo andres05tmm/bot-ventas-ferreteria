@@ -192,15 +192,17 @@ def _pg_borrar_cliente(termino: str) -> tuple[bool, str]:
 # LLAMADA A CLAUDE CON PROMPT CACHING
 # ─────────────────────────────────────────────
 
-async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, max_reintentos=5, model: str = None):
+async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, max_reintentos=3, model: str = None):
     """
-    Wrapper para llamar a Claude con reintentos adicionales para error 529 (overloaded).
-    El SDK ya hace 3 reintentos internos, pero agregamos una capa extra con backoff.
+    Wrapper para llamar a Claude con reintentos: máximo 2 reintentos (3 intentos total),
+    espera fija de 2s entre ellos. Si se agota, lanza RuntimeError con mensaje amigable.
     """
-    import random
-    from anthropic import APIError
-
     _model = model or MODELO_HAIKU   # default haiku si no se especifica
+
+    _MSG_NO_DISPONIBLE = (
+        "⚠️ El asistente IA no está disponible ahora. "
+        "Puedes registrar la venta manualmente con /ventas."
+    )
 
     ultimo_error = None
     for intento in range(max_reintentos):
@@ -217,13 +219,11 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
                         messages=messages,
                     )
                 ),
-                timeout=45.0,  # timeout más generoso
+                timeout=45.0,
             )
             return respuesta
         except asyncio.TimeoutError:
-            ultimo_error = RuntimeError("La IA tardó demasiado en responder (>45s).")
-            if intento >= 2:
-                raise ultimo_error
+            ultimo_error = asyncio.TimeoutError("La IA tardó demasiado en responder (>45s).")
         except Exception as e:
             ultimo_error = e
             error_str = str(e).lower()
@@ -235,20 +235,33 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
                     "Puedes registrar ventas manualmente con el formato: "
                     "'anadir N producto = total'"
                 )
-            # Solo reintentar en errores 529 (overloaded) o 503 (service unavailable)
-            if "529" in str(e) or "overload" in error_str or "503" in str(e) or "unavailable" in error_str:
-                if intento < max_reintentos - 1:
-                    espera = (2 ** intento) + random.uniform(0, 1)
-                    logging.getLogger("ferrebot.ai").warning(
-                        f"[CLAUDE] Error 529/503, reintento {intento+1}/{max_reintentos} en {espera:.1f}s..."
-                    )
-                    await asyncio.sleep(espera)
-                    continue
-            # Otros errores: no reintentar
-            raise
-    
-    # Si llegamos aquí, agotamos los reintentos
-    raise ultimo_error or RuntimeError("Error desconocido al llamar a Claude")
+            # Errores de autenticación — no recuperable
+            if "401" in str(e) or "unauthorized" in error_str:
+                raise
+            # Errores no reintentables (ej. bad request, invalid param)
+            _reintentable = (
+                "529" in str(e) or "overload" in error_str
+                or "503" in str(e) or "unavailable" in error_str
+                or "429" in str(e) or "rate" in error_str
+                or "connection" in error_str or "timeout" in error_str
+                or "500" in str(e)
+            )
+            if not _reintentable:
+                raise
+
+        # Reintentar si quedan intentos
+        if intento < max_reintentos - 1:
+            logging.getLogger("ferrebot.ai").warning(
+                f"[CLAUDE] Reintento {intento + 1}/{max_reintentos - 1} en 2s "
+                f"(error: {type(ultimo_error).__name__})..."
+            )
+            await asyncio.sleep(2)
+
+    # Agotamos los reintentos
+    logging.getLogger("ferrebot.ai").error(
+        f"[CLAUDE] ❌ Sin respuesta tras {max_reintentos} intentos: {ultimo_error}"
+    )
+    raise RuntimeError(_MSG_NO_DISPONIBLE)
 
 
 async def procesar_con_claude(
@@ -331,7 +344,10 @@ async def procesar_con_claude(
     _es_venta_varia = any(kw in mensaje_usuario.lower() for kw in _kw_venta_varia)
 
     # BLOQUEO MATCH-VACÍO: omitir cuando hay imagen (el texto puede venir vacío/genérico)
-    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode and not _tiene_imagen and not _es_venta_varia:
+    # Omitir también cuando el mensaje no tiene dígitos: sin cantidad/precio no puede ser venta
+    # (ej: "hola", "gracias", "ayúdame") → deben llegar a Claude como conversación libre.
+    _tiene_numeros = bool(re.search(r'\d', _msg_bypass))
+    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode and not _tiene_imagen and not _es_venta_varia and _tiene_numeros:
         # Extraer nombre del producto del mensaje para respuesta clara
         _msg_limpio = mensaje_usuario.strip().lower()
         # Quitar cantidades y unidades del inicio para aislar el nombre
@@ -618,7 +634,9 @@ async def procesar_con_claude_stream(
                         "ventas del dia", "ventas del día", "cuadre de caja",
                         "cuadre caja", "no alcance a anotar", "no alcancé a anotar"}
     _es_venta_varia2 = any(kw in mensaje_usuario.lower() for kw in _kw_venta_varia2)
-    if _MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode and not _es_venta_varia2:
+    # Sin dígitos → no puede ser venta (no hay cantidad/precio) → dejar pasar a Claude
+    _tiene_numeros2 = bool(re.search(r'\d', _msg_bypass))
+    if _MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode and not _es_venta_varia2 and _tiene_numeros2:
         _msg_lp = re.sub(r'^[\d\s/\.]+', '', mensaje_usuario.strip().lower()).strip()
         _msg_lp = re.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_lp).strip()
         yield ("done", f"No tengo {_msg_lp} en el catálogo.")

@@ -433,7 +433,10 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         _tb = traceback.format_exc()
         logger.error("Error en mensaje: %s", _tb)
         print(f"[ERROR _procesar_mensaje]\n{_tb}")  # visible en Railway
-        await update.message.reply_text("Tuve un problema. Intenta de nuevo.")
+        await update.message.reply_text(
+            "⚠️ El asistente IA no está disponible ahora. "
+            "Puedes registrar la venta manualmente con /ventas."
+        )
 
 
 
@@ -721,7 +724,25 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                     model="whisper-1", file=audio_file, language="es"
                 )
 
-        transcripcion = await asyncio.to_thread(_transcribir)
+        transcripcion = None
+        for _w_intento in range(3):
+            try:
+                transcripcion = await asyncio.to_thread(_transcribir)
+                break
+            except Exception as _w_e:
+                if _w_intento < 2:
+                    logger.warning(
+                        f"[audio] Whisper reintento {_w_intento + 1}/2 en 2s: {_w_e}"
+                    )
+                    await asyncio.sleep(2)
+                else:
+                    logger.error(f"[audio] Whisper sin respuesta tras 3 intentos: {_w_e}")
+                    await update.message.reply_text(
+                        "⚠️ El asistente IA no está disponible ahora. "
+                        "Puedes registrar la venta manualmente con /ventas."
+                    )
+                    return
+
         texto         = corregir_texto_audio(transcripcion.text)
         await update.message.reply_text(f"📝 {texto}")
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
