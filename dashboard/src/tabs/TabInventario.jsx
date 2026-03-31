@@ -32,6 +32,7 @@ const UNIDAD_COLORES = {
   'cms':   { bg: '#ede9fe', color: '#6d28d9', border: '#c4b5fd' },
   'lts':   { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
   'lt':    { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
+  'mlt':   { bg: '#eff6ff', color: '#1e40af', border: '#93c5fd' },
 }
 
 // ── Subcategorías ─────────────────────────────────────────────────────────────
@@ -738,7 +739,7 @@ const CATEGORIAS_EDITAR = [
   '4 Impermeabilizantes y Materiales de Construcción',
   '5 Materiales Electricos',
 ]
-const UNIDADES_EDITAR = ['Unidad','Galón','Kg','Gramos','Mts','Cms','Lt','Lts','25 kg']
+const UNIDADES_EDITAR = ['Unidad','Galón','Kg','Gramos','MLT','Mts','Cms','Lt','Lts','25 kg']
 
 function ModalEditarProducto({ prod, onClose, onGuardado }) {
   const t = useTheme()
@@ -896,7 +897,7 @@ const CATEGORIAS_DISPONIBLES = [
 ]
 
 const UNIDADES_DISPONIBLES = [
-  'Unidad','Galón','Kg','Gramos','Mts','Cms','Lt','Lts','25 kg',
+  'Unidad','Galón','Kg','Gramos','MLT','Mts','Cms','Lt','Lts','25 kg',
 ]
 
 function ModalCrearProducto({ onClose, onCreado }) {
