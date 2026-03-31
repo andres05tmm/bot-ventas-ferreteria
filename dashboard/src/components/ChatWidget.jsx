@@ -22,6 +22,25 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
+// Renderiza el texto de una burbuja del bot.
+// Detecta /chat/export/<token> y lo convierte en botón de descarga verde.
+function renderBotContent(text) {
+  if (!text) return text
+  const parts = text.split(/(\/chat\/export\/[A-Za-z0-9_-]+)/)
+  if (parts.length === 1) return text   // sin links — texto plano, ruta rápida
+  return parts.map((part, i) => {
+    if (/^\/chat\/export\/[A-Za-z0-9_-]+$/.test(part)) {
+      return (
+        <a key={i} href={`${API_BASE}${part}`} download
+           className="fw-dl-btn" onClick={e => e.stopPropagation()}>
+          ⬇️ Descargar Excel
+        </a>
+      )
+    }
+    return part
+  })
+}
+
 // Máximo de mensajes de historial que se envían al backend (ahorro de tokens)
 const MAX_HIST_BACKEND = 8
 // Máximo de segundos de grabación de audio
@@ -304,6 +323,15 @@ const CSS = `
     animation: fw-cursor .7s step-end infinite;
     color: #C8200E;
   }
+
+  .fw-dl-btn {
+    display: inline-block; margin-top: 8px;
+    padding: 7px 14px; border-radius: 8px;
+    background: #16a34a; color: #fff;
+    font-size: 13px; font-weight: 600; text-decoration: none;
+    cursor: pointer; transition: background .15s;
+  }
+  .fw-dl-btn:hover { background: #15803d; }
 
   /* Metadata bajo la burbuja: hora, vendedor, modelo */
   .fw-meta {
@@ -1097,7 +1125,9 @@ ${d.briefing}`,
               return (
                 <div key={i} className={`fw-row ${m.role === 'user' ? 'u' : 'b'}`}>
                   <div className={`fw-bbl ${m.role === 'user' ? 'u' : 'b'} ${m.briefing ? 'briefing' : ''}`}>
-                    {m.content ?? m.text}
+                    {m.role === 'assistant'
+                      ? renderBotContent(m.content ?? m.text)
+                      : (m.content ?? m.text)}
                   </div>
                   {/* Meta: hora + vendedor (user) o hora + modelo (bot) */}
                   <div className="fw-meta">
