@@ -1683,13 +1683,19 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [modalMlt,  setModalMlt]  = useState(null)
   const [modalGrm,  setModalGrm]  = useState(null)
   const [modalKg,   setModalKg]   = useState(null)
-  const [toast,     setToast]     = useState(null)
-  const [enviando,  setEnviando]  = useState(false)
+  const [toast,        setToast]        = useState(null)
+  const [carritoToast, setCarritoToast] = useState(null)
+  const [enviando,     setEnviando]     = useState(false)
   const [subcatFiltro,      setSubcatFiltro]      = useState(null)
   const [modalColorPrep,    setModalColorPrep]    = useState(false)
   const [precioBaseColor,   setPrecioBaseColor]   = useState(0)
   const [carritoAbierto, setCarritoAbierto] = useState(false)
   const isMobile = useIsMobile()
+
+  const mostrarCarritoToast = (nombre) => {
+    setCarritoToast(`✓ ${nombre} agregado`)
+    setTimeout(() => setCarritoToast(null), 1500)
+  }
 
   // ── Procesar productos ─────────────────────────────────────────────────────
   const productos = (dataProd?.productos || [])
@@ -1762,6 +1768,7 @@ export default function TabVentasRapidas({ refreshKey }) {
     const ya = carrito.find(c => c.key === prod.key && c.tipo === 'simple')
     if (ya) { setModalQty(prod) }
     else {
+      const wasEmpty = carrito.length === 0
       setCarrito(prev => [...prev, {
         id: Date.now(), key: prod.key, nombre: prod.nombre,
         precio: prod.precio, qty: 1, total: prod.precio,
@@ -1769,25 +1776,35 @@ export default function TabVentasRapidas({ refreshKey }) {
         unidad: prod.unidad_medida || 'Unidad',
         mayorista: prod.mayorista || null,
       }])
+      if (isMobile) {
+        if (wasEmpty) setCarritoAbierto(true)
+        else mostrarCarritoToast(prod.nombre)
+      }
     }
-  }, [carrito])
+  }, [carrito, isMobile])
 
   // ── Confirmaciones ─────────────────────────────────────────────────────────
   const confirmarMlt = ({ ml, total, desc }) => {
+    const wasEmpty = carrito.length === 0
+    const nombre = modalMlt.nombre
     setCarrito(p => [...p, {
       id: Date.now(), key: modalMlt.key, nombre: modalMlt.nombre,
       precio: total, qty: ml, total, desc, tipo: 'mlt',
       unidad: modalMlt.unidad_medida || 'MLT',
     }])
     setModalMlt(null)
+    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
   }
   const confirmarGrm = ({ gramos, total, desc }) => {
+    const wasEmpty = carrito.length === 0
+    const nombre = modalGrm.nombre
     setCarrito(p => [...p, {
       id: Date.now(), key: modalGrm.key, nombre: modalGrm.nombre,
       precio: total, qty: gramos, total, desc, tipo: 'grm',
       unidad: modalGrm.unidad_medida || 'Gramos',
     }])
     setModalGrm(null)
+    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
   }
   const confirmarKg = ({ kg, total, desc }) => {
     setCarrito(p => [...p, {
@@ -1798,18 +1815,26 @@ export default function TabVentasRapidas({ refreshKey }) {
     setModalKg(null)
   }
   const confirmarFrac = ({ unidades, fracKey, total, desc }) => {
+    const wasEmpty = carrito.length === 0
+    const nombre = modalFrac.nombre
     // Calcular cantidad real: unidades enteras + fracción decimal
     const FRAC_DEC = { '3/4': 0.75, '1/2': 0.5, '1/4': 0.25, '1/3': 0.333, '1/8': 0.125, '1/10': 0.1, '1/16': 0.0625, '2/3': 0.667, '3/8': 0.375 }
     const fracDec = fracKey ? (FRAC_DEC[fracKey] || 0) : 0
     const cantReal = (unidades || 0) + fracDec
     setCarrito(p => [...p, { id: Date.now(), key: modalFrac.key, nombre: modalFrac.nombre, precio: total, qty: cantReal || 1, total, desc, tipo: 'fraccion', unidad: modalFrac.unidad_medida || 'Galón' }])
     setModalFrac(null)
+    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
   }
   const confirmarCm = ({ cm, total, desc }) => {
+    const wasEmpty = carrito.length === 0
+    const nombre = modalCm.nombre
     setCarrito(p => [...p, { id: Date.now(), key: modalCm.key, nombre: modalCm.nombre, precio: total, qty: cm || 1, total, desc, tipo: 'cm', unidad: modalCm.unidad_medida || 'Cms' }])
     setModalCm(null)
+    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
   }
   const confirmarQty = ({ qty, total, desc }) => {
+    const wasEmpty = carrito.length === 0
+    const nombre = modalQty.nombre
     setCarrito(prev => {
       const idx = prev.findIndex(c => c.key === modalQty.key && c.tipo === 'simple')
       if (idx >= 0) {
@@ -1820,6 +1845,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       return [...prev, { id: Date.now(), key: modalQty.key, nombre: modalQty.nombre, precio: modalQty.precio, qty, total, desc, tipo: 'simple', unidad: modalQty.unidad_medida || 'Unidad', mayorista: modalQty.mayorista || null }]
     })
     setModalQty(null)
+    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
   }
 
   // ── Color preparado ───────────────────────────────────────────────────────
@@ -2247,6 +2273,21 @@ export default function TabVentasRapidas({ refreshKey }) {
       {modalMlt  && <ModalMlt      key={modalMlt.key}   prod={modalMlt}  onClose={() => setModalMlt(null)}  onConfirm={confirmarMlt} />}
       {modalGrm  && <ModalGrm      key={modalGrm.key}   prod={modalGrm}  onClose={() => setModalGrm(null)}  onConfirm={confirmarGrm} />}
       {modalKg   && <ModalKg       key={modalKg.key}    prod={modalKg}   onClose={() => setModalKg(null)}   onConfirm={confirmarKg}  />}
+
+      {/* Toast carrito móvil — confirmación al agregar producto */}
+      {isMobile && carritoToast && (
+        <div style={{
+          position: 'fixed', bottom: 140, left: 16, right: 16,
+          background: t.green, color: '#fff',
+          borderRadius: 12, padding: '12px 16px',
+          fontSize: 13, fontWeight: 600,
+          zIndex: 9999, textAlign: 'center',
+          animation: 'carritoToastAnim 1.5s ease forwards',
+        }}>
+          <style>{`@keyframes carritoToastAnim{0%{opacity:0;transform:translateY(8px)}13%{opacity:1;transform:translateY(0)}80%{opacity:1}100%{opacity:0}}`}</style>
+          {carritoToast}
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
