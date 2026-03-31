@@ -13,7 +13,8 @@
       "Bash(head -10 grep -rn \"StaticFiles\\\\|dashboard.*dist\\\\|dist.*dashboard\" /c/Users/Dell/Documents/GitHub/bot-ventas-ferreteria/*.py /c/Users/Dell/Documents/GitHub/bot-ventas-ferreteria/routers/*.py)",
       "Bash(wc -l \"C:\\\\Users\\\\Dell\\\\Documents\\\\GitHub\\\\bot-ventas-ferreteria\\\\dashboard\\\\src\\\\tabs\"/*.jsx)",
       "Bash(cmd /c \"python C:\\\\Users\\\\Dell\\\\.claude\\\\skills\\\\ui-ux-pro-max\\\\scripts\\\\search.py \"\"accounting analytics dashboard hardware store elegant\"\" --design-system -p \"\"FerreBot\"\" -f markdown\")",
-      "Bash(cmd /c \"py \\\\\"C:\\\\\\\\Users\\\\\\\\Dell\\\\\\\\.claude\\\\\\\\skills\\\\\\\\ui-ux-pro-max\\\\\\\\scripts\\\\\\\\search.py\\\\\" accounting --design-system 2>&1\")"
+      "Bash(cmd /c \"py \\\\\"C:\\\\\\\\Users\\\\\\\\Dell\\\\\\\\.claude\\\\\\\\skills\\\\\\\\ui-ux-pro-max\\\\\\\\scripts\\\\\\\\search.py\\\\\" accounting --design-system 2>&1\")",
+      "Bash(PYTHONUTF8=1 python -m pytest tests/ -x -q --tb=short)"
     ]
   }
 }
