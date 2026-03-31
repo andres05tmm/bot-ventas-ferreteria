@@ -785,6 +785,11 @@ async def _construir_contexto_dashboard(mensaje: str, tab_activo: str = "") -> s
         "  Ejemplos: 'ventas de Carlos esta semana' → vendedor=Carlos, periodo=semana, tipo=texto\n"
         "            'total por nequi este mes' → metodo=nequi, periodo=mes, tipo=texto\n"
         "            'exportar ventas de hoy' → periodo=hoy, tipo=exportar\n\n"
+        "[REPORTE_PDF]{...json con los datos del reporte...}[/REPORTE_PDF] — generar reporte financiero en PDF\n"
+        "  Usa [REPORTE_PDF] OBLIGATORIAMENTE cuando el usuario pida un reporte financiero, PDF, reporte del mes o reporte de la semana.\n"
+        "  Primero obtén los datos del endpoint /chat/reporte-datos?periodo=mes (o semana), luego responde con el tag incluyendo el JSON completo.\n"
+        "  Sin ese tag el PDF no se genera. Siempre incluirlo cuando el usuario pida cualquier tipo de reporte financiero.\n"
+        '  Estructura del JSON: {"periodo":"mes|semana","fecha_generacion":"DD/MM/YYYY HH:MM","estado_resultados":{"ingresos":0,"cmv":0,"utilidad_bruta":0,"gastos_operativos":0,"utilidad_neta":0},"indicadores":{"ticket_promedio":0,"transacciones":0},"gastos_categorias":[{"categoria":"...","monto":0}],"top_productos":[{"producto":"...","unidades":0,"ingresos":0}],"proyeccion":{"caja_actual":0,"proyeccion_fin_mes":0,"promedio_diario_ventas":0,"promedio_diario_gastos":0},"cuentas_pagar":[{"proveedor":"...","factura":"...","saldo":0}]}\n\n'
 
         + (alertas_texto + "\n\n" if alertas_texto else "")
 
