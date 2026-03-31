@@ -19,6 +19,8 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import ReporteFinanciero from './ReporteFinanciero'
+import { generarReportePDF } from '../utils/generarPDF'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -632,6 +634,11 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
   // Mejora C: briefing matutino
   const [briefingCargado, setBriefingCargado] = useState(false)
 
+  // PDF reporte financiero
+  const [generandoPDF, setGenerandoPDF]   = useState(false)
+  const [datosReporte, setDatosReporte]   = useState(null)
+  const reporteRef                        = useRef(null)
+
   const mediaRecRef  = useRef(null)
   const chunksRef    = useRef([])
   const recTimerRef  = useRef(null)  // interval del timer
@@ -706,6 +713,43 @@ export default function ChatWidget({ onRefresh, activeTab = '' }) {
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 280)
   }, [open])
+
+  // Cuando datosReporte está cargado y el componente invisible está montado, generar PDF
+  useEffect(() => {
+    if (!datosReporte || !reporteRef.current) return
+    let cancelled = false
+    const now = new Date()
+    const mes  = now.toLocaleString('es-CO', { month: 'long' })
+    const anio = now.getFullYear()
+    const nombre = `reporte-financiero-${mes}-${anio}.pdf`
+
+    generarReportePDF(reporteRef.current, nombre)
+      .then(() => {
+        if (cancelled) return
+        setMessages(p => [...p, {
+          role: 'assistant',
+          content: `✅ Reporte descargado: ${nombre}`,
+          ts: Date.now(),
+        }])
+      })
+      .catch(err => {
+        if (cancelled) return
+        setMessages(p => [...p, {
+          role: 'assistant',
+          content: `⚠️ Error generando PDF: ${err.message}`,
+          ts: Date.now(),
+          isError: true,
+        }])
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setGenerandoPDF(false)
+          setDatosReporte(null)
+        }
+      })
+
+    return () => { cancelled = true }
+  }, [datosReporte])
 
   // Mejora C: pedir briefing la primera vez que se abre el chat en el día
   useEffect(() => {
@@ -908,6 +952,35 @@ ${d.briefing}`,
             setStreamText(accText)
           } else if (evt.type === 'done') {
             const respuesta = evt.respuesta || accText
+
+            // Detectar tag [REPORTE_PDF]{...}[/REPORTE_PDF]
+            const matchPDF = respuesta.match(/\[REPORTE_PDF\]([\s\S]*?)\[\/REPORTE_PDF\]/)
+            if (matchPDF) {
+              try {
+                const jsonStr = matchPDF[1].trim()
+                const datosPDF = JSON.parse(jsonStr)
+                setStreamText('')
+                setStreaming(false)
+                setGenerandoPDF(true)
+                setDatosReporte(datosPDF)
+                setMessages(p => [...p, {
+                  role: 'assistant',
+                  content: '⏳ Generando reporte financiero en PDF…',
+                  ts: Date.now(),
+                }])
+                setHistorial(p => [...p, { role: 'assistant', content: 'Reporte PDF generado.' }])
+              } catch {
+                setStreamText('')
+                setStreaming(false)
+                setMessages(p => [...p, {
+                  role: 'assistant',
+                  content: '⚠️ No pude parsear los datos del reporte.',
+                  ts: Date.now(),
+                  isError: true,
+                }])
+              }
+              return
+            }
 
             setStreamText('')
             setStreaming(false)
@@ -1257,6 +1330,13 @@ ${d.briefing}`,
           <IcoSend />
         </button>
       </div>
+
+      {/* Reporte invisible para html2canvas + indicador de generación */}
+      {generandoPDF && datosReporte && (
+        <div style={{ position: 'absolute', left: '-9999px', top: 0, zIndex: -1 }}>
+          <ReporteFinanciero ref={reporteRef} datos={datosReporte} />
+        </div>
+      )}
     </div>
   )
 }
