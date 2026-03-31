@@ -83,7 +83,7 @@ def productos():
         prods = db.query_all(
             """
             SELECT p.id, p.clave, p.nombre, p.categoria, p.precio_unidad,
-                   p.codigo, p.unidad_medida, p.precios_fraccion,
+                   p.codigo, p.unidad_medida,
                    i.cantidad AS stock,
                    ppc.umbral, ppc.precio_sobre_umbral
             FROM productos p
@@ -109,23 +109,6 @@ def productos():
             precio = v["precio_unidad"] or 0
             fracs  = fracs_map.get(pid) or {}
 
-            # Fallback 1: columna JSON productos.precios_fraccion
-            # (cubre productos como Acronal cuyas fracciones están en la columna
-            # pero aún no se migraron a la tabla productos_fracciones)
-            # SQL para migrar a la tabla canónica:
-            #   INSERT INTO productos_fracciones (producto_id, fraccion, precio_total, precio_unitario)
-            #   SELECT p.id, key, (value->>'precio')::int, (value->>'precio')::int
-            #   FROM productos p, jsonb_each(p.precios_fraccion)
-            #   WHERE p.precios_fraccion IS NOT NULL AND p.activo = TRUE
-            #   ON CONFLICT (producto_id, fraccion) DO NOTHING;
-            if not fracs and v.get("precios_fraccion"):
-                fracs = {
-                    k: {"precio": vv["precio"]}
-                    for k, vv in v["precios_fraccion"].items()
-                    if isinstance(vv, dict) and vv.get("precio")
-                }
-
-            # Fallback 2: fracciones de galón calculadas para pinturas
             if not fracs and precio > 0:
                 cat_lower = (v["categoria"] or "").lower()
                 if "pintura" in cat_lower or "disolvente" in cat_lower or "impermeab" in cat_lower:
