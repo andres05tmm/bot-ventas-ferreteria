@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -36,11 +37,25 @@ from starlette.middleware.base import BaseHTTPMiddleware
 # ── Routers ───────────────────────────────────────────────────────────────────
 from routers import ventas, catalogo, caja, clientes, reportes, historico, chat, proveedores
 
+_api_logger = logging.getLogger("ferrebot.api")
+
+# ── Lifespan: inicializar PostgreSQL al arrancar ──────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    import db as _db
+    _db.init_db()
+    if _db.DB_DISPONIBLE:
+        _api_logger.info("✅ PostgreSQL inicializado correctamente")
+    else:
+        _api_logger.warning("⚠️ PostgreSQL no disponible — API en modo degradado")
+    yield
+
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="FerreBot Dashboard API",
     description="API de ventas y catálogo para Ferretería Punto Rojo",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # ── Middleware: request_id + timing en cada request ───────────────────────────
