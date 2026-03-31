@@ -679,9 +679,8 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
       <main style={{
         maxWidth: isMobile ? '100%' : 1400, margin: '0 auto',
         padding: isMobile ? '14px 12px' : '24px 28px',
-        paddingTop: isMobile ? 'calc(58px + env(safe-area-inset-top, 0px))' : undefined,
         paddingBottom: isMobile ? 'calc(72px + env(safe-area-inset-bottom, 0px) + 16px)' : 24,
-        position: 'relative', zIndex: 1,
+        position: 'relative',
       }}>
         <div className="tab-content" key={tab}>
           {tab==='Resumen'          && <TabResumen         refreshKey={refreshKey}/>}

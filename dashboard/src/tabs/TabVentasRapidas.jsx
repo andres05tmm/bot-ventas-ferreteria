@@ -2155,7 +2155,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       {/* ══ MÓVIL: barra inferior fija del carrito ══ */}
       {isMobile && (
         <div style={{
-          position: 'fixed', bottom: 62, left: 0, right: 0,
+          position: 'fixed', bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))', left: 0, right: 0,
           zIndex: 200, padding: '8px 12px',
           background: t.header,
           borderTop: `1px solid ${t.border}`,
@@ -2213,7 +2213,9 @@ export default function TabVentasRapidas({ refreshKey }) {
         <div
           onClick={e => e.target === e.currentTarget && setCarritoAbierto(false)}
           style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 130, background: '#00000077',
+            position: 'fixed', top: 0, left: 0, right: 0,
+            bottom: 'calc(130px + env(safe-area-inset-bottom, 0px))',
+            background: '#00000077',
             zIndex: 300, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
           }}
         >
