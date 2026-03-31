@@ -1,23 +1,24 @@
 """
-start.py — Proceso unificado para Railway.
+start.py — Proceso unificado para desarrollo local.
 
 DISEÑO:
   - API FastAPI    → hilo SECUNDARIO (daemon)
-  - Bot Telegram   → hilo PRINCIPAL  (run_polling necesita signal handlers)
+  - Bot Telegram   → hilo PRINCIPAL
 
-SECUENCIA DE EVENT LOOPS:
-  1. asyncio.run(_delete_webhook()) — crea loop, lo usa, lo CIERRA
-  2. asyncio.new_event_loop()       — crea loop fresco para run_polling()
-  3. main() → run_polling()         — usa ese loop
+MODOS:
+  - Polling  (WEBHOOK_URL no definido): borra webhook anterior, usa long-polling
+  - Webhook  (WEBHOOK_URL definido):    main.py registra el webhook y corre run_webhook()
+
+RAILWAY (producción):
+  Usar dos servicios separados en lugar de este script:
+    Servicio 1 (API):  uvicorn api:app --host 0.0.0.0 --port $PORT
+    Servicio 2 (Bot):  python3 start-bot.py  (con WEBHOOK_URL configurado en Railway)
 """
 import asyncio
 import os
 import sys
 import threading
 import logging
-
-# ── Forzar polling ANTES de importar config (config lee WEBHOOK_URL al importar)
-os.environ["WEBHOOK_URL"] = ""
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -33,7 +34,7 @@ logging.getLogger("telegram.ext.Updater").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("start")
 
-# ── Importar config AQUÍ — después de fijar WEBHOOK_URL y antes de arrancar hilos
+# ── Importar config AQUÍ — antes de arrancar hilos
 import config  # noqa: E402
 
 # ── Inicializar PostgreSQL (si DATABASE_URL esta configurado) ──────────────────
@@ -98,21 +99,28 @@ historico_safety_thread = threading.Thread(target=_run_historico_safety_net, nam
 historico_safety_thread.start()
 log.info("📊 Histórico safety net iniciado (backup nocturno si /cerrar no se ejecutó)")
 
-# ── Borrar webhook viejo ───────────────────────────────────────────────────────
-# config ya fue importado al inicio del archivo — no se repite aquí
-from telegram import Bot  # noqa: E402
-
-async def _delete_webhook():
-    async with Bot(token=config.TELEGRAM_TOKEN) as bot:
-        await bot.delete_webhook(drop_pending_updates=True)
-    log.info("🧹 Webhook anterior eliminado")
-
-asyncio.run(_delete_webhook())
-# asyncio.run() cierra el loop al terminar → crear uno nuevo para run_polling()
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
-# ── Bot en hilo PRINCIPAL ──────────────────────────────────────────────────────
-log.info("🤖 Iniciando FerreBot...")
 from main import main  # noqa: E402
-main()
+
+if config.WEBHOOK_URL:
+    # ── Modo WEBHOOK ──────────────────────────────────────────────────────────
+    # main() llama a app.run_webhook() que gestiona su propio event loop y
+    # registra el webhook con Telegram automáticamente.
+    log.info(f"🌐 Modo WEBHOOK — {config.WEBHOOK_URL}")
+    main()
+else:
+    # ── Modo POLLING ──────────────────────────────────────────────────────────
+    # Borrar webhook anterior para evitar conflictos con run_polling().
+    # asyncio.run() cierra el loop → crear uno nuevo para run_polling().
+    from telegram import Bot  # noqa: E402
+
+    async def _delete_webhook():
+        async with Bot(token=config.TELEGRAM_TOKEN) as bot:
+            await bot.delete_webhook(drop_pending_updates=True)
+        log.info("🧹 Webhook anterior eliminado")
+
+    asyncio.run(_delete_webhook())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    log.info("🤖 Iniciando FerreBot (polling)...")
+    main()
