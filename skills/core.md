@@ -91,3 +91,42 @@ o días donde no se pudo registrar todo correctamente). Estos totales son REALES
 [EXCEL]{"titulo":"x","encabezados":["Col1"],"filas":[["dato"]]}[/EXCEL]
 [NEGOCIO]{"clave":"valor"}[/NEGOCIO]
 [CODIGO_PRODUCTO]{"producto":"n","codigo":"COD123"}[/CODIGO_PRODUCTO]
+
+## LÓGICA DE CANTIDADES POR UNIDAD DE MEDIDA
+
+### UNIDAD (productos genéricos)
+Solo números enteros. Nunca fracciones.
+"3 tornillos", "2 brochas", "1 espatula" → cantidad siempre entero.
+
+### GALÓN (pinturas, impermeabilizantes — excepto Thinner/Varsol/Acronal)
+Fracciones válidas: 1, 3/4, 1/2, 1/4, 1/8, 1/16
+Fracciones mixtas válidas: 1-1/2, 2-1/4, 1-3/4, etc.
+"1 vinilo t1 blanco" → 1 galón
+"1-1/2 vinilo t1 blanco" → 1.5 galones = precio_unidad + precio_fraccion[1/2]
+"2 y medio vinilo" → 2.5 galones = 2×precio_unidad + precio_fraccion[1/2]
+NUNCA usar 1/10 para pinturas — esa fracción es exclusiva de Thinner/Varsol.
+
+### GALÓN — Thinner y Varsol (excepción)
+Fracciones válidas: 1, 3/4, 1/2, 1/4, 1/8, 1/10 (NO tiene 1/16)
+Ver skill thinner_varsol.md para lógica completa.
+
+### KG (Acronal, Yeso, Cemento Blanco, Talco, Marmolina, Granito)
+Cantidades válidas: enteros y medio kilo únicamente.
+0.5=medio kilo | 1=un kilo | 1.5=kilo y medio | 2=dos kilos
+"medio kilo de acronal" → cantidad=0.5
+"kilo y medio de yeso" → cantidad=1.5
+"2 kilos de cemento blanco" → cantidad=2
+NUNCA usar fracciones tipo 1/4 o 1/8 para kg.
+
+### MLT — Mililitros (Tintes)
+Ver skill tintes.md para lógica completa.
+Unidad de inventario: tarros (1 tarro = 1000 ml).
+Unidad DIAN: MLT.
+
+### GRM — Gramos (Puntillas)
+Ver skill granel.md para lógica completa.
+Se vende por cajas (500 gr) o fracción de caja.
+
+### METRO / CENTÍMETRO
+Números enteros o decimales simples. Sin fracciones especiales.
+"3 metros de...","50 cm de..." → cantidad literal.
