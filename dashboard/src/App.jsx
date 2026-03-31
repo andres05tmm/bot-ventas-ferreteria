@@ -286,13 +286,14 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
       backdropFilter: t.headerBlur,
       WebkitBackdropFilter: t.headerBlur,
       borderBottom: `1px solid ${t.border}`,
-      position: 'sticky', top: 0, zIndex: 30, height: 58,
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '0 16px',
+      position: 'sticky', top: 0, zIndex: 30,
+      height: 'calc(58px + env(safe-area-inset-top, 0px))',
+      paddingTop: 'env(safe-area-inset-top, 0px)',
       boxShadow: themeId !== 'caramelo'
         ? '0 4px 24px rgba(0,0,0,.45)'
         : '0 2px 12px rgba(0,0,0,.06)',
     }}>
+      <div style={{ height: 58, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px' }}>
       <Logo size={32} themeId={themeId}/>
 
       {/* Tab activo centrado */}
@@ -325,6 +326,7 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
           color: t.textMuted, borderRadius: 10, width: 36, height: 36,
           fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>{THEMES[themeId]?.label.split(' ')[0] ?? '🎨'}</button>
+      </div>
       </div>
     </header>
   )
@@ -677,6 +679,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
       <main style={{
         maxWidth: isMobile ? '100%' : 1400, margin: '0 auto',
         padding: isMobile ? '14px 12px' : '24px 28px',
+        paddingTop: isMobile ? 'calc(58px + env(safe-area-inset-top, 0px))' : undefined,
         paddingBottom: isMobile ? 'calc(72px + env(safe-area-inset-bottom, 0px) + 16px)' : 24,
         position: 'relative', zIndex: 1,
       }}>
