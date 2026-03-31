@@ -746,8 +746,27 @@ function ModalKg({ prod, onClose, onConfirm }) {
   const [precioCustom, setPrecioCustom] = useState(null)
   if (!prod) return null
 
+  // Para medio kilo: usar precios_fraccion['1/2'].precio si existe,
+  // de lo contrario calcular 0.5 × precio.
+  // SQL para fijar el precio de fracción en Railway:
+  //   UPDATE productos
+  //   SET precios_fraccion = jsonb_set(COALESCE(precios_fraccion,'{}'),'{1/2}','{"precio":7000}')
+  //   WHERE nombre ILIKE '%acronal%';
+  const fracHalf = prod.precios_fraccion?.['1/2']?.precio ?? null
+
+  const calcPrecioKg = (v) => {
+    if (v === 0) return 0
+    const ent = Math.floor(v)
+    const med = (v % 1).toFixed(1) === '0.5'
+    const baseEntera = ent * (prod.precio || 0)
+    const baseMedio  = med
+      ? (fracHalf !== null ? fracHalf : Math.round((prod.precio || 0) * 0.5))
+      : 0
+    return Math.round(baseEntera + baseMedio)
+  }
+
   const kgNum     = parseFloat(kg) || 0
-  const totalCalc = Math.round(kgNum * (prod.precio || 0))
+  const totalCalc = calcPrecioKg(kgNum)
   const precioFinal = precioCustom !== null ? precioCustom : totalCalc
   const valido    = kgNum > 0
 
@@ -775,7 +794,7 @@ function ModalKg({ prod, onClose, onConfirm }) {
 
   return (
     <Modal show title={prod.nombre}
-      subtitle={`${cop(prod.precio)}/kg`}
+      subtitle={`${cop(prod.precio)}/kg${fracHalf !== null ? ` · ½kg: ${cop(fracHalf)}` : ''}`}
       onClose={onClose} onConfirm={confirmar} okDisabled={!valido}
       okLabel="Agregar al carrito">
 
@@ -794,7 +813,7 @@ function ModalKg({ prod, onClose, onConfirm }) {
               }}>
               <div style={{ fontWeight: 600 }}>{a.label}</div>
               <div style={{ fontSize: 10, color: t.textMuted, marginTop: 2 }}>
-                {cop(Math.round(a.kg * prod.precio))}
+                {cop(calcPrecioKg(a.kg))}
               </div>
             </button>
           )
