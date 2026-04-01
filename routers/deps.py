@@ -4,7 +4,7 @@ import jwt
 import logging
 
 # -- terceros --
-from fastapi import Header, HTTPException, Depends
+from fastapi import Header, HTTPException, Depends, Query
 
 logger = logging.getLogger("ferrebot.routers.deps")
 
