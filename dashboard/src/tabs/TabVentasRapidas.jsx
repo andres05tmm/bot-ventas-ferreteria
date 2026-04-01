@@ -1708,7 +1708,6 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [subcatFiltro,      setSubcatFiltro]      = useState(null)
   const [modalColorPrep,    setModalColorPrep]    = useState(false)
   const [precioBaseColor,   setPrecioBaseColor]   = useState(0)
-  const [carritoAbierto, setCarritoAbierto] = useState(false)
   const isMobile = useIsMobile()
 
   const mostrarCarritoToast = (nombre) => {
@@ -1789,6 +1788,7 @@ export default function TabVentasRapidas({ refreshKey }) {
     const ya = carrito.find(c => c.key === prod.key && c.tipo === 'simple')
     if (ya) { setModalQty(prod) }
     else {
+      const wasEmpty = carrito.length === 0
       setCarrito(prev => [...prev, {
         id: Date.now(), key: prod.key, nombre: prod.nombre,
         precio: prod.precio, qty: 1, total: prod.precio,
@@ -1796,59 +1796,89 @@ export default function TabVentasRapidas({ refreshKey }) {
         unidad: prod.unidad_medida || 'Unidad',
         mayorista: prod.mayorista || null,
       }])
-      if (isMobile) mostrarCarritoToast(prod.nombre)
+      if (isMobile) {
+        if (wasEmpty) {
+          setTimeout(() => {
+            const el = document.getElementById('carrito-mobile-panel')
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }, 100)
+        } else {
+          mostrarCarritoToast(prod.nombre)
+        }
+      }
     }
   }, [carrito, isMobile])
 
   // ── Confirmaciones ─────────────────────────────────────────────────────────
   const confirmarMlt = ({ ml, total, desc }) => {
     const nombre = modalMlt.nombre
+    const wasEmpty = carrito.length === 0
     setCarrito(p => [...p, {
       id: Date.now(), key: modalMlt.key, nombre: modalMlt.nombre,
       precio: total, qty: ml, total, desc, tipo: 'mlt',
       unidad: modalMlt.unidad_medida || 'MLT',
     }])
     setModalMlt(null)
-    if (isMobile) mostrarCarritoToast(nombre)
+    if (isMobile) {
+      if (wasEmpty) { setTimeout(() => { const el = document.getElementById('carrito-mobile-panel'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 100) }
+      else mostrarCarritoToast(nombre)
+    }
   }
   const confirmarGrm = ({ gramos, total, desc }) => {
     const nombre = modalGrm.nombre
+    const wasEmpty = carrito.length === 0
     setCarrito(p => [...p, {
       id: Date.now(), key: modalGrm.key, nombre: modalGrm.nombre,
       precio: total, qty: gramos, total, desc, tipo: 'grm',
       unidad: modalGrm.unidad_medida || 'Gramos',
     }])
     setModalGrm(null)
-    if (isMobile) mostrarCarritoToast(nombre)
+    if (isMobile) {
+      if (wasEmpty) { setTimeout(() => { const el = document.getElementById('carrito-mobile-panel'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 100) }
+      else mostrarCarritoToast(nombre)
+    }
   }
   const confirmarKg = ({ kg, total, desc }) => {
     const nombre = modalKg.nombre
+    const wasEmpty = carrito.length === 0
     setCarrito(p => [...p, {
       id: Date.now(), key: modalKg.key, nombre: modalKg.nombre,
       precio: total, qty: kg, total, desc, tipo: 'kg',
       unidad: modalKg.unidad_medida || 'Kg',
     }])
     setModalKg(null)
-    if (isMobile) mostrarCarritoToast(nombre)
+    if (isMobile) {
+      if (wasEmpty) { setTimeout(() => { const el = document.getElementById('carrito-mobile-panel'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 100) }
+      else mostrarCarritoToast(nombre)
+    }
   }
   const confirmarFrac = ({ unidades, fracKey, total, desc }) => {
     const nombre = modalFrac.nombre
+    const wasEmpty = carrito.length === 0
     // Calcular cantidad real: unidades enteras + fracción decimal
     const FRAC_DEC = { '3/4': 0.75, '1/2': 0.5, '1/4': 0.25, '1/3': 0.333, '1/8': 0.125, '1/10': 0.1, '1/16': 0.0625, '2/3': 0.667, '3/8': 0.375 }
     const fracDec = fracKey ? (FRAC_DEC[fracKey] || 0) : 0
     const cantReal = (unidades || 0) + fracDec
     setCarrito(p => [...p, { id: Date.now(), key: modalFrac.key, nombre: modalFrac.nombre, precio: total, qty: cantReal || 1, total, desc, tipo: 'fraccion', unidad: modalFrac.unidad_medida || 'Galón' }])
     setModalFrac(null)
-    if (isMobile) mostrarCarritoToast(nombre)
+    if (isMobile) {
+      if (wasEmpty) { setTimeout(() => { const el = document.getElementById('carrito-mobile-panel'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 100) }
+      else mostrarCarritoToast(nombre)
+    }
   }
   const confirmarCm = ({ cm, total, desc }) => {
     const nombre = modalCm.nombre
+    const wasEmpty = carrito.length === 0
     setCarrito(p => [...p, { id: Date.now(), key: modalCm.key, nombre: modalCm.nombre, precio: total, qty: cm || 1, total, desc, tipo: 'cm', unidad: modalCm.unidad_medida || 'Cms' }])
     setModalCm(null)
-    if (isMobile) mostrarCarritoToast(nombre)
+    if (isMobile) {
+      if (wasEmpty) { setTimeout(() => { const el = document.getElementById('carrito-mobile-panel'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 100) }
+      else mostrarCarritoToast(nombre)
+    }
   }
   const confirmarQty = ({ qty, total, desc }) => {
     const nombre = modalQty.nombre
+    const wasEmpty = carrito.length === 0
     setCarrito(prev => {
       const idx = prev.findIndex(c => c.key === modalQty.key && c.tipo === 'simple')
       if (idx >= 0) {
@@ -1859,7 +1889,10 @@ export default function TabVentasRapidas({ refreshKey }) {
       return [...prev, { id: Date.now(), key: modalQty.key, nombre: modalQty.nombre, precio: modalQty.precio, qty, total, desc, tipo: 'simple', unidad: modalQty.unidad_medida || 'Unidad', mayorista: modalQty.mayorista || null }]
     })
     setModalQty(null)
-    if (isMobile) mostrarCarritoToast(nombre)
+    if (isMobile) {
+      if (wasEmpty) { setTimeout(() => { const el = document.getElementById('carrito-mobile-panel'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 100) }
+      else mostrarCarritoToast(nombre)
+    }
   }
 
   // ── Color preparado ───────────────────────────────────────────────────────
@@ -1953,7 +1986,6 @@ export default function TabVentasRapidas({ refreshKey }) {
         display: isMobile ? 'block' : 'grid',
         gridTemplateColumns: '1fr 310px',
         gap: 16, alignItems: 'start',
-        paddingBottom: isMobile ? 150 : 0,
         width: '100%', minWidth: 0, overflow: 'hidden',
       }}>
 
@@ -2151,8 +2183,9 @@ export default function TabVentasRapidas({ refreshKey }) {
         )}
       </div>
 
-      {/* ══ CARRITO — solo visible en desktop ══ */}
-      {!isMobile && (
+      {/* ══ CARRITO — desktop: columna derecha / móvil: al final del scroll ══ */}
+      <div id={isMobile ? 'carrito-mobile-panel' : undefined}
+           style={isMobile ? { marginTop: 16, marginBottom: 80 } : undefined}>
         <PanelCarrito
           t={t} carrito={carrito} totalCarrito={totalCarrito}
           vendedor={vendedor} setVendedor={setVendedor}
@@ -2163,117 +2196,35 @@ export default function TabVentasRapidas({ refreshKey }) {
           registrar={registrar} enviando={enviando}
           sticky
         />
-      )}
+      </div>
 
       </div>{/* fin grid */}
 
-      {/* ══ MÓVIL: barra inferior fija del carrito ══ */}
-      {isMobile && createPortal(
+      {/* ══ MÓVIL: barra inferior fija — solo botón Registrar cuando hay ítems ══ */}
+      {isMobile && totalItems > 0 && createPortal(
         <div style={{
           position: 'fixed', bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))', left: 0, right: 0,
           zIndex: 200, padding: '8px 12px',
           background: t.header,
           borderTop: `1px solid ${t.border}`,
           boxShadow: '0 -4px 20px rgba(0,0,0,.15)',
-          display: 'flex', gap: 8,
           boxSizing: 'border-box',
         }}>
-          {/* Botón ver/editar carrito */}
           <button
-            onClick={() => setCarritoAbierto(true)}
+            onClick={enviando ? undefined : registrar}
+            disabled={enviando}
             style={{
-              flex: 1, padding: '14px 14px',
-              background: totalItems > 0 ? t.accent : t.card,
-              border: `1px solid ${totalItems > 0 ? t.accent : t.border}`,
-              borderRadius: 11, color: totalItems > 0 ? '#fff' : t.textMuted,
-              fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
-              cursor: 'pointer', display: 'flex',
-              alignItems: 'center', justifyContent: 'center', gap: 8,
+              width: '100%', padding: '14px',
+              background: t.accent, border: 'none',
+              borderRadius: 11, color: '#fff',
+              fontSize: 14, fontWeight: 700, fontFamily: 'inherit',
+              cursor: enviando ? 'not-allowed' : 'pointer',
+              opacity: enviando ? 0.7 : 1,
               transition: 'all .2s',
-              animation: pulseCarrito ? 'cartPulse .6s ease' : 'none',
             }}
           >
-            <span style={{ fontSize: 17 }}>🛒</span>
-            {totalItems > 0
-              ? <span>{totalItems} {totalItems === 1 ? 'ítem' : 'ítems'} · {cop(totalCarrito)}</span>
-              : <span>Carrito vacío</span>
-            }
+            {enviando ? '⏳ Registrando...' : `✓ Registrar · ${cop(totalCarrito)}`}
           </button>
-
-          {/* Botón REGISTRAR directo — solo visible cuando hay ítems */}
-          {totalItems > 0 && (
-            <button
-              onClick={enviando ? undefined : registrar}
-              disabled={enviando}
-              style={{
-                padding: '12px 18px',
-                background: t.accent,
-                border: 'none',
-                borderRadius: 11, color: '#fff',
-                fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
-                cursor: enviando ? 'not-allowed' : 'pointer',
-                whiteSpace: 'nowrap',
-                opacity: enviando ? 0.7 : 1,
-                transition: 'all .2s',
-                flexShrink: 0,
-              }}
-            >
-              {enviando ? '⏳' : '✓ Registrar'}
-            </button>
-          )}
-        </div>
-      , document.body)}
-
-      {/* ══ MÓVIL: bottom drawer del carrito ══ */}
-      {isMobile && carritoAbierto && createPortal(
-        <div
-          onPointerDown={e => e.target === e.currentTarget && setCarritoAbierto(false)}
-          style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: '#00000077',
-            zIndex: 300,
-            display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-          }}
-        >
-          <div
-            onPointerDown={e => e.stopPropagation()}
-            style={{
-            background: t.card, borderRadius: '18px 18px 0 0',
-            maxHeight: 'calc(100dvh - 130px - env(safe-area-inset-bottom, 0px))', overflow: 'hidden', display: 'flex', flexDirection: 'column',
-            animation: 'drawerUp .25s cubic-bezier(.34,1.2,.64,1)',
-          }}>
-            <style>{`@keyframes drawerUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
-            {/* Handle */}
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
-              <div style={{ width: 36, height: 4, borderRadius: 99, background: t.border }} />
-            </div>
-            {/* Header drawer */}
-            <div style={{
-              padding: '8px 18px 12px', display: 'flex',
-              alignItems: 'center', justifyContent: 'space-between',
-              borderBottom: `1px solid ${t.border}`,
-            }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>🛒 Carrito</span>
-              <button onClick={() => setCarritoAbierto(false)} style={{
-                background: 'none', border: 'none', color: t.textMuted,
-                fontSize: 20, cursor: 'pointer', padding: '4px 8px',
-              }}>✕</button>
-            </div>
-            {/* Contenido carrito */}
-            <div style={{ overflowY: 'auto', flex: 1, paddingBottom: 16, WebkitOverflowScrolling: 'touch' }}>
-              <PanelCarrito
-                t={t} carrito={carrito} totalCarrito={totalCarrito}
-                vendedor={vendedor} setVendedor={setVendedor}
-                metodo={metodo} setMetodo={setMetodo}
-                clienteSeleccionado={clienteSeleccionado}
-                setClienteSeleccionado={setClienteSeleccionado}
-                removeItem={removeItem} qtyChange={qtyChange}
-                registrar={() => { registrar(); setCarritoAbierto(false) }}
-                enviando={enviando}
-                mobile
-              />
-            </div>
-          </div>
         </div>
       , document.body)}
 
