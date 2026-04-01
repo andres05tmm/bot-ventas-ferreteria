@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { ThemeContext, THEMES, useTheme } from './components/shared.jsx'
 import { ProtectedRoute } from './components/ProtectedRoute.jsx'
+import { VendorProvider, useVendorFilter } from './hooks/useVendorFilter.jsx'
+import { useAuth } from './hooks/useAuth'
 import Login from './pages/Login.jsx'
 import TabResumen         from './tabs/TabResumen.jsx'
 import TabTopProductos    from './tabs/TabTopProductos.jsx'
@@ -144,6 +146,44 @@ function useIsMobile() {
   return v
 }
 
+// ── Vendor Selector Helper ────────────────────────────────────────────────────
+function HeaderVendorSelector() {
+  const t = useTheme()
+  const { isAdmin } = useAuth()
+  const vendorCtx = useVendorFilter()
+  const { vendedores, selectedVendor, setSelectedVendor } = vendorCtx || {}
+
+  if (!isAdmin()) return null
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      background: t.card, border: `1px solid ${t.border}`,
+      borderRadius: 10, padding: '8px 12px',
+    }}>
+      <label style={{
+        fontSize: 11, color: t.textMuted, fontWeight: 600,
+        letterSpacing: '.12em', textTransform: 'uppercase',
+      }}>Vendedor</label>
+      <select
+        value={selectedVendor || ''}
+        onChange={(e) => setSelectedVendor(parseInt(e.target.value) || null)}
+        style={{
+          background: t.card, border: `1px solid #C8200E66`,
+          color: t.text, borderRadius: 6, padding: '4px 8px',
+          fontSize: 11, fontWeight: 500, cursor: 'pointer',
+          outline: 'none',
+        }}
+      >
+        <option value="">Todos los vendedores</option>
+        {(vendedores || []).map(v => (
+          <option key={v.id} value={v.id}>{v.nombre}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 // ── Header Desktop ────────────────────────────────────────────────────────────
 function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterval,
                          lastRefresh, onRefresh, countdown }) {
@@ -252,6 +292,10 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
               )
             })}
           </div>
+
+          <div style={{ width:1, height:22, background:t.border, opacity:.5, margin:'0 2px' }}/>
+
+          {HeaderVendorSelector()}
 
           <div style={{ width:1, height:22, background:t.border, opacity:.5, margin:'0 2px' }}/>
 
@@ -415,7 +459,6 @@ function BottomNav({ activeTab, setTab }) {
         borderTop: `1px solid ${t.border}`,
         display: 'flex',
         height: 'calc(64px + env(safe-area-inset-bottom, 0px))',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         boxShadow: '0 -8px 32px rgba(0,0,0,.18)',
         padding: '0 8px',
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
@@ -776,11 +819,17 @@ class ErrorBoundary extends React.Component {
 }
 
 function Dashboard({ themeId, setThemeId, refreshRef }) {
-  return (
+  const { isAdmin } = useAuth()
+  const content = (
     <ThemeContext.Provider value={THEMES[themeId]}>
       <AppShell themeId={themeId} setThemeId={setThemeId} refreshRef={refreshRef}/>
     </ThemeContext.Provider>
   )
+
+  if (isAdmin()) {
+    return <VendorProvider>{content}</VendorProvider>
+  }
+  return content
 }
 
 export default function App() {
