@@ -1789,7 +1789,6 @@ export default function TabVentasRapidas({ refreshKey }) {
     const ya = carrito.find(c => c.key === prod.key && c.tipo === 'simple')
     if (ya) { setModalQty(prod) }
     else {
-      const wasEmpty = carrito.length === 0
       setCarrito(prev => [...prev, {
         id: Date.now(), key: prod.key, nombre: prod.nombre,
         precio: prod.precio, qty: 1, total: prod.precio,
@@ -1797,16 +1796,12 @@ export default function TabVentasRapidas({ refreshKey }) {
         unidad: prod.unidad_medida || 'Unidad',
         mayorista: prod.mayorista || null,
       }])
-      if (isMobile) {
-        if (wasEmpty) setCarritoAbierto(true)
-        else mostrarCarritoToast(prod.nombre)
-      }
+      if (isMobile) mostrarCarritoToast(prod.nombre)
     }
   }, [carrito, isMobile])
 
   // ── Confirmaciones ─────────────────────────────────────────────────────────
   const confirmarMlt = ({ ml, total, desc }) => {
-    const wasEmpty = carrito.length === 0
     const nombre = modalMlt.nombre
     setCarrito(p => [...p, {
       id: Date.now(), key: modalMlt.key, nombre: modalMlt.nombre,
@@ -1814,10 +1809,9 @@ export default function TabVentasRapidas({ refreshKey }) {
       unidad: modalMlt.unidad_medida || 'MLT',
     }])
     setModalMlt(null)
-    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
+    if (isMobile) mostrarCarritoToast(nombre)
   }
   const confirmarGrm = ({ gramos, total, desc }) => {
-    const wasEmpty = carrito.length === 0
     const nombre = modalGrm.nombre
     setCarrito(p => [...p, {
       id: Date.now(), key: modalGrm.key, nombre: modalGrm.nombre,
@@ -1825,10 +1819,9 @@ export default function TabVentasRapidas({ refreshKey }) {
       unidad: modalGrm.unidad_medida || 'Gramos',
     }])
     setModalGrm(null)
-    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
+    if (isMobile) mostrarCarritoToast(nombre)
   }
   const confirmarKg = ({ kg, total, desc }) => {
-    const wasEmpty = carrito.length === 0
     const nombre = modalKg.nombre
     setCarrito(p => [...p, {
       id: Date.now(), key: modalKg.key, nombre: modalKg.nombre,
@@ -1836,10 +1829,9 @@ export default function TabVentasRapidas({ refreshKey }) {
       unidad: modalKg.unidad_medida || 'Kg',
     }])
     setModalKg(null)
-    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
+    if (isMobile) mostrarCarritoToast(nombre)
   }
   const confirmarFrac = ({ unidades, fracKey, total, desc }) => {
-    const wasEmpty = carrito.length === 0
     const nombre = modalFrac.nombre
     // Calcular cantidad real: unidades enteras + fracción decimal
     const FRAC_DEC = { '3/4': 0.75, '1/2': 0.5, '1/4': 0.25, '1/3': 0.333, '1/8': 0.125, '1/10': 0.1, '1/16': 0.0625, '2/3': 0.667, '3/8': 0.375 }
@@ -1847,17 +1839,15 @@ export default function TabVentasRapidas({ refreshKey }) {
     const cantReal = (unidades || 0) + fracDec
     setCarrito(p => [...p, { id: Date.now(), key: modalFrac.key, nombre: modalFrac.nombre, precio: total, qty: cantReal || 1, total, desc, tipo: 'fraccion', unidad: modalFrac.unidad_medida || 'Galón' }])
     setModalFrac(null)
-    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
+    if (isMobile) mostrarCarritoToast(nombre)
   }
   const confirmarCm = ({ cm, total, desc }) => {
-    const wasEmpty = carrito.length === 0
     const nombre = modalCm.nombre
     setCarrito(p => [...p, { id: Date.now(), key: modalCm.key, nombre: modalCm.nombre, precio: total, qty: cm || 1, total, desc, tipo: 'cm', unidad: modalCm.unidad_medida || 'Cms' }])
     setModalCm(null)
-    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
+    if (isMobile) mostrarCarritoToast(nombre)
   }
   const confirmarQty = ({ qty, total, desc }) => {
-    const wasEmpty = carrito.length === 0
     const nombre = modalQty.nombre
     setCarrito(prev => {
       const idx = prev.findIndex(c => c.key === modalQty.key && c.tipo === 'simple')
@@ -1869,7 +1859,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       return [...prev, { id: Date.now(), key: modalQty.key, nombre: modalQty.nombre, precio: modalQty.precio, qty, total, desc, tipo: 'simple', unidad: modalQty.unidad_medida || 'Unidad', mayorista: modalQty.mayorista || null }]
     })
     setModalQty(null)
-    if (isMobile) { if (wasEmpty) setCarritoAbierto(true); else mostrarCarritoToast(nombre) }
+    if (isMobile) mostrarCarritoToast(nombre)
   }
 
   // ── Color preparado ───────────────────────────────────────────────────────
@@ -2178,7 +2168,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       </div>{/* fin grid */}
 
       {/* ══ MÓVIL: barra inferior fija del carrito ══ */}
-      {isMobile && (
+      {isMobile && createPortal(
         <div style={{
           position: 'fixed', bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))', left: 0, right: 0,
           zIndex: 200, padding: '8px 12px',
@@ -2232,10 +2222,10 @@ export default function TabVentasRapidas({ refreshKey }) {
             </button>
           )}
         </div>
-      )}
+      , document.body)}
 
       {/* ══ MÓVIL: bottom drawer del carrito ══ */}
-      {isMobile && carritoAbierto && (
+      {isMobile && carritoAbierto && createPortal(
         <div
           onPointerDown={e => e.target === e.currentTarget && setCarritoAbierto(false)}
           style={{
@@ -2285,7 +2275,7 @@ export default function TabVentasRapidas({ refreshKey }) {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Modal color preparado */}
       <ModalColorPreparado
