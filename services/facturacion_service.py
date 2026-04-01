@@ -243,9 +243,10 @@ async def emitir_factura(venta_id: int) -> dict:
 
     logger.debug(f"Respuesta MATIAS API venta {venta_id} (HTTP {resp.status_code}): {data}")
 
-    cufe   = data.get("document_key", "")
-    numero = data.get("document_number", f"{MATIAS_PREFIX}{num_dian}")
-    valido = bool(data.get("is_valid")) or bool(cufe)
+    # MATIAS API devuelve 'success' y 'XmlDocumentKey' (no 'is_valid' ni 'document_key')
+    valido = bool(data.get("success"))
+    cufe   = data.get("XmlDocumentKey") or data.get("document_key", "")
+    numero = f"{MATIAS_PREFIX}{num_dian}"
 
     if not valido:
         # Extraer mensaje: primero message, luego errors (dict o lista)
