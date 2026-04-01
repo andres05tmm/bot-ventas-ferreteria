@@ -1,45 +1,35 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useTheme, THEMES } from '../components/shared.jsx'
+import { useTheme } from '../components/shared.jsx'
 
 export default function Login() {
   const t = useTheme()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const widgetRef = useRef(null)
 
   useEffect(() => {
-    // Inyecta el script de Telegram Login Widget
-    const script = document.createElement('script')
-    script.src = 'https://telegram.org/js/telegram-web-app.js'
-    script.async = true
-    document.body.appendChild(script)
-
-    // Define el callback de autenticación
+    // Definir el callback ANTES de que el script cargue
     window.onTelegramAuth = async (user) => {
       setLoading(true)
       setError('')
 
       try {
-        // Envía los datos del usuario a /api/auth/telegram
         const response = await fetch('/api/auth/telegram', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(user),
         })
 
         if (response.ok) {
           const data = await response.json()
-          // Guarda el token y la información del usuario en localStorage
           localStorage.setItem('ferrebot_token', data.token)
           localStorage.setItem('ferrebot_user', JSON.stringify({
             usuario_id: data.usuario_id || user.id,
             nombre: data.nombre,
             rol: data.rol,
           }))
-          // Redirige al dashboard
           navigate('/')
         } else if (response.status === 403) {
           setError('No tienes acceso. Pídele a Andrés que te registre.')
@@ -56,10 +46,24 @@ export default function Login() {
       }
     }
 
+    // Inyectar el script del widget con todos sus data-attributes
+    // dangerouslySetInnerHTML no ejecuta <script>, hay que crearlo via DOM
+    const script = document.createElement('script')
+    script.src = 'https://telegram.org/js/telegram-widget.js?22'
+    script.setAttribute('data-telegram-login', 'elmicha_bot')
+    script.setAttribute('data-size', 'large')
+    script.setAttribute('data-onauth', 'onTelegramAuth(user)')
+    script.setAttribute('data-request-access', 'write')
+    script.setAttribute('data-userpic', 'false')
+    script.async = true
+
+    if (widgetRef.current) {
+      widgetRef.current.innerHTML = ''
+      widgetRef.current.appendChild(script)
+    }
+
     return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script)
-      }
+      delete window.onTelegramAuth
     }
   }, [navigate])
 
@@ -88,13 +92,13 @@ export default function Login() {
         alignItems: 'center',
         gap: '24px',
       }}>
-        {/* Logo/Branding */}
+        {/* Branding */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           gap: '12px',
-          marginBottom: '16px',
+          marginBottom: '8px',
         }}>
           <div style={{
             width: '56px',
@@ -113,7 +117,7 @@ export default function Login() {
             margin: '0',
             fontSize: '24px',
             fontWeight: '800',
-            color: t.text,
+            color: '#C8200E',
             letterSpacing: '-0.02em',
           }}>
             Ferretería Punto Rojo
@@ -128,33 +132,21 @@ export default function Login() {
           </p>
         </div>
 
-        {/* Telegram Widget Container */}
-        <div style={{
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '16px',
-        }}>
-          <div
-            className="telegram-login"
-            data-telegram-login="elmicha_bot"
-            data-size="large"
-            data-onauth="onTelegramAuth"
-            data-request-access="write"
-            style={{
-              display: 'flex',
-              justifyContent: 'center',
-            }}
-          />
-        </div>
+        {/* Widget container — el script se inyecta aquí */}
+        <div
+          ref={widgetRef}
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            minHeight: '48px',
+          }}
+        />
 
-        {/* Loading Spinner */}
+        {/* Loading */}
         {loading && (
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
             gap: '8px',
             color: t.textMuted,
             fontSize: '13px',
@@ -171,15 +163,15 @@ export default function Login() {
           </div>
         )}
 
-        {/* Error Message */}
+        {/* Error */}
         {error && (
           <div style={{
             background: 'rgba(200, 32, 14, 0.08)',
-            border: `1px solid ${t.accent}`,
+            border: '1px solid #C8200E',
             borderRadius: '10px',
             padding: '12px 16px',
             fontSize: '13px',
-            color: t.accent,
+            color: '#C8200E',
             fontWeight: '500',
             width: '100%',
             textAlign: 'center',
@@ -188,7 +180,6 @@ export default function Login() {
           </div>
         )}
 
-        {/* Help Text */}
         <p style={{
           margin: '0',
           fontSize: '12px',
@@ -196,7 +187,7 @@ export default function Login() {
           textAlign: 'center',
           lineHeight: '1.5',
         }}>
-          Haz clic en el botón de Telegram para ingresar al dashboard
+          Inicia sesión con tu cuenta de Telegram para acceder al dashboard
         </p>
       </div>
 
