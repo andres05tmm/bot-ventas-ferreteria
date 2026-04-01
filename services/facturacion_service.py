@@ -47,6 +47,65 @@ _MEDIOS_PAGO = {
     "datafono":      48,
 }
 
+# ── Caché de ciudades MATIAS API (dane_code → matias_id interno) ──────────────
+#
+# IMPORTANTE: MATIAS API usa sus propios IDs secuenciales internos para ciudades,
+# NO los códigos DANE municipales (ej: DANE 13001 ≠ ID MATIAS de Cartagena).
+# El endpoint público GET /cities devuelve el catálogo con la correspondencia.
+# Enviando un código DANE directamente como city_id causa el error:
+#   "El campo customer.city_id no existe en la tabla cities"
+
+_cities_cache:        dict = {}
+_cities_cache_loaded: bool = False
+_cities_lock_obj:     threading.Lock = threading.Lock()
+
+
+def _cargar_ciudades_matias() -> None:
+    """Carga el catálogo de ciudades de MATIAS API una sola vez y lo cachea."""
+    global _cities_cache, _cities_cache_loaded
+    with _cities_lock_obj:
+        if _cities_cache_loaded:
+            return
+        try:
+            resp = httpx.get(f"{MATIAS_API_URL}/cities", timeout=15)
+            if resp.status_code == 200:
+                data   = resp.json()
+                cities = (
+                    data.get("dataRecords", {}).get("data", [])
+                    or data.get("data", [])
+                    or []
+                )
+                for city in cities:
+                    # MATIAS API almacena el código DANE en el campo "code"
+                    code = city.get("code") or city.get("dane_code") or city.get("municipality_code")
+                    if code:
+                        try:
+                            _cities_cache[int(str(code))] = str(city["id"])
+                        except (ValueError, KeyError, TypeError):
+                            pass
+                _cities_cache_loaded = True
+                logger.info("Catálogo ciudades MATIAS cargado: %d ciudades", len(_cities_cache))
+            else:
+                logger.warning("MATIAS /cities devolvió HTTP %s", resp.status_code)
+        except Exception as e:
+            logger.warning("No se pudo cargar catálogo ciudades MATIAS API: %s", e)
+
+
+def _matias_city_id(dane_code) -> Optional[str]:
+    """
+    Resuelve el city_id interno de MATIAS API a partir de un código DANE municipal.
+    Retorna None si no se encuentra o si dane_code es nulo; en ese caso se omite
+    city_id del payload (campo opcional en MATIAS para Consumidor Final).
+    """
+    if not dane_code:
+        return None
+    _cargar_ciudades_matias()
+    try:
+        return _cities_cache.get(int(dane_code))
+    except (ValueError, TypeError):
+        return None
+
+
 # ── Cache de token JWT con auto-renovación ────────────────────────────────────
 
 _token_lock:   threading.Lock = threading.Lock()
@@ -171,9 +230,12 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     total_doc = subtotal + total_iva
 
     # ── Comprador ─────────────────────────────────────────────────────────────
+    # BUGFIX: city_id debe ser el ID interno de MATIAS API, no el código DANE.
+    # Se resuelve dinámicamente vía _matias_city_id(). Si no se puede resolver
+    # (Consumidor Final, cliente sin municipio_dian), se omite del payload para
+    # evitar el error: "El campo customer.city_id no existe en la tabla cities".
     customer = {
         "country_id":            "45",
-        "city_id":               str(venta.get("municipio_dian") or 13001),
         "identity_document_id":  "6" if es_nit else "3",
         "type_organization_id":  1   if es_nit else 2,
         "tax_regime_id":         1   if es_nit else 2,
@@ -184,6 +246,15 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "email":                 venta.get("correo_cliente")         or "sinfactura@ferreteriapuntorojo.com",
         "address":               venta.get("direccion_cliente")      or "Cartagena",
     }
+    # Agregar city_id solo si se puede resolver el ID interno de MATIAS API
+    _resolved_city_id = _matias_city_id(venta.get("municipio_dian"))
+    if _resolved_city_id:
+        customer["city_id"] = _resolved_city_id
+    else:
+        logger.debug(
+            "city_id omitido del payload (dane=%s no resuelto en MATIAS API)",
+            venta.get("municipio_dian"),
+        )
 
     # ── Líneas de detalle ─────────────────────────────────────────────────────
     lines = []
