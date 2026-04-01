@@ -93,12 +93,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             raise
 
 app.add_middleware(RequestLoggingMiddleware)
+# CORSMiddleware se agrega DESPUÉS para que quede como capa más externa
+# (en FastAPI, add_middleware inserta al frente — el último agregado se ejecuta primero)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://bot-ventas-ferreteria-production.up.railway.app",
-        "http://localhost:5173",
-    ],
+    allow_origins=["https://bot-ventas-ferreteria-production.up.railway.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
