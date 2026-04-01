@@ -21,7 +21,7 @@ Plan: Not started
 **Last completed:** Plan 04-03 — 23 unit tests for caja_service + fiados_service, thin wrapper smoke tests confirming memoria.py re-exports (2026-03-29)
 **Next action:** Project milestone complete — all 4 phases, 12 plans executed. Full suite: 62 tests, 0 failed.
 
-Last activity: 2026-04-01 - Completed quick task 260401-24l: Add JWT authentication to dashboard using Telegram Login Widget
+Last activity: 2026-04-01 - Completed quick task 260401-4hj: Apply role-based data filtering across all dashboard endpoints
 
 **Last session:** Completed 260401-1db at 2026-04-01T00:00:00Z
 
@@ -80,6 +80,7 @@ All 5 tasks implemented before PLAN.md artifacts were generated. Completed retro
 | 260401-0dm | Create usuarios auth schema migration and tests | 2026-04-01 | c3c3608 | [260401-0dm-create-usuarios-auth-schema-migration-an](.planning/quick/260401-0dm-create-usuarios-auth-schema-migration-an/) |
 | 260401-1db | Add user authentication middleware to bot | 2026-04-01 | 0fa5584 | [260401-1db-add-user-auth-middleware-to-bot-auth-usu](.planning/quick/260401-1db-add-user-auth-middleware-to-bot-auth-usu/) |
 | 260401-24l | Add JWT authentication to dashboard using Telegram Login Widget | 2026-04-01 | 894d016 | [260401-24l-add-jwt-authentication-to-dashboard-usin](.planning/quick/260401-24l-add-jwt-authentication-to-dashboard-usin/) |
+| 260401-4hj | Apply role-based data filtering across all dashboard endpoints | 2026-04-01 | 2c9b663 | [260401-4hj-apply-role-based-data-filtering-across-a](.planning/quick/260401-4hj-apply-role-based-data-filtering-across-a/) |
 
 ---
 
