@@ -35,7 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-from routers import ventas, catalogo, caja, clientes, reportes, historico, chat, proveedores
+from routers import ventas, catalogo, caja, clientes, reportes, historico, chat, proveedores, auth
 
 _api_logger = logging.getLogger("ferrebot.api")
 
@@ -105,6 +105,7 @@ app.add_middleware(
 )
 
 # ── Registrar routers ─────────────────────────────────────────────────────────
+app.include_router(auth.router)
 app.include_router(ventas.router)
 app.include_router(catalogo.router)
 app.include_router(caja.router)
