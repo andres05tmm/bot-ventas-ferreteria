@@ -268,7 +268,6 @@ function Modal({ show, onClose, title, subtitle, children, onConfirm, okLabel = 
   return createPortal(
     <div
       onClick={e => e.target === e.currentTarget && onClose()}
-      onTouchEnd={e => { e.preventDefault(); e.target === e.currentTarget && onClose() }}
       style={{
         position: 'fixed', inset: 0, background: '#000000cc',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1014,7 +1013,6 @@ function ModalColorPreparado({ show, precioBase, nombreProducto, onClose, onConf
   return createPortal(
     <div
       onClick={e => e.target === e.currentTarget && onClose()}
-      onTouchEnd={e => { e.preventDefault(); e.target === e.currentTarget && onClose() }}
       style={{
       position: 'fixed', inset: 0, background: '#00000088',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1491,7 +1489,6 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
   return createPortal(
     <div
       onClick={e=>e.target===e.currentTarget&&onClose()}
-      onTouchEnd={e=>{e.preventDefault();e.target===e.currentTarget&&onClose()}}
       style={{
       position:'fixed',inset:0,zIndex:10000,background:'rgba(0,0,0,.65)',
       display:'flex',alignItems:'center',justifyContent:'center',padding:16,
@@ -2195,10 +2192,10 @@ export default function TabVentasRapidas({ refreshKey }) {
           <button
             onClick={() => setCarritoAbierto(true)}
             style={{
-              flex: 1, padding: '12px 14px',
-              background: totalItems > 0 ? t.accentSub : t.card,
-              border: `1px solid ${totalItems > 0 ? t.accent + '66' : t.border}`,
-              borderRadius: 11, color: totalItems > 0 ? t.accent : t.textMuted,
+              flex: 1, padding: '14px 14px',
+              background: totalItems > 0 ? t.accent : t.card,
+              border: `1px solid ${totalItems > 0 ? t.accent : t.border}`,
+              borderRadius: 11, color: totalItems > 0 ? '#fff' : t.textMuted,
               fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
               cursor: 'pointer', display: 'flex',
               alignItems: 'center', justifyContent: 'center', gap: 8,
