@@ -21,7 +21,7 @@ from pydantic import BaseModel
 
 import config
 from memoria import registrar_compra   # complejo: actualiza inventario + kardex
-from routers.deps import get_current_user
+from routers.deps import get_current_user, get_filtro_efectivo
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -278,7 +278,7 @@ def registrar_gasto(body: NuevoGastoBody):
 @router.get("/gastos")
 def gastos(
     dias: int = Query(default=7, ge=1, le=90),
-    current_user=Depends(get_current_user)
+    filtro: int | None = Depends(get_filtro_efectivo)
 ):
     try:
         _require_db()
@@ -286,9 +286,9 @@ def gastos(
         fecha_fin    = ahora.strftime("%Y-%m-%d")
         fecha_inicio = (ahora - timedelta(days=dias - 1)).strftime("%Y-%m-%d")
 
-        # Filtrar por usuario_id si es vendedor
-        where_usuario = "AND usuario_id = %s" if current_user["rol"] == "vendedor" else ""
-        params = (fecha_inicio, fecha_fin, current_user["usuario_id"]) if current_user["rol"] == "vendedor" else (fecha_inicio, fecha_fin)
+        # Filtrar por usuario_id si aplica
+        where_usuario = "AND usuario_id = %s" if filtro is not None else ""
+        params = (fecha_inicio, fecha_fin, filtro) if filtro is not None else (fecha_inicio, fecha_fin)
 
         rows = _db.query_all(
             f"SELECT fecha, hora, concepto, monto, categoria, origen FROM gastos "
@@ -380,7 +380,7 @@ def crear_compra(body: NuevaCompraBody):
 @router.get("/compras")
 def compras(
     dias: int = Query(default=30, ge=1, le=365),
-    current_user=Depends(get_current_user)
+    filtro: int | None = Depends(get_filtro_efectivo)
 ):
     try:
         _require_db()
@@ -388,9 +388,9 @@ def compras(
         fecha_fin    = ahora.strftime("%Y-%m-%d")
         fecha_inicio = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d")
 
-        # Filtrar por usuario_id si es vendedor
-        where_usuario = "AND usuario_id = %s" if current_user["rol"] == "vendedor" else ""
-        params = (fecha_inicio, fecha_fin, current_user["usuario_id"]) if current_user["rol"] == "vendedor" else (fecha_inicio, fecha_fin)
+        # Filtrar por usuario_id si aplica
+        where_usuario = "AND usuario_id = %s" if filtro is not None else ""
+        params = (fecha_inicio, fecha_fin, filtro) if filtro is not None else (fecha_inicio, fecha_fin)
 
         rows = _db.query_all(
             f"SELECT fecha::text, hora::text, proveedor, producto_nombre, "

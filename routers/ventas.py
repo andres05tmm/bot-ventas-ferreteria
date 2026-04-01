@@ -19,7 +19,7 @@ from routers.shared import (
     _to_float, _cantidad_a_float, _stock_wayper,
 )
 from routers.caja import VentaRapidaPayload, VentaRapidaItem
-from routers.deps import get_filtro_usuario
+from routers.deps import get_filtro_efectivo
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -36,7 +36,7 @@ _PRODUCTOS_EXCLUIR_TOP: frozenset[str] = frozenset({
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/ventas/hoy")
-def ventas_hoy(filtro: int | None = Depends(get_filtro_usuario)):
+def ventas_hoy(filtro: int | None = Depends(get_filtro_efectivo)):
     try:
         hoy = _hoy()
 
@@ -77,7 +77,7 @@ def ventas_hoy(filtro: int | None = Depends(get_filtro_usuario)):
 
 
 @router.get("/ventas/semana")
-def ventas_semana(filtro: int | None = Depends(get_filtro_usuario)):
+def ventas_semana(filtro: int | None = Depends(get_filtro_efectivo)):
     try:
         ventas = _leer_ventas_postgres(dias=7)
         if ventas is None:
@@ -95,7 +95,7 @@ def ventas_semana(filtro: int | None = Depends(get_filtro_usuario)):
 @router.get("/ventas/top")
 def ventas_top(
     periodo: str = Query(default="semana", pattern="^(semana|mes)$"),
-    filtro: int | None = Depends(get_filtro_usuario)
+    filtro: int | None = Depends(get_filtro_efectivo)
 ):
     try:
         dias = 7 if periodo == "semana" else None
@@ -150,7 +150,7 @@ def ventas_top(
 
 
 @router.get("/ventas/resumen")
-def ventas_resumen(filtro: int | None = Depends(get_filtro_usuario)):
+def ventas_resumen(filtro: int | None = Depends(get_filtro_efectivo)):
     """
     Resumen para las tarjetas del dashboard. 100 % PostgreSQL, sin fallbacks.
     Si es vendedor, filtra por usuario_id.
@@ -407,7 +407,7 @@ def venta_rapida(payload: VentaRapidaPayload):
 def ventas_top2(
     periodo:  str = Query(default="semana", pattern="^(semana|mes)$"),
     criterio: str = Query(default="ingresos", pattern="^(ingresos|frecuencia|categoria)$"),
-    filtro: int | None = Depends(get_filtro_usuario)
+    filtro: int | None = Depends(get_filtro_efectivo)
 ):
     try:
         dias = 7 if periodo == "semana" else None
