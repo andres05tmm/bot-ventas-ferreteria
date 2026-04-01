@@ -79,7 +79,7 @@ def _get_token() -> str:
 
         logger.info("Renovando token Matias API (login)…")
         resp = httpx.post(
-            f"{MATIAS_AUTH_URL}/auth/login",
+            f"{MATIAS_API_URL}/auth/login",
             json={"email": MATIAS_EMAIL, "password": MATIAS_PASSWORD, "remember_me": 0},
             headers={"Accept": "application/json", "Content-Type": "application/json"},
             timeout=15,
