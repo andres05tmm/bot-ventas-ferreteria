@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard, Spinner, ErrorMsg, cop, useIsMobile, API_BASE } from '../components/shared.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 
 function MetodoRow({ label, valor, icon, t }) {
   if (!valor) return null
@@ -44,6 +45,7 @@ function GastoRow({ g, t }) {
 export default function TabCaja({ refreshKey }) {
   const t = useTheme()
   const isMobile = useIsMobile()
+  const { authFetch } = useAuth()
   const [localRefresh, setLocalRefresh] = useState(0)
   const { data, loading, error } = useFetch('/caja', [refreshKey, localRefresh])
 
@@ -65,7 +67,7 @@ export default function TabCaja({ refreshKey }) {
   const abrirCaja = async () => {
     setAbriendo(true)
     try {
-      const r = await fetch(`${API_BASE}/caja/abrir`, {
+      const r = await authFetch(`${API_BASE}/caja/abrir`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ monto_apertura: parseInt(montoApertura) || 0 }),
       })
@@ -82,7 +84,7 @@ export default function TabCaja({ refreshKey }) {
     if (!confirm('¿Cerrar la caja del día?')) return
     setCerrando(true)
     try {
-      const r = await fetch(`${API_BASE}/caja/cerrar`, { method: 'POST' })
+      const r = await authFetch(`${API_BASE}/caja/cerrar`, { method: 'POST' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error')
       mostrarMsg('ok', 'Caja cerrada')
@@ -96,7 +98,7 @@ export default function TabCaja({ refreshKey }) {
     if (!monto || monto <= 0) return mostrarMsg('err', 'Ingresa un monto válido')
     setVariando(true)
     try {
-      const r = await fetch(`${API_BASE}/ventas/varia`, {
+      const r = await authFetch(`${API_BASE}/ventas/varia`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           monto,

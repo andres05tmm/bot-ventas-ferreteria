@@ -24,5 +24,32 @@ export const useAuth = () => {
     return token ? { Authorization: `Bearer ${token}` } : {}
   }
 
-  return { getToken, getUser, logout, isAdmin, authHeader }
+  /**
+   * getAuthHeaders - Returns headers object with JWT Authorization header
+   * @returns {Object} Headers with Authorization: Bearer <token>
+   */
+  const getAuthHeaders = () => {
+    const token = getToken()
+    return token ? { 'Authorization': `Bearer ${token}` } : {}
+  }
+
+  /**
+   * authFetch - Wrapper around fetch that automatically adds JWT token
+   * @param {string} url - The URL to fetch
+   * @param {Object} options - fetch options (will be merged with auth headers)
+   * @returns {Promise} fetch response promise
+   */
+  const authFetch = (url, options = {}) => {
+    const headers = {
+      ...getAuthHeaders(),
+      ...(options.headers || {})
+    }
+
+    return fetch(url, {
+      ...options,
+      headers
+    })
+  }
+
+  return { getToken, getUser, logout, isAdmin, authHeader, getAuthHeaders, authFetch }
 }

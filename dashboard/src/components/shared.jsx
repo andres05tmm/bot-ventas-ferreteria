@@ -1,6 +1,7 @@
 // ── shared.jsx — Componentes y utilidades globales de FerreBot Dashboard ──────
 import { createContext, useContext, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useAuth } from '../hooks/useAuth.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // useCountUp — anima un número de 0 al target en `duration` ms (easeOut cúbico)
@@ -176,6 +177,7 @@ export function useFetch(path, deps = []) {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
   const [tick,    setTick]    = useState(0)
+  const { authFetch } = useAuth()
 
   const refetch = () => setTick(t => t + 1)
 
@@ -183,7 +185,7 @@ export function useFetch(path, deps = []) {
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetch(`${API_BASE}${path}`)
+    authFetch(`${API_BASE}${path}`)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(d => { if (!cancelled) { setData(d); setLoading(false) } })
       .catch(e => { if (!cancelled) { setError(e.message); setLoading(false) } })

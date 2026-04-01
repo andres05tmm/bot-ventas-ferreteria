@@ -5,6 +5,7 @@ import {
   StyledInput, Badge, EmptyState, cop, API_BASE,
   useIsMobile,
 } from '../components/shared.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const nl = s => (s || '').toLowerCase()
@@ -123,7 +124,7 @@ function decimalAFrac(val) {
 }
 
 // ── Editor de precio inline ───────────────────────────────────────────────────
-function PrecioInline({ value, prodKey, onSaved }) {
+function PrecioInline({ value, prodKey, onSaved, authFetch }) {
   const t = useTheme()
   const [editando, setEditando] = useState(false)
   const [val,      setVal]      = useState(value || 0)
@@ -137,7 +138,7 @@ function PrecioInline({ value, prodKey, onSaved }) {
     if (Number(val) === Number(value)) { cerrar(); return }
     setEstado('saving')
     try {
-      const r = await fetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/precio`, {
+      const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/precio`, {
         method:'PATCH', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ precio: Number(val) }),
       })
@@ -184,7 +185,7 @@ function PrecioInline({ value, prodKey, onSaved }) {
 }
 
 // ── Editor de stock inline (con fracciones para fraccionables) ────────────────
-function StockInline({ value, prodKey, fracciones, onSaved }) {
+function StockInline({ value, prodKey, fracciones, onSaved, authFetch }) {
   const t       = useTheme()
   const esFracc = !!(fracciones && Object.keys(fracciones).filter(k=>k!=='unidad_suelta').length > 0)
   const fracBtns = useMemo(() => {
@@ -209,7 +210,7 @@ function StockInline({ value, prodKey, fracciones, onSaved }) {
     if (num===null||isNaN(num)||num<0) { cerrar(); return }
     setEstado('saving')
     try {
-      const r = await fetch(`${API_BASE}/inventario/${encodeURIComponent(prodKey)}/stock`, {
+      const r = await authFetch(`${API_BASE}/inventario/${encodeURIComponent(prodKey)}/stock`, {
         method:'PATCH', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ stock: num }),
       })
@@ -274,7 +275,7 @@ function StockInline({ value, prodKey, fracciones, onSaved }) {
 // ── Editor de fracciones inline ───────────────────────────────────────────────
 const FRACS_ORDEN = ['3/4','1/2','1/4','1/8','1/10','1/16']
 
-function FraccionesEditor({ fracciones, prodKey, onSaved }) {
+function FraccionesEditor({ fracciones, prodKey, onSaved, authFetch }) {
   const t = useTheme()
   const isMobile = useIsMobile()
   const [editando, setEditando] = useState(false)
@@ -294,7 +295,7 @@ function FraccionesEditor({ fracciones, prodKey, onSaved }) {
     const fracs = {}
     FRACS_ORDEN.forEach(f => { if (vals[f]>0) fracs[f]=parseInt(vals[f]) })
     try {
-      const r = await fetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/fracciones`, {
+      const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/fracciones`, {
         method:'PATCH', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ fracciones: fracs }),
       })
@@ -371,7 +372,7 @@ function FraccionesEditor({ fracciones, prodKey, onSaved }) {
 
 // ── Fila de producto ──────────────────────────────────────────────────────────
 // ── Editor de precio mayorista inline ────────────────────────────────────────
-function MayoristaInline({ mayorista, prodKey, onSaved, topSpacing }) {
+function MayoristaInline({ mayorista, prodKey, onSaved, topSpacing, authFetch }) {
   const t = useTheme()
   const [editando, setEditando] = useState(false)
   const [precio,   setPrecio]   = useState('')
@@ -392,7 +393,7 @@ function MayoristaInline({ mayorista, prodKey, onSaved, topSpacing }) {
     if (isNaN(p) || p <= 0) { cerrar(); return }
     setEstado('saving')
     try {
-      const r = await fetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/mayorista`, {
+      const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/mayorista`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ precio: p, umbral: isNaN(u) ? mayorista.umbral : u }),
@@ -500,7 +501,7 @@ function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
           </div>
         </td>
         <td style={{ padding:'8px 14px' }} onClick={e=>e.stopPropagation()}>
-          <PrecioInline value={p.precio} prodKey={p.key} onSaved={v=>setP(prev=>({...prev,precio:v}))}/>
+          <PrecioInline value={p.precio} prodKey={p.key} onSaved={v=>setP(prev=>({...prev,precio:v}))} authFetch={authFetch}/>
         </td>
         <td style={{ padding:'8px 10px', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
           <StockInline
@@ -508,6 +509,7 @@ function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
             prodKey={p.key}
             fracciones={p.fracciones||null}
             onSaved={v=>setP(prev=>({...prev,stock:v}))}
+            authFetch={authFetch}
           />
         </td>
         <td style={{ padding:'8px 10px', textAlign:'center' }}>
@@ -547,6 +549,7 @@ function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
               <FraccionesEditor
                 fracciones={p.fracciones} prodKey={p.key}
                 onSaved={v=>setP(prev=>({...prev,fracciones:v}))}
+                authFetch={authFetch}
               />
             )}
             {/* Precio mayorista editable */}
@@ -556,6 +559,7 @@ function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
                 prodKey={p.key}
                 onSaved={v=>setP(prev=>({...prev,mayorista:v}))}
                 topSpacing={hasFracs}
+                authFetch={authFetch}
               />
             )}
           </td>
@@ -677,7 +681,7 @@ function MobileProductCard({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
           }}>
             <span style={{ fontSize: 9, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em' }}>Precio</span>
             <div onClick={e => e.stopPropagation()}>
-              <PrecioInline value={p.precio} prodKey={p.key} onSaved={v => setP(prev => ({...prev, precio: v}))} />
+              <PrecioInline value={p.precio} prodKey={p.key} onSaved={v => setP(prev => ({...prev, precio: v}))} authFetch={authFetch} />
             </div>
           </div>
           <div style={{
@@ -691,6 +695,7 @@ function MobileProductCard({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
                 prodKey={p.key}
                 fracciones={p.fracciones || null}
                 onSaved={v => setP(prev => ({...prev, stock: v}))}
+                authFetch={authFetch}
               />
             </div>
           </div>
@@ -716,6 +721,7 @@ function MobileProductCard({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
             <FraccionesEditor
               fracciones={p.fracciones} prodKey={p.key}
               onSaved={v => setP(prev => ({...prev, fracciones: v}))}
+              authFetch={authFetch}
             />
           )}
           {p.mayorista && (
@@ -723,6 +729,7 @@ function MobileProductCard({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
               mayorista={p.mayorista} prodKey={p.key}
               onSaved={v => setP(prev => ({...prev, mayorista: v}))}
               topSpacing={hasFracs}
+              authFetch={authFetch}
             />
           )}
         </div>
@@ -741,7 +748,7 @@ const CATEGORIAS_EDITAR = [
 ]
 const UNIDADES_EDITAR = ['Unidad','Galón','Kg','Gramos','MLT','Mts','Cms','Lt','Lts','25 kg']
 
-function ModalEditarProducto({ prod, onClose, onGuardado }) {
+function ModalEditarProducto({ prod, onClose, onGuardado, authFetch }) {
   const t = useTheme()
   const [form, setForm] = useState({
     nombre:        prod.nombre        || '',
@@ -765,7 +772,7 @@ function ModalEditarProducto({ prod, onClose, onGuardado }) {
       if (form.unidad_medida !== prod.unidad_medida) body.unidad_medida = form.unidad_medida
       if (form.codigo        !== prod.codigo)        body.codigo        = form.codigo.trim()
       if (!Object.keys(body).length) { onClose(); return }
-      const r = await fetch(`${API_BASE}/catalogo/${encodeURIComponent(prod.key)}`, {
+      const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prod.key)}`, {
         method:'PATCH', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(body),
       })
@@ -841,7 +848,7 @@ function ModalEditarProducto({ prod, onClose, onGuardado }) {
   )
 }
 
-function ModalEliminarProducto({ prod, onClose, onEliminado }) {
+function ModalEliminarProducto({ prod, onClose, onEliminado, authFetch }) {
   const t = useTheme()
   const [estado, setEstado] = useState('idle')
   const [err,    setErr]    = useState('')
@@ -849,7 +856,7 @@ function ModalEliminarProducto({ prod, onClose, onEliminado }) {
   const eliminar = async () => {
     setEstado('saving')
     try {
-      const r = await fetch(`${API_BASE}/catalogo/${encodeURIComponent(prod.key)}`, { method:'DELETE' })
+      const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prod.key)}`, { method:'DELETE' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail||'Error')
       setEstado('ok')
@@ -900,7 +907,7 @@ const UNIDADES_DISPONIBLES = [
   'Unidad','Galón','Kg','Gramos','MLT','Mts','Cms','Lt','Lts','25 kg',
 ]
 
-function ModalCrearProducto({ onClose, onCreado }) {
+function ModalCrearProducto({ onClose, onCreado, authFetch }) {
   const t = useTheme()
   const [form, setForm] = useState({
     nombre:        '',
@@ -930,7 +937,7 @@ function ModalCrearProducto({ onClose, onCreado }) {
       if (form.stock_inicial !== '' && !isNaN(Number(form.stock_inicial)))
         body.stock_inicial = Number(form.stock_inicial)
 
-      const r = await fetch(`${API_BASE}/catalogo`, {
+      const r = await authFetch(`${API_BASE}/catalogo`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
@@ -1114,6 +1121,7 @@ function ModalCrearProducto({ onClose, onCreado }) {
 export default function TabInventario({ refreshKey }) {
   const t = useTheme()
   const isMobile = useIsMobile()
+  const { authFetch } = useAuth()
   const [busqueda,     setBusqueda]     = useState('')
   const [abierta,      setAbierta]      = useState(null)
   const [subcatActiva, setSubcatActiva] = useState({})
@@ -1147,6 +1155,7 @@ export default function TabInventario({ refreshKey }) {
         <ModalCrearProducto
           onClose={() => setModalCrear(false)}
           onCreado={handleCreado}
+          authFetch={authFetch}
         />
       )}
       {editandoProd && (
@@ -1154,6 +1163,7 @@ export default function TabInventario({ refreshKey }) {
           prod={editandoProd}
           onClose={() => setEditandoProd(null)}
           onGuardado={handleGuardado}
+          authFetch={authFetch}
         />
       )}
       {eliminandoProd && (
@@ -1161,6 +1171,7 @@ export default function TabInventario({ refreshKey }) {
           prod={eliminandoProd}
           onClose={() => setEliminandoProd(null)}
           onEliminado={handleEliminado}
+          authFetch={authFetch}
         />
       )}
 

@@ -7,6 +7,7 @@ import {
   useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard,
   Spinner, ErrorMsg, cop, useIsMobile, API_BASE, StyledInput,
 } from '../components/shared.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -254,6 +255,7 @@ function SelectorFoto({ t, label, onChange, preview, onClear }) {
 }
 
 function ModalNuevaFactura({ onClose, onCreada, t }) {
+  const { authFetch } = useAuth()
   const [form, setForm] = useState({ proveedor: '', total: '', descripcion: '', fecha: '' })
   const [foto, setFoto]         = useState(null)   // File object
   const [preview, setPreview]   = useState(null)   // URL.createObjectURL
@@ -283,7 +285,7 @@ function ModalNuevaFactura({ onClose, onCreada, t }) {
     if (!form.total || isNaN(Number(form.total))) { setErr('El total debe ser un número'); return }
     setErr(''); setEstado('saving')
     try {
-      const r = await fetch(`${API_BASE}/proveedores/facturas`, {
+      const r = await authFetch(`${API_BASE}/proveedores/facturas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -308,7 +310,7 @@ function ModalNuevaFactura({ onClose, onCreada, t }) {
     try {
       const fd = new FormData()
       fd.append('foto', foto)
-      const r = await fetch(`${API_BASE}/proveedores/facturas/${facCreada.id}/foto`, {
+      const r = await authFetch(`${API_BASE}/proveedores/facturas/${facCreada.id}/foto`, {
         method: 'POST', body: fd,
       })
       const d = await r.json()
@@ -411,6 +413,7 @@ function ModalNuevaFactura({ onClose, onCreada, t }) {
 }
 
 function ModalAbono({ factura, onClose, onAbonado, t }) {
+  const { authFetch } = useAuth()
   const [monto, setMonto]       = useState('')
   const [foto, setFoto]         = useState(null)
   const [preview, setPreview]   = useState(null)
@@ -440,7 +443,7 @@ function ModalAbono({ factura, onClose, onAbonado, t }) {
     }
     setErr(''); setEstado('saving')
     try {
-      const r = await fetch(`${API_BASE}/proveedores/abonos`, {
+      const r = await authFetch(`${API_BASE}/proveedores/abonos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fac_id: factura.id, monto: Number(monto) }),
@@ -459,7 +462,7 @@ function ModalAbono({ factura, onClose, onAbonado, t }) {
     try {
       const fd = new FormData()
       fd.append('foto', foto)
-      const r = await fetch(`${API_BASE}/proveedores/abonos/${factura.id}/foto`, {
+      const r = await authFetch(`${API_BASE}/proveedores/abonos/${factura.id}/foto`, {
         method: 'POST', body: fd,
       })
       const d = await r.json()

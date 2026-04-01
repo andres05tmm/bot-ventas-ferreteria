@@ -8,6 +8,7 @@ import {
   PeriodBtn, EmptyState, cop, API_BASE,
   useIsMobile,
 } from '../components/shared.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 
 const DIAS_OPTIONS = [
   { label: 'Hoy',     value: 1 },
@@ -27,6 +28,7 @@ function fmtFecha(s) {
 export default function TabGastos({ refreshKey }) {
   const t = useTheme()
   const isMobile = useIsMobile()
+  const { authFetch } = useAuth()
   const [dias, setDias] = useState(7)
   const [localRefresh, setLocalRefresh] = useState(0)
   const { data, loading, error } = useFetch(`/gastos?dias=${dias}`, [dias, refreshKey, localRefresh])
@@ -47,7 +49,7 @@ export default function TabGastos({ refreshKey }) {
     if (!monto || parseInt(monto) <= 0) { mostrarMsg('err', 'El monto debe ser mayor a 0'); return }
     setGuardando(true)
     try {
-      const r = await fetch(`${API_BASE}/gastos`, {
+      const r = await authFetch(`${API_BASE}/gastos`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ concepto: concepto.trim(), monto: parseInt(monto), categoria, origen }),
       })

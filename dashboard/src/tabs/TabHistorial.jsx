@@ -5,6 +5,7 @@ import {
   PeriodBtn, StyledInput, EmptyState, Th, cop, API_BASE,
   useIsMobile,
 } from '../components/shared.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 
 function metodoBadge(metodo, t) {
   const raw = (metodo || '').toLowerCase()
@@ -162,6 +163,7 @@ const METODOS = ['efectivo','transferencia','nequi','daviplata','datafono','otro
 
 function ModalEditarVenta({ venta, onClose, onGuardado }) {
   const t = useTheme()
+  const { authFetch } = useAuth()
   const [form, setForm] = useState({
     producto:        venta.producto       || '',
     cantidad:        venta.cantidad       || '',
@@ -189,7 +191,7 @@ function ModalEditarVenta({ venta, onClose, onGuardado }) {
       if (!Object.keys(body).length) { onClose(); return }
       // Enviar producto_original para identificar la fila en ventas multi-producto
       body.producto_original = venta.producto
-      const r = await fetch(`${API_BASE}/ventas/${venta.num}`, {
+      const r = await authFetch(`${API_BASE}/ventas/${venta.num}`, {
         method:'PATCH', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(body),
       })
@@ -275,6 +277,7 @@ function ModalEditarVenta({ venta, onClose, onGuardado }) {
 // ── Modal Confirmar Eliminar — agrupa TODOS los productos del consecutivo ─────
 function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
   const t = useTheme()
+  const { authFetch } = useAuth()
   const [estado, setEstado] = useState('idle')
   const [err,    setErr]    = useState('')
   const [borrando, setBorrando] = useState(null) // null = nada, 'todo' = consecutivo, index = producto individual
@@ -286,7 +289,7 @@ function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
   const eliminarTodo = async () => {
     setEstado('saving'); setBorrando('todo')
     try {
-      const r = await fetch(`${API_BASE}/ventas/${consecutivo}`, { method: 'DELETE' })
+      const r = await authFetch(`${API_BASE}/ventas/${consecutivo}`, { method: 'DELETE' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error')
       setEstado('ok')
@@ -297,7 +300,7 @@ function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
   const eliminarLinea = async (v, idx) => {
     setEstado('saving'); setBorrando(idx)
     try {
-      const r = await fetch(
+      const r = await authFetch(
         `${API_BASE}/ventas/${consecutivo}/linea?producto=${encodeURIComponent(v.producto)}`,
         { method: 'DELETE' }
       )

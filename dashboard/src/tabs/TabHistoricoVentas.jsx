@@ -7,6 +7,7 @@ import {
   API_BASE, cop, useTheme, Card, GlassCard, KpiCard,
   SectionTitle, Spinner, useIsMobile,
 } from '../components/shared.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 
 const MESES = [
   'Enero','Febrero','Marzo','Abril','Mayo','Junio',
@@ -31,6 +32,7 @@ export default function TabHistoricoVentas() {
   const t       = useTheme()
   const mobile  = useIsMobile()
   const hoy     = new Date()
+  const { authFetch } = useAuth()
 
   const [año, setAño]   = useState(hoy.getFullYear())
   const [mes, setMes]   = useState(hoy.getMonth() + 1)
@@ -46,8 +48,8 @@ export default function TabHistoricoVentas() {
   const cargar = useCallback(() => {
     setLoading(true)
     Promise.all([
-      fetch(`${API_BASE}/historico/ventas?año=${año}&mes=${mes}`).then(r => r.ok ? r.json() : {}),
-      fetch(`${API_BASE}/historico/diario?año=${año}&mes=${mes}`).then(r => r.ok ? r.json() : {}),
+      authFetch(`${API_BASE}/historico/ventas?año=${año}&mes=${mes}`).then(r => r.ok ? r.json() : {}),
+      authFetch(`${API_BASE}/historico/diario?año=${año}&mes=${mes}`).then(r => r.ok ? r.json() : {}),
     ])
       .then(([ventas, diar]) => {
         const str = {}
@@ -109,7 +111,7 @@ export default function TabHistoricoVentas() {
       if (n > 0) datos[k] = n
     })
     try {
-      const res = await fetch(`${API_BASE}/historico/ventas`, {
+      const res = await authFetch(`${API_BASE}/historico/ventas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ año, mes, datos })
@@ -131,7 +133,7 @@ export default function TabHistoricoVentas() {
   async function syncRango() {
     setSyncing(true)
     try {
-      const res  = await fetch(`${API_BASE}/historico/sync-rango?dias=60`, { method: 'POST' })
+      const res  = await authFetch(`${API_BASE}/historico/sync-rango?dias=60`, { method: 'POST' })
       const json = await res.json()
       if (json.ok) {
         mostrarMsg('ok', `${json.nuevos} días nuevos, ${json.actualizados} actualizados`)
@@ -149,7 +151,7 @@ export default function TabHistoricoVentas() {
   async function sincronizarDesdeExcel() {
     setSyncing(true)
     try {
-      const res  = await fetch(`${API_BASE}/historico/sincronizar-excel`, { method: 'POST' })
+      const res  = await authFetch(`${API_BASE}/historico/sincronizar-excel`, { method: 'POST' })
       const json = await res.json()
       if (json.ok) {
         mostrarMsg('ok', `${json.registros} días importados desde Excel de Drive`)

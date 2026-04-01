@@ -10,11 +10,12 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from pydantic import BaseModel
 
 import config
 from routers.shared import _hoy
+from routers.deps import get_current_user
 
 logger = logging.getLogger("ferrebot.api")
 router = APIRouter()
@@ -82,9 +83,15 @@ class AbonoBody(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/proveedores/facturas")
-def get_facturas(solo_pendientes: bool = False):
-    """Lista todas las facturas (o solo las pendientes/parciales)."""
+def get_facturas(
+    solo_pendientes: bool = False,
+    current_user=Depends(get_current_user)
+):
+    """Lista todas las facturas (o solo las pendientes/parciales). Admin only."""
     try:
+        if current_user["rol"] != "admin":
+            raise HTTPException(status_code=403, detail="Solo admin")
+
         from memoria import listar_facturas
         facturas = listar_facturas(solo_pendientes=solo_pendientes)
 
@@ -107,9 +114,15 @@ def get_facturas(solo_pendientes: bool = False):
 
 
 @router.post("/proveedores/facturas")
-def crear_factura(body: FacturaBody):
-    """Crea una nueva factura de proveedor (sin foto — la foto va por separado)."""
+def crear_factura(
+    body: FacturaBody,
+    current_user=Depends(get_current_user)
+):
+    """Crea una nueva factura de proveedor (sin foto — la foto va por separado). Admin only."""
     try:
+        if current_user["rol"] != "admin":
+            raise HTTPException(status_code=403, detail="Solo admin")
+
         from memoria import registrar_factura_proveedor
         if not body.proveedor.strip():
             raise HTTPException(status_code=400, detail="El proveedor es obligatorio")
@@ -130,9 +143,15 @@ def crear_factura(body: FacturaBody):
 
 
 @router.post("/proveedores/facturas/{fac_id}/foto")
-async def subir_foto_factura(fac_id: str, foto: UploadFile = File(...)):
-    """Sube la foto de una factura a Cloudinary y actualiza la URL en PostgreSQL."""
+async def subir_foto_factura(
+    fac_id: str,
+    foto: UploadFile = File(...),
+    current_user=Depends(get_current_user)
+):
+    """Sube la foto de una factura a Cloudinary y actualiza la URL en PostgreSQL. Admin only."""
     try:
+        if current_user["rol"] != "admin":
+            raise HTTPException(status_code=403, detail="Solo admin")
         import db as _db
 
         if not _db.DB_DISPONIBLE:
@@ -176,9 +195,14 @@ async def subir_foto_factura(fac_id: str, foto: UploadFile = File(...)):
 
 
 @router.post("/proveedores/abonos")
-def registrar_abono(body: AbonoBody):
-    """Registra un abono a una factura (sin foto)."""
+def registrar_abono(
+    body: AbonoBody,
+    current_user=Depends(get_current_user)
+):
+    """Registra un abono a una factura (sin foto). Admin only."""
     try:
+        if current_user["rol"] != "admin":
+            raise HTTPException(status_code=403, detail="Solo admin")
         from memoria import registrar_abono_factura, listar_facturas
         if body.monto <= 0:
             raise HTTPException(status_code=400, detail="El monto debe ser mayor a 0")
@@ -213,9 +237,15 @@ def registrar_abono(body: AbonoBody):
 
 
 @router.post("/proveedores/abonos/{fac_id}/foto")
-async def subir_foto_abono(fac_id: str, foto: UploadFile = File(...)):
-    """Sube la foto del comprobante de abono y la adjunta al último abono en PostgreSQL."""
+async def subir_foto_abono(
+    fac_id: str,
+    foto: UploadFile = File(...),
+    current_user=Depends(get_current_user)
+):
+    """Sube la foto del comprobante de abono y la adjunta al último abono en PostgreSQL. Admin only."""
     try:
+        if current_user["rol"] != "admin":
+            raise HTTPException(status_code=403, detail="Solo admin")
         import db as _db
 
         if not _db.DB_DISPONIBLE:
@@ -269,9 +299,11 @@ async def subir_foto_abono(fac_id: str, foto: UploadFile = File(...)):
 
 
 @router.get("/proveedores/resumen")
-def resumen_proveedores():
-    """Resumen por proveedor: deuda total, facturas pendientes."""
+def resumen_proveedores(current_user=Depends(get_current_user)):
+    """Resumen por proveedor: deuda total, facturas pendientes. Admin only."""
     try:
+        if current_user["rol"] != "admin":
+            raise HTTPException(status_code=403, detail="Solo admin")
         from memoria import listar_facturas
         from collections import defaultdict
 

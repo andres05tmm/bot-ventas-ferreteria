@@ -9,6 +9,7 @@ import {
   PeriodBtn, EmptyState, cop, num, API_BASE,
   useIsMobile, useCountUp,
 } from '../components/shared.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 
 function fmtFecha(s) {
   if (!s) return ''
@@ -242,6 +243,7 @@ export default function TabResumen({ refreshKey }) {
   const isMobile = useIsMobile()
   const prefersReducedMotion = useReducedMotion()
   const [periodo, setPeriodo] = useState('semana')
+  const { authFetch } = useAuth()
 
   const { data: resumen, loading: lRes, error: eRes } = useFetch('/ventas/resumen', [refreshKey])
   const { data: alertasData } = useFetch('/inventario/bajo', [refreshKey])
@@ -249,11 +251,11 @@ export default function TabResumen({ refreshKey }) {
 
   const [top5, setTop5] = useState(null)
   useEffect(() => {
-    fetch(`${API_BASE}/ventas/top?periodo=semana`)
+    authFetch(`${API_BASE}/ventas/top?periodo=semana`)
       .then(r => r.json())
       .then(d => setTop5(d.top?.slice(0, 5) || []))
       .catch(() => setTop5([]))
-  }, [refreshKey])
+  }, [refreshKey, authFetch])
 
   if (lRes) return <Spinner />
   if (eRes) return <ErrorMsg msg={`Error cargando resumen: ${eRes}`} />

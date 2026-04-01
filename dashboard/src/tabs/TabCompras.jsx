@@ -4,6 +4,7 @@ import {
   useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard, Spinner, ErrorMsg,
   PeriodBtn, EmptyState, cop, num, API_BASE,
 } from '../components/shared.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 
 const DIAS_OPTIONS = [
   { label: '7 días',  value: 7 },
@@ -16,6 +17,7 @@ const PROV_COLORS = ['#60a5fa','#4ade80','#fbbf24','#f87171','#a78bfa','#fb923c'
 
 export default function TabCompras({ refreshKey }) {
   const t = useTheme()
+  const { authFetch } = useAuth()
   const [dias, setDias] = useState(30)
   const [localRefresh, setLocalRefresh] = useState(0)
   const { data, loading, error } = useFetch(`/compras?dias=${dias}`, [dias, refreshKey, localRefresh])
@@ -37,7 +39,7 @@ export default function TabCompras({ refreshKey }) {
     if (!costoUnit || parseFloat(costoUnit) <= 0) { mostrarMsg('err', 'El costo unitario debe ser mayor a 0'); return }
     setGuardando(true)
     try {
-      const r = await fetch(`${API_BASE}/compras`, {
+      const r = await authFetch(`${API_BASE}/compras`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           producto: producto.trim(),

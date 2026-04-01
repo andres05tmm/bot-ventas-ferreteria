@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 
 
 // ── Hook detección móvil ──────────────────────────────────────────────────────
@@ -1322,6 +1323,7 @@ function SelectorCliente({ t, clienteSeleccionado, onSeleccionar }) {
   const [abierto,    setAbierto]    = useState(false)
   const [modalNuevo, setModalNuevo] = useState(false)
   const timer = useRef(null)
+  const { authFetch } = useAuth()
 
   const buscar = (q) => {
     setBusq(q)
@@ -1331,7 +1333,7 @@ function SelectorCliente({ t, clienteSeleccionado, onSeleccionar }) {
     setAbierto(true)
     timer.current = setTimeout(async () => {
       try {
-        const r = await fetch(`${API_BASE}/clientes/buscar?q=${encodeURIComponent(q)}`)
+        const r = await authFetch(`${API_BASE}/clientes/buscar?q=${encodeURIComponent(q)}`)
         const d = await r.json()
         setResultados(d.clientes || [])
       } catch { setResultados([]) }
@@ -1453,13 +1455,14 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
   })
   const [estado, setEstado] = useState('idle')
   const [err,    setErr]    = useState('')
+  const { authFetch } = useAuth()
   const set = (k,v)=>setForm(f=>({...f,[k]:v}))
 
   const guardar = async () => {
     if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); return }
     setEstado('saving'); setErr('')
     try {
-      const r = await fetch(`${API_BASE}/clientes`, {
+      const r = await authFetch(`${API_BASE}/clientes`, {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(form),
       })
@@ -1683,6 +1686,7 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
 // ══════════════════════════════════════════════════════════════════════════════
 export default function TabVentasRapidas({ refreshKey }) {
   const t = useTheme()
+  const { authFetch } = useAuth()
 
   const { data: dataProd, loading, error } = useFetch('/productos',        [refreshKey])
   const { data: dataTop }                  = useFetch('/ventas/top?periodo=mes', [refreshKey])
@@ -1898,7 +1902,7 @@ export default function TabVentasRapidas({ refreshKey }) {
     if (!carrito.length || enviando) return
     setEnviando(true)
     try {
-      const res = await fetch(`${API_BASE}/venta-rapida`, {
+      const res = await authFetch(`${API_BASE}/venta-rapida`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
