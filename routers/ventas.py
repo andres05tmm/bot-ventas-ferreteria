@@ -33,6 +33,20 @@ _PRODUCTOS_EXCLUIR_TOP: frozenset[str] = frozenset({
     "no se pudo anotar", "excedente de caja", "sobrante de caja",
 })
 
+# Cláusula SQL para excluir ventas-varia del ticket promedio
+_SQL_EXCLUIR_VENTA_VARIA = """
+    AND NOT EXISTS (
+        SELECT 1 FROM ventas_detalle d
+        WHERE d.venta_id = v.id
+          AND LOWER(TRIM(TRAILING '.,;: ' FROM d.producto_nombre)) = ANY(ARRAY[
+              'venta varia','ventas varia','venta general',
+              'no se alcanz\u00f3 a anotar','no se alcanzo a anotar',
+              'ventas no anotadas','venta no anotada',
+              'no se pudo anotar','excedente de caja','sobrante de caja'
+          ])
+    )
+"""
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/ventas/hoy")
@@ -204,7 +218,7 @@ def ventas_resumen(filtro: int | None = Depends(get_filtro_efectivo)):
             ventas_por_dia = {str(r["fecha"])[:10]: _to_float(r["total_dia"]) for r in rows_sem_detail}
 
             row_tick = _db.query_one(
-                "SELECT COUNT(DISTINCT id) AS n, COALESCE(SUM(total), 0) AS suma FROM ventas WHERE fecha >= %s AND usuario_id = %s",
+                f"SELECT COUNT(DISTINCT v.id) AS n, COALESCE(SUM(v.total), 0) AS suma FROM ventas v WHERE v.fecha >= %s AND v.usuario_id = %s{_SQL_EXCLUIR_VENTA_VARIA}",
                 [fecha_7d, filtro]
             )
         else:
@@ -215,9 +229,9 @@ def ventas_resumen(filtro: int | None = Depends(get_filtro_efectivo)):
             )
             ventas_por_dia = {str(r["fecha"])[:10]: _to_float(r["ventas"]) for r in rows_sem}
 
-            # Ticket promedio siempre desde ventas directamente (no historico) para consistencia
+            # Ticket promedio siempre desde ventas directamente, excluyendo ventas-varia
             row_tick = _db.query_one(
-                "SELECT COUNT(DISTINCT id) AS n, COALESCE(SUM(total), 0) AS suma FROM ventas WHERE fecha >= %s",
+                f"SELECT COUNT(DISTINCT v.id) AS n, COALESCE(SUM(v.total), 0) AS suma FROM ventas v WHERE v.fecha >= %s{_SQL_EXCLUIR_VENTA_VARIA}",
                 [fecha_7d],
             )
 
