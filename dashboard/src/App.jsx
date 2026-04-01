@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { ThemeContext, THEMES, useTheme } from './components/shared.jsx'
+import { ProtectedRoute } from './components/ProtectedRoute.jsx'
+import Login from './pages/Login.jsx'
 import TabResumen         from './tabs/TabResumen.jsx'
 import TabTopProductos    from './tabs/TabTopProductos.jsx'
 import TabInventario      from './tabs/TabInventario.jsx'
@@ -772,6 +775,14 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+function Dashboard({ themeId, setThemeId, refreshRef }) {
+  return (
+    <ThemeContext.Provider value={THEMES[themeId]}>
+      <AppShell themeId={themeId} setThemeId={setThemeId} refreshRef={refreshRef}/>
+    </ThemeContext.Provider>
+  )
+}
+
 export default function App() {
   const [themeId, setThemeId] = useState(
     () => localStorage.getItem('ferrebot_theme') || 'caramelo'
@@ -785,9 +796,19 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <ThemeContext.Provider value={THEMES[themeId]}>
-        <AppShell themeId={themeId} setThemeId={handleSetThemeId} refreshRef={refreshRef}/>
-      </ThemeContext.Provider>
+      <Router>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
+                <Dashboard themeId={themeId} setThemeId={handleSetThemeId} refreshRef={refreshRef}/>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </Router>
     </ErrorBoundary>
   )
 }
