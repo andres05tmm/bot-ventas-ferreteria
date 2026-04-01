@@ -653,7 +653,7 @@ async def registrar_venta_varia(req: VentaVariaRequest):
 @router.get("/export/ventas.xlsx")
 def export_ventas_xlsx(
     periodo: str = Query(default="todo", pattern="^(hoy|semana|mes|todo)$"),
-    filtro: int | None = Depends(get_filtro_usuario)
+    filtro: int | None = Depends(get_filtro_efectivo)
 ):
     """
     Genera y descarga un archivo Excel con ventas filtradas por período.
