@@ -41,7 +41,7 @@ def _verify_telegram_hash(data: dict, received_hash: str) -> bool:
     3. expected_hash = HMAC-SHA256(secret_key, data_check_string).hexdigest()
     4. Compara con el hash recibido
     """
-    bot_token = os.environ.get("BOT_TOKEN", "")
+    bot_token = os.environ.get("TELEGRAM_TOKEN", "")
     if not bot_token:
         logger.warning("BOT_TOKEN no configurada")
         return False
