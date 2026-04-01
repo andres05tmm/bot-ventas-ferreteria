@@ -17,7 +17,7 @@ export default function Login() {
       setError('')
 
       try {
-        const response = await fetch('https://cooperative-embrace-production-630e.up.railway.app/auth/telegram', {
+        const response = await fetch('/auth/telegram', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(user),
