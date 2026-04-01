@@ -2237,16 +2237,19 @@ export default function TabVentasRapidas({ refreshKey }) {
       {/* ══ MÓVIL: bottom drawer del carrito ══ */}
       {isMobile && carritoAbierto && (
         <div
-          onClick={e => e.target === e.currentTarget && setCarritoAbierto(false)}
+          onPointerDown={e => e.target === e.currentTarget && setCarritoAbierto(false)}
           style={{
             position: 'fixed', top: 0, left: 0, right: 0,
             bottom: 0,
             paddingBottom: 'calc(130px + env(safe-area-inset-bottom, 0px))',
             background: '#00000077',
             zIndex: 300, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+            touchAction: 'none',
           }}
         >
-          <div style={{
+          <div
+            onPointerDown={e => e.stopPropagation()}
+            style={{
             background: t.card, borderRadius: '18px 18px 0 0',
             maxHeight: 'calc(100dvh - 130px - env(safe-area-inset-bottom, 0px))', overflow: 'hidden', display: 'flex', flexDirection: 'column',
             animation: 'drawerUp .25s cubic-bezier(.34,1.2,.64,1)',
@@ -2269,7 +2272,7 @@ export default function TabVentasRapidas({ refreshKey }) {
               }}>✕</button>
             </div>
             {/* Contenido carrito */}
-            <div style={{ overflowY: 'auto', flex: 1, paddingBottom: 16 }}>
+            <div style={{ overflowY: 'auto', flex: 1, paddingBottom: 16, WebkitOverflowScrolling: 'touch' }}>
               <PanelCarrito
                 t={t} carrito={carrito} totalCarrito={totalCarrito}
                 vendedor={vendedor} setVendedor={setVendedor}
