@@ -10,6 +10,7 @@ import {
   useIsMobile, useCountUp,
 } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
+import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
 
 function fmtFecha(s) {
   if (!s) return ''
@@ -244,18 +245,21 @@ export default function TabResumen({ refreshKey }) {
   const prefersReducedMotion = useReducedMotion()
   const [periodo, setPeriodo] = useState('semana')
   const { authFetch } = useAuth()
+  const { selectedVendor } = useVendorFilter()
 
-  const { data: resumen, loading: lRes, error: eRes } = useFetch('/ventas/resumen', [refreshKey])
+  const vendorParam = selectedVendor ? `?vendor_id=${selectedVendor}` : ''
+  const { data: resumen, loading: lRes, error: eRes } = useFetch(`/ventas/resumen${vendorParam}`, [refreshKey, selectedVendor])
   const { data: alertasData } = useFetch('/inventario/bajo', [refreshKey])
-  const { data: ventasHoy }   = useFetch('/ventas/hoy',     [refreshKey])
+  const { data: ventasHoy }   = useFetch(`/ventas/hoy${vendorParam}`,     [refreshKey, selectedVendor])
 
   const [top5, setTop5] = useState(null)
   useEffect(() => {
-    authFetch(`${API_BASE}/ventas/top?periodo=semana`)
+    const url = `${API_BASE}/ventas/top?periodo=semana${selectedVendor ? `&vendor_id=${selectedVendor}` : ''}`
+    authFetch(url)
       .then(r => r.json())
       .then(d => setTop5(d.top?.slice(0, 5) || []))
       .catch(() => setTop5([]))
-  }, [refreshKey, authFetch])
+  }, [refreshKey, authFetch, selectedVendor])
 
   if (lRes) return <Spinner />
   if (eRes) return <ErrorMsg msg={`Error cargando resumen: ${eRes}`} />

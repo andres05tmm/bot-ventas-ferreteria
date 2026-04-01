@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
+import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
 
 
 // ── Hook detección móvil ──────────────────────────────────────────────────────
@@ -1687,9 +1688,11 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
 export default function TabVentasRapidas({ refreshKey }) {
   const t = useTheme()
   const { authFetch } = useAuth()
+  const { selectedVendor } = useVendorFilter()
 
   const { data: dataProd, loading, error } = useFetch('/productos',        [refreshKey])
-  const { data: dataTop }                  = useFetch('/ventas/top?periodo=mes', [refreshKey])
+  const topUrl = `/ventas/top?periodo=mes${selectedVendor ? `&vendor_id=${selectedVendor}` : ''}`
+  const { data: dataTop }                  = useFetch(topUrl, [refreshKey, selectedVendor])
 
   const [favKeys,   setFavKeys]   = useState(loadFavs)
   const [busq,      setBusq]      = useState('')

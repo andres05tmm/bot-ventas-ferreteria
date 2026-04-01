@@ -9,6 +9,7 @@ import {
   useIsMobile,
 } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
+import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
 
 const DIAS_OPTIONS = [
   { label: 'Hoy',     value: 1 },
@@ -29,9 +30,11 @@ export default function TabGastos({ refreshKey }) {
   const t = useTheme()
   const isMobile = useIsMobile()
   const { authFetch } = useAuth()
+  const { selectedVendor } = useVendorFilter()
   const [dias, setDias] = useState(7)
   const [localRefresh, setLocalRefresh] = useState(0)
-  const { data, loading, error } = useFetch(`/gastos?dias=${dias}`, [dias, refreshKey, localRefresh])
+  const vendorParam = selectedVendor ? '&vendor_id=' + selectedVendor : ''
+  const { data, loading, error } = useFetch(`/gastos?dias=${dias}${vendorParam}`, [dias, refreshKey, localRefresh, selectedVendor])
 
   // Form nuevo gasto
   const [formOpen, setFormOpen] = useState(false)
