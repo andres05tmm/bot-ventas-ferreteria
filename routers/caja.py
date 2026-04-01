@@ -16,11 +16,12 @@ from datetime import datetime, timedelta
 from typing import Optional, Union
 
 import db as _db
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Depends
 from pydantic import BaseModel
 
 import config
 from memoria import registrar_compra   # complejo: actualiza inventario + kardex
+from routers.deps import get_current_user
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -50,7 +51,7 @@ def _hora_str() -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/caja")
-def caja():
+def caja(current_user=Depends(get_current_user)):
     try:
         _require_db()
         hoy = _hoy_str()
@@ -275,17 +276,24 @@ def registrar_gasto(body: NuevoGastoBody):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/gastos")
-def gastos(dias: int = Query(default=7, ge=1, le=90)):
+def gastos(
+    dias: int = Query(default=7, ge=1, le=90),
+    current_user=Depends(get_current_user)
+):
     try:
         _require_db()
         ahora        = datetime.now(config.COLOMBIA_TZ)
         fecha_fin    = ahora.strftime("%Y-%m-%d")
         fecha_inicio = (ahora - timedelta(days=dias - 1)).strftime("%Y-%m-%d")
 
+        # Filtrar por usuario_id si es vendedor
+        where_usuario = "AND usuario_id = %s" if current_user["rol"] == "vendedor" else ""
+        params = (fecha_inicio, fecha_fin, current_user["usuario_id"]) if current_user["rol"] == "vendedor" else (fecha_inicio, fecha_fin)
+
         rows = _db.query_all(
-            "SELECT fecha, hora, concepto, monto, categoria, origen FROM gastos "
-            "WHERE fecha >= %s AND fecha <= %s ORDER BY fecha DESC, hora DESC",
-            (fecha_inicio, fecha_fin),
+            f"SELECT fecha, hora, concepto, monto, categoria, origen FROM gastos "
+            f"WHERE fecha >= %s AND fecha <= %s {where_usuario} ORDER BY fecha DESC, hora DESC",
+            params,
         )
 
         resultado: list             = []
@@ -370,19 +378,26 @@ def crear_compra(body: NuevaCompraBody):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/compras")
-def compras(dias: int = Query(default=30, ge=1, le=365)):
+def compras(
+    dias: int = Query(default=30, ge=1, le=365),
+    current_user=Depends(get_current_user)
+):
     try:
         _require_db()
         ahora        = datetime.now(config.COLOMBIA_TZ)
         fecha_fin    = ahora.strftime("%Y-%m-%d")
         fecha_inicio = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d")
 
+        # Filtrar por usuario_id si es vendedor
+        where_usuario = "AND usuario_id = %s" if current_user["rol"] == "vendedor" else ""
+        params = (fecha_inicio, fecha_fin, current_user["usuario_id"]) if current_user["rol"] == "vendedor" else (fecha_inicio, fecha_fin)
+
         rows = _db.query_all(
-            "SELECT fecha::text, hora::text, proveedor, producto_nombre, "
-            "       cantidad, costo_unitario, costo_total "
-            "FROM compras "
-            "WHERE fecha >= %s AND fecha <= %s ORDER BY fecha DESC, hora DESC",
-            (fecha_inicio, fecha_fin),
+            f"SELECT fecha::text, hora::text, proveedor, producto_nombre, "
+            f"       cantidad, costo_unitario, costo_total "
+            f"FROM compras "
+            f"WHERE fecha >= %s AND fecha <= %s {where_usuario} ORDER BY fecha DESC, hora DESC",
+            params,
         )
 
         resultado: list                = []

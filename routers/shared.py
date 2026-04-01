@@ -69,7 +69,8 @@ def _leer_ventas_postgres(dias: int | None = None, mes_actual: bool = False) -> 
                 COALESCE(d.total, 0)::float AS total,
                 COALESCE(d.alias_usado, '') AS alias,
                 COALESCE(v.vendedor, '') AS vendedor,
-                COALESCE(v.metodo_pago, '') AS metodo
+                COALESCE(v.metodo_pago, '') AS metodo,
+                COALESCE(v.usuario_id, NULL)::int AS usuario_id
             FROM ventas v
             JOIN ventas_detalle d ON d.venta_id = v.id
             LEFT JOIN productos p ON p.id = d.producto_id
@@ -113,6 +114,7 @@ def _leer_ventas_postgres(dias: int | None = None, mes_actual: bool = False) -> 
                 "alias":           str(r.get("alias", "")),
                 "vendedor":        str(r.get("vendedor", "")),
                 "metodo":          str(r.get("metodo", "")),
+                "usuario_id":      int(r["usuario_id"]) if r.get("usuario_id") is not None else None,
             })
         return result
 

@@ -8,7 +8,7 @@ import threading as _threading
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
@@ -18,6 +18,7 @@ from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango,
     _to_float, _cantidad_a_float,
 )
+from routers.deps import get_current_user
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -276,7 +277,7 @@ def _guardar_historico(data: dict) -> None:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/historico/ventas")
-def historico_ventas_get(año: int = 0, mes: int = 0):
+def historico_ventas_get(año: int = 0, mes: int = 0, current_user=Depends(get_current_user)):
     """
     Retorna montos del mes/año.
     SIEMPRE inyecta el total en vivo de hoy desde Sheets, para que el
@@ -323,7 +324,7 @@ def historico_ventas_post(body: HistoricoBody):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/historico/resumen")
-def historico_resumen():
+def historico_resumen(current_user=Depends(get_current_user)):
     """Totales mensuales para gráficas — incluye hoy en vivo."""
     data = _leer_historico()
 
@@ -341,7 +342,7 @@ def historico_resumen():
 
 
 @router.get("/historico/diario")
-def historico_diario_get(año: int = 0, mes: int = 0):
+def historico_diario_get(año: int = 0, mes: int = 0, current_user=Depends(get_current_user)):
     """
     Retorna el desglose diario (efectivo, transferencia, datáfono, gastos, abonos).
     Fuente: Postgres (única fuente de verdad).

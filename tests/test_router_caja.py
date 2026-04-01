@@ -49,9 +49,17 @@ else:
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from routers.caja import router
+from routers.deps import get_current_user
 
 app = FastAPI()
 app.include_router(router)
+
+# Mock get_current_user to always return a valid admin user
+def mock_get_current_user():
+    return {"usuario_id": 1, "telegram_id": 123456, "nombre": "Test Admin", "rol": "admin"}
+
+app.dependency_overrides[get_current_user] = mock_get_current_user
+
 client = TestClient(app, raise_server_exceptions=False)
 
 

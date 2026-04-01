@@ -14,7 +14,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
@@ -24,6 +24,7 @@ from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
     _to_float, _cantidad_a_float, _stock_wayper,
 )
+from routers.deps import get_current_user
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -1192,7 +1193,7 @@ async def chat_stream(req: ChatRequest, request: Request):
 # ── Descarga de Excel temporal (consultas de ventas) ─────────────────────────
 
 @router.get("/chat/export/{token}")
-def chat_export_temp(token: str):
+def chat_export_temp(token: str, current_user=Depends(get_current_user)):
     """
     Descarga el Excel temporal generado por una consulta de ventas en el chat.
     El token expira a los 30 minutos.
@@ -1233,7 +1234,7 @@ def chat_export_temp(token: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/chat/briefing")
-async def briefing_matutino():
+async def briefing_matutino(current_user=Depends(get_current_user)):
     """
     Genera un briefing inteligente del estado del negocio.
     Se llama automáticamente al abrir el dashboard.
@@ -1304,7 +1305,7 @@ async def briefing_matutino():
 
 
 @router.get("/chat/reporte-datos")
-async def reporte_datos(periodo: str = Query(default="mes", pattern="^(semana|mes)$")):
+async def reporte_datos(periodo: str = Query(default="mes", pattern="^(semana|mes)$"), current_user=Depends(get_current_user)):
     """
     Agrega en un solo JSON todos los datos necesarios para el reporte financiero PDF.
     Llama internamente a las funciones de DB equivalentes a:

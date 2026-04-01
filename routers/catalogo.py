@@ -13,11 +13,12 @@ import logging
 from collections import defaultdict
 from typing import Optional, Union
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 import db
 from routers.shared import _hace_n_dias
+from routers.deps import get_current_user
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -75,7 +76,7 @@ def _parse_fraccion_decimal(frac_str: str) -> float:
 # GET /productos
 # =============================================================================
 @router.get("/productos")
-def productos():
+def productos(current_user=Depends(get_current_user)):
     try:
         if not db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
@@ -143,7 +144,7 @@ def productos():
 # GET /inventario/bajo
 # =============================================================================
 @router.get("/inventario/bajo")
-def inventario_bajo():
+def inventario_bajo(current_user=Depends(get_current_user)):
     try:
         if not db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
@@ -187,7 +188,7 @@ def inventario_bajo():
 # GET /catalogo/nav
 # =============================================================================
 @router.get("/catalogo/nav")
-def catalogo_nav(q: str = Query(default="")):
+def catalogo_nav(q: str = Query(default=""), current_user=Depends(get_current_user)):
     try:
         if not db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
@@ -361,6 +362,7 @@ def _kardex_item(prod_id: int, prod_nombre: str, dias: int) -> dict:
 def kardex(
     producto: Optional[str] = Query(None, description="Nombre o key del producto (opcional)"),
     dias: int                = Query(30,   description="Días hacia atrás"),
+    current_user             = Depends(get_current_user)
 ):
     """
     Kardex de inventario desde PostgreSQL.

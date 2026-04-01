@@ -8,12 +8,13 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 import config
 import db
 from utils import _normalizar
+from routers.deps import get_current_user
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -44,7 +45,7 @@ def _row_to_cliente(r: dict) -> dict:
 # ── GET /clientes/buscar ──────────────────────────────────────────────────────
 
 @router.get("/clientes/buscar")
-def buscar_clientes_endpoint(q: str = Query(default="")):
+def buscar_clientes_endpoint(q: str = Query(default=""), current_user=Depends(get_current_user)):
     """
     Busca clientes en la tabla `clientes` por nombre o identificación.
     Devuelve lista de coincidencias (máx. 10) para el autocompletado del dashboard.

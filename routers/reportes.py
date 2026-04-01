@@ -12,7 +12,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
@@ -23,6 +23,7 @@ from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
     _to_float, _cantidad_a_float, _stock_wayper,
 )
+from routers.deps import get_current_user
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -30,7 +31,7 @@ router = APIRouter()
 
 # ── Kárdex por producto ───────────────────────────────────────────────────────
 @router.get("/kardex")
-def kardex(q: str = Query(default="")):
+def kardex(q: str = Query(default=""), current_user=Depends(get_current_user)):
     """
     Devuelve el kárdex de movimientos de inventario.
     - Entradas: hoja Compras del Excel + historial_compras de memoria.json
@@ -122,7 +123,10 @@ def kardex(q: str = Query(default="")):
 
 
 @router.get("/resultados")
-def resultados(periodo: str = Query(default="mes", pattern="^(semana|mes)$")):
+def resultados(
+    periodo: str = Query(default="mes", pattern="^(semana|mes)$"),
+    current_user=Depends(get_current_user)
+):
     """
     Estado de Resultados:
       Ingresos (ventas)
@@ -290,7 +294,7 @@ def resultados(periodo: str = Query(default="mes", pattern="^(semana|mes)$")):
 
 # ── Proyección de Caja ────────────────────────────────────────────────────────
 @router.get("/proyeccion")
-def proyeccion():
+def proyeccion(current_user=Depends(get_current_user)):
     """
     Proyecta el cierre del mes basándose en promedios de los últimos 14 días.
     Proyección = efectivo_actual + (ingreso_diario_prom - gasto_diario_prom) × días_restantes

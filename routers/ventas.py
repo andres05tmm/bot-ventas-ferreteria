@@ -7,7 +7,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
@@ -19,6 +19,7 @@ from routers.shared import (
     _to_float, _cantidad_a_float, _stock_wayper,
 )
 from routers.caja import VentaRapidaPayload, VentaRapidaItem
+from routers.deps import get_filtro_usuario
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -35,13 +36,16 @@ _PRODUCTOS_EXCLUIR_TOP: frozenset[str] = frozenset({
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/ventas/hoy")
-def ventas_hoy():
+def ventas_hoy(filtro: int | None = Depends(get_filtro_usuario)):
     try:
         hoy = _hoy()
 
         try:
             pg_ventas = _leer_ventas_postgres(dias=1)
             filtradas = [v for v in pg_ventas if str(v.get("fecha", ""))[:10] == hoy]
+            # Aplicar filtro por usuario_id si es vendedor (admin ve todas)
+            if filtro is not None:
+                filtradas = [v for v in filtradas if v.get("usuario_id") == filtro]
         except Exception as e_pg:
             raise HTTPException(status_code=503, detail=f"Base de datos no disponible: {e_pg}")
 
@@ -73,11 +77,14 @@ def ventas_hoy():
 
 
 @router.get("/ventas/semana")
-def ventas_semana():
+def ventas_semana(filtro: int | None = Depends(get_filtro_usuario)):
     try:
         ventas = _leer_ventas_postgres(dias=7)
         if ventas is None:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
+        # Aplicar filtro por usuario_id si es vendedor
+        if filtro is not None:
+            ventas = [v for v in ventas if v.get("usuario_id") == filtro]
         return {"ventas": ventas, "total": len(ventas)}
     except HTTPException:
         raise
@@ -86,13 +93,19 @@ def ventas_semana():
 
 
 @router.get("/ventas/top")
-def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$")):
+def ventas_top(
+    periodo: str = Query(default="semana", pattern="^(semana|mes)$"),
+    filtro: int | None = Depends(get_filtro_usuario)
+):
     try:
         dias = 7 if periodo == "semana" else None
         mes = periodo == "mes"
         ventas = _leer_ventas_postgres(dias=dias, mes_actual=mes)
         if ventas is None:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
+        # Aplicar filtro por usuario_id si es vendedor
+        if filtro is not None:
+            ventas = [v for v in ventas if v.get("usuario_id") == filtro]
 
         cat_unidad: dict[str, str] = {}
         for prod in cargar_memoria().get("catalogo", {}).values():
@@ -137,9 +150,10 @@ def ventas_top(periodo: str = Query(default="semana", pattern="^(semana|mes)$"))
 
 
 @router.get("/ventas/resumen")
-def ventas_resumen():
+def ventas_resumen(filtro: int | None = Depends(get_filtro_usuario)):
     """
     Resumen para las tarjetas del dashboard. 100 % PostgreSQL, sin fallbacks.
+    Si es vendedor, filtra por usuario_id.
     """
     import db as _db
 
@@ -150,33 +164,61 @@ def ventas_resumen():
         hoy         = _hoy()
         ahora_local = datetime.now(config.COLOMBIA_TZ)
 
+        # Construir WHERE clause dinámicamente para filtro de usuario
+        where_usuario = "AND v.usuario_id = %s" if filtro is not None else ""
+        params_hoy = [hoy, filtro] if filtro is not None else [hoy]
+
         row_hoy = _db.query_one(
-            """
+            f"""
             SELECT
                 COALESCE(SUM(d.total), 0)          AS total_hoy,
                 COUNT(DISTINCT v.id)               AS pedidos_hoy,
                 COUNT(DISTINCT v.consecutivo)      AS n_transacciones
             FROM ventas v
             JOIN ventas_detalle d ON d.venta_id = v.id
-            WHERE v.fecha = %s
+            WHERE v.fecha = %s {where_usuario}
             """,
-            [hoy],
+            params_hoy,
         )
         total_hoy   = _to_float(row_hoy["total_hoy"])   if row_hoy else 0.0
         pedidos_hoy = int(row_hoy["pedidos_hoy"])        if row_hoy else 0
 
         fecha_7d  = _hace_n_dias(7).strftime("%Y-%m-%d")
-        rows_sem  = _db.query_all(
-            "SELECT fecha::text AS fecha, ventas FROM historico_ventas WHERE fecha >= %s ORDER BY fecha",
-            [fecha_7d],
-        )
-        ventas_por_dia = {str(r["fecha"])[:10]: _to_float(r["ventas"]) for r in rows_sem}
-        total_sem = sum(ventas_por_dia.values())
 
-        row_tick = _db.query_one(
-            "SELECT COUNT(DISTINCT id) AS n FROM ventas WHERE fecha >= %s",
-            [fecha_7d],
-        )
+        # Si es vendedor, calcular desde detail tables; si admin, usar historico agregado
+        if filtro is not None:
+            # Vendedor: computar desde ventas_detalle
+            rows_sem_detail = _db.query_all(
+                f"""
+                SELECT v.fecha::text AS fecha, SUM(d.total) AS total_dia
+                FROM ventas v
+                JOIN ventas_detalle d ON d.venta_id = v.id
+                WHERE v.fecha >= %s AND v.usuario_id = %s
+                GROUP BY v.fecha
+                ORDER BY v.fecha
+                """,
+                [fecha_7d, filtro]
+            )
+            ventas_por_dia = {str(r["fecha"])[:10]: _to_float(r["total_dia"]) for r in rows_sem_detail}
+
+            row_tick = _db.query_one(
+                f"SELECT COUNT(DISTINCT id) AS n FROM ventas WHERE fecha >= %s AND usuario_id = %s",
+                [fecha_7d, filtro]
+            )
+        else:
+            # Admin: usar historico
+            rows_sem  = _db.query_all(
+                "SELECT fecha::text AS fecha, ventas FROM historico_ventas WHERE fecha >= %s ORDER BY fecha",
+                [fecha_7d],
+            )
+            ventas_por_dia = {str(r["fecha"])[:10]: _to_float(r["ventas"]) for r in rows_sem}
+
+            row_tick = _db.query_one(
+                "SELECT COUNT(DISTINCT id) AS n FROM ventas WHERE fecha >= %s",
+                [fecha_7d],
+            )
+
+        total_sem = sum(ventas_por_dia.values())
         pedidos_sem = int(row_tick["n"]) if row_tick and row_tick["n"] else 1
         ticket_prom = round(total_sem / pedidos_sem, 0)
 
@@ -187,11 +229,29 @@ def ventas_resumen():
         ]
 
         primer_dia_mes = ahora_local.replace(day=1).strftime("%Y-%m-%d")
-        rows_mes = _db.query_all(
-            "SELECT fecha::text AS fecha, ventas FROM historico_ventas WHERE fecha >= %s ORDER BY fecha",
-            [primer_dia_mes],
-        )
-        ventas_mes_por_dia = {str(r["fecha"])[:10]: _to_float(r["ventas"]) for r in rows_mes}
+
+        if filtro is not None:
+            # Vendedor: computar desde ventas_detalle
+            rows_mes_detail = _db.query_all(
+                f"""
+                SELECT v.fecha::text AS fecha, SUM(d.total) AS total_dia
+                FROM ventas v
+                JOIN ventas_detalle d ON d.venta_id = v.id
+                WHERE v.fecha >= %s AND v.usuario_id = %s
+                GROUP BY v.fecha
+                ORDER BY v.fecha
+                """,
+                [primer_dia_mes, filtro]
+            )
+            ventas_mes_por_dia = {str(r["fecha"])[:10]: _to_float(r["total_dia"]) for r in rows_mes_detail}
+        else:
+            # Admin: usar historico
+            rows_mes = _db.query_all(
+                "SELECT fecha::text AS fecha, ventas FROM historico_ventas WHERE fecha >= %s ORDER BY fecha",
+                [primer_dia_mes],
+            )
+            ventas_mes_por_dia = {str(r["fecha"])[:10]: _to_float(r["ventas"]) for r in rows_mes}
+
         total_mes = sum(ventas_mes_por_dia.values())
 
         historico_mes = []
@@ -347,6 +407,7 @@ def venta_rapida(payload: VentaRapidaPayload):
 def ventas_top2(
     periodo:  str = Query(default="semana", pattern="^(semana|mes)$"),
     criterio: str = Query(default="ingresos", pattern="^(ingresos|frecuencia|categoria)$"),
+    filtro: int | None = Depends(get_filtro_usuario)
 ):
     try:
         dias = 7 if periodo == "semana" else None
@@ -354,6 +415,9 @@ def ventas_top2(
         ventas = _leer_ventas_postgres(dias=dias, mes_actual=mes)
         if ventas is None:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
+        # Aplicar filtro por usuario_id si es vendedor
+        if filtro is not None:
+            ventas = [v for v in ventas if v.get("usuario_id") == filtro]
 
         cat_map: dict[str, str] = {}
         for v in cargar_memoria().get("catalogo", {}).values():
@@ -589,11 +653,13 @@ async def registrar_venta_varia(req: VentaVariaRequest):
 @router.get("/export/ventas.xlsx")
 def export_ventas_xlsx(
     periodo: str = Query(default="todo", pattern="^(hoy|semana|mes|todo)$"),
+    filtro: int | None = Depends(get_filtro_usuario)
 ):
     """
     Genera y descarga un archivo Excel con ventas filtradas por período.
     ?periodo=hoy | semana | mes | todo  (default: todo)
     Usa el formato visual de Ferretería Punto Rojo (banner rojo, tabla oscura).
+    Si es vendedor, solo ve sus propias ventas.
     """
     import io
     import openpyxl
@@ -622,6 +688,11 @@ def export_ventas_xlsx(
             params.append(primer_dia)
         # "todo" → sin filtro de fecha
 
+        # Agregar filtro de usuario si es vendedor
+        filtro_usuario = "AND v.usuario_id = %s" if filtro is not None else ""
+        if filtro is not None:
+            params.append(filtro)
+
         sql = f"""
             SELECT
                 v.fecha::text                                               AS fecha,
@@ -647,7 +718,7 @@ def export_ventas_xlsx(
             FROM ventas v
             JOIN ventas_detalle d ON d.venta_id = v.id
             LEFT JOIN productos p ON p.id = d.producto_id
-            WHERE 1=1 {filtro_fecha}
+            WHERE 1=1 {filtro_fecha} {filtro_usuario}
             ORDER BY v.fecha DESC, v.consecutivo DESC, d.id
         """
         rows = _db.query_all(sql, params if params else None)
