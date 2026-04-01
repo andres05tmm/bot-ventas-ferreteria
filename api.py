@@ -119,6 +119,26 @@ app.include_router(proveedores.router)
 def health():
     return {"estado": "activo", "version": "1.0.0"}
 
+# ── Explicit OPTIONS handler para /auth/telegram ──────────────────────────────
+# El catch-all @app.get("/{full_path:path}") puede interceptar el preflight
+# OPTIONS antes de que CORSMiddleware lo maneje cuando dashboard/dist existe.
+# Este handler explícito garantiza que el preflight siempre devuelva los headers
+# correctos independientemente del estado del middleware.
+from fastapi.responses import Response as _Response
+_CORS_ORIGIN = "https://bot-ventas-ferreteria-production.up.railway.app"
+
+@app.options("/auth/telegram")
+def auth_telegram_options():
+    return _Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": _CORS_ORIGIN,
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Credentials": "true",
+        },
+    )
+
 # ── Servir dashboard React (build estático) ───────────────────────────────────
 _DIST = Path(__file__).parent / "dashboard" / "dist"
 

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 # -- terceros --
 import jwt
 from fastapi import APIRouter, HTTPException, Header
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # -- propios --
@@ -129,11 +130,13 @@ async def auth_telegram(request: TelegramAuthRequest):
 
     logger.info(f"User {nombre} ({request.id}) authenticated successfully")
 
-    return {
-        "token": token,
-        "nombre": nombre,
-        "rol": rol,
-    }
+    return JSONResponse(
+        content={"token": token, "nombre": nombre, "rol": rol},
+        headers={
+            "Access-Control-Allow-Origin": "https://bot-ventas-ferreteria-production.up.railway.app",
+            "Access-Control-Allow-Credentials": "true",
+        },
+    )
 
 
 @router.get("/auth/me")
