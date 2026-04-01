@@ -51,6 +51,34 @@ async def enviar_pregunta_cliente(message, chat_id: int):
     elif paso == "correo":
         await message.reply_text("¿Cuál es el correo electrónico? (escribe 'no tiene' si no aplica)")
 
+    elif paso == "ciudad":
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🏙️ Cartagena",    callback_data=f"cli_ciudad_149_{chat_id}"),
+                InlineKeyboardButton("🏙️ Barranquilla", callback_data=f"cli_ciudad_8001_{chat_id}"),
+            ],
+            [
+                InlineKeyboardButton("🏙️ Bogotá",       callback_data=f"cli_ciudad_11001_{chat_id}"),
+                InlineKeyboardButton("🏙️ Medellín",     callback_data=f"cli_ciudad_5001_{chat_id}"),
+            ],
+            [
+                InlineKeyboardButton("🏙️ Cali",         callback_data=f"cli_ciudad_76001_{chat_id}"),
+                InlineKeyboardButton("🏙️ Bucaramanga",  callback_data=f"cli_ciudad_68001_{chat_id}"),
+            ],
+            [
+                InlineKeyboardButton("📍 Otra ciudad",  callback_data=f"cli_ciudad_149_{chat_id}"),
+            ],
+        ])
+        await message.reply_text(
+            "¿De qué ciudad es el cliente?",
+            reply_markup=keyboard,
+        )
+
+    elif paso == "direccion":
+        await message.reply_text(
+            "¿Cuál es la dirección de la empresa? (escribe 'no tiene' si no aplica)"
+        )
+
 
 async def guardar_cliente_y_continuar(update, chat_id: int, telefono: str, en_proceso: dict):
     """
@@ -71,8 +99,9 @@ async def guardar_cliente_y_continuar(update, chat_id: int, telefono: str, en_pr
         try:
             _db.execute(
                 """INSERT INTO clientes
-                       (nombre, tipo_id, identificacion, tipo_persona, correo, telefono)
-                   VALUES (%s, %s, %s, %s, %s, %s)
+                       (nombre, tipo_id, identificacion, tipo_persona, correo, telefono,
+                        direccion, municipio_dian)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT DO NOTHING""",
                 (
                     en_proceso["nombre"].upper().strip(),
@@ -81,6 +110,8 @@ async def guardar_cliente_y_continuar(update, chat_id: int, telefono: str, en_pr
                     en_proceso["tipo_persona"],
                     en_proceso.get("correo", "").strip() or None,
                     telefono.strip() or None,
+                    en_proceso.get("direccion", "").strip() or None,
+                    int(en_proceso.get("municipio_dian") or 149),
                 ),
             )
             return True
@@ -94,13 +125,19 @@ async def guardar_cliente_y_continuar(update, chat_id: int, telefono: str, en_pr
     if ok:
         tipo_map     = {"CC": "Cédula de ciudadanía", "NIT": "NIT", "CE": "Cédula de extranjería"}
         tipo_legible = tipo_map.get(en_proceso.get("tipo_id", ""), en_proceso.get("tipo_id", ""))
+        _ciudades = {
+            149: "Cartagena", 8001: "Barranquilla", 11001: "Bogotá",
+            5001: "Medellín", 76001: "Cali", 68001: "Bucaramanga",
+        }
+        ciudad_nombre = _ciudades.get(int(en_proceso.get("municipio_dian") or 149), "Cartagena")
         await update.message.reply_text(
             f"✅ Cliente creado exitosamente:\n\n"
             f"👤 {en_proceso['nombre']}\n"
             f"📄 {tipo_legible}: {en_proceso['identificacion']}\n"
             f"🏷️ {en_proceso.get('tipo_persona', '')}\n"
             f"📧 {en_proceso.get('correo', '') or 'Sin correo'}\n"
-            f"📞 {telefono or 'Sin teléfono'}"
+            f"📞 {telefono or 'Sin teléfono'}\n"
+            f"🏙️ {ciudad_nombre}"
         )
         # Continuar con la venta pendiente si existe
         from ventas_state import ventas_pendientes, ventas_esperando_cliente, _estado_lock

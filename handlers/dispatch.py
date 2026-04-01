@@ -65,9 +65,25 @@ async def manejar_flujo_cliente(update, chat_id: int, mensaje: str) -> bool:
     elif paso == "telefono":
         telefono               = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
         en_proceso["telefono"] = telefono
+        en_proceso["paso"]     = "ciudad"
+        with _estado_lock:
+            clientes_en_proceso[chat_id] = en_proceso
+        await enviar_pregunta_cliente(update.message, chat_id)
+        return True
+
+    elif paso == "ciudad":
+        # Se maneja vía callback de botones (cli_ciudad_XXX),
+        # pero si el usuario escribe directamente se acepta también
+        # (el callback ya avanza el paso; aquí solo atrapamos texto libre)
+        return False   # dejar que el callback lo maneje
+
+    elif paso == "direccion":
+        # Solo para NIT — persona natural salta este paso
+        direccion               = "" if texto_lower in ("no tiene", "no", "ninguno", "-") else mensaje.strip()
+        en_proceso["direccion"] = direccion
         with _estado_lock:
             clientes_en_proceso.pop(chat_id, None)
-        await guardar_cliente_y_continuar(update, chat_id, telefono, en_proceso)
+        await guardar_cliente_y_continuar(update, chat_id, en_proceso["telefono"], en_proceso)
         return True
 
     return False

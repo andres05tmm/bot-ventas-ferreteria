@@ -539,6 +539,41 @@ async def manejar_callback_cliente(update: Update, context: ContextTypes.DEFAULT
         )
         return
 
+    # ── Ciudad DIAN ──
+    if data.startswith("cli_ciudad_"):
+        sin_prefijo = data[len("cli_ciudad_"):]
+        ultimo      = sin_prefijo.rfind("_")
+        municipio   = int(sin_prefijo[:ultimo])
+
+        with _estado_lock:
+            datos = clientes_en_proceso.get(chat_id)
+        if not datos:
+            await query.edit_message_text("El proceso de creación de cliente expiró. Inicia de nuevo.")
+            return
+
+        datos["municipio_dian"] = municipio
+        es_nit = (datos.get("tipo_id") or "").upper() == "NIT"
+
+        if es_nit:
+            datos["paso"] = "direccion"
+            with _estado_lock:
+                clientes_en_proceso[chat_id] = datos
+            await query.edit_message_text(
+                f"¿Cuál es la dirección de la empresa {datos.get('nombre', '')}? "
+                "(escribe 'no tiene' si no aplica)"
+            )
+        else:
+            datos["direccion"] = ""
+            with _estado_lock:
+                clientes_en_proceso.pop(chat_id, None)
+            await query.edit_message_text("✅ Guardando cliente...")
+            from handlers.cliente_flujo import guardar_cliente_y_continuar
+            # Simular objeto con message para guardar_cliente_y_continuar
+            class _FakeUpdate:
+                message = query.message
+            await guardar_cliente_y_continuar(_FakeUpdate(), chat_id, datos.get("telefono", ""), datos)
+        return
+
 
 # ─────────────────────────────────────────────
 # HELPER: botones de pago sin objeto message (via bot directo)
