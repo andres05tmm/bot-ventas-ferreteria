@@ -173,7 +173,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     # ── Comprador ─────────────────────────────────────────────────────────────
     customer = {
         "country_id":            "45",
-        "city_id":               str(venta.get("municipio_dian") or 149),
+        "city_id":               str(venta.get("municipio_dian") or 13001),
         "identity_document_id":  "6" if es_nit else "3",
         "type_organization_id":  1   if es_nit else 2,
         "tax_regime_id":         1   if es_nit else 2,

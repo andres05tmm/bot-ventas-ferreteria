@@ -54,7 +54,7 @@ async def enviar_pregunta_cliente(message, chat_id: int):
     elif paso == "ciudad":
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("🏙️ Cartagena",    callback_data=f"cli_ciudad_149_{chat_id}"),
+                InlineKeyboardButton("🏙️ Cartagena",    callback_data=f"cli_ciudad_13001_{chat_id}"),
                 InlineKeyboardButton("🏙️ Barranquilla", callback_data=f"cli_ciudad_8001_{chat_id}"),
             ],
             [
@@ -66,7 +66,7 @@ async def enviar_pregunta_cliente(message, chat_id: int):
                 InlineKeyboardButton("🏙️ Bucaramanga",  callback_data=f"cli_ciudad_68001_{chat_id}"),
             ],
             [
-                InlineKeyboardButton("📍 Otra ciudad",  callback_data=f"cli_ciudad_149_{chat_id}"),
+                InlineKeyboardButton("📍 Otra ciudad",  callback_data=f"cli_ciudad_13001_{chat_id}"),
             ],
         ])
         await message.reply_text(
@@ -111,7 +111,7 @@ async def guardar_cliente_y_continuar(update, chat_id: int, telefono: str, en_pr
                     en_proceso.get("correo", "").strip() or None,
                     telefono.strip() or None,
                     en_proceso.get("direccion", "").strip() or None,
-                    int(en_proceso.get("municipio_dian") or 149),
+                    int(en_proceso.get("municipio_dian") or 13001),
                 ),
             )
             return True
@@ -126,10 +126,10 @@ async def guardar_cliente_y_continuar(update, chat_id: int, telefono: str, en_pr
         tipo_map     = {"CC": "Cédula de ciudadanía", "NIT": "NIT", "CE": "Cédula de extranjería"}
         tipo_legible = tipo_map.get(en_proceso.get("tipo_id", ""), en_proceso.get("tipo_id", ""))
         _ciudades = {
-            149: "Cartagena", 8001: "Barranquilla", 11001: "Bogotá",
+            13001: "Cartagena", 8001: "Barranquilla", 11001: "Bogotá",
             5001: "Medellín", 76001: "Cali", 68001: "Bucaramanga",
         }
-        ciudad_nombre = _ciudades.get(int(en_proceso.get("municipio_dian") or 149), "Cartagena")
+        ciudad_nombre = _ciudades.get(int(en_proceso.get("municipio_dian") or 13001), "Cartagena")
         await update.message.reply_text(
             f"✅ Cliente creado exitosamente:\n\n"
             f"👤 {en_proceso['nombre']}\n"
