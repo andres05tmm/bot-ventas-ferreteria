@@ -247,6 +247,18 @@ function Seccion({ icono, titulo, cantidad, productos, carrito, favKeys, onClick
   )
 }
 
+// ── Portal root dedicado (evita overlay negro en PWA iOS/Android) ─────────────
+function getPortalRoot() {
+  let el = document.getElementById('modal-portal-root')
+  if (!el) {
+    el = document.createElement('div')
+    el.id = 'modal-portal-root'
+    el.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;pointer-events:none;'
+    document.body.appendChild(el)
+  }
+  return el
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // MODAL BASE
 // ══════════════════════════════════════════════════════════════════════════════
@@ -255,15 +267,16 @@ function Modal({ show, onClose, title, subtitle, children, onConfirm, okLabel = 
   if (!show) return null
   return createPortal(
     <div
-      onMouseDown={e => e.target === e.currentTarget && onClose()}
+      onClick={e => e.target === e.currentTarget && onClose()}
+      onTouchEnd={e => { e.preventDefault(); e.target === e.currentTarget && onClose() }}
       style={{
         position: 'fixed', inset: 0, background: '#000000cc',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 9999, padding: 16,
+        zIndex: 9999, padding: 16, pointerEvents: 'auto',
       }}
     >
       <div style={{
-        position: 'relative', zIndex: 10000,
+        position: 'relative',
         background: t.card, border: `1px solid ${t.accent}44`,
         borderRadius: 14, width: 'calc(100% - 32px)', maxWidth: 390,
         maxHeight: '85vh', overflowY: 'auto',
@@ -292,7 +305,7 @@ function Modal({ show, onClose, title, subtitle, children, onConfirm, okLabel = 
         </div>
       </div>
     </div>,
-    document.body
+    getPortalRoot()
   )
 }
 
@@ -999,10 +1012,13 @@ function ModalColorPreparado({ show, precioBase, nombreProducto, onClose, onConf
   const valid = desc.trim().length > 0 && precioFinal > 0
 
   return createPortal(
-    <div onMouseDown={e => e.target === e.currentTarget && onClose()} style={{
+    <div
+      onClick={e => e.target === e.currentTarget && onClose()}
+      onTouchEnd={e => { e.preventDefault(); e.target === e.currentTarget && onClose() }}
+      style={{
       position: 'fixed', inset: 0, background: '#00000088',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 9998, padding: 16,
+      zIndex: 9998, padding: 16, pointerEvents: 'auto',
     }}>
       <div style={{
         background: t.card, border: `1px solid ${t.border}`, borderRadius: 14,
@@ -1114,7 +1130,7 @@ function ModalColorPreparado({ show, precioBase, nombreProducto, onClose, onConf
         </div>
       </div>
     </div>,
-    document.body
+    getPortalRoot()
   )
 }
 
@@ -1473,9 +1489,13 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
   const lbl = { fontSize:10, color:t.textMuted, textTransform:'uppercase', letterSpacing:'.07em', marginBottom:3, display:'block' }
 
   return createPortal(
-    <div onMouseDown={e=>e.target===e.currentTarget&&onClose()} style={{
+    <div
+      onClick={e=>e.target===e.currentTarget&&onClose()}
+      onTouchEnd={e=>{e.preventDefault();e.target===e.currentTarget&&onClose()}}
+      style={{
       position:'fixed',inset:0,zIndex:10000,background:'rgba(0,0,0,.65)',
       display:'flex',alignItems:'center',justifyContent:'center',padding:16,
+      pointerEvents:'auto',
     }}>
       <div style={{
         background:t.bg, border:`1px solid ${t.border}`, borderRadius:14,
@@ -1536,7 +1556,7 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
         </div>
       </div>
     </div>,
-    document.body
+    getPortalRoot()
   )
 }
 
@@ -1686,6 +1706,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [modalKg,   setModalKg]   = useState(null)
   const [toast,        setToast]        = useState(null)
   const [carritoToast, setCarritoToast] = useState(null)
+  const [pulseCarrito, setPulseCarrito] = useState(false)
   const [enviando,     setEnviando]     = useState(false)
   const [subcatFiltro,      setSubcatFiltro]      = useState(null)
   const [modalColorPrep,    setModalColorPrep]    = useState(false)
@@ -1696,6 +1717,8 @@ export default function TabVentasRapidas({ refreshKey }) {
   const mostrarCarritoToast = (nombre) => {
     setCarritoToast(`✓ ${nombre} agregado`)
     setTimeout(() => setCarritoToast(null), 1500)
+    setPulseCarrito(true)
+    setTimeout(() => setPulseCarrito(false), 600)
   }
 
   // ── Procesar productos ─────────────────────────────────────────────────────
@@ -1935,6 +1958,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       <style>{`
         .vr-filtros::-webkit-scrollbar { display: none }
         .vr-filtros { -ms-overflow-style: none; scrollbar-width: none }
+        @keyframes cartPulse{0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)}}
       `}</style>
 
       {/* ══ LAYOUT DESKTOP: grid | MÓVIL: columna ══ */}
@@ -2179,6 +2203,7 @@ export default function TabVentasRapidas({ refreshKey }) {
               cursor: 'pointer', display: 'flex',
               alignItems: 'center', justifyContent: 'center', gap: 8,
               transition: 'all .2s',
+              animation: pulseCarrito ? 'cartPulse .6s ease' : 'none',
             }}
           >
             <span style={{ fontSize: 17 }}>🛒</span>
@@ -2218,14 +2243,15 @@ export default function TabVentasRapidas({ refreshKey }) {
           onClick={e => e.target === e.currentTarget && setCarritoAbierto(false)}
           style={{
             position: 'fixed', top: 0, left: 0, right: 0,
-            bottom: 'calc(130px + env(safe-area-inset-bottom, 0px))',
+            bottom: 0,
+            paddingBottom: 'calc(130px + env(safe-area-inset-bottom, 0px))',
             background: '#00000077',
             zIndex: 300, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
           }}
         >
           <div style={{
             background: t.card, borderRadius: '18px 18px 0 0',
-            maxHeight: 'calc(100vh - 140px)', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            maxHeight: 'calc(100dvh - 130px - env(safe-area-inset-bottom, 0px))', overflow: 'hidden', display: 'flex', flexDirection: 'column',
             animation: 'drawerUp .25s cubic-bezier(.34,1.2,.64,1)',
           }}>
             <style>{`@keyframes drawerUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
