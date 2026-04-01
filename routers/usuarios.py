@@ -19,6 +19,7 @@ def listar_vendedores(current_user=Depends(get_current_user)):
         rows = db.query_all(
             "SELECT id, nombre FROM usuarios WHERE activo = TRUE ORDER BY nombre"
         )
+        print(f"[debug] /usuarios/vendedores rows={rows}")
         if not rows:
             return []
         return [{"id": r["id"], "nombre": r["nombre"]} for r in rows]
