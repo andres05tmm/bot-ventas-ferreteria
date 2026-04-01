@@ -32,36 +32,40 @@ class TelegramAuthRequest(BaseModel):
 
 def _verify_telegram_hash(data: dict, received_hash: str) -> bool:
     """
-    Verifica la autenticidad del hash de Telegram.
+    Verifica la autenticidad del hash de Telegram Login Widget.
 
-    Algoritmo:
-    1. Construye data_check_string con todos los campos excepto 'hash',
-       ordenados alfabéticamente, formato "key=value\n" (separado por newlines)
-    2. secret_key = SHA256(BOT_TOKEN)
-    3. expected_hash = HMAC-SHA256(secret_key, data_check_string).hexdigest()
-    4. Compara con el hash recibido
+    Algoritmo oficial (Login Widget, no Mini App):
+    1. Tomar todos los campos excepto 'hash', excluir los None
+    2. data_check_string = campos ordenados alfabéticamente unidos con "\n"
+    3. secret_key = SHA256(TELEGRAM_TOKEN)   ← raw digest, no HMAC
+    4. expected = HMAC-SHA256(secret_key, data_check_string).hexdigest()
+    5. Comparar con hash recibido (timing-safe)
     """
     bot_token = os.environ.get("TELEGRAM_TOKEN", "")
     if not bot_token:
-        logger.warning("BOT_TOKEN no configurada")
+        logger.warning("TELEGRAM_TOKEN no configurada")
         return False
 
-    # Excluye 'hash' del diccionario
-    check_fields = {k: v for k, v in data.items() if k != "hash"}
+    # Excluir 'hash' y campos None (Telegram no incluye campos ausentes)
+    check_fields = {k: v for k, v in data.items() if k != "hash" and v is not None}
 
-    # Ordena alfabéticamente y construye "key=value\n" separado por newlines
+    # Ordenar alfabéticamente y unir con "\n"
     sorted_items = sorted(check_fields.items())
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted_items)
 
-    # secret_key = SHA256(BOT_TOKEN)
+    # secret_key = SHA256(TELEGRAM_TOKEN) — digest en bytes
     secret_key = hashlib.sha256(bot_token.encode()).digest()
 
-    # expected_hash = HMAC-SHA256(secret_key, data_check_string).hexdigest()
+    # expected_hash = HMAC-SHA256(secret_key, data_check_string)
     expected_hash = hmac.new(
         secret_key,
         data_check_string.encode(),
         hashlib.sha256
     ).hexdigest()
+
+    print(f"[auth] data_check_string: {repr(data_check_string)}")
+    print(f"[auth] expected_hash:     {expected_hash}")
+    print(f"[auth] received_hash:     {received_hash}")
 
     return hmac.compare_digest(expected_hash, received_hash)
 
