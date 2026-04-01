@@ -7,7 +7,7 @@
  *   2. Panel emitir — lista de ventas sin FE del día seleccionado + botón emitir por fila
  *   3. Historial  — tabla de facturas_electronicas con descarga de PDF
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   useTheme, GlassCard, Card, SectionTitle,
@@ -344,11 +344,17 @@ function PanelEmitir({ onEmitida }) {
   const [error,     setError]     = useState(null)
   const [emitiendo, setEmitiendo] = useState(null) // venta seleccionada para modal
 
+  // BUGFIX: authFetch se recrea en cada render (useAuth no usa contexto/useCallback),
+  // lo que causaba un loop infinito: authFetch nueva → cargar nueva → useEffect re-corre → setLoading → loop.
+  // Solución: guardar authFetch en un ref estable para que useCallback no dependa de ella.
+  const authFetchRef = useRef(authFetch)
+  authFetchRef.current = authFetch
+
   const cargar = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const r = await authFetch(`${API_BASE}/facturacion/ventas-pendientes?fecha=${fecha}`)
+      const r = await authFetchRef.current(`${API_BASE}/facturacion/ventas-pendientes?fecha=${fecha}`)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       setVentas(await r.json())
     } catch (e) {
@@ -356,7 +362,7 @@ function PanelEmitir({ onEmitida }) {
     } finally {
       setLoading(false)
     }
-  }, [fecha, authFetch])
+  }, [fecha]) // authFetch NO va aquí — se accede via ref estable
 
   useEffect(() => { cargar() }, [cargar])
 
@@ -516,11 +522,15 @@ function Historial({ refreshKey }) {
   const [filtro,   setFiltro]   = useState('todas') // todas | emitida | error
   const [pdfLoading, setPdfLoading] = useState(null) // cufe en descarga
 
+  // BUGFIX: mismo problema que PanelEmitir — authFetch nueva en cada render causaba loop infinito.
+  const authFetchRef = useRef(authFetch)
+  authFetchRef.current = authFetch
+
   const cargar = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const r = await authFetch(`${API_BASE}/facturacion/lista?limite=100`)
+      const r = await authFetchRef.current(`${API_BASE}/facturacion/lista?limite=100`)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       setFacturas(await r.json())
     } catch (e) {
@@ -528,7 +538,7 @@ function Historial({ refreshKey }) {
     } finally {
       setLoading(false)
     }
-  }, [authFetch])
+  }, []) // authFetch NO va aquí — se accede via ref estable
 
   useEffect(() => { cargar() }, [cargar, refreshKey])
 
@@ -536,7 +546,7 @@ function Historial({ refreshKey }) {
     if (!cufe || cufe === '—') return
     setPdfLoading(cufe)
     try {
-      const r = await authFetch(`${API_BASE}/facturacion/pdf/${cufe}`)
+      const r = await authFetchRef.current(`${API_BASE}/facturacion/pdf/${cufe}`)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const blob = await r.blob()
       const url  = URL.createObjectURL(blob)
