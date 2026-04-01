@@ -100,6 +100,7 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_crear_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_tipoid_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_persona_"))
+    app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_ciudad_"))  # ← AÑADIDO
     app.add_handler(CallbackQueryHandler(manejar_callback_foto,    pattern="^foto_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_grafica,  pattern="^grafica_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_productos, pattern="^prod_"))

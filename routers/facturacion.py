@@ -9,9 +9,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
-import os
 
-import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -37,7 +35,6 @@ async def emitir(req: FacturarRequest):
         raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
     from services.facturacion_service import emitir_factura
-
     resultado = await emitir_factura(req.venta_id)
 
     if not resultado["ok"]:
@@ -78,26 +75,14 @@ async def descargar_pdf(cufe: str):
     """
     Descarga el PDF de una factura desde MATIAS API usando el CUFE.
     Retorna el PDF como application/pdf para abrir o descargar desde el dashboard.
+    El token se obtiene automáticamente con login (no requiere MATIAS_API_TOKEN fijo).
     """
-    token    = os.getenv("MATIAS_API_TOKEN")
-    url_base = os.getenv("MATIAS_API_URL", "https://api-v2.matias-api.com/api/ubl2.1")
-
-    if not token:
-        raise HTTPException(status_code=503, detail="MATIAS_API_TOKEN no configurado")
-
+    from services.facturacion_service import obtener_pdf
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(
-                f"{url_base}/pdf/{cufe}",
-                headers={"Authorization": f"Bearer {token}"},
-            )
+        pdf_bytes = await obtener_pdf(cufe)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Error contactando MATIAS API: {e}")
+        raise HTTPException(status_code=502, detail=f"Error obteniendo PDF desde Matias API: {e}")
 
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=resp.status_code,
-            detail="No se pudo obtener el PDF desde MATIAS API",
-        )
-
-    return Response(content=resp.content, media_type="application/pdf")
+    return Response(content=pdf_bytes, media_type="application/pdf")

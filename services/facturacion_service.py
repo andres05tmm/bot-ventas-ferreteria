@@ -1,25 +1,42 @@
 """
 services/facturacion_service.py
 Integración con MATIAS API v2 para facturación electrónica DIAN.
-URL base: https://api-v2.matias-api.com/api/ubl2.1
-Docs:     https://docs.matias-api.com/docs/intro/
+
+Auth:     https://auth-v2.matias-api.com  (login con email + password → JWT renovable)
+API base: https://api-v2.matias-api.com/api/ubl2.1
+
+Variables de entorno en Railway:
+    MATIAS_EMAIL        demo@lopezsoft.net.co
+    MATIAS_PASSWORD     DEMO123456
+    MATIAS_RESOLUTION   18764074347312
+    MATIAS_PREFIX       LZT
+    MATIAS_NUM_DESDE    5280   (primer número del rango autorizado DIAN)
 """
-import os
+from __future__ import annotations
+
 import logging
-import httpx
+import os
+import threading
+import time
 from datetime import datetime
+from typing import Optional
+
+import httpx
 
 import db as _db
 from config import COLOMBIA_TZ
 
 logger = logging.getLogger("ferrebot.facturacion")
 
-# ── Configuración desde variables de entorno (Railway) ────────────────────────
-MATIAS_API_URL    = os.getenv("MATIAS_API_URL",    "https://api-v2.matias-api.com/api/ubl2.1")
-MATIAS_API_TOKEN  = os.getenv("MATIAS_API_TOKEN")
-MATIAS_RESOLUTION = os.getenv("MATIAS_RESOLUTION")  # Ej: "18764074347312"
+# ── Configuración (Railway env vars) ──────────────────────────────────────────
+
+MATIAS_AUTH_URL   = "https://auth-v2.matias-api.com"
+MATIAS_API_URL    = os.getenv("MATIAS_API_URL", "https://api-v2.matias-api.com/api/ubl2.1")
+MATIAS_EMAIL      = os.getenv("MATIAS_EMAIL")
+MATIAS_PASSWORD   = os.getenv("MATIAS_PASSWORD")
+MATIAS_RESOLUTION = os.getenv("MATIAS_RESOLUTION")
 MATIAS_PREFIX     = os.getenv("MATIAS_PREFIX", "LZT")
-MATIAS_NUM_DESDE  = int(os.getenv("MATIAS_NUM_DESDE", "5280"))  # Inicio del rango DIAN asignado
+MATIAS_NUM_DESDE  = int(os.getenv("MATIAS_NUM_DESDE", "5280"))
 
 _MEDIOS_PAGO = {
     "efectivo":      10,
@@ -27,14 +44,72 @@ _MEDIOS_PAGO = {
     "tarjeta":       48,
     "nequi":         42,
     "daviplata":     42,
+    "datafono":      48,
 }
 
+# ── Cache de token JWT con auto-renovación ────────────────────────────────────
+
+_token_lock:   threading.Lock = threading.Lock()
+_cached_token: Optional[str]  = None
+_token_expiry: float          = 0.0   # timestamp Unix
+
+
+def _get_token() -> str:
+    """
+    Devuelve un JWT válido, haciendo login automáticamente si expiró.
+    Se cachea en memoria — renueva solo cuando faltan menos de 60 s.
+
+    Raises:
+        RuntimeError  si MATIAS_EMAIL o MATIAS_PASSWORD no están configurados.
+        httpx.HTTPStatusError  si el login falla (credenciales incorrectas).
+    """
+    global _cached_token, _token_expiry
+
+    if not MATIAS_EMAIL or not MATIAS_PASSWORD:
+        raise RuntimeError(
+            "Faltan variables de entorno: MATIAS_EMAIL y MATIAS_PASSWORD. "
+            "Agrégalas en Railway → Variables."
+        )
+
+    with _token_lock:
+        ahora = time.time()
+        # Reutilizar token si le quedan más de 60 segundos de vida
+        if _cached_token and ahora < _token_expiry - 60:
+            return _cached_token
+
+        logger.info("Renovando token Matias API (login)…")
+        resp = httpx.post(
+            f"{MATIAS_AUTH_URL}/api/auth/login",
+            json={"email": MATIAS_EMAIL, "password": MATIAS_PASSWORD},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Matias API puede devolver el token en distintas claves según versión
+        token = (
+            data.get("token") or
+            data.get("access_token") or
+            (data.get("data") or {}).get("token") or
+            (data.get("data") or {}).get("access_token")
+        )
+        if not token:
+            raise ValueError(f"No se encontró token en respuesta de auth: {data}")
+
+        expires_in    = float(data.get("expires_in") or 3600)
+        _cached_token = token
+        _token_expiry = ahora + expires_in
+        logger.info("Token Matias API renovado OK (expira en %.0f min)", expires_in / 60)
+        return _cached_token
+
+
+# ── Helpers internos ──────────────────────────────────────────────────────────
 
 def _siguiente_num_dian(cur) -> int:
     """
-    Calcula el próximo número DIAN respetando el rango asignado en la resolución.
-    Usa el MAX del número real guardado en la tabla; si no hay ninguno, arranca
-    desde MATIAS_NUM_DESDE (variable de entorno, por defecto 5280).
+    Siguiente número DIAN respetando el rango autorizado.
+    Usa el MAX de facturas ya emitidas; si no hay ninguna arranca
+    desde MATIAS_NUM_DESDE.
     """
     cur.execute(
         """
@@ -45,37 +120,26 @@ def _siguiente_num_dian(cur) -> int:
         FROM facturas_electronicas
         WHERE estado = 'emitida'
         """,
-        (MATIAS_NUM_DESDE,)
+        (MATIAS_NUM_DESDE,),
     )
     siguiente = cur.fetchone()["siguiente"]
-    # Garantizar que nunca baje del mínimo del rango asignado
     return max(siguiente, MATIAS_NUM_DESDE)
 
 
 def _fmt(valor) -> str:
-    """Número → string con 2 decimales como exige MATIAS API."""
+    """Número → string con 2 decimales (requerido por Matias API)."""
     return f"{float(valor or 0):.2f}"
 
 
 def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
-    """
-    Construye el JSON de factura según MATIAS API UBL 2.1.
-
-    CORRECCIONES vs versión anterior:
-      ✅ legal_monetary_totals  — ahora incluido (era el error #1)
-      ✅ tax_totals a nivel doc  — ahora incluido (error #2)
-      ✅ type_document_id = 7   — factura electrónica de venta (código DIAN/MATIAS)
-      ✅ operation_type_id = 1  — estándar
-      ✅ graphic_representation / send_email como booleanos (eran enteros)
-      ✅ Todos los montos con 2 decimales como strings
-    """
+    """Construye el JSON de factura según Matias API UBL 2.1."""
     ahora    = datetime.now(COLOMBIA_TZ)
     es_nit   = (venta.get("tipo_id") or "").upper() == "NIT"
     medio_id = _MEDIOS_PAGO.get(
         (venta.get("metodo_pago") or "efectivo").lower(), 10
     )
 
-    # ── Totales consolidados ──────────────────────────────────────────────────
+    # ── Totales ───────────────────────────────────────────────────────────────
     subtotal  = sum(int(d.get("total") or 0) for d in detalle)
     total_iva = sum(
         int(int(d.get("total") or 0) * int(d.get("porcentaje_iva") or 0) / 100)
@@ -98,7 +162,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "address":               venta.get("direccion_cliente")      or "Cartagena",
     }
 
-    # ── Líneas ────────────────────────────────────────────────────────────────
+    # ── Líneas de detalle ─────────────────────────────────────────────────────
     lines = []
     for item in detalle:
         precio_u  = _fmt(item.get("precio_unitario") or 0)
@@ -127,23 +191,15 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             }],
         })
 
-    # ── Tax totals consolidados (nivel documento) ─────────────────────────────
-    if total_iva > 0:
-        doc_tax_totals = [{
-            "tax_id":         "1",
-            "tax_amount":     _fmt(total_iva),
-            "taxable_amount": _fmt(subtotal),
-            "percent":        "19.00",
-        }]
-    else:
-        doc_tax_totals = [{
-            "tax_id":         "4",
-            "tax_amount":     "0.00",
-            "taxable_amount": "0.00",
-            "percent":        "0.00",
-        }]
+    # ── Tax totals a nivel documento ──────────────────────────────────────────
+    doc_tax_totals = [{
+        "tax_id":         "1" if total_iva > 0 else "4",
+        "tax_amount":     _fmt(total_iva),
+        "taxable_amount": _fmt(subtotal) if total_iva > 0 else "0.00",
+        "percent":        "19.00" if total_iva > 0 else "0.00",
+    }]
 
-    # ── legal_monetary_totals  ←── CAMPO OBLIGATORIO QUE ANTES FALTABA ───────
+    # ── legal_monetary_totals (campo obligatorio) ─────────────────────────────
     legal_monetary_totals = {
         "line_extension_amount":  _fmt(subtotal),
         "tax_exclusive_amount":   _fmt(subtotal),
@@ -160,13 +216,13 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "document_number":        str(num_dian),
         "date":                   str(venta["fecha"])[:10],
         "time":                   ahora.strftime("%H:%M:%S"),
-        "type_document_id":       7,     # 7 = Factura electrónica de venta (DIAN/MATIAS)
-        "operation_type_id":      1,     # 1 = Estándar
-        "graphic_representation": True,  # booleano
-        "send_email":             True,  # booleano
+        "type_document_id":       7,
+        "operation_type_id":      1,
+        "graphic_representation": True,
+        "send_email":             True,
         "customer":               customer,
-        "tax_totals":             doc_tax_totals,          # ← nivel raíz
-        "legal_monetary_totals":  legal_monetary_totals,   # ← REQUERIDO
+        "tax_totals":             doc_tax_totals,
+        "legal_monetary_totals":  legal_monetary_totals,
         "payments": [{
             "payment_method_id": 1,
             "means_payment_id":  medio_id,
@@ -176,16 +232,22 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     }
 
 
+# ── Función principal ─────────────────────────────────────────────────────────
+
 async def emitir_factura(venta_id: int) -> dict:
     """
-    Emite la factura electrónica DIAN para una venta registrada en PostgreSQL.
-    Retorna: {"ok": bool, "cufe": str, "numero": str, "error": str}
+    Emite la factura electrónica DIAN para una venta ya registrada en PostgreSQL.
+
+    Retorna:
+        { "ok": True,  "cufe": "...", "numero": "LZT5280" }
+        { "ok": False, "error": "mensaje legible" }
     """
-    if not MATIAS_API_TOKEN:
-        return {"ok": False, "error": "MATIAS_API_TOKEN no configurado en Railway"}
+    if not MATIAS_EMAIL or not MATIAS_PASSWORD:
+        return {"ok": False, "error": "MATIAS_EMAIL y MATIAS_PASSWORD no están configurados en Railway"}
     if not MATIAS_RESOLUTION:
         return {"ok": False, "error": "MATIAS_RESOLUTION no configurado en Railway"}
 
+    # ── Leer venta + cliente + detalle desde PostgreSQL ───────────────────────
     with _db._get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -216,52 +278,54 @@ async def emitir_factura(venta_id: int) -> dict:
                 LEFT JOIN productos p ON vd.producto_id = p.id
                 WHERE vd.venta_id = %s
             """, (venta_id,))
-            detalle = cur.fetchall()
+            detalle  = cur.fetchall()
             num_dian = _siguiente_num_dian(cur)
 
     payload = _armar_payload(dict(venta), [dict(d) for d in detalle], num_dian)
+    numero  = f"{MATIAS_PREFIX}{num_dian}"
+
+    # ── Obtener token (login automático si expiró) ────────────────────────────
+    try:
+        token = _get_token()
+    except RuntimeError as e:
+        return {"ok": False, "error": str(e)}
+    except httpx.HTTPStatusError as e:
+        return {"ok": False, "error": f"Login Matias API falló ({e.response.status_code}): revisa MATIAS_EMAIL/MATIAS_PASSWORD"}
 
     headers = {
-        "Authorization": f"Bearer {MATIAS_API_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Content-Type":  "application/json",
         "Accept":        "application/json",
     }
 
-    logger.debug(f"Payload MATIAS API venta {venta_id}: {payload}")
+    logger.debug("Payload MATIAS API venta %s: %s", venta_id, payload)
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{MATIAS_API_URL}/invoice",
-                json=payload,
-                headers=headers,
-            )
+            resp = await client.post(f"{MATIAS_API_URL}/invoice", json=payload, headers=headers)
         data = resp.json()
     except Exception as e:
-        logger.error(f"MATIAS API conexión fallida venta {venta_id}: {e}")
-        return {"ok": False, "error": f"Error de conexión con MATIAS API: {e}"}
+        logger.error("MATIAS API conexión fallida venta %s: %s", venta_id, e)
+        return {"ok": False, "error": f"Error de conexión con Matias API: {e}"}
 
-    logger.debug(f"Respuesta MATIAS API venta {venta_id} (HTTP {resp.status_code}): {data}")
+    logger.debug("Respuesta MATIAS API venta %s (HTTP %s): %s", venta_id, resp.status_code, data)
 
-    # MATIAS API devuelve 'success' y 'XmlDocumentKey' (no 'is_valid' ni 'document_key')
     valido = bool(data.get("success"))
     cufe   = data.get("XmlDocumentKey") or data.get("document_key", "")
-    numero = f"{MATIAS_PREFIX}{num_dian}"
 
+    # ── Factura rechazada ─────────────────────────────────────────────────────
     if not valido:
-        # Extraer mensaje: primero message, luego errors (dict o lista)
-        msg     = data.get("message") or ""
-        errors  = data.get("errors") or {}
+        msg    = data.get("message") or ""
+        errors = data.get("errors") or {}
         if isinstance(errors, dict) and errors:
             error_detail = " | ".join(f"{k}: {v}" for k, v in errors.items())
-            error_msg = f"{msg} | {error_detail}".strip(" |")
+            error_msg    = f"{msg} | {error_detail}".strip(" |")
         elif errors:
             error_msg = f"{msg} | {errors}".strip(" |")
         else:
             error_msg = msg or str(data)
 
-        logger.error(f"MATIAS API rechazó factura venta {venta_id}: {error_msg}")
-
+        logger.error("MATIAS API rechazó factura venta %s: %s", venta_id, error_msg)
         try:
             with _db._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -269,20 +333,15 @@ async def emitir_factura(venta_id: int) -> dict:
                         "INSERT INTO facturas_electronicas "
                         "(venta_id, numero, cliente_nombre, total, estado, error_msg) "
                         "VALUES (%s, %s, %s, %s, 'error', %s)",
-                        (
-                            venta_id,
-                            f"ERR-{num_dian}",
-                            venta.get("cliente_nombre"),
-                            venta.get("total"),
-                            error_msg[:500],
-                        ),
+                        (venta_id, f"ERR-{num_dian}", venta.get("cliente_nombre"),
+                         venta.get("total"), error_msg[:500]),
                     )
                 conn.commit()
         except Exception:
             pass
-
         return {"ok": False, "error": error_msg}
 
+    # ── Factura emitida OK ────────────────────────────────────────────────────
     with _db._get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -300,5 +359,20 @@ async def emitir_factura(venta_id: int) -> dict:
             """, (venta_id, numero, cufe, venta.get("cliente_nombre"), venta.get("total")))
         conn.commit()
 
-    logger.info(f"✅ Factura {numero} emitida — CUFE: {cufe[:20]}...")
+    logger.info("✅ Factura %s emitida — CUFE: %s…", numero, cufe[:20])
     return {"ok": True, "cufe": cufe, "numero": numero}
+
+
+async def obtener_pdf(cufe: str) -> bytes:
+    """
+    Descarga el PDF de una factura desde Matias API usando el CUFE.
+    También usa token auto-renovado.
+    """
+    token = _get_token()
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            f"{MATIAS_API_URL}/pdf/{cufe}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    resp.raise_for_status()
+    return resp.content
