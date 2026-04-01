@@ -19,7 +19,7 @@ from routers.shared import (
     _to_float, _cantidad_a_float, _stock_wayper,
 )
 from routers.caja import VentaRapidaPayload, VentaRapidaItem
-from routers.deps import get_filtro_efectivo
+from routers.deps import get_filtro_efectivo, get_current_user
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -279,7 +279,7 @@ def ventas_resumen(filtro: int | None = Depends(get_filtro_efectivo)):
 
 
 @router.post("/venta-rapida")
-def venta_rapida(payload: VentaRapidaPayload):
+def venta_rapida(payload: VentaRapidaPayload, current_user=Depends(get_current_user)):
     try:
         import db as _db
         import datetime as _dt
@@ -359,7 +359,7 @@ def venta_rapida(payload: VentaRapidaPayload):
                         sum(i["item"].total for i in items_calc),
                         payload.cliente_nombre or None,
                         payload.cliente_id     or None,
-                        None,
+                        current_user.get("usuario_id"),
                     ),
                 )
                 venta_id = cur.fetchone()["id"]
