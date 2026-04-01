@@ -107,7 +107,7 @@ async def auth_telegram(request: TelegramAuthRequest):
             detail="No tienes acceso al dashboard"
         )
 
-    usuario_id, nombre, rol = user[0], user[1], user[2]  # id, nombre, rol
+    usuario_id, nombre, rol = user["id"], user["nombre"], user["rol"]
 
     # 4. Emite JWT
     secret_key = os.environ.get("SECRET_KEY")
