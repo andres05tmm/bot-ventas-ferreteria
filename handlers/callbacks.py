@@ -177,7 +177,8 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("⏳ Registrando venta...")
 
         try:
-            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
+            usuario_id = context.user_data.get("usuario", {}).get("id")
+            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id, usuario_id)
             emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
             await query.edit_message_text(
                 f"✅ Venta confirmada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
@@ -269,7 +270,8 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("⏳ Registrando venta...")
 
         try:
-            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
+            usuario_id = context.user_data.get("usuario", {}).get("id")
+            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id, usuario_id)
             emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
             await query.edit_message_text(
                 f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)

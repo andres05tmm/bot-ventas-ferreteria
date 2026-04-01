@@ -28,6 +28,9 @@ from handlers.cmd_admin import (
     comando_consistencia, comando_exportar_precios,
     comando_keepalive, comando_modelo,
 )
+from handlers.cmd_auth import (
+    comando_confirmar, comando_registrar_vendedor,
+)
 
 __all__ = [
     "comando_inicio", "comando_ventas", "comando_borrar",
@@ -45,4 +48,5 @@ __all__ = [
     "comando_facturas", "comando_borrar_factura",
     "comando_consistencia", "comando_exportar_precios",
     "comando_keepalive", "comando_modelo",
+    "comando_confirmar", "comando_registrar_vendedor",
 ]

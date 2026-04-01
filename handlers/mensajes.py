@@ -207,6 +207,19 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
+    # ── Auth gate: verificar que el usuario está registrado ──
+    from auth.usuarios import get_usuario
+    telegram_id = update.effective_user.id
+    usuario = get_usuario(telegram_id)
+    if not usuario:
+        await update.message.reply_text(
+            "❌ No estás registrado. Escribe /confirmar TuNombre para activar tu acceso."
+        )
+        return
+
+    # Store usuario in context for dispatch functions
+    context.user_data["usuario"] = usuario
+
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     # ── Flujos con handlers propios (sin cambio) ──

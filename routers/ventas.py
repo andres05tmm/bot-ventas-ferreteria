@@ -285,8 +285,8 @@ def venta_rapida(payload: VentaRapidaPayload):
                     """
                     INSERT INTO ventas
                         (consecutivo, fecha, vendedor, metodo_pago,
-                         total, cliente_nombre, cliente_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                         total, cliente_nombre, cliente_id, usuario_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -297,6 +297,7 @@ def venta_rapida(payload: VentaRapidaPayload):
                         sum(i["item"].total for i in items_calc),
                         payload.cliente_nombre or None,
                         payload.cliente_id     or None,
+                        None,
                     ),
                 )
                 venta_id = cur.fetchone()["id"]

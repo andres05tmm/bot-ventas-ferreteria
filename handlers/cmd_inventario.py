@@ -452,15 +452,16 @@ async def comando_compra(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cu     = (datos_compra or {}).get("costo_unitario") or costo_unitario
             ct     = (datos_compra or {}).get("costo_total")    or round(cant_n * cu)
 
+            usuario_id = context.user_data.get("usuario", {}).get("id") if context else None
             await asyncio.to_thread(
                 _db.execute,
                 """
                 INSERT INTO compras
                     (fecha, hora, proveedor, producto_nombre,
-                     cantidad, costo_unitario, costo_total)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                     cantidad, costo_unitario, costo_total, usuario_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (ahora.date(), ahora.strftime("%H:%M"), prov, prod_n, cant_n, cu, ct),
+                (ahora.date(), ahora.strftime("%H:%M"), prov, prod_n, cant_n, cu, ct, usuario_id),
             )
         except Exception as _e_pg:
             import logging as _log

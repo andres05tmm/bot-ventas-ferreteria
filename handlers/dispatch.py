@@ -158,8 +158,9 @@ async def manejar_flujo_pago_texto(update, context, chat_id: int, mensaje: str, 
         with _estado_lock:
             ventas = ventas_pendientes.pop(chat_id, [])
         if ventas:
+            usuario_id = context.user_data.get("usuario", {}).get("id")
             confirmaciones = await asyncio.to_thread(
-                registrar_ventas_con_metodo, ventas, metodo_detectado, vendedor, chat_id
+                registrar_ventas_con_metodo, ventas, metodo_detectado, vendedor, chat_id, usuario_id
             )
             emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo_detectado, "✅")
             await update.message.reply_text(

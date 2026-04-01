@@ -136,7 +136,7 @@ def agregar_a_standby(chat_id: int, mensaje: str):
             mensajes_standby[chat_id].append(mensaje)
 
 
-def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_id: int) -> list[str]:
+def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_id: int, usuario_id: int | None = None) -> list[str]:
     with _estado_lock:
         ventas_pendientes.pop(chat_id, None)
         # CORRECCIÓN Bug 5: consecutivo se obtiene DENTRO del lock para evitar
@@ -241,11 +241,11 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
             row = _db.execute_returning(
                 """INSERT INTO ventas
                        (consecutivo, fecha, hora, cliente_id, cliente_nombre,
-                        vendedor, metodo_pago, total)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        vendedor, metodo_pago, total, usuario_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (consecutivo, fecha_hoy, hora_actual, cliente_id_pg,
-                 nombre_c, vendedor, metodo, total_transaccion)
+                 nombre_c, vendedor, metodo, total_transaccion, usuario_id)
             )
             if row:
                 venta_id = row["id"]

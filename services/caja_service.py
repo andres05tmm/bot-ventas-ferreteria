@@ -20,7 +20,7 @@ logger = logging.getLogger("ferrebot.services.caja")
 # CAJA — Postgres helpers privados
 # ─────────────────────────────────────────────
 
-def _guardar_gasto_postgres(gasto: dict):
+def _guardar_gasto_postgres(gasto: dict, usuario_id: int | None = None):
     """Inserta un gasto en Postgres. No-fatal: logger.warning en caso de error."""
     try:
         import db as _db
@@ -29,10 +29,10 @@ def _guardar_gasto_postgres(gasto: dict):
         hoy = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
         hora_str = gasto.get("hora")
         _db.execute(
-            """INSERT INTO gastos (fecha, hora, concepto, monto, categoria, origen)
-               VALUES (%s, %s, %s, %s, %s, %s)""",
+            """INSERT INTO gastos (fecha, hora, concepto, monto, categoria, origen, usuario_id)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
             (hoy, hora_str, gasto.get("concepto", ""), int(gasto.get("monto", 0)),
-             gasto.get("categoria", "General"), gasto.get("origen", "caja"))
+             gasto.get("categoria", "General"), gasto.get("origen", "caja"), usuario_id)
         )
     except Exception as e:
         logger.warning("Error guardando gasto en Postgres: %s", e)
@@ -180,8 +180,8 @@ def cargar_gastos_hoy() -> list:
         return []
 
 
-def guardar_gasto(gasto: dict):
+def guardar_gasto(gasto: dict, usuario_id: int | None = None):
     import db as _db
     if not _db.DB_DISPONIBLE:
         raise RuntimeError("⚠️ Base de datos no disponible. Intenta de nuevo en un momento.")
-    _guardar_gasto_postgres(gasto)
+    _guardar_gasto_postgres(gasto, usuario_id)

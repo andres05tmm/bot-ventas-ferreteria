@@ -246,10 +246,10 @@ def registrar_gasto(body: NuevoGastoBody):
         hora = _hora_str()
 
         _db.execute(
-            """INSERT INTO gastos (fecha, hora, concepto, monto, categoria, origen)
-               VALUES (%s, %s, %s, %s, %s, %s)""",
+            """INSERT INTO gastos (fecha, hora, concepto, monto, categoria, origen, usuario_id)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
             (hoy, hora, body.concepto.strip(), int(body.monto),
-             body.categoria.strip() or "General", body.origen),
+             body.categoria.strip() or "General", body.origen, None),
         )
 
         gasto = {
