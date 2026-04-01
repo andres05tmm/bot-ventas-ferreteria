@@ -48,8 +48,8 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     CORRECCIONES vs versión anterior:
       ✅ legal_monetary_totals  — ahora incluido (era el error #1)
       ✅ tax_totals a nivel doc  — ahora incluido (error #2)
-      ✅ type_document_id = 1   — factura de venta (era 7, incorrecto)
-      ✅ operation_type_id = 10 — estándar en MATIAS API (era 1)
+      ✅ type_document_id = 7   — factura electrónica de venta (código DIAN/MATIAS)
+      ✅ operation_type_id = 1  — estándar
       ✅ graphic_representation / send_email como booleanos (eran enteros)
       ✅ Todos los montos con 2 decimales como strings
     """
@@ -144,8 +144,8 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "document_number":        str(num_dian),
         "date":                   str(venta["fecha"])[:10],
         "time":                   ahora.strftime("%H:%M:%S"),
-        "type_document_id":       1,     # 1 = Factura electrónica de venta
-        "operation_type_id":      10,    # 10 = Estándar (MATIAS API)
+        "type_document_id":       7,     # 7 = Factura electrónica de venta (DIAN/MATIAS)
+        "operation_type_id":      1,     # 1 = Estándar
         "graphic_representation": True,  # booleano
         "send_email":             True,  # booleano
         "customer":               customer,
