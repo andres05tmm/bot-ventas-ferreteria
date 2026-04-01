@@ -81,8 +81,8 @@ async def comando_factura_electronica(update: Update, ctx: ContextTypes.DEFAULT_
 
     if not resultado["ok"]:
         await update.message.reply_text(
-            f"❌ *Error DIAN:*\n{resultado['error']}",
-            parse_mode="Markdown",
+            f"❌ Error DIAN:\n{resultado['error']}",
+            # Sin parse_mode para evitar crash con caracteres especiales en el error
         )
         return
 
