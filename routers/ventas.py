@@ -408,6 +408,7 @@ def venta_rapida(payload: VentaRapidaPayload, current_user=Depends(get_current_u
 
         return {
             "ok":          True,
+            "venta_id":    venta_id,
             "consecutivo": consecutivo,
             "productos":   len(items_calc),
             "total":       sum(ic["item"].total for ic in items_calc),
