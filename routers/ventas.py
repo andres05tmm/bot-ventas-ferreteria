@@ -115,7 +115,7 @@ def ventas_top(
         por_producto: dict[str, dict] = {}
         for v in ventas:
             nombre = str(v.get("producto", "")).strip()
-            if not nombre or nombre.lower().strip() in _PRODUCTOS_EXCLUIR_TOP:
+            if not nombre or nombre.lower().strip().rstrip('.,:;') in _PRODUCTOS_EXCLUIR_TOP:
                 continue
             cantidad  = _cantidad_a_float(v.get("cantidad", 0))
             total     = _to_float(v.get("total", 0))
@@ -204,25 +204,26 @@ def ventas_resumen(filtro: int | None = Depends(get_filtro_efectivo)):
             ventas_por_dia = {str(r["fecha"])[:10]: _to_float(r["total_dia"]) for r in rows_sem_detail}
 
             row_tick = _db.query_one(
-                f"SELECT COUNT(DISTINCT id) AS n FROM ventas WHERE fecha >= %s AND usuario_id = %s",
+                "SELECT COUNT(DISTINCT id) AS n, COALESCE(SUM(total), 0) AS suma FROM ventas WHERE fecha >= %s AND usuario_id = %s",
                 [fecha_7d, filtro]
             )
         else:
-            # Admin: usar historico
+            # Admin: usar historico para gráfica de días
             rows_sem  = _db.query_all(
                 "SELECT fecha::text AS fecha, ventas FROM historico_ventas WHERE fecha >= %s ORDER BY fecha",
                 [fecha_7d],
             )
             ventas_por_dia = {str(r["fecha"])[:10]: _to_float(r["ventas"]) for r in rows_sem}
 
+            # Ticket promedio siempre desde ventas directamente (no historico) para consistencia
             row_tick = _db.query_one(
-                "SELECT COUNT(DISTINCT id) AS n FROM ventas WHERE fecha >= %s",
+                "SELECT COUNT(DISTINCT id) AS n, COALESCE(SUM(total), 0) AS suma FROM ventas WHERE fecha >= %s",
                 [fecha_7d],
             )
 
         total_sem = sum(ventas_por_dia.values())
-        pedidos_sem = int(row_tick["n"]) if row_tick and row_tick["n"] else 1
-        ticket_prom = round(total_sem / pedidos_sem, 0)
+        pedidos_sem = max(int(row_tick["n"]) if row_tick and row_tick["n"] else 1, 1)
+        ticket_prom = round(_to_float(row_tick["suma"]) / pedidos_sem, 0) if row_tick else 0
 
         historico = [
             {"fecha": _hace_n_dias(i).strftime("%Y-%m-%d"),
@@ -431,7 +432,7 @@ def ventas_top2(
         })
         for v in ventas:
             nombre = str(v.get("producto", "")).strip()
-            if not nombre or nombre.lower().strip() in _PRODUCTOS_EXCLUIR_TOP:
+            if not nombre or nombre.lower().strip().rstrip('.,:;') in _PRODUCTOS_EXCLUIR_TOP:
                 continue
             total = _to_float(v.get("total", 0))
             acum[nombre]["ingresos"]   += total
