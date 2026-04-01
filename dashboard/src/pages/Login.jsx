@@ -12,11 +12,12 @@ export default function Login() {
   useEffect(() => {
     // Definir el callback ANTES de que el script cargue
     window.onTelegramAuth = async (user) => {
+      console.log('[TelegramAuth] datos recibidos del widget:', user)
       setLoading(true)
       setError('')
 
       try {
-        const response = await fetch('/api/auth/telegram', {
+        const response = await fetch('https://cooperative-embrace-production-630e.up.railway.app/auth/telegram', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(user),

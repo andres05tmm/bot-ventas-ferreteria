@@ -72,6 +72,7 @@ async def auth_telegram(request: TelegramAuthRequest):
 
     Verifica el login de Telegram, busca al usuario en BD y emite JWT.
     """
+    print(f"[auth] POST /auth/telegram — id={request.id} first_name={request.first_name} auth_date={request.auth_date}")
     # 1. Verifica hash de Telegram
     request_dict = request.dict()
     if not _verify_telegram_hash(request_dict, request.hash):
