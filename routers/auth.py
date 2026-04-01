@@ -93,7 +93,7 @@ async def auth_telegram(request: TelegramAuthRequest):
     # 3. Busca usuario en base de datos
     try:
         user = db.query_one(
-            "SELECT usuario_id, nombre, rol FROM usuarios WHERE telegram_id = %s AND activo = TRUE",
+            "SELECT id, nombre, rol FROM usuarios WHERE telegram_id = %s AND activo = TRUE",
             (request.id,)
         )
     except Exception as e:
@@ -107,7 +107,7 @@ async def auth_telegram(request: TelegramAuthRequest):
             detail="No tienes acceso al dashboard"
         )
 
-    usuario_id, nombre, rol = user[0], user[1], user[2]
+    usuario_id, nombre, rol = user[0], user[1], user[2]  # id, nombre, rol
 
     # 4. Emite JWT
     secret_key = os.environ.get("SECRET_KEY")
