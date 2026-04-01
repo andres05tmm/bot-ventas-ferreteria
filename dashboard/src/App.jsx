@@ -167,7 +167,11 @@ function HeaderVendorSelector() {
       }}>Vendedor</label>
       <select
         value={selectedVendor || ''}
-        onChange={(e) => setSelectedVendor(parseInt(e.target.value) || null)}
+        onChange={(e) => {
+          const val = parseInt(e.target.value) || null
+          console.log('[VendorSelector] selectedVendor:', val)
+          setSelectedVendor(val)
+        }}
         style={{
           background: t.card, border: `1px solid #C8200E66`,
           color: t.text, borderRadius: 6, padding: '4px 8px',

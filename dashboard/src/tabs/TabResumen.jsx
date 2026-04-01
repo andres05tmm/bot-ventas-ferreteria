@@ -254,12 +254,14 @@ export default function TabResumen({ refreshKey }) {
 
   const [top5, setTop5] = useState(null)
   useEffect(() => {
+    let cancelled = false
     const url = `${API_BASE}/ventas/top?periodo=semana${selectedVendor ? `&vendor_id=${selectedVendor}` : ''}`
     authFetch(url)
       .then(r => r.json())
-      .then(d => setTop5(d.top?.slice(0, 5) || []))
-      .catch(() => setTop5([]))
-  }, [refreshKey, authFetch, selectedVendor])
+      .then(d => { if (!cancelled) setTop5(d.top?.slice(0, 5) || []) })
+      .catch(() => { if (!cancelled) setTop5([]) })
+    return () => { cancelled = true }
+  }, [refreshKey, selectedVendor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (lRes) return <Spinner />
   if (eRes) return <ErrorMsg msg={`Error cargando resumen: ${eRes}`} />
