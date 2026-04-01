@@ -81,10 +81,33 @@ def _get_token() -> str:
         resp = httpx.post(
             f"{MATIAS_AUTH_URL}/api/auth/login",
             json={"email": MATIAS_EMAIL, "password": MATIAS_PASSWORD},
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
             timeout=15,
+            follow_redirects=True,
         )
+
+        # Loguear respuesta cruda SIEMPRE para facilitar debugging
+        logger.info(
+            "Auth Matias API → HTTP %s | body: %s",
+            resp.status_code,
+            resp.text[:500] if resp.text else "(vacío)",
+        )
+
         resp.raise_for_status()
-        data = resp.json()
+
+        if not resp.text or not resp.text.strip():
+            raise ValueError(
+                f"Matias API devolvió body vacío (HTTP {resp.status_code}). "
+                "Verifica la URL de auth y las credenciales."
+            )
+
+        try:
+            data = resp.json()
+        except Exception as e:
+            raise ValueError(
+                f"Matias API no devolvió JSON válido (HTTP {resp.status_code}): "
+                f"{resp.text[:300]} — Error: {e}"
+            )
 
         # Matias API puede devolver el token en distintas claves según versión
         token = (
@@ -288,6 +311,8 @@ async def emitir_factura(venta_id: int) -> dict:
     try:
         token = _get_token()
     except RuntimeError as e:
+        return {"ok": False, "error": str(e)}
+    except ValueError as e:
         return {"ok": False, "error": str(e)}
     except httpx.HTTPStatusError as e:
         return {"ok": False, "error": f"Login Matias API falló ({e.response.status_code}): revisa MATIAS_EMAIL/MATIAS_PASSWORD"}
