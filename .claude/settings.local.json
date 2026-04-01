@@ -14,7 +14,10 @@
       "Bash(wc -l \"C:\\\\Users\\\\Dell\\\\Documents\\\\GitHub\\\\bot-ventas-ferreteria\\\\dashboard\\\\src\\\\tabs\"/*.jsx)",
       "Bash(cmd /c \"python C:\\\\Users\\\\Dell\\\\.claude\\\\skills\\\\ui-ux-pro-max\\\\scripts\\\\search.py \"\"accounting analytics dashboard hardware store elegant\"\" --design-system -p \"\"FerreBot\"\" -f markdown\")",
       "Bash(cmd /c \"py \\\\\"C:\\\\\\\\Users\\\\\\\\Dell\\\\\\\\.claude\\\\\\\\skills\\\\\\\\ui-ux-pro-max\\\\\\\\scripts\\\\\\\\search.py\\\\\" accounting --design-system 2>&1\")",
-      "Bash(PYTHONUTF8=1 python -m pytest tests/ -x -q --tb=short)"
+      "Bash(PYTHONUTF8=1 python -m pytest tests/ -x -q --tb=short)",
+      "Bash(railway run:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:AEhLzbOurMUbRanRmSaPyMuokEwGdjcd@crossover.proxy.rlwy.net:21606/railway\" PYTHONIOENCODING=utf-8 python migrations/004_usuarios_auth.py)",
+      "Skill(gsd:quick)"
     ]
   }
 }
