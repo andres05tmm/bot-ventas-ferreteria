@@ -30,7 +30,7 @@ logger = logging.getLogger("ferrebot.facturacion")
 
 # ── Configuración (Railway env vars) ──────────────────────────────────────────
 
-MATIAS_AUTH_URL   = "https://auth-v2.matias-api.com"
+MATIAS_AUTH_URL   = os.getenv("MATIAS_API_URL", "https://api-v2.matias-api.com/api/ubl2.1").split("/api/ubl2.1")[0]
 MATIAS_API_URL    = os.getenv("MATIAS_API_URL", "https://api-v2.matias-api.com/api/ubl2.1")
 MATIAS_EMAIL      = os.getenv("MATIAS_EMAIL")
 MATIAS_PASSWORD   = os.getenv("MATIAS_PASSWORD")
