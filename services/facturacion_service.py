@@ -19,6 +19,7 @@ MATIAS_API_URL    = os.getenv("MATIAS_API_URL",    "https://api-v2.matias-api.co
 MATIAS_API_TOKEN  = os.getenv("MATIAS_API_TOKEN")
 MATIAS_RESOLUTION = os.getenv("MATIAS_RESOLUTION")  # Ej: "18764074347312"
 MATIAS_PREFIX     = os.getenv("MATIAS_PREFIX", "LZT")
+MATIAS_NUM_DESDE  = int(os.getenv("MATIAS_NUM_DESDE", "5280"))  # Inicio del rango DIAN asignado
 
 _MEDIOS_PAGO = {
     "efectivo":      10,
@@ -30,10 +31,25 @@ _MEDIOS_PAGO = {
 
 
 def _siguiente_num_dian(cur) -> int:
+    """
+    Calcula el próximo número DIAN respetando el rango asignado en la resolución.
+    Usa el MAX del número real guardado en la tabla; si no hay ninguno, arranca
+    desde MATIAS_NUM_DESDE (variable de entorno, por defecto 5280).
+    """
     cur.execute(
-        "SELECT COALESCE(MAX(id), 0) + 1 AS siguiente FROM facturas_electronicas"
+        """
+        SELECT COALESCE(
+            MAX(CAST(NULLIF(regexp_replace(numero, '[^0-9]', '', 'g'), '') AS INTEGER)),
+            %s - 1
+        ) + 1 AS siguiente
+        FROM facturas_electronicas
+        WHERE estado = 'emitida'
+        """,
+        (MATIAS_NUM_DESDE,)
     )
-    return cur.fetchone()["siguiente"]
+    siguiente = cur.fetchone()["siguiente"]
+    # Garantizar que nunca baje del mínimo del rango asignado
+    return max(siguiente, MATIAS_NUM_DESDE)
 
 
 def _fmt(valor) -> str:
@@ -232,11 +248,16 @@ async def emitir_factura(venta_id: int) -> dict:
     valido = bool(data.get("is_valid")) or bool(cufe)
 
     if not valido:
-        errors = data.get("errors") or {}
-        if isinstance(errors, dict):
-            error_msg = " | ".join(f"{k}: {v}" for k, v in errors.items())
+        # Extraer mensaje: primero message, luego errors (dict o lista)
+        msg     = data.get("message") or ""
+        errors  = data.get("errors") or {}
+        if isinstance(errors, dict) and errors:
+            error_detail = " | ".join(f"{k}: {v}" for k, v in errors.items())
+            error_msg = f"{msg} | {error_detail}".strip(" |")
+        elif errors:
+            error_msg = f"{msg} | {errors}".strip(" |")
         else:
-            error_msg = str(data.get("message") or errors or data)
+            error_msg = msg or str(data)
 
         logger.error(f"MATIAS API rechazó factura venta {venta_id}: {error_msg}")
 
