@@ -2239,12 +2239,10 @@ export default function TabVentasRapidas({ refreshKey }) {
         <div
           onPointerDown={e => e.target === e.currentTarget && setCarritoAbierto(false)}
           style={{
-            position: 'fixed', top: 0, left: 0, right: 0,
-            bottom: 0,
-            paddingBottom: 'calc(130px + env(safe-area-inset-bottom, 0px))',
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
             background: '#00000077',
-            zIndex: 300, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-            touchAction: 'none',
+            zIndex: 300,
+            display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
           }}
         >
           <div
