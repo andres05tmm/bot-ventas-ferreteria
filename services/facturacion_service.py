@@ -1,6 +1,6 @@
 """
 services/facturacion_service.py
-Integración con MATIAS API v3 para facturación electrónica DIAN.
+Integración con MATIAS API v2 para facturación electrónica DIAN.
 URL base: https://api-v2.matias-api.com/api/ubl2.1
 Docs:     https://docs.matias-api.com/docs/intro/
 """
@@ -16,11 +16,10 @@ logger = logging.getLogger("ferrebot.facturacion")
 
 # ── Configuración desde variables de entorno (Railway) ────────────────────────
 MATIAS_API_URL    = os.getenv("MATIAS_API_URL",    "https://api-v2.matias-api.com/api/ubl2.1")
-MATIAS_API_TOKEN  = os.getenv("MATIAS_API_TOKEN")   # PAT de app.matias-api.com
-MATIAS_RESOLUTION = os.getenv("MATIAS_RESOLUTION")  # Número Formato 1876 DIAN
+MATIAS_API_TOKEN  = os.getenv("MATIAS_API_TOKEN")
+MATIAS_RESOLUTION = os.getenv("MATIAS_RESOLUTION")  # Ej: "18764074347312"
 MATIAS_PREFIX     = os.getenv("MATIAS_PREFIX", "LZT")
 
-# means_payment_id según medio de pago
 _MEDIOS_PAGO = {
     "efectivo":      10,
     "transferencia": 42,
@@ -31,57 +30,71 @@ _MEDIOS_PAGO = {
 
 
 def _siguiente_num_dian(cur) -> int:
-    """
-    Consecutivo propio de facturas DIAN.
-    Completamente independiente del consecutivo de ventas — garantiza
-    numeración secuencial sin huecos como exige la DIAN.
-    """
     cur.execute(
         "SELECT COALESCE(MAX(id), 0) + 1 AS siguiente FROM facturas_electronicas"
     )
     return cur.fetchone()["siguiente"]
 
 
+def _fmt(valor) -> str:
+    """Número → string con 2 decimales como exige MATIAS API."""
+    return f"{float(valor or 0):.2f}"
+
+
 def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     """
-    Construye el JSON de factura según la estructura real de MATIAS API
-    confirmada en https://docs.matias-api.com/docs/jsons-billing/invoice/
+    Construye el JSON de factura según MATIAS API UBL 2.1.
+
+    CORRECCIONES vs versión anterior:
+      ✅ legal_monetary_totals  — ahora incluido (era el error #1)
+      ✅ tax_totals a nivel doc  — ahora incluido (error #2)
+      ✅ type_document_id = 1   — factura de venta (era 7, incorrecto)
+      ✅ operation_type_id = 10 — estándar en MATIAS API (era 1)
+      ✅ graphic_representation / send_email como booleanos (eran enteros)
+      ✅ Todos los montos con 2 decimales como strings
     """
     ahora    = datetime.now(COLOMBIA_TZ)
     es_nit   = (venta.get("tipo_id") or "").upper() == "NIT"
     medio_id = _MEDIOS_PAGO.get(
         (venta.get("metodo_pago") or "efectivo").lower(), 10
     )
-    total_v = int(venta.get("total") or 0)
 
-    # ── Datos del comprador ───────────────────────────────────────────────────
+    # ── Totales consolidados ──────────────────────────────────────────────────
+    subtotal  = sum(int(d.get("total") or 0) for d in detalle)
+    total_iva = sum(
+        int(int(d.get("total") or 0) * int(d.get("porcentaje_iva") or 0) / 100)
+        for d in detalle if d.get("tiene_iva")
+    )
+    total_doc = subtotal + total_iva
+
+    # ── Comprador ─────────────────────────────────────────────────────────────
     customer = {
-        "country_id":            "45",   # Colombia
-        "city_id":               str(venta.get("municipio_dian") or 149),  # 149=Cartagena
-        "identity_document_id":  "6" if es_nit else "3",   # 6=NIT, 3=CC
-        "type_organization_id":  1   if es_nit else 2,     # 1=Jurídica, 2=Natural
-        "tax_regime_id":         1   if es_nit else 2,     # 1=Resp.IVA, 2=No resp.
-        "tax_level_id":          1   if es_nit else 5,     # 1=Responsable, 5=No resp.
+        "country_id":            "45",
+        "city_id":               str(venta.get("municipio_dian") or 149),
+        "identity_document_id":  "6" if es_nit else "3",
+        "type_organization_id":  1   if es_nit else 2,
+        "tax_regime_id":         1   if es_nit else 2,
+        "tax_level_id":          1   if es_nit else 5,
         "company_name":          (venta.get("cliente_nombre") or "CONSUMIDOR FINAL").upper(),
         "dni":                   venta.get("identificacion_cliente") or "222222222222",
-        "mobile":                venta.get("telefono_cliente")       or "0000000000",
+        "mobile":                venta.get("telefono_cliente")       or "3000000000",
         "email":                 venta.get("correo_cliente")         or "sinfactura@ferreteriapuntorojo.com",
         "address":               venta.get("direccion_cliente")      or "Cartagena",
     }
 
-    # ── Líneas de factura ─────────────────────────────────────────────────────
+    # ── Líneas ────────────────────────────────────────────────────────────────
     lines = []
     for item in detalle:
-        precio_u  = str(int(item.get("precio_unitario") or 0))
+        precio_u  = _fmt(item.get("precio_unitario") or 0)
         cantidad  = str(float(item.get("cantidad") or 1))
-        total_l   = str(int(item.get("total") or 0))
+        total_l   = _fmt(item.get("total") or 0)
         tiene_iva = bool(item.get("tiene_iva"))
         pct_iva   = int(item.get("porcentaje_iva") or 0)
-        iva_val   = str(int(int(total_l) * pct_iva / 100)) if tiene_iva else "0"
+        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else "0.00"
 
         lines.append({
             "invoiced_quantity":            cantidad,
-            "quantity_units_id":            "70",       # 70 = Unidad (tabla DIAN)
+            "quantity_units_id":            "70",
             "line_extension_amount":        total_l,
             "free_of_charge_indicator":     False,
             "description":                  (item.get("producto_nombre") or "Producto").upper(),
@@ -91,12 +104,39 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             "price_amount":                 precio_u,
             "base_quantity":                cantidad,
             "tax_totals": [{
-                "tax_id":        "1" if tiene_iva else "4",  # 1=IVA, 4=Excluido
-                "tax_amount":    iva_val,
-                "taxable_amount": total_l if tiene_iva else "0",
-                "percent":       str(pct_iva),
+                "tax_id":         "1" if tiene_iva else "4",
+                "tax_amount":     iva_val,
+                "taxable_amount": total_l if tiene_iva else "0.00",
+                "percent":        _fmt(pct_iva),
             }],
         })
+
+    # ── Tax totals consolidados (nivel documento) ─────────────────────────────
+    if total_iva > 0:
+        doc_tax_totals = [{
+            "tax_id":         "1",
+            "tax_amount":     _fmt(total_iva),
+            "taxable_amount": _fmt(subtotal),
+            "percent":        "19.00",
+        }]
+    else:
+        doc_tax_totals = [{
+            "tax_id":         "4",
+            "tax_amount":     "0.00",
+            "taxable_amount": "0.00",
+            "percent":        "0.00",
+        }]
+
+    # ── legal_monetary_totals  ←── CAMPO OBLIGATORIO QUE ANTES FALTABA ───────
+    legal_monetary_totals = {
+        "line_extension_amount":  _fmt(subtotal),
+        "tax_exclusive_amount":   _fmt(subtotal),
+        "tax_inclusive_amount":   _fmt(total_doc),
+        "allowance_total_amount": "0.00",
+        "charge_total_amount":    "0.00",
+        "pre_paid_amount":        "0.00",
+        "payable_amount":         _fmt(total_doc),
+    }
 
     return {
         "resolution_number":      MATIAS_RESOLUTION,
@@ -104,15 +144,17 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "document_number":        str(num_dian),
         "date":                   str(venta["fecha"])[:10],
         "time":                   ahora.strftime("%H:%M:%S"),
-        "type_document_id":       7,   # 7 = Factura electrónica de venta
-        "operation_type_id":      1,   # 1 = Estándar
-        "graphic_representation": 0,
-        "send_email":             1,   # MATIAS envía el PDF al email del cliente
+        "type_document_id":       1,     # 1 = Factura electrónica de venta
+        "operation_type_id":      10,    # 10 = Estándar (MATIAS API)
+        "graphic_representation": True,  # booleano
+        "send_email":             True,  # booleano
         "customer":               customer,
+        "tax_totals":             doc_tax_totals,          # ← nivel raíz
+        "legal_monetary_totals":  legal_monetary_totals,   # ← REQUERIDO
         "payments": [{
-            "payment_method_id": 1,          # 1 = Contado
+            "payment_method_id": 1,
             "means_payment_id":  medio_id,
-            "value_paid":        str(total_v),
+            "value_paid":        _fmt(total_doc),
         }],
         "lines": lines,
     }
@@ -120,7 +162,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
 
 async def emitir_factura(venta_id: int) -> dict:
     """
-    Emite la factura electrónica DIAN para una venta ya registrada en PostgreSQL.
+    Emite la factura electrónica DIAN para una venta registrada en PostgreSQL.
     Retorna: {"ok": bool, "cufe": str, "numero": str, "error": str}
     """
     if not MATIAS_API_TOKEN:
@@ -128,7 +170,6 @@ async def emitir_factura(venta_id: int) -> dict:
     if not MATIAS_RESOLUTION:
         return {"ok": False, "error": "MATIAS_RESOLUTION no configurado en Railway"}
 
-    # ── 1. Leer venta + detalle + calcular consecutivo DIAN ──────────────────
     with _db._get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -147,7 +188,6 @@ async def emitir_factura(venta_id: int) -> dict:
             if not venta:
                 return {"ok": False, "error": f"Venta {venta_id} no encontrada"}
 
-            # Evitar duplicados
             if (venta.get("factura_estado") or "") == "emitida":
                 return {
                     "ok": False,
@@ -161,17 +201,18 @@ async def emitir_factura(venta_id: int) -> dict:
                 WHERE vd.venta_id = %s
             """, (venta_id,))
             detalle = cur.fetchall()
-
             num_dian = _siguiente_num_dian(cur)
 
     payload = _armar_payload(dict(venta), [dict(d) for d in detalle], num_dian)
 
-    # ── 2. Llamar a MATIAS API ────────────────────────────────────────────────
     headers = {
         "Authorization": f"Bearer {MATIAS_API_TOKEN}",
         "Content-Type":  "application/json",
         "Accept":        "application/json",
     }
+
+    logger.debug(f"Payload MATIAS API venta {venta_id}: {payload}")
+
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
@@ -184,15 +225,21 @@ async def emitir_factura(venta_id: int) -> dict:
         logger.error(f"MATIAS API conexión fallida venta {venta_id}: {e}")
         return {"ok": False, "error": f"Error de conexión con MATIAS API: {e}"}
 
-    # ── 3. Verificar respuesta ────────────────────────────────────────────────
+    logger.debug(f"Respuesta MATIAS API venta {venta_id} (HTTP {resp.status_code}): {data}")
+
     cufe   = data.get("document_key", "")
     numero = data.get("document_number", f"{MATIAS_PREFIX}{num_dian}")
     valido = bool(data.get("is_valid")) or bool(cufe)
 
     if not valido:
-        error_msg = str(data.get("message") or data.get("errors") or data)
+        errors = data.get("errors") or {}
+        if isinstance(errors, dict):
+            error_msg = " | ".join(f"{k}: {v}" for k, v in errors.items())
+        else:
+            error_msg = str(data.get("message") or errors or data)
+
         logger.error(f"MATIAS API rechazó factura venta {venta_id}: {error_msg}")
-        # Guardar intento fallido para auditoría
+
         try:
             with _db._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -211,9 +258,9 @@ async def emitir_factura(venta_id: int) -> dict:
                 conn.commit()
         except Exception:
             pass
+
         return {"ok": False, "error": error_msg}
 
-    # ── 4. Guardar en PostgreSQL ──────────────────────────────────────────────
     with _db._get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -224,18 +271,11 @@ async def emitir_factura(venta_id: int) -> dict:
                     facturada_at   = NOW()
                 WHERE id = %s
             """, (numero, cufe, venta_id))
-
             cur.execute("""
                 INSERT INTO facturas_electronicas
                     (venta_id, numero, cufe, cliente_nombre, total)
                 VALUES (%s, %s, %s, %s, %s)
-            """, (
-                venta_id,
-                numero,
-                cufe,
-                venta.get("cliente_nombre"),
-                venta.get("total"),
-            ))
+            """, (venta_id, numero, cufe, venta.get("cliente_nombre"), venta.get("total")))
         conn.commit()
 
     logger.info(f"✅ Factura {numero} emitida — CUFE: {cufe[:20]}...")

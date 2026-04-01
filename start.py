@@ -33,6 +33,8 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext.Updater").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("start")
+# Activar DEBUG solo para el módulo de facturación
+logging.getLogger("ferrebot.facturacion").setLevel(logging.DEBUG)
 
 # ── Importar config AQUÍ — antes de arrancar hilos
 import config  # noqa: E402
