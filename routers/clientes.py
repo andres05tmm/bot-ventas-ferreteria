@@ -107,13 +107,14 @@ def buscar_clientes_endpoint(q: str = Query(default=""), current_user=Depends(ge
 # ── POST /clientes ────────────────────────────────────────────────────────────
 
 class NuevoCliente(BaseModel):
-    nombre:         str
-    tipo_id:        str = "CC"        # CC | NIT | CE | PAS
-    identificacion: str = ""
-    tipo_persona:   str = "Natural"
-    correo:         str = ""
-    telefono:       str = ""
-    direccion:      str = ""
+    nombre:          str
+    tipo_id:         str = "CC"        # CC | NIT | CE | PAS
+    identificacion:  str = ""
+    tipo_persona:    str = "Natural"
+    correo:          str = ""
+    telefono:        str = ""
+    direccion:       str = ""
+    municipio_dian:  int = 13001       # Cartagena por defecto
 
 
 @router.post("/clientes")
@@ -177,8 +178,9 @@ def crear_cliente_endpoint(body: NuevoCliente):
         nuevo = db.execute_returning(
             """
             INSERT INTO clientes
-                (nombre, tipo_id, identificacion, tipo_persona, correo, telefono, direccion)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (nombre, tipo_id, identificacion, tipo_persona, correo, telefono,
+                 direccion, municipio_dian)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
             (
@@ -189,6 +191,7 @@ def crear_cliente_endpoint(body: NuevoCliente):
                 body.correo.strip(),
                 body.telefono.strip(),
                 body.direccion.strip(),
+                body.municipio_dian,
             ),
         )
 

@@ -1447,6 +1447,15 @@ function SelectorCliente({ t, clienteSeleccionado, onSeleccionar }) {
 // ── Modal Nuevo Cliente ───────────────────────────────────────────────────────
 function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
   const TIPOS_ID = ['CC','NIT','CE','PAS']
+  const CIUDADES = [
+    { label: '🏙️ Cartagena',    value: 13001 },
+    { label: '🏙️ Barranquilla', value: 8001  },
+    { label: '🏙️ Bogotá',       value: 11001 },
+    { label: '🏙️ Medellín',     value: 5001  },
+    { label: '🏙️ Cali',         value: 76001 },
+    { label: '🏙️ Bucaramanga',  value: 68001 },
+    { label: '📍 Otra ciudad',   value: 13001 },
+  ]
   const [form, setForm] = useState({
     nombre:         nombreInicial||'',
     tipo_id:        'CC',
@@ -1455,14 +1464,17 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
     correo:         '',
     telefono:       '',
     direccion:      '',
+    municipio_dian: 13001,
   })
   const [estado, setEstado] = useState('idle')
   const [err,    setErr]    = useState('')
   const { authFetch } = useAuth()
   const set = (k,v)=>setForm(f=>({...f,[k]:v}))
+  const esNIT = form.tipo_id === 'NIT'
 
   const guardar = async () => {
     if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); return }
+    if (esNIT && !form.identificacion.trim()) { setErr('El NIT es obligatorio'); return }
     setEstado('saving'); setErr('')
     try {
       const r = await authFetch(`${API_BASE}/clientes`, {
@@ -1509,7 +1521,7 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 20px 0'}}>
           <div>
             <div style={{fontWeight:700,fontSize:14,color:t.text}}>👤 Registrar cliente</div>
-            <div style={{fontSize:11,color:t.textMuted,marginTop:2}}>Se guardará en la hoja Clientes del Excel</div>
+            <div style={{fontSize:11,color:t.textMuted,marginTop:2}}>Datos para factura electrónica DIAN</div>
           </div>
           <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:7,color:t.textMuted,width:28,height:28,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
         </div>
@@ -1540,8 +1552,26 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
           <div><label style={lbl}>Correo electrónico (opcional)</label>
             <input style={inp} type="email" value={form.correo} onChange={e=>set('correo',e.target.value)} placeholder="correo@..."/></div>
 
+          <div><label style={lbl}>Ciudad</label>
+            <select style={inp} value={form.municipio_dian} onChange={e=>set('municipio_dian', Number(e.target.value))}>
+              {CIUDADES.map(c=><option key={c.value+c.label} value={c.value}>{c.label}</option>)}
+            </select></div>
+
+          {/* Dirección: solo obligatoria para empresas (NIT), pero disponible para todos */}
+          <div>
+            <label style={lbl}>
+              Dirección {esNIT ? <span style={{color:t.accent}}>*</span> : <span style={{color:t.textMuted}}>(opcional)</span>}
+            </label>
+            <input
+              style={inp}
+              value={form.direccion}
+              onChange={e=>set('direccion',e.target.value)}
+              placeholder={esNIT ? 'Dirección de la empresa' : 'No tiene (opcional)'}
+            />
+          </div>
+
           <div style={{padding:'7px 10px',background:t.accentSub,border:`1px solid ${t.accent}22`,borderRadius:7,fontSize:10,color:t.accent}}>
-            💡 Con estos datos queda listo para factura electrónica DIAN. El teléfono y correo son opcionales.
+            💡 Con estos datos queda listo para factura electrónica DIAN. El teléfono, correo y dirección son opcionales para personas naturales.
           </div>
 
           {err && <div style={{padding:'7px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626'}}>⚠ {err}</div>}
