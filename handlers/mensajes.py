@@ -224,6 +224,9 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     # Store usuario in context for dispatch functions
     context.user_data["usuario"] = usuario
 
+    # Usar siempre el nombre registrado en la BD, no el nombre de Telegram
+    vendedor = usuario["nombre"]
+
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     # ── Flujos con handlers propios (sin cambio) ──
@@ -564,7 +567,9 @@ async def manejar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Descarga la foto, la convierte a base64 y la manda a procesar_con_claude
     con el system prompt completo (catálogo incluido).
     """
-    vendedor = update.message.from_user.first_name or "Desconocido"
+    from auth.usuarios import get_usuario as _get_usuario
+    _u = _get_usuario(update.effective_user.id)
+    vendedor = _u["nombre"] if _u else (update.message.from_user.first_name or "Desconocido")
     chat_id  = update.message.chat_id
 
     async with get_chat_lock(chat_id):
@@ -692,7 +697,9 @@ async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, ven
                 pass
 
 async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    vendedor = update.message.from_user.first_name or "Desconocido"
+    from auth.usuarios import get_usuario as _get_usuario
+    _u = _get_usuario(update.effective_user.id)
+    vendedor = _u["nombre"] if _u else (update.message.from_user.first_name or "Desconocido")
     chat_id  = update.message.chat_id
 
     async with get_chat_lock(chat_id):

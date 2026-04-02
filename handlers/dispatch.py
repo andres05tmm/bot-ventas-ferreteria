@@ -108,9 +108,12 @@ async def manejar_flujo_excel(update, context, chat_id: int, mensaje: str) -> bo
 
     try:
         await update.message.reply_text("⚙️ Procesando tu Excel...")
+        from auth.usuarios import get_usuario as _get_usuario
+        _u_excel = _get_usuario(update.effective_user.id)
+        _nombre_excel = _u_excel["nombre"] if _u_excel else (update.message.from_user.first_name or "Desconocido")
         operacion_dict = await editar_excel_con_claude(
             mensaje, excel_temp, excel_nombre,
-            update.message.from_user.first_name or "Desconocido", chat_id,
+            _nombre_excel, chat_id,
         )
 
         if operacion_dict.get("operacion") == "IMPOSIBLE":
