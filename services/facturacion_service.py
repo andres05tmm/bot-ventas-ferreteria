@@ -138,7 +138,7 @@ def _get_token() -> str:
 
         logger.info("Renovando token Matias API (login)…")
         resp = httpx.post(
-            f"{MATIAS_API_URL}/auth/login",
+            f"{MATIAS_AUTH_URL}/auth/login",  # FIX Bug 1: usa base URL sin /api/ubl2.1
             json={"email": MATIAS_EMAIL, "password": MATIAS_PASSWORD, "remember_me": 0},
             headers={"Accept": "application/json", "Content-Type": "application/json"},
             timeout=15,
@@ -190,9 +190,9 @@ def _get_token() -> str:
 def _siguiente_num_dian(cur) -> int:
     """
     Siguiente número DIAN respetando el rango autorizado.
-    Usa el MAX de facturas ya emitidas; si no hay ninguna arranca
-    desde MATIAS_NUM_DESDE.
+    FIX Bug 3: usa LOCK TABLE para evitar duplicados en emisiones concurrentes.
     """
+    cur.execute("LOCK TABLE facturas_electronicas IN SHARE ROW EXCLUSIVE MODE")
     cur.execute(
         """
         SELECT COALESCE(
@@ -200,7 +200,7 @@ def _siguiente_num_dian(cur) -> int:
             %s - 1
         ) + 1 AS siguiente
         FROM facturas_electronicas
-        WHERE estado = 'emitida'
+        WHERE estado != 'error'
         """,
         (MATIAS_NUM_DESDE,),
     )
@@ -310,7 +310,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "document_number":        str(num_dian),
         "date":                   str(venta["fecha"])[:10],
         "time":                   ahora.strftime("%H:%M:%S"),
-        "type_document_id":       7,
+        "type_document_id":       1,   # FIX Bug 2: 1 = Factura de Venta (7 era Documento Soporte)
         "operation_type_id":      1,
         "graphic_representation": True,
         "send_email":             True,
@@ -462,13 +462,24 @@ async def emitir_factura(venta_id: int) -> dict:
 async def obtener_pdf(cufe: str) -> bytes:
     """
     Descarga el PDF de una factura desde Matias API usando el CUFE.
-    También usa token auto-renovado.
+    FIX Bug 5: _get_token() es síncrono (usa httpx.post blocking) — se envuelve
+               en asyncio.to_thread para no bloquear el event loop de FastAPI.
+    FIX Bug 4: URL corregida a /invoice/pdf/{cufe} (verificar con docs MATIAS API).
     """
-    token = _get_token()
-    async with httpx.AsyncClient(timeout=20) as client:
+    import asyncio
+    token = await asyncio.to_thread(_get_token)
+    async with httpx.AsyncClient(timeout=30) as client:
+        # Intenta primero con /invoice/pdf/{cufe}, que es el endpoint estándar MATIAS v2.
+        # Si no funciona, prueba con /pdf/{cufe} (v1 legacy).
         resp = await client.get(
-            f"{MATIAS_API_URL}/pdf/{cufe}",
-            headers={"Authorization": f"Bearer {token}"},
+            f"{MATIAS_API_URL}/invoice/pdf/{cufe}",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/pdf"},
         )
+        if resp.status_code == 404:
+            # Fallback a endpoint legacy
+            resp = await client.get(
+                f"{MATIAS_API_URL}/pdf/{cufe}",
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/pdf"},
+            )
     resp.raise_for_status()
     return resp.content

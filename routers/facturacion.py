@@ -6,13 +6,14 @@ Endpoints:
   GET  /facturacion/lista               — lista las últimas facturas emitidas
   GET  /facturacion/pdf/{cufe}          — descarga el PDF desde MATIAS API por CUFE
   GET  /facturacion/ventas-pendientes   — ventas sin FE en una fecha dada (para el dashboard)
+  POST /facturacion/webhook             — recibe eventos de MATIAS API (invoice.accepted, email.sent)
 """
 from __future__ import annotations
 
 import logging
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -121,3 +122,120 @@ async def descargar_pdf(cufe: str):
         raise HTTPException(status_code=502, detail=f"Error obteniendo PDF desde Matias API: {e}")
 
     return Response(content=pdf_bytes, media_type="application/pdf")
+
+
+# ── Webhook MATIAS API ────────────────────────────────────────────────────────
+
+@router.post("/facturacion/webhook")
+async def webhook_matias(request: Request):
+    """
+    Recibe eventos de MATIAS API en tiempo real.
+
+    Configura esta URL en el panel de MATIAS API:
+        https://tu-app.railway.app/facturacion/webhook
+
+    Eventos que maneja:
+        invoice.accepted  — DIAN aceptó la factura → actualiza estado en DB + notifica bot
+        invoice.rejected  — DIAN rechazó → guarda error
+        email.sent        — confirmación de que el correo llegó al cliente
+
+    MATIAS API envía un POST con JSON, sin firma HMAC en v2 pública.
+    Si en el futuro agregan firma, validarla aquí con MATIAS_WEBHOOK_SECRET.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Payload JSON inválido")
+
+    evento   = payload.get("event") or payload.get("type") or ""
+    data     = payload.get("data") or payload.get("document") or payload
+    cufe     = data.get("XmlDocumentKey") or data.get("document_key") or data.get("cufe") or ""
+    numero   = data.get("number") or data.get("document_number") or ""
+    email_ok = data.get("email_sent") or data.get("email_delivered")
+
+    logger.info("Webhook MATIAS API — evento: %s | cufe: %s…", evento, cufe[:20] if cufe else "?")
+
+    if not _db.DB_DISPONIBLE:
+        return {"ok": True, "msg": "DB no disponible, evento ignorado"}
+
+    # ── invoice.accepted ─────────────────────────────────────────────────────
+    if "accept" in evento.lower() or payload.get("success"):
+        if cufe:
+            try:
+                _db.execute(
+                    """
+                    UPDATE facturas_electronicas
+                    SET estado = 'emitida', error_msg = NULL
+                    WHERE cufe = %s AND estado != 'emitida'
+                    """,
+                    [cufe],
+                )
+                _db.execute(
+                    """
+                    UPDATE ventas
+                    SET factura_estado = 'emitida', facturada_at = NOW()
+                    WHERE factura_cufe = %s AND factura_estado != 'emitida'
+                    """,
+                    [cufe],
+                )
+                logger.info("✅ Webhook: factura %s marcada como emitida", numero or cufe[:16])
+
+                # Notificar al bot de Telegram si está disponible
+                _notificar_bot_factura_aceptada(cufe, numero, email_ok)
+
+            except Exception as e:
+                logger.error("Webhook: error actualizando DB para cufe %s: %s", cufe[:20], e)
+
+    # ── invoice.rejected ─────────────────────────────────────────────────────
+    elif "reject" in evento.lower() or "error" in evento.lower():
+        error_msg = data.get("message") or data.get("errors") or "Rechazada por DIAN"
+        if isinstance(error_msg, dict):
+            error_msg = " | ".join(f"{k}: {v}" for k, v in error_msg.items())
+        if cufe:
+            try:
+                _db.execute(
+                    "UPDATE facturas_electronicas SET estado = 'error', error_msg = %s WHERE cufe = %s",
+                    [str(error_msg)[:500], cufe],
+                )
+                logger.warning("❌ Webhook: factura %s rechazada — %s", numero or cufe[:16], str(error_msg)[:100])
+            except Exception as e:
+                logger.error("Webhook: error guardando rechazo cufe %s: %s", cufe[:20], e)
+
+    # ── email.sent ───────────────────────────────────────────────────────────
+    elif "email" in evento.lower():
+        logger.info("📧 Webhook: correo de factura %s entregado al cliente", numero or cufe[:16])
+        # Aquí puedes guardar timestamp de entrega de correo si lo necesitas
+
+    return {"ok": True, "evento": evento}
+
+
+def _notificar_bot_factura_aceptada(cufe: str, numero: str, email_ok) -> None:
+    """
+    Intenta notificar al grupo/canal de Telegram que la DIAN aceptó la factura.
+    Solo actúa si hay un TELEGRAM_NOTIFY_CHAT_ID configurado en Railway.
+    No bloquea — fallo silencioso.
+    """
+    import os, threading, httpx as _httpx
+
+    chat_id = os.getenv("TELEGRAM_NOTIFY_CHAT_ID")
+    token   = os.getenv("TELEGRAM_TOKEN")
+    if not chat_id or not token:
+        return
+
+    email_txt = " · 📧 correo enviado al cliente" if email_ok else ""
+    texto = (
+        f"✅ *DIAN aceptó factura {numero}*\n"
+        f"CUFE: `{cufe[:24]}…`{email_txt}"
+    )
+
+    def _send():
+        try:
+            _httpx.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": texto, "parse_mode": "Markdown"},
+                timeout=8,
+            )
+        except Exception as e:
+            logger.debug("Notificación Telegram webhook fallida: %s", e)
+
+    threading.Thread(target=_send, daemon=True).start()
