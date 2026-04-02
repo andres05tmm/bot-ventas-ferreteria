@@ -30,7 +30,6 @@ logger = logging.getLogger("ferrebot.facturacion")
 
 # ── Configuración (Railway env vars) ──────────────────────────────────────────
 
-MATIAS_AUTH_URL   = os.getenv("MATIAS_AUTH_URL", "https://auth-v2.matias-api.com")
 MATIAS_API_URL    = os.getenv("MATIAS_API_URL", "https://api-v2.matias-api.com/api/ubl2.1")
 MATIAS_EMAIL      = os.getenv("MATIAS_EMAIL")
 MATIAS_PASSWORD   = os.getenv("MATIAS_PASSWORD")
@@ -138,7 +137,7 @@ def _get_token() -> str:
 
         logger.info("Renovando token Matias API (login)…")
         resp = httpx.post(
-            f"{MATIAS_AUTH_URL}/auth/login",
+            f"{MATIAS_API_URL}/auth/login",
             json={"email": MATIAS_EMAIL, "password": MATIAS_PASSWORD, "remember_me": 0},
             headers={"Accept": "application/json", "Content-Type": "application/json"},
             timeout=15,
@@ -178,10 +177,19 @@ def _get_token() -> str:
         if not token:
             raise ValueError(f"No se encontró token en respuesta de auth: {data}")
 
-        expires_in    = float(data.get("expires_in") or 3600)
-        _cached_token = token
-        _token_expiry = ahora + expires_in
-        logger.info("Token Matias API renovado OK (expira en %.0f min)", expires_in / 60)
+        expires_at_str = data.get("expires_at")
+        if expires_at_str:
+            try:
+                expires_dt    = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+                _token_expiry = expires_dt.timestamp()
+            except Exception:
+                _token_expiry = ahora + float(data.get("expires_in") or 86400)
+        else:
+            _token_expiry = ahora + float(data.get("expires_in") or 86400)
+
+        _cached_token  = token
+        mins_restantes = (_token_expiry - ahora) / 60
+        logger.info("Token Matias API renovado OK (expira en %.0f min)", mins_restantes)
         return _cached_token
 
 
