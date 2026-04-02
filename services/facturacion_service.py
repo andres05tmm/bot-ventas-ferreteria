@@ -30,6 +30,7 @@ logger = logging.getLogger("ferrebot.facturacion")
 
 # ── Configuración (Railway env vars) ──────────────────────────────────────────
 
+MATIAS_AUTH_URL   = os.getenv("MATIAS_AUTH_URL", "https://auth-v2.matias-api.com")
 MATIAS_API_URL    = os.getenv("MATIAS_API_URL", "https://api-v2.matias-api.com/api/ubl2.1")
 MATIAS_EMAIL      = os.getenv("MATIAS_EMAIL")
 MATIAS_PASSWORD   = os.getenv("MATIAS_PASSWORD")
@@ -137,7 +138,7 @@ def _get_token() -> str:
 
         logger.info("Renovando token Matias API (login)…")
         resp = httpx.post(
-            f"{MATIAS_API_URL}/auth/login",
+            f"{MATIAS_AUTH_URL}/auth/login",
             json={"email": MATIAS_EMAIL, "password": MATIAS_PASSWORD, "remember_me": 0},
             headers={"Accept": "application/json", "Content-Type": "application/json"},
             timeout=15,
@@ -177,19 +178,10 @@ def _get_token() -> str:
         if not token:
             raise ValueError(f"No se encontró token en respuesta de auth: {data}")
 
-        expires_at_str = data.get("expires_at")
-        if expires_at_str:
-            try:
-                expires_dt    = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
-                _token_expiry = expires_dt.timestamp()
-            except Exception:
-                _token_expiry = ahora + float(data.get("expires_in") or 86400)
-        else:
-            _token_expiry = ahora + float(data.get("expires_in") or 86400)
-
-        _cached_token  = token
-        mins_restantes = (_token_expiry - ahora) / 60
-        logger.info("Token Matias API renovado OK (expira en %.0f min)", mins_restantes)
+        expires_in    = float(data.get("expires_in") or 3600)
+        _cached_token = token
+        _token_expiry = ahora + expires_in
+        logger.info("Token Matias API renovado OK (expira en %.0f min)", expires_in / 60)
         return _cached_token
 
 
@@ -318,7 +310,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "document_number":        str(num_dian),
         "date":                   str(venta["fecha"])[:10],
         "time":                   ahora.strftime("%H:%M:%S"),
-        "type_document_id":       7,   # 7 = Factura de Venta en MATIAS API (ID interno, ≠ código DIAN "01")
+        "type_document_id":       1,   # FIX Bug 2: 1 = Factura de Venta (7 era Documento Soporte)
         "operation_type_id":      1,
         "graphic_representation": True,
         "send_email":             True,
@@ -470,15 +462,27 @@ async def emitir_factura(venta_id: int) -> dict:
 async def obtener_pdf(cufe: str) -> bytes:
     """
     Descarga el PDF de una factura desde Matias API usando el CUFE (trackId).
-    Endpoint correcto según docs: GET /documents/pdf/{trackId}
-    FIX: _get_token() es síncrono — se envuelve en asyncio.to_thread.
+    Endpoint: GET /documents/pdf/{trackId}
     """
     import asyncio
     token = await asyncio.to_thread(_get_token)
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         resp = await client.get(
-            f"{MATIAS_API_URL}/documents/pdf/{cufe}",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/pdf"},
+            f"{MATIAS_API_URL}/documents/pdf/{cufe}?regenerate=1",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/pdf, application/json"},
         )
-    resp.raise_for_status()
+
+    # Si no es PDF, capturar el error real de MATIAS para mostrarlo
+    content_type = resp.headers.get("content-type", "")
+    if resp.status_code != 200 or "pdf" not in content_type:
+        # Intentar extraer mensaje de error del body
+        try:
+            err_data = resp.json()
+            msg = err_data.get("message") or err_data.get("error") or str(err_data)
+        except Exception:
+            msg = resp.text[:300] if resp.text else f"HTTP {resp.status_code}"
+        raise RuntimeError(
+            f"MATIAS API ({resp.status_code}): {msg}"
+        )
+
     return resp.content

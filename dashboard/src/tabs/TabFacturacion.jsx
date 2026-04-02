@@ -37,7 +37,12 @@ function fmtFechaSolo(str) {
 
 function cufeCorto(cufe) {
   if (!cufe || cufe.length < 16) return cufe || '—'
-  return cufe.slice(0, 20) + '…'
+  return cufe.slice(0, 16) + '…' + cufe.slice(-8)
+}
+
+function copiarCufe(cufe) {
+  if (!cufe) return
+  navigator.clipboard.writeText(cufe).catch(() => {})
 }
 
 function EstadoBadge({ estado, t }) {
@@ -670,7 +675,15 @@ function Historial({ refreshKey }) {
                       <td style={{ padding: '9px 14px', color: t.textMuted, fontSize: 10, fontFamily: 'monospace' }}>
                         {f.estado === 'error'
                           ? <span style={{ color: '#dc2626', fontSize: 11 }}>{f.error_msg?.slice(0, 60) || '—'}</span>
-                          : cufeCorto(f.cufe)
+                          : (
+                            <span
+                              title={f.cufe}
+                              onClick={() => copiarCufe(f.cufe)}
+                              style={{ cursor: 'copy', fontFamily: 'monospace', fontSize: 11 }}
+                            >
+                              {cufeCorto(f.cufe)}
+                            </span>
+                          )
                         }
                       </td>
                     )}
