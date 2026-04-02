@@ -1945,7 +1945,7 @@ export default function TabVentasRapidas({ refreshKey }) {
           productos: carrito.map(c => ({ nombre: c.nombre, cantidad: c.qty, total: c.total, unidad_medida: c.unidad || '' })),
           metodo, vendedor,
           cliente_nombre: clienteSeleccionado?.nombre || '',
-          cliente_id:     clienteSeleccionado?.id     || '',
+          cliente_id:     clienteSeleccionado?.id     || null,
         }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)

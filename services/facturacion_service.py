@@ -30,7 +30,7 @@ logger = logging.getLogger("ferrebot.facturacion")
 
 # ── Configuración (Railway env vars) ──────────────────────────────────────────
 
-MATIAS_AUTH_URL   = os.getenv("MATIAS_API_URL", "https://api-v2.matias-api.com/api/ubl2.1").split("/api/ubl2.1")[0]
+MATIAS_AUTH_URL   = os.getenv("MATIAS_AUTH_URL", "https://auth-v2.matias-api.com")
 MATIAS_API_URL    = os.getenv("MATIAS_API_URL", "https://api-v2.matias-api.com/api/ubl2.1")
 MATIAS_EMAIL      = os.getenv("MATIAS_EMAIL")
 MATIAS_PASSWORD   = os.getenv("MATIAS_PASSWORD")
@@ -138,7 +138,7 @@ def _get_token() -> str:
 
         logger.info("Renovando token Matias API (login)…")
         resp = httpx.post(
-            f"{MATIAS_AUTH_URL}/auth/login",  # FIX Bug 1: usa base URL sin /api/ubl2.1
+            f"{MATIAS_AUTH_URL}/auth/login",
             json={"email": MATIAS_EMAIL, "password": MATIAS_PASSWORD, "remember_me": 0},
             headers={"Accept": "application/json", "Content-Type": "application/json"},
             timeout=15,
@@ -461,25 +461,16 @@ async def emitir_factura(venta_id: int) -> dict:
 
 async def obtener_pdf(cufe: str) -> bytes:
     """
-    Descarga el PDF de una factura desde Matias API usando el CUFE.
-    FIX Bug 5: _get_token() es síncrono (usa httpx.post blocking) — se envuelve
-               en asyncio.to_thread para no bloquear el event loop de FastAPI.
-    FIX Bug 4: URL corregida a /invoice/pdf/{cufe} (verificar con docs MATIAS API).
+    Descarga el PDF de una factura desde Matias API usando el CUFE (trackId).
+    Endpoint correcto según docs: GET /documents/pdf/{trackId}
+    FIX: _get_token() es síncrono — se envuelve en asyncio.to_thread.
     """
     import asyncio
     token = await asyncio.to_thread(_get_token)
     async with httpx.AsyncClient(timeout=30) as client:
-        # Intenta primero con /invoice/pdf/{cufe}, que es el endpoint estándar MATIAS v2.
-        # Si no funciona, prueba con /pdf/{cufe} (v1 legacy).
         resp = await client.get(
-            f"{MATIAS_API_URL}/invoice/pdf/{cufe}",
+            f"{MATIAS_API_URL}/documents/pdf/{cufe}",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/pdf"},
         )
-        if resp.status_code == 404:
-            # Fallback a endpoint legacy
-            resp = await client.get(
-                f"{MATIAS_API_URL}/pdf/{cufe}",
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/pdf"},
-            )
     resp.raise_for_status()
     return resp.content
