@@ -1344,7 +1344,9 @@ function SelectorCliente({ t, clienteSeleccionado, onSeleccionar }) {
 
   const seleccionar = (c) => {
     const nombre = c['Nombre tercero'] || ''
-    const id     = c['Identificacion'] ? String(c['Identificacion']) : ''
+    // c.id es el PK integer de la tabla clientes (FK en ventas.cliente_id)
+    // c['Identificacion'] es la cédula/NIT — distinto, no usar como FK
+    const id = c.id != null ? c.id : null
     onSeleccionar({ nombre, id, datos: c })
     setBusq(''); setResultados([]); setAbierto(false)
   }
@@ -1470,11 +1472,12 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail||'Error')
       setEstado('ok')
-      // Devolver formato compatible con la hoja Clientes
-      const clienteParaSelector = {
+      // Usar el objeto cliente devuelto por el servidor — tiene el `id` (PK integer)
+      // que es la FK correcta en ventas.cliente_id (INTEGER REFERENCES clientes(id))
+      const clienteParaSelector = d.cliente || {
         'Nombre tercero':          form.nombre.toUpperCase(),
         'Identificacion':          form.identificacion,
-        'Tipo de identificacion':  form.tipo_id,
+        'Tipo ID':                 form.tipo_id,
         'Telefono':                form.telefono,
       }
       setTimeout(()=>{ onCreado(clienteParaSelector); onClose() }, 600)

@@ -177,7 +177,7 @@ def ventas_resumen(filtro: int | None = Depends(get_filtro_efectivo)):
     try:
         hoy         = _hoy()
         ahora_local = datetime.now(config.COLOMBIA_TZ)
-        print(f"[debug] /ventas/resumen filtro={filtro} hoy={hoy}")
+        logger.debug("/ventas/resumen filtro=%s hoy=%s", filtro, hoy)
 
         # Construir WHERE clause dinámicamente para filtro de usuario
         where_usuario = "AND v.usuario_id = %s" if filtro is not None else ""
@@ -195,7 +195,7 @@ def ventas_resumen(filtro: int | None = Depends(get_filtro_efectivo)):
             """,
             params_hoy,
         )
-        print(f"[debug] row_hoy={row_hoy}")
+        logger.debug("row_hoy=%s", row_hoy)
         total_hoy   = _to_float(row_hoy["total_hoy"])   if row_hoy else 0.0
         pedidos_hoy = int(row_hoy["pedidos_hoy"])        if row_hoy else 0
 

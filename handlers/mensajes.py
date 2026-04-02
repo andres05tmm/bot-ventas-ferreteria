@@ -212,6 +212,10 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     telegram_id = update.effective_user.id
     usuario = get_usuario(telegram_id)
     if not usuario:
+        # Limpiar cualquier estado de wizard pendiente para este chat para no
+        # dejarlo atascado — el próximo mensaje válido empezará limpio.
+        with _estado_lock:
+            clientes_en_proceso.pop(chat_id, None)
         await update.message.reply_text(
             "❌ No estás registrado. Escribe /confirmar TuNombre para activar tu acceso."
         )

@@ -449,4 +449,4 @@ class VentaRapidaPayload(BaseModel):
     metodo:         str = "efectivo"
     vendedor:       str = "Dashboard"
     cliente_nombre: str = ""
-    cliente_id:     str = ""
+    cliente_id:     Optional[int] = None

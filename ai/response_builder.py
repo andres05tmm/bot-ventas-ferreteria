@@ -154,7 +154,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     for venta_json in re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL):
         try:
             if esperando_pago:
-                print(f"[VENTA] ignorado — esperando selección de pago para chat {chat_id}")
+                logger.debug("[VENTA] ignorado — esperando selección de pago para chat %s", chat_id)
             else:
                 venta = json.loads(venta_json.strip())
                 logging.getLogger("ferrebot.ai").debug(f"[VENTA] JSON recibido: {venta}")
@@ -254,6 +254,8 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     "identificacion": None,
                     "tipo_persona":   None,
                     "correo":         None,
+                    "telefono":       None,   # requerido por guardar_cliente_y_continuar
+                    "municipio_dian": None,   # requerido por INSERT clientes
                     "paso":           "nombre" if not nombre else "tipo_id",
                     "vendedor":       vendedor,
                 }
@@ -272,7 +274,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     ventas_sin_metodo.clear()
             acciones.append("INICIAR_FLUJO_CLIENTE")
         except Exception as e:
-            print(f"Error iniciando flujo cliente: {e}")
+            logging.getLogger("ferrebot.ai").error("Error iniciando flujo cliente: %s", e)
         texto_limpio = texto_limpio.replace(f'[INICIAR_CLIENTE]{ini_json}[/INICIAR_CLIENTE]', '')
 
     # ── Borrar cliente ──
@@ -284,7 +286,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 exito, msg = _pg_borrar_cliente(nombre)
                 acciones.append(msg)
         except Exception as e:
-            print(f"Error borrando cliente: {e}")
+            logger.error("Error borrando cliente: %s", e)
         texto_limpio = texto_limpio.replace(f'[BORRAR_CLIENTE]{bc_json}[/BORRAR_CLIENTE]', '')
 
     # ── Precio fraccion ──
@@ -308,7 +310,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     pass
                 acciones.append(f"Precio de fracción guardado: {producto} {fraccion} = ${precio:,.0f}")
         except Exception as e:
-            print(f"Error precio fraccion: {e}")
+            logger.error("Error precio fraccion: %s", e)
         texto_limpio = texto_limpio.replace(f'[PRECIO_FRACCION]{pf_json}[/PRECIO_FRACCION]', '')
 
     # ── Precio ──
@@ -333,7 +335,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             else:
                 acciones.append(f"🧠 Precio actualizado: {producto} = ${precio:,.0f}")
         except Exception as e:
-            print(f"Error precio: {e}")
+            logger.error("Error precio: %s", e)
         texto_limpio = texto_limpio.replace(f'[PRECIO]{precio_json}[/PRECIO]', '')
 
     # ── Precio mayorista (tornillería) ──
@@ -386,7 +388,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                         msg += f" | mayorista ×{umbral}=${p_mayorista:,.0f}"
                     acciones.append(msg)
         except Exception as e:
-            print(f"Error precio_mayorista: {e}")
+            logger.error("Error precio_mayorista: %s", e)
         texto_limpio = texto_limpio.replace(f'[PRECIO_MAYORISTA]{pm_json}[/PRECIO_MAYORISTA]', '')
 
     # ── Código producto ──
@@ -407,7 +409,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                         invalidar_cache_memoria()
                         acciones.append(f"Código guardado: {nombre} = {codigo}")
         except Exception as e:
-            print(f"Error código producto: {e}")
+            logger.error("Error código producto: %s", e)
         texto_limpio = texto_limpio.replace(f'[CODIGO_PRODUCTO]{cp_json}[/CODIGO_PRODUCTO]', '')
 
     # ── Negocio ──
@@ -419,7 +421,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             mem["negocio"].update(datos)
             _gm_neg(mem)
         except Exception as e:
-            print(f"Error negocio: {e}")
+            logger.error("Error negocio: %s", e)
         texto_limpio = texto_limpio.replace(f'[NEGOCIO]{neg_json}[/NEGOCIO]', '')
 
     # ── Caja ──
@@ -443,7 +445,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 from memoria import guardar_caja
                 guardar_caja(caja)
         except Exception as e:
-            print(f"Error caja: {e}")
+            logger.error("Error caja: %s", e)
         texto_limpio = texto_limpio.replace(f'[CAJA]{caja_json}[/CAJA]', '')
 
     # ── Gastos ──
@@ -460,7 +462,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             guardar_gasto(gasto)
             acciones.append(f"Gasto registrado: {gasto['concepto']} — ${gasto['monto']:,.0f} ({gasto['origen']})")
         except Exception as e:
-            print(f"Error gasto: {e}")
+            logger.error("Error gasto: %s", e)
         texto_limpio = texto_limpio.replace(f'[GASTO]{gasto_json}[/GASTO]', '')
 
     # ── Memoria del negocio (dashboard) ──────────────────────────────────────
@@ -506,7 +508,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 saldo = guardar_fiado_movimiento(cliente, concepto, cargo, abono)
                 acciones.append(f"Fiado registrado: {cliente} debe ${saldo:,.0f}")
         except Exception as e:
-            print(f"Error fiado: {e}")
+            logger.error("Error fiado: %s", e)
         texto_limpio = texto_limpio.replace(f'[FIADO]{fiado_json}[/FIADO]', '')
 
     # ── Abono fiado ──
@@ -523,7 +525,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     cliente_key = next((k for k in fiados if k.lower() in cliente.lower() or cliente.lower() in k.lower()), cliente)
                 acciones.append(msg)
         except Exception as e:
-            print(f"Error abono fiado: {e}")
+            logger.error("Error abono fiado: %s", e)
         texto_limpio = texto_limpio.replace(f'[ABONO_FIADO]{abono_json}[/ABONO_FIADO]', '')
 
     # ── Inventario ──
@@ -552,7 +554,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             from memoria import verificar_alertas_inventario
             acciones.extend(verificar_alertas_inventario())
         except Exception as e:
-            print(f"Error inventario: {e}")
+            logger.error("Error inventario: %s", e)
         texto_limpio = texto_limpio.replace(f'[INVENTARIO]{inv_json}[/INVENTARIO]', '')
 
     # ── Excel personalizado ──
@@ -568,7 +570,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             )
             archivos_excel.append(nombre)
         except Exception as e:
-            print(f"Error generando Excel: {e}")
+            logger.error("Error generando Excel: %s", e)
         texto_limpio = texto_limpio.replace(f'[EXCEL]{excel_json}[/EXCEL]', '')
 
     # ── Factura de proveedor ──
@@ -589,7 +591,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     f"✅ {factura['id']} registrada · {proveedor} · ${total:,.0f} pendiente"
                 )
         except Exception as e:
-            print(f"Error factura proveedor: {e}")
+            logger.error("Error factura proveedor: %s", e)
         texto_limpio = texto_limpio.replace(f'[FACTURA_PROVEEDOR]{fac_json}[/FACTURA_PROVEEDOR]', '')
 
     # ── Abono a proveedor ──
@@ -611,7 +613,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                 else:
                     acciones.append(f"⚠️ {result['error']}")
         except Exception as e:
-            print(f"Error abono proveedor: {e}")
+            logger.error("Error abono proveedor: %s", e)
         texto_limpio = texto_limpio.replace(f'[ABONO_PROVEEDOR]{abo_json}[/ABONO_PROVEEDOR]', '')
 
     return texto_limpio.strip(), acciones, archivos_excel

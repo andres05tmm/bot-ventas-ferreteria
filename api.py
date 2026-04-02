@@ -70,7 +70,18 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     Ejemplo de log:
       [a3f9c1b2] POST /chat → 200 (342ms)
       [a3f9c1b2] POST /chat → ERROR (1023ms): ...
+
+    Rutas GET de polling (dashboard) se omiten para reducir ruido,
+    excepto cuando son lentas (>800ms) o devuelven error.
     """
+    # Prefijos GET que el dashboard encuesta continuamente — no loguear si son OK y rápidos
+    _POLLING_PREFIXES = (
+        "/ventas/hoy", "/ventas/resumen", "/ventas/top", "/ventas/semana",
+        "/catalogo", "/caja", "/gastos", "/compras", "/historico",
+        "/usuarios/vendedores", "/api/health",
+    )
+    _SLOW_MS = 800  # ms a partir del cual siempre loguear aunque sea GET polling
+
     async def dispatch(self, request: Request, call_next):
         request_id = uuid.uuid4().hex[:8]
         request.state.request_id = request_id
@@ -78,10 +89,17 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             ms = int((time.perf_counter() - t0) * 1000)
-            _req_logger.info(
-                f"[{request_id}] {request.method} {request.url.path}"
-                f" → {response.status_code} ({ms}ms)"
+            is_polling = (
+                request.method == "GET"
+                and request.url.path.startswith(self._POLLING_PREFIXES)
             )
+            is_ok = response.status_code < 400
+            # Omitir GET polling que son rápidos y exitosos
+            if not (is_polling and is_ok and ms < self._SLOW_MS):
+                _req_logger.info(
+                    f"[{request_id}] {request.method} {request.url.path}"
+                    f" → {response.status_code} ({ms}ms)"
+                )
             response.headers["X-Request-ID"] = request_id
             return response
         except Exception as exc:

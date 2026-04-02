@@ -63,10 +63,6 @@ def _verify_telegram_hash(data: dict, received_hash: str) -> bool:
         hashlib.sha256
     ).hexdigest()
 
-    print(f"[auth] data_check_string: {repr(data_check_string)}")
-    print(f"[auth] expected_hash:     {expected_hash}")
-    print(f"[auth] received_hash:     {received_hash}")
-
     return hmac.compare_digest(expected_hash, received_hash)
 
 
@@ -77,7 +73,7 @@ async def auth_telegram(request: TelegramAuthRequest):
 
     Verifica el login de Telegram, busca al usuario en BD y emite JWT.
     """
-    print(f"[auth] POST /auth/telegram — id={request.id} first_name={request.first_name} auth_date={request.auth_date}")
+    logger.info("POST /auth/telegram — id=%s first_name=%s", request.id, request.first_name)
     # 1. Verifica hash de Telegram
     request_dict = request.dict()
     if not _verify_telegram_hash(request_dict, request.hash):

@@ -72,10 +72,13 @@ async def manejar_flujo_cliente(update, chat_id: int, mensaje: str) -> bool:
         return True
 
     elif paso == "ciudad":
-        # Se maneja vía callback de botones (cli_ciudad_XXX),
-        # pero si el usuario escribe directamente se acepta también
-        # (el callback ya avanza el paso; aquí solo atrapamos texto libre)
-        return False   # dejar que el callback lo maneje
+        # El callback cli_ciudad_XXX es el camino normal (botones inline).
+        # Si el usuario escribe texto en este paso, recordarle que use los botones.
+        await update.message.reply_text(
+            "📍 Por favor selecciona la ciudad usando los botones de arriba."
+        )
+        await enviar_pregunta_cliente(update.message, chat_id)
+        return True
 
     elif paso == "direccion":
         # Solo para NIT — persona natural salta este paso
