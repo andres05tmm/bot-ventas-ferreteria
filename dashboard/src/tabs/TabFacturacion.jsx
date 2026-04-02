@@ -270,7 +270,9 @@ function ModalEmitir({ venta, onClose, onEmitida }) {
                 CUFE: {cufeCorto(result.cufe)}
               </div>
               <div style={{ fontSize: 11, color: t.green, opacity: 0.7 }}>
-                El PDF fue enviado al correo del cliente automáticamente.
+                {result.pdf_telegram
+                  ? '📲 Sin correo registrado — PDF enviado al grupo de Telegram.'
+                  : '📧 PDF enviado al correo del cliente automáticamente.'}
               </div>
             </div>
           )}

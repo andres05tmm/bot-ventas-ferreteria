@@ -88,11 +88,16 @@ async def comando_factura_electronica(update: Update, ctx: ContextTypes.DEFAULT_
 
     cufe_corto = resultado["cufe"][:40] if resultado["cufe"] else "N/A"
 
+    if resultado.get("pdf_telegram"):
+        entrega = "📲 Sin correo registrado — PDF enviado al grupo de Telegram."
+    else:
+        entrega = "📧 PDF enviado al correo del cliente automáticamente."
+
     await update.message.reply_text(
         f"✅ *Factura {resultado['numero']} emitida ante la DIAN*\n\n"
         f"🏢 Cliente: {venta['cliente_nombre'] or 'Consumidor Final'}\n"
         f"💰 Total: ${venta['total']:,}\n"
         f"🔑 CUFE: `{cufe_corto}...`\n\n"
-        f"📧 El PDF fue enviado al correo del cliente automáticamente.",
+        f"{entrega}",
         parse_mode="Markdown",
     )

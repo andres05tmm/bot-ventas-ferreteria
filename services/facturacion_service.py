@@ -221,6 +221,59 @@ def _fmt(valor) -> str:
     return f"{float(valor or 0):.2f}"
 
 
+# ── Detección de correo real vs placeholder ───────────────────────────────────
+
+_EMAIL_PLACEHOLDER = "sinfactura@ferreteriapuntorojo.com"
+
+
+def _sin_correo_real(email: str | None) -> bool:
+    """Retorna True si el email es nulo o es el placeholder de Consumidor Final."""
+    return not email or email.strip().lower() == _EMAIL_PLACEHOLDER
+
+
+# ── Envío de PDF al grupo de Telegram ────────────────────────────────────────
+
+async def _enviar_pdf_grupo_telegram(
+    cufe: str, numero: str, cliente_nombre: str | None, total
+) -> None:
+    """
+    Descarga el PDF desde MATIAS API y lo envía como documento al grupo de Telegram.
+    Se llama cuando el cliente no tiene correo real registrado.
+    Fallo silencioso — no afecta el resultado de la emisión.
+    """
+    chat_id = os.getenv("TELEGRAM_NOTIFY_CHAT_ID")
+    token   = os.getenv("TELEGRAM_TOKEN")
+    if not chat_id or not token:
+        logger.warning(
+            "PDF %s no enviado a Telegram: falta TELEGRAM_NOTIFY_CHAT_ID o TELEGRAM_TOKEN",
+            numero,
+        )
+        return
+    try:
+        pdf_bytes = await obtener_pdf(cufe)
+        caption = (
+            f"📄 *Factura {numero}*\n"
+            f"👤 {cliente_nombre or 'Consumidor Final'}\n"
+            f"💰 ${int(total or 0):,}\n"
+            f"_Sin correo registrado — PDF enviado al grupo._"
+        )
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{token}/sendDocument",
+                data={"chat_id": chat_id, "caption": caption, "parse_mode": "Markdown"},
+                files={"document": (f"{numero}.pdf", pdf_bytes, "application/pdf")},
+            )
+        if resp.status_code == 200:
+            logger.info("📤 PDF %s enviado al grupo de Telegram OK", numero)
+        else:
+            logger.error(
+                "Error enviando PDF %s a Telegram: HTTP %s — %s",
+                numero, resp.status_code, resp.text[:200],
+            )
+    except Exception as e:
+        logger.error("Error enviando PDF %s al grupo Telegram: %s", numero, e)
+
+
 def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     """Construye el JSON de factura según Matias API UBL 2.1."""
     ahora    = datetime.now(COLOMBIA_TZ)
@@ -464,7 +517,24 @@ async def emitir_factura(venta_id: int) -> dict:
         conn.commit()
 
     logger.info("✅ Factura %s emitida — CUFE: %s…", numero, cufe[:20])
-    return {"ok": True, "cufe": cufe, "numero": numero}
+
+    # ── Enviar PDF al grupo de Telegram si el cliente no tiene correo real ────
+    correo_real = venta.get("correo_cliente")
+    pdf_telegram = False
+    if _sin_correo_real(correo_real):
+        import asyncio
+        asyncio.create_task(
+            _enviar_pdf_grupo_telegram(
+                cufe,
+                numero,
+                venta.get("cliente_nombre"),
+                venta.get("total"),
+            )
+        )
+        pdf_telegram = True
+        logger.info("📤 PDF %s programado para envío a grupo Telegram (sin correo real)", numero)
+
+    return {"ok": True, "cufe": cufe, "numero": numero, "pdf_telegram": pdf_telegram}
 
 
 async def obtener_pdf(cufe: str) -> bytes:
