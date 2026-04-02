@@ -318,7 +318,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "document_number":        str(num_dian),
         "date":                   str(venta["fecha"])[:10],
         "time":                   ahora.strftime("%H:%M:%S"),
-        "type_document_id":       1,   # FIX Bug 2: 1 = Factura de Venta (7 era Documento Soporte)
+        "type_document_id":       7,   # 7 = Factura de Venta en MATIAS API (ID interno, ≠ código DIAN "01")
         "operation_type_id":      1,
         "graphic_representation": True,
         "send_email":             True,
