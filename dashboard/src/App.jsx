@@ -12,6 +12,7 @@ import TabHistorial       from './tabs/TabHistorial.jsx'
 import TabCaja            from './tabs/TabCaja.jsx'
 import TabGastos          from './tabs/TabGastos.jsx'
 import TabCompras         from './tabs/TabCompras.jsx'
+import TabComprasFiscal   from './tabs/TabComprasFiscal.jsx'
 import TabKardex          from './tabs/TabKardex.jsx'
 import TabResultados      from './tabs/TabResultados.jsx'
 import TabVentasRapidas   from './tabs/TabVentasRapidas.jsx'
@@ -122,9 +123,9 @@ const REFRESH_OPTIONS = [
 const TAB_GROUPS = [
   { id: 'reportes',     label: 'Reportes',     icon: 'Resumen',        tabs: ['Resumen', 'Resultados', 'Top 10', 'Histórico'] },
   { id: 'ventas',       label: 'Ventas',       icon: 'Ventas Rápidas', tabs: ['Ventas Rápidas', 'Historial'] },
-  { id: 'finanzas',     label: 'Finanzas',     icon: 'Caja',           tabs: ['Caja', 'Gastos'] },
-  { id: 'almacen',      label: 'Almacén',      icon: 'Inventario',     tabs: ['Inventario', 'Compras', 'Proveedores'] },
-  { id: 'contabilidad', label: 'Contabilidad', icon: 'Libro IVA',      tabs: ['Facturación', 'Libro IVA', 'Kárdex'] },
+  { id: 'finanzas',     label: 'Finanzas',          icon: 'Caja',           tabs: ['Caja', 'Gastos', 'Kárdex'] },
+  { id: 'almacen',      label: 'Almacén',           icon: 'Inventario',     tabs: ['Inventario', 'Compras', 'Proveedores'] },
+  { id: 'contabilidad', label: 'Contabilidad Fiscal', icon: 'Libro IVA',   tabs: ['Compras Fiscal', 'Facturación', 'Libro IVA'] },
 ]
 const TABS = TAB_GROUPS.flatMap(g => g.tabs)
 
@@ -736,6 +737,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
           {tab==='Caja'             && <TabCaja            refreshKey={refreshKey}/>}
           {tab==='Gastos'           && <TabGastos          refreshKey={refreshKey}/>}
           {tab==='Compras'          && <TabCompras         refreshKey={refreshKey}/>}
+          {tab==='Compras Fiscal'   && <TabComprasFiscal   refreshKey={refreshKey}/>}
           {tab==='Kárdex'           && <TabKardex          refreshKey={refreshKey}/>}
           {tab==='Resultados'       && <TabResultados      refreshKey={refreshKey}/>}
           {tab==='Histórico'        && <TabHistoricoVentas refreshKey={refreshKey}/>}

@@ -5,7 +5,7 @@ CONTEXTO TRIBUTARIO:
   - Ferretería Punto Rojo opera bajo el Régimen SIMPLE
   - Los precios en la DB ya incluyen IVA (precio final al cliente)
   - Solo se declara IVA de ventas que tengan Factura Electrónica emitida
-  - El IVA descontable viene de las compras a proveedores (que también cobran IVA)
+  - El IVA descontable viene de compras_fiscal (libro contable, no de compras de almacén)
   - IVA neto a pagar = IVA generado (ventas FE) − IVA descontable (compras)
 
 FÓRMULA (precios con IVA incluido):
@@ -101,7 +101,7 @@ def periodos_bimestrales(
             f"""
             SELECT COALESCE(SUM({_sql_iva('c.costo_total','c.tarifa_iva')}),0) AS iva_c,
                    COUNT(c.id) AS nc
-            FROM compras c
+            FROM compras_fiscal c
             WHERE c.incluye_iva=TRUE AND c.tarifa_iva>0
               AND c.fecha BETWEEN %s AND %s
             """, (ini, fin))
@@ -161,7 +161,7 @@ def resumen_iva(
                SUM(c.costo_total)::BIGINT                                  AS total_con_iva,
                SUM({_sql_base('c.costo_total','c.tarifa_iva')})            AS base_gravable,
                SUM({_sql_iva('c.costo_total','c.tarifa_iva')})             AS iva_valor
-        FROM compras c
+        FROM compras_fiscal c
         WHERE c.incluye_iva=TRUE AND c.tarifa_iva>0
           AND c.fecha BETWEEN %s AND %s
         GROUP BY c.tarifa_iva ORDER BY c.tarifa_iva
@@ -257,7 +257,7 @@ def detalle_compras_iva(
     hasta: str = Query(...),
     current_user=Depends(get_current_user),
 ):
-    """Detalle línea a línea de IVA descontable — compras a proveedores con IVA."""
+    """Detalle línea a línea de IVA descontable — compras fiscales con IVA."""
     if not _db.DB_DISPONIBLE:
         raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
@@ -266,6 +266,7 @@ def detalle_compras_iva(
     filas = _db.query_all(
         f"""
         SELECT
+            c.id,
             c.fecha::text,
             COALESCE(c.proveedor,'Sin proveedor')  AS proveedor,
             c.producto_nombre                       AS concepto,
@@ -273,9 +274,11 @@ def detalle_compras_iva(
             c.cantidad::TEXT                        AS cantidad,
             c.costo_unitario,
             c.costo_total                           AS total_con_iva,
+            COALESCE(c.numero_factura,'')           AS numero_factura,
+            COALESCE(c.notas_fiscales,'')           AS notas_fiscales,
             {_sql_base('c.costo_total','c.tarifa_iva')} AS base_gravable,
             {_sql_iva('c.costo_total','c.tarifa_iva')}  AS iva_valor
-        FROM compras c
+        FROM compras_fiscal c
         WHERE c.incluye_iva=TRUE AND c.tarifa_iva>0
           AND c.fecha BETWEEN %s AND %s
         ORDER BY c.fecha, c.id
@@ -336,12 +339,12 @@ def cerrar_bimestre(body: CierreBimestreBody, current_user=Depends(get_current_u
           AND fe.fecha_emision::date BETWEEN %s AND %s
         """, (ini, fin))
 
-    # IVA descontable — compras con IVA explícito
+    # IVA descontable — compras_fiscal con IVA explícito (libro contable)
     c = _db.query_one(
         """
         SELECT COALESCE(SUM(ROUND(costo_total::NUMERIC * tarifa_iva
                                   / (100.0 + tarifa_iva), 0)), 0) AS iva_c
-        FROM compras
+        FROM compras_fiscal
         WHERE incluye_iva = TRUE AND tarifa_iva > 0
           AND fecha BETWEEN %s AND %s
         """, (ini, fin))
