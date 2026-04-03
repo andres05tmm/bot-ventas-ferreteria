@@ -184,14 +184,10 @@ if _DIST.exists():
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
-        # Prefijos de API — el catch-all nunca debe servirlos como SPA
-        _API_PREFIXES = (
-            "compras-fiscal", "compras", "ventas", "caja", "gastos",
-            "catalogo", "historico", "auth", "usuarios", "reportes",
-            "clientes", "proveedores", "facturacion", "libro-iva",
-            "chat", "api/",
-        )
-        if any(full_path.startswith(p) for p in _API_PREFIXES):
+        # Rutas con guiones que el catch-all intercepta antes que el router.
+        # Solo bloqueamos estas — NO "auth" ni otras que usen GET (ej: callback Telegram).
+        _API_HYPHEN_PREFIXES = ("compras-fiscal", "libro-iva")
+        if any(full_path.startswith(p) for p in _API_HYPHEN_PREFIXES):
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Ruta API no encontrada")
 
