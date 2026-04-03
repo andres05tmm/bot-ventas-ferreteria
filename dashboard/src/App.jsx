@@ -38,7 +38,6 @@ function Icon({ name, size = 20, color = 'currentColor', strokeWidth = 1.75 }) {
     'Histórico':      'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
     'Proveedores':    'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
     'Facturación':    'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
-    'Libro IVA':      'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01m-.01 4h.01',
     'Más':            'M4 6h16M4 12h16M4 18h16',
     'Cerrar':         'M6 18L18 6M6 6l12 12',
     'Refresh':        'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
@@ -120,13 +119,14 @@ const REFRESH_OPTIONS = [
   { label: '5m',  value: 300 },
 ]
 
-const TABS = [
-  'Resumen','Ventas Rápidas','Top 10','Inventario','Historial',
-  'Caja','Gastos','Compras','Kárdex','Resultados','Histórico','Proveedores','Facturación','Libro IVA',
+const TAB_GROUPS = [
+  { id: 'reportes',     label: 'Reportes',     icon: 'Resumen',        tabs: ['Resumen', 'Resultados', 'Top 10', 'Histórico'] },
+  { id: 'ventas',       label: 'Ventas',       icon: 'Ventas Rápidas', tabs: ['Ventas Rápidas', 'Historial'] },
+  { id: 'finanzas',     label: 'Finanzas',     icon: 'Caja',           tabs: ['Caja', 'Gastos'] },
+  { id: 'almacen',      label: 'Almacén',      icon: 'Inventario',     tabs: ['Inventario', 'Compras', 'Proveedores'] },
+  { id: 'contabilidad', label: 'Contabilidad', icon: 'Libro IVA',      tabs: ['Facturación', 'Libro IVA', 'Kárdex'] },
 ]
-
-// Tabs fijos en la barra inferior
-const BOTTOM_TABS = ['Ventas Rápidas','Resumen','Historial','Caja']
+const TABS = TAB_GROUPS.flatMap(g => g.tabs)
 
 function useIsMobile() {
   const getIsMobile = () => {
@@ -387,10 +387,14 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
   )
 }
 
-// ── Tabs Nav Desktop ──────────────────────────────────────────────────────────
+// ── Tabs Nav Desktop — grupos + sub-tabs ──────────────────────────────────────
 function TabsNavDesktop({ activeTab, setTab }) {
   const t = useTheme()
-  const [hoveredTab, setHoveredTab] = useState(null)
+  const [hoveredGroup, setHoveredGroup] = useState(null)
+  const [hoveredTab,   setHoveredTab]   = useState(null)
+  const activeGroup = TAB_GROUPS.find(g => g.tabs.includes(activeTab)) || TAB_GROUPS[0]
+  const subTabs     = activeGroup.tabs
+
   return (
     <nav style={{
       background: t.header,
@@ -399,63 +403,105 @@ function TabsNavDesktop({ activeTab, setTab }) {
       borderBottom: `1px solid ${t.border}`,
       position: 'sticky', top: 66, zIndex: 20,
     }}>
+      {/* Fila 1 — Grupos */}
       <div style={{
         maxWidth: 1400, margin: '0 auto', padding: '0 20px',
-        display: 'flex', overflowX: 'auto',
-        scrollbarWidth: 'none', msOverflowStyle: 'none',
-        gap: 2,
-        alignItems: 'center',
+        display: 'flex', gap: 2, alignItems: 'center',
+        borderBottom: subTabs.length > 1 ? `1px solid ${t.border}40` : 'none',
       }}>
-        {TABS.map(tab => {
-          const active  = activeTab === tab
-          const hovered = hoveredTab === tab && !active
+        {TAB_GROUPS.map(group => {
+          const isActive  = group.id === activeGroup.id
+          const isHovered = hoveredGroup === group.id && !isActive
           return (
             <button
-              key={tab}
-              onClick={() => setTab(tab)}
-              onMouseEnter={() => setHoveredTab(tab)}
-              onMouseLeave={() => setHoveredTab(null)}
+              key={group.id}
+              onClick={() => setTab(group.tabs[0])}
+              onMouseEnter={() => setHoveredGroup(group.id)}
+              onMouseLeave={() => setHoveredGroup(null)}
               style={{
                 position: 'relative', border: 'none',
-                background: active
-                  ? t.accentSub
-                  : hovered ? `${t.accentSub}80` : 'transparent',
-                color: active ? t.accent : hovered ? t.textSub : t.textMuted,
-                fontSize: 12, fontWeight: active ? 700 : 500,
-                padding: '7px 13px', cursor: 'pointer', whiteSpace: 'nowrap',
+                background: isActive ? t.accentSub : isHovered ? `${t.accentSub}50` : 'transparent',
+                color: isActive ? t.accent : isHovered ? t.textSub : t.textMuted,
+                fontSize: 12, fontWeight: isActive ? 700 : 500,
+                padding: '8px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
                 display: 'flex', alignItems: 'center', gap: 7,
-                borderRadius: 8,
-                margin: '6px 0',
+                borderRadius: 8, margin: '5px 0',
                 transition: 'color .15s, background .15s',
-                boxShadow: active ? `inset 0 0 0 1px ${t.accent}25` : 'none',
+                boxShadow: isActive ? `inset 0 0 0 1px ${t.accent}25` : 'none',
               }}
             >
-              <span style={{ display: 'flex' }}>
-                <Icon name={tab} size={13} color={active ? t.accent : hovered ? t.textSub : t.textMuted} strokeWidth={active ? 2.2 : 1.75}/>
-              </span>
-              <span>{tab}</span>
-              {active && (
+              <Icon name={group.icon} size={13} color={isActive ? t.accent : isHovered ? t.textSub : t.textMuted} strokeWidth={isActive ? 2.2 : 1.75}/>
+              <span>{group.label}</span>
+              {group.tabs.length > 1 && (
                 <span style={{
-                  display: 'block', width: 4, height: 4, borderRadius: '50%',
-                  background: t.accent, opacity: 0.7, flexShrink: 0,
-                }}/>
+                  fontSize: 9, fontWeight: 600,
+                  color: isActive ? t.accent : t.textMuted,
+                  background: isActive ? `${t.accent}18` : `${t.textMuted}15`,
+                  borderRadius: 99, padding: '1px 5px',
+                  minWidth: 16, textAlign: 'center',
+                }}>{group.tabs.length}</span>
               )}
             </button>
           )
         })}
       </div>
+
+      {/* Fila 2 — Sub-tabs del grupo activo (solo si tiene más de 1) */}
+      {subTabs.length > 1 && (
+        <div style={{
+          maxWidth: 1400, margin: '0 auto', padding: '0 28px',
+          display: 'flex', gap: 2, alignItems: 'center',
+        }}>
+          {subTabs.map(tab => {
+            const active  = activeTab === tab
+            const hovered = hoveredTab === tab && !active
+            return (
+              <button
+                key={tab}
+                onClick={() => setTab(tab)}
+                onMouseEnter={() => setHoveredTab(tab)}
+                onMouseLeave={() => setHoveredTab(null)}
+                style={{
+                  border: 'none',
+                  background: active ? `${t.accent}15` : hovered ? `${t.accent}08` : 'transparent',
+                  color: active ? t.accent : hovered ? t.textSub : t.textMuted,
+                  fontSize: 11, fontWeight: active ? 700 : 400,
+                  padding: '5px 11px', cursor: 'pointer', whiteSpace: 'nowrap',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  borderRadius: 6, margin: '4px 0',
+                  transition: 'color .15s, background .15s',
+                  borderBottom: active ? `2px solid ${t.accent}` : '2px solid transparent',
+                }}
+              >
+                <Icon name={tab} size={12} color={active ? t.accent : hovered ? t.textSub : t.textMuted} strokeWidth={active ? 2.2 : 1.75}/>
+                <span>{tab}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
     </nav>
   )
 }
 
-// ── Bottom Nav Móvil — pill indicator style ───────────────────────────────────
+// ── Bottom Nav Móvil — grupos con drawer de sub-tabs ─────────────────────────
 function BottomNav({ activeTab, setTab }) {
   const t = useTheme()
-  const [open, setOpen] = useState(false)
-  const others     = TABS.filter(x => !BOTTOM_TABS.includes(x))
-  const isInOthers = !BOTTOM_TABS.includes(activeTab)
+  const [openGroup, setOpenGroup] = useState(null)
+  const activeGroup = TAB_GROUPS.find(g => g.tabs.includes(activeTab)) || TAB_GROUPS[0]
 
-  const allBottomItems = [...BOTTOM_TABS, 'Más']
+  function handleGroupPress(group) {
+    if (group.tabs.length === 1) {
+      setTab(group.tabs[0])
+      setOpenGroup(null)
+    } else if (openGroup === group.id) {
+      setOpenGroup(null)
+    } else {
+      setOpenGroup(group.id)
+    }
+  }
+
+  const drawerGroup = TAB_GROUPS.find(g => g.id === openGroup)
 
   return (
     <>
@@ -473,94 +519,45 @@ function BottomNav({ activeTab, setTab }) {
         alignItems: 'center',
         gap: 4,
       }}>
-        {BOTTOM_TABS.map(tab => {
-          const active = activeTab === tab
+        {TAB_GROUPS.map(group => {
+          const isActive  = group.id === activeGroup.id
+          const isOpen    = openGroup === group.id
           return (
-            <button key={tab} onClick={() => { setTab(tab); setOpen(false) }} style={{
+            <button key={group.id} onClick={() => handleGroupPress(group)} style={{
               flex: 1, background: 'none', border: 'none',
               display: 'flex', flexDirection: 'column', alignItems: 'center',
               justifyContent: 'center', gap: 4, cursor: 'pointer',
-              padding: '8px 4px',
-              borderRadius: 12,
-              position: 'relative',
+              padding: '8px 2px', borderRadius: 12, position: 'relative',
               transition: 'all .18s',
             }}>
-              {/* Pill indicator activo */}
-              {active && (
+              {(isActive || isOpen) && (
                 <div style={{
-                  position: 'absolute',
-                  top: 6, left: '50%',
+                  position: 'absolute', top: 6, left: '50%',
                   transform: 'translateX(-50%)',
                   width: 36, height: 34,
-                  background: t.accentSub,
+                  background: isActive ? t.accentSub : `${t.textMuted}15`,
                   borderRadius: 10,
-                  border: `1px solid ${t.accent}25`,
+                  border: `1px solid ${isActive ? t.accent + '25' : t.border}`,
                 }}/>
               )}
               <span style={{ position: 'relative', zIndex: 1, display: 'flex' }}>
-                <Icon
-                  name={tab}
-                  size={19}
-                  color={active ? t.accent : t.textMuted}
-                  strokeWidth={active ? 2.2 : 1.75}
-                />
+                <Icon name={group.icon} size={19} color={isActive ? t.accent : t.textMuted} strokeWidth={isActive ? 2.2 : 1.75}/>
               </span>
               <span style={{
                 position: 'relative', zIndex: 1,
-                fontSize: 9, fontWeight: active ? 700 : 500,
-                color: active ? t.accent : t.textMuted,
-                letterSpacing: '.01em',
-              }}>
-                {tab === 'Ventas Rápidas' ? 'Ventas' : tab}
-              </span>
+                fontSize: 9, fontWeight: isActive ? 700 : 500,
+                color: isActive ? t.accent : t.textMuted,
+                letterSpacing: '.01em', textAlign: 'center', lineHeight: 1.2,
+              }}>{group.label}</span>
             </button>
           )
         })}
-
-        {/* Botón Más */}
-        <button onClick={() => setOpen(v => !v)} style={{
-          flex: 1, background: 'none', border: 'none',
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', gap: 4, cursor: 'pointer',
-          padding: '8px 4px',
-          borderRadius: 12,
-          position: 'relative',
-          transition: 'all .18s',
-        }}>
-          {(isInOthers || open) && (
-            <div style={{
-              position: 'absolute',
-              top: 6, left: '50%',
-              transform: 'translateX(-50%)',
-              width: 36, height: 34,
-              background: isInOthers ? t.accentSub : `${t.textMuted}15`,
-              borderRadius: 10,
-              border: `1px solid ${isInOthers ? t.accent + '25' : t.border}`,
-            }}/>
-          )}
-          <span style={{ position: 'relative', zIndex: 1, display: 'flex' }}>
-            <Icon
-              name={open ? 'Cerrar' : 'Más'}
-              size={19}
-              color={isInOthers ? t.accent : t.textMuted}
-              strokeWidth={1.75}
-            />
-          </span>
-          <span style={{
-            position: 'relative', zIndex: 1,
-            fontSize: 9, fontWeight: isInOthers ? 700 : 500,
-            color: isInOthers ? t.accent : t.textMuted,
-            letterSpacing: '.01em',
-          }}>
-            {isInOthers ? activeTab.slice(0, 7) : 'Más'}
-          </span>
-        </button>
       </div>
 
-      {/* Drawer menú expandido */}
-      {open && (
-        <div onClick={() => setOpen(false)} style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.60)',
+      {/* Drawer sub-tabs del grupo */}
+      {drawerGroup && drawerGroup.tabs.length > 1 && (
+        <div onClick={() => setOpenGroup(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)',
           zIndex: 99, display: 'flex', flexDirection: 'column',
           justifyContent: 'flex-end', backdropFilter: 'blur(6px)',
           WebkitBackdropFilter: 'blur(6px)',
@@ -575,33 +572,27 @@ function BottomNav({ activeTab, setTab }) {
             borderBottom: 'none',
           }}>
             <style>{`@keyframes drawerUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
-
-            {/* Handle */}
-            <div style={{ display:'flex', justifyContent:'center', marginBottom: 18 }}>
+            <div style={{ display:'flex', justifyContent:'center', marginBottom: 16 }}>
               <div style={{ width: 36, height: 4, borderRadius: 99, background: t.border }}/>
             </div>
-
-            <div style={{ padding: '0 8px', marginBottom: 10 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: t.textMuted, letterSpacing: '.10em', textTransform: 'uppercase', padding: '0 8px' }}>
-                Más secciones
-              </span>
+            <div style={{ padding: '0 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name={drawerGroup.icon} size={16} color={t.accent} strokeWidth={2}/>
+              <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>{drawerGroup.label}</span>
             </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6, padding: '0 12px' }}>
-              {others.map(tab => {
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(drawerGroup.tabs.length, 4)},1fr)`, gap: 8, padding: '0 12px' }}>
+              {drawerGroup.tabs.map(tab => {
                 const active = activeTab === tab
                 return (
-                  <button key={tab} onClick={() => { setTab(tab); setOpen(false) }} style={{
+                  <button key={tab} onClick={() => { setTab(tab); setOpenGroup(null) }} style={{
                     background: active ? t.accentSub : `${t.textMuted}08`,
                     border: active ? `1px solid ${t.accent}30` : `1px solid ${t.border}`,
                     display: 'flex', flexDirection: 'column', alignItems: 'center',
-                    gap: 8, padding: '14px 6px', cursor: 'pointer',
+                    gap: 8, padding: '16px 6px', cursor: 'pointer',
                     color: active ? t.accent : t.text,
-                    borderRadius: 14,
-                    transition: 'all .15s',
+                    borderRadius: 14, transition: 'all .15s',
                   }}>
                     <Icon name={tab} size={22} color={active ? t.accent : t.textMuted} strokeWidth={active ? 2.2 : 1.75}/>
-                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, textAlign: 'center', lineHeight: 1.2 }}>{tab}</span>
+                    <span style={{ fontSize: 11, fontWeight: active ? 700 : 500, textAlign: 'center', lineHeight: 1.2 }}>{tab}</span>
                   </button>
                 )
               })}
