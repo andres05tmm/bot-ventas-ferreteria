@@ -5,7 +5,7 @@
  * - Botón 📊 Fiscal por fila (duplica a compras_fiscal para el Libro IVA)
  *   Si la compra ya tiene entrada fiscal el botón se muestra en verde bloqueado.
  */
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard, Spinner, ErrorMsg,
@@ -28,6 +28,76 @@ function calcIVA(total, tarifa) {
   const base = Math.round(parseFloat(total) * 100 / (100 + parseFloat(tarifa)))
   const iva  = Math.round(parseFloat(total) - base)
   return { base, iva }
+}
+
+// ── Buscador de productos del catálogo ─────────────────────────────────────────
+function ProductoSearchInput({ value, onChange, style, placeholder }) {
+  const t = useTheme()
+  const { authFetch } = useAuth()
+  const [todos, setTodos] = useState([])
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  const cargar = async () => {
+    if (todos.length > 0) return
+    try {
+      const r = await authFetch(`${API_BASE}/productos`)
+      const d = await r.json()
+      const nombres = (d.productos || []).map(p => p.nombre).sort((a,b) => a.localeCompare(b))
+      setTodos(nombres)
+    } catch {}
+  }
+
+  const filtrados = value.trim().length >= 1
+    ? todos.filter(n => n.toLowerCase().includes(value.toLowerCase()))
+    : todos.slice(0, 30)
+
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const dropdownBg = t.id === 'caramelo' ? '#fff' : '#1a1a1a'
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <input
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true) }}
+        onFocus={() => { cargar(); setOpen(true) }}
+        style={style}
+        placeholder={placeholder || 'Buscar producto del catálogo…'}
+        autoComplete="off"
+      />
+      {open && filtrados.length > 0 && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0,
+          zIndex: 9999, maxHeight: 220, overflowY: 'auto',
+          background: dropdownBg, border: `1px solid ${t.border}`,
+          borderRadius: 8, boxShadow: '0 6px 24px rgba(0,0,0,.28)',
+        }}>
+          {filtrados.map(n => (
+            <div
+              key={n}
+              onMouseDown={e => { e.preventDefault(); onChange(n); setOpen(false) }}
+              style={{
+                padding: '7px 12px', cursor: 'pointer', fontSize: 12,
+                color: n.toLowerCase() === value.toLowerCase() ? t.blue : t.text,
+                fontWeight: n.toLowerCase() === value.toLowerCase() ? 700 : 400,
+                borderBottom: `1px solid ${t.border}20`,
+                transition: 'background .1s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = `${t.blue}18` }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+            >
+              {n}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Modal Editar ──────────────────────────────────────────────────────────────
@@ -103,7 +173,7 @@ function ModalEditar({ compra, onClose, onSaved, authFetch, t }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={lblStyle}>Producto *</label>
-            <input value={producto} onChange={e => setProducto(e.target.value)} style={inpStyle}/>
+            <ProductoSearchInput value={producto} onChange={setProducto} style={inpStyle}/>
           </div>
           <div>
             <label style={lblStyle}>Cantidad *</label>
@@ -343,9 +413,8 @@ export default function TabCompras({ refreshKey }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={lblStyle}>Producto *</label>
-              <input value={producto} onChange={e => setProducto(e.target.value)}
-                placeholder="Ej: Brocha 2 pulgadas, Vinilo T1 Blanco..."
-                style={inpStyle}/>
+              <ProductoSearchInput value={producto} onChange={setProducto}
+                style={inpStyle} placeholder="Buscar o escribir nombre del producto…"/>
             </div>
             <div>
               <label style={lblStyle}>Cantidad *</label>
