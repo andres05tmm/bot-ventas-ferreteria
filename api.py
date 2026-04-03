@@ -184,6 +184,17 @@ if _DIST.exists():
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
+        # Prefijos de API — el catch-all nunca debe servirlos como SPA
+        _API_PREFIXES = (
+            "compras-fiscal", "compras", "ventas", "caja", "gastos",
+            "catalogo", "historico", "auth", "usuarios", "reportes",
+            "clientes", "proveedores", "facturacion", "libro-iva",
+            "chat", "api/",
+        )
+        if any(full_path.startswith(p) for p in _API_PREFIXES):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Ruta API no encontrada")
+
         static_file = _DIST / full_path
         if static_file.exists() and static_file.is_file():
             return FileResponse(static_file)
