@@ -18,6 +18,7 @@ import TabVentasRapidas   from './tabs/TabVentasRapidas.jsx'
 import TabHistoricoVentas from './tabs/TabHistoricoVentas.jsx'
 import TabProveedores     from './tabs/TabProveedores.jsx'
 import TabFacturacion     from './tabs/TabFacturacion.jsx'
+import TabLibroIVA        from './tabs/TabLibroIVA.jsx'
 import ChatWidget          from './components/ChatWidget.jsx'
 import AnimatedBackground  from './components/ui/AnimatedBackground.jsx'
 
@@ -120,7 +121,7 @@ const REFRESH_OPTIONS = [
 
 const TABS = [
   'Resumen','Ventas Rápidas','Top 10','Inventario','Historial',
-  'Caja','Gastos','Compras','Kárdex','Resultados','Histórico','Proveedores','Facturación',
+  'Caja','Gastos','Compras','Kárdex','Resultados','Histórico','Proveedores','Facturación','Libro IVA',
 ]
 
 // Tabs fijos en la barra inferior
@@ -748,6 +749,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
           {tab==='Histórico'        && <TabHistoricoVentas refreshKey={refreshKey}/>}
           {tab==='Proveedores'      && <TabProveedores     refreshKey={refreshKey}/>}
           {tab==='Facturación'      && <TabFacturacion     refreshKey={refreshKey}/>}
+          {tab==='Libro IVA'        && <TabLibroIVA        refreshKey={refreshKey}/>}
         </div>
       </main>
 

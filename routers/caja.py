@@ -343,6 +343,8 @@ class NuevaCompraBody(BaseModel):
     cantidad:       Union[float, int]
     costo_unitario: Union[float, int]
     proveedor:      str = ""
+    incluye_iva:    bool = False
+    tarifa_iva:     int  = 0    # 0, 5, 19 — se auto-detecta del catálogo si no se envía
 
 
 @router.post("/compras")
@@ -361,6 +363,8 @@ def crear_compra(body: NuevaCompraBody):
             cantidad=float(body.cantidad),
             costo_unitario=float(body.costo_unitario),
             proveedor=body.proveedor.strip() or None,
+            incluye_iva=body.incluye_iva,
+            tarifa_iva=body.tarifa_iva,
         )
 
         if not ok:
@@ -394,7 +398,7 @@ def compras(
 
         rows = _db.query_all(
             f"SELECT fecha::text, hora::text, proveedor, producto_nombre, "
-            f"       cantidad, costo_unitario, costo_total "
+            f"       cantidad, costo_unitario, costo_total, incluye_iva, tarifa_iva "
             f"FROM compras "
             f"WHERE fecha >= %s AND fecha <= %s {where_usuario} ORDER BY fecha DESC, hora DESC",
             params,
@@ -416,6 +420,8 @@ def compras(
                 "cantidad":       float(r["cantidad"]),
                 "costo_unitario": int(r.get("costo_unitario") or 0),
                 "costo_total":    ct,
+                "incluye_iva":    bool(r.get("incluye_iva") or False),
+                "tarifa_iva":     int(r.get("tarifa_iva") or 0),
             })
             por_proveedor[prov] += ct
             por_producto[prod]  += ct

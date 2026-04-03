@@ -528,7 +528,7 @@ from services.fiados_service import (
     detalle_fiado_cliente,
 )
 
-def registrar_compra(nombre_producto: str, cantidad: float, costo_unitario: float, proveedor: str = None) -> tuple[bool, str, dict]:
+def registrar_compra(nombre_producto: str, cantidad: float, costo_unitario: float, proveedor: str = None, incluye_iva: bool = False, tarifa_iva: int = 0) -> tuple[bool, str, dict]:
     """
     Registra una compra de mercancía:
     - Suma cantidad al inventario
@@ -590,7 +590,7 @@ def registrar_compra(nombre_producto: str, cantidad: float, costo_unitario: floa
     guardar_inventario(clave, datos)
     
     # Registrar en historial de compras (para reportes)
-    _registrar_historial_compra(nombre_oficial, cantidad, costo_unitario, proveedor_final)
+    _registrar_historial_compra(nombre_oficial, cantidad, costo_unitario, proveedor_final, incluye_iva=incluye_iva, tarifa_iva=tarifa_iva)
     
     total_compra = round(cantidad * costo_unitario)
     
@@ -616,21 +616,36 @@ def registrar_compra(nombre_producto: str, cantidad: float, costo_unitario: floa
     return True, mensaje, datos_excel
 
 
-def _registrar_historial_compra(producto: str, cantidad: float, costo_unitario: float, proveedor: str = "—"):
+def _registrar_historial_compra(producto: str, cantidad: float, costo_unitario: float, proveedor: str = "—", incluye_iva: bool = False, tarifa_iva: int = 0):
     """Persiste la compra en PostgreSQL (fuente única de verdad)."""
     import db as _db
     if not _db.DB_DISPONIBLE:
         logger.warning("DB no disponible — historial_compra no registrado para: %s", producto)
         return
     ahora = datetime.now(config.COLOMBIA_TZ)
+    # Intentar buscar producto_id y auto-detectar IVA del catálogo si no se especificó
+    prod_row = _db.query_one(
+        "SELECT id, tiene_iva, porcentaje_iva FROM productos WHERE LOWER(nombre) = LOWER(%s) OR LOWER(nombre_lower) = LOWER(%s) LIMIT 1",
+        (producto, producto)
+    )
+    prod_id       = prod_row["id"]            if prod_row else None
+    iva_final     = incluye_iva
+    tarifa_final  = tarifa_iva
+    # Si no se mandó IVA explícito pero el producto está en catálogo con IVA, auto-detectar
+    if not incluye_iva and prod_row and prod_row.get("tiene_iva"):
+        iva_final    = True
+        tarifa_final = int(prod_row.get("porcentaje_iva") or 0)
+
     _db.execute(
         """INSERT INTO compras
-           (fecha, hora, proveedor, producto_nombre, cantidad, costo_unitario, costo_total)
-           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+           (fecha, hora, proveedor, producto_id, producto_nombre,
+            cantidad, costo_unitario, costo_total, incluye_iva, tarifa_iva)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         (ahora.strftime("%Y-%m-%d"),
          ahora.strftime("%H:%M"),
-         proveedor, producto, cantidad,
-         int(costo_unitario), round(cantidad * costo_unitario))
+         proveedor, prod_id, producto, cantidad,
+         int(costo_unitario), round(cantidad * costo_unitario),
+         iva_final, tarifa_final)
     )
 
 

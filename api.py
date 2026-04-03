@@ -35,7 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-from routers import ventas, catalogo, caja, clientes, reportes, historico, chat, proveedores, auth, usuarios , facturacion
+from routers import ventas, catalogo, caja, clientes, reportes, historico, chat, proveedores, auth, usuarios, facturacion, libro_iva
 
 _api_logger = logging.getLogger("ferrebot.api")
 
@@ -133,6 +133,7 @@ app.include_router(historico.router)
 app.include_router(chat.router)
 app.include_router(proveedores.router)
 app.include_router(facturacion.router)
+app.include_router(libro_iva.router)
 # ── Health check ─────────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
