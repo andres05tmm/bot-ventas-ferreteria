@@ -123,6 +123,14 @@ async def lifespan(app: FastAPI):
     else:
         _api_logger.warning("⚠️ PostgreSQL no disponible — API en modo degradado")
 
+    # Registrar el event loop de uvicorn en events.py ANTES de arrancar el
+    # hilo pg_listener. El hilo llama broadcast() desde fuera del loop, y
+    # broadcast() usa call_soon_threadsafe() con esta referencia para que
+    # put_nowait() se ejecute siempre dentro del loop correcto (thread-safe).
+    _current_loop = asyncio.get_event_loop()
+    events.set_main_loop(_current_loop)
+    _api_logger.info("🔁 Event loop registrado en events.py")
+
     # Arrancar el listener pg_notify en un hilo daemon independiente.
     # daemon=True garantiza que el hilo no bloquee el shutdown del servidor.
     _listener = threading.Thread(

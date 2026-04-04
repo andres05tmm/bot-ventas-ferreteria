@@ -5,12 +5,23 @@
  * ocurre un cambio relevante: venta registrada, stock actualizado, caja cerrada, etc.
  * Este hook escucha ese stream y llama a onEvent(type, data) por cada mensaje.
  *
+ * Autenticación
+ * ─────────────
+ * EventSource (API nativa del browser) no soporta headers custom, por lo tanto
+ * no puede enviar "Authorization: Bearer <token>". La solución es pasar el JWT
+ * como query param: GET /events?token=<jwt>
+ * El backend lo valida igual que cualquier otro endpoint protegido.
+ *
+ * El token se lee de localStorage con la clave "token" — ajustar si tu auth
+ * guarda el JWT bajo una clave distinta.
+ *
  * Características:
  *  - Reconexión automática con backoff exponencial (2s → 4s → 8s … máx 30s)
  *  - Heartbeat ignorado automáticamente (el servidor emite ": heartbeat" cada 25s)
  *  - Compatible con el mismo origen (sin VITE_API_URL) y con API separada
  *  - El callback onEvent siempre llama a la versión más reciente via ref,
  *    así no se necesita incluirlo en las dependencias del useEffect
+ *  - Si no hay token en localStorage, no intenta conectar (evita 401 en loop)
  *
  * Uso:
  *   import { useRealtime } from './hooks/useRealtime'
@@ -53,9 +64,21 @@ export function useRealtime(onEvent) {
     function connect() {
       if (destroyed) return
 
-      // EventSource no soporta headers custom, pero withCredentials=true
-      // envía las cookies de sesión (necesario si el backend usa autenticación por cookie)
-      es = new EventSource(`${API_URL}/events`, { withCredentials: true })
+      // EventSource no soporta headers custom, por lo que el JWT se pasa
+      // como query param. El backend lo valida en GET /events?token=...
+      const token = localStorage.getItem('ferrebot_token')
+      if (!token) {
+        // Sin token no hay sesión — no conectar para evitar 401 en bucle.
+        // El componente que usa este hook debe llamarlo solo cuando el usuario
+        // ya está autenticado, pero este guard evita crashes silenciosos.
+        return
+      }
+
+      const url = `${API_URL}/events?token=${encodeURIComponent(token)}`
+
+      // withCredentials=true envía cookies de sesión si existieran,
+      // aunque con JWT en query param no es estrictamente necesario.
+      es = new EventSource(url, { withCredentials: true })
 
       es.onopen = () => {
         retries = 0 // resetear contador de reintentos al conectar exitosamente
