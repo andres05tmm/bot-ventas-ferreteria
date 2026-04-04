@@ -20,6 +20,7 @@ Toda la lógica de negocio vive en routers/:
 
 from __future__ import annotations
 
+import asyncio
 import json as _json
 import logging
 import os
