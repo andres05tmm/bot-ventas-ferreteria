@@ -295,7 +295,7 @@ def ventas_resumen(filtro: int | None = Depends(get_filtro_efectivo)):
 
 
 @router.post("/venta-rapida")
-def venta_rapida(payload: VentaRapidaPayload, current_user=Depends(get_current_user)):
+async def venta_rapida(payload: VentaRapidaPayload, current_user=Depends(get_current_user)):
     try:
         import db as _db
         import datetime as _dt
@@ -495,7 +495,7 @@ def ventas_top2(
 
 
 @router.delete("/ventas/{numero}")
-def eliminar_venta(numero: int):
+async def eliminar_venta(numero: int):
     """
     Elimina todas las filas de un consecutivo de venta.
     """
@@ -521,7 +521,7 @@ def eliminar_venta(numero: int):
 
 
 @router.delete("/ventas/{numero}/linea")
-def eliminar_linea_venta(numero: int, producto: str = Query(...)):
+async def eliminar_linea_venta(numero: int, producto: str = Query(...)):
     """
     Elimina UNA sola línea (producto) de un consecutivo multi-producto.
     """
@@ -566,7 +566,7 @@ class EditarVentaBody(BaseModel):
     producto_original: Union[str, None]   = None  # para identificar fila en multi-producto
 
 @router.patch("/ventas/{numero}")
-def editar_venta(numero: int, body: EditarVentaBody):
+async def editar_venta(numero: int, body: EditarVentaBody):
     """
     Edita los campos de un consecutivo. 100% Postgres.
     """
