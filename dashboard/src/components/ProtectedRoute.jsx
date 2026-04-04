@@ -1,21 +1,19 @@
 import { Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { useAuth } from '../hooks/useAuth'
 
 export const ProtectedRoute = ({ children }) => {
-  const { getToken } = useAuth()
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading]           = useState(true)
   const [authenticated, setAuthenticated] = useState(false)
 
   useEffect(() => {
-    const token = getToken()
+    // Leer el token directamente de localStorage (estable, no causa re-ejecuciones)
+    const token = localStorage.getItem('ferrebot_token')
     if (!token) {
       setAuthenticated(false)
       setLoading(false)
       return
     }
 
-    // Verifica el token con GET /auth/me
     fetch('/api/auth/me', {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -34,7 +32,8 @@ export const ProtectedRoute = ({ children }) => {
       .finally(() => {
         setLoading(false)
       })
-  }, [getToken])
+  }, []) // ← [] en vez de [getToken]: getToken no es estable (nueva referencia
+         //   en cada render) y causaba que el efecto corriera 2 veces por sesión.
 
   if (loading) {
     return (

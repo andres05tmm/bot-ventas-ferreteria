@@ -22,7 +22,7 @@ from pydantic import BaseModel
 import config
 from memoria import registrar_compra   # complejo: actualiza inventario + kardex
 from routers.deps import get_current_user, get_filtro_efectivo
-from routers.events import broadcast
+from routers.events import notify_all
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -160,7 +160,7 @@ def caja_abrir(body: CajaAbrirBody):
             "mensaje": f"Caja abierta con ${int(body.monto_apertura):,}".replace(",", "."),
             "caja":    caja_abierta,
         }
-        broadcast("caja_abierta", {"monto_apertura": int(body.monto_apertura)})
+        await notify_all("caja_abierta", {"monto_apertura": int(body.monto_apertura)})
     except HTTPException:
         raise
     except Exception as e:
@@ -216,7 +216,7 @@ def caja_cerrar():
             f"Efectivo esperado en caja: ${efectivo_esperado:,.0f}"
         ).replace(",", ".")
 
-        broadcast("caja_cerrada", {"total_ventas": total_ventas_pg, "num_ventas": num_ventas})
+        await notify_all("caja_cerrada", {"total_ventas": total_ventas_pg, "num_ventas": num_ventas})
         return {"ok": True, "mensaje": "Caja cerrada", "resumen": resumen}
     except HTTPException:
         raise
@@ -263,7 +263,7 @@ def registrar_gasto(body: NuevoGastoBody):
             "origen":    body.origen,
             "hora":      hora,
         }
-        broadcast("gasto_registrado", {"concepto": body.concepto.strip(), "monto": int(body.monto)})
+        await notify_all("gasto_registrado", {"concepto": body.concepto.strip(), "monto": int(body.monto)})
         return {
             "ok":      True,
             "gasto":   gasto,
@@ -374,7 +374,7 @@ def crear_compra(body: NuevaCompraBody):
         if not ok:
             raise HTTPException(status_code=400, detail=mensaje)
 
-        broadcast("compra_registrada", {"producto": body.producto.strip()})
+        await notify_all("compra_registrada", {"producto": body.producto.strip()})
         return {"ok": True, "mensaje": mensaje, "datos": datos_excel}
     except HTTPException:
         raise
@@ -524,7 +524,7 @@ def editar_compra(
             f"UPDATE compras SET {', '.join(sets)} WHERE id = %s",
             params,
         )
-        broadcast("compra_actualizada", {"compra_id": compra_id})
+        await notify_all("compra_actualizada", {"compra_id": compra_id})
         return {"ok": True, "mensaje": "Compra actualizada"}
     except HTTPException:
         raise
@@ -593,7 +593,7 @@ def compra_to_fiscal(
             "fiscal_id": fiscal_id,
             "mensaje": "Compra enviada a Contabilidad Fiscal",
         }
-        broadcast("compra_registrada", {"fiscal_id": fiscal_id, "tipo": "to-fiscal"})
+        await notify_all("compra_registrada", {"fiscal_id": fiscal_id, "tipo": "to-fiscal"})
     except HTTPException:
         raise
     except Exception as e:
@@ -732,7 +732,7 @@ def crear_compra_fiscal(
             "id":      row["id"],
             "mensaje": f"Compra fiscal registrada: {body.producto} — ${total:,}".replace(",", "."),
         }
-        broadcast("compra_registrada", {"producto": body.producto.strip(), "tipo": "fiscal"})
+        await notify_all("compra_registrada", {"producto": body.producto.strip(), "tipo": "fiscal"})
     except HTTPException:
         raise
     except Exception as e:
@@ -802,7 +802,7 @@ def editar_compra_fiscal(
             f"UPDATE compras_fiscal SET {', '.join(sets)} WHERE id = %s",
             params,
         )
-        broadcast("compra_actualizada", {"fiscal_id": fiscal_id})
+        await notify_all("compra_actualizada", {"fiscal_id": fiscal_id})
         return {"ok": True, "mensaje": "Compra fiscal actualizada"}
     except HTTPException:
         raise

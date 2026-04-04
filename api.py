@@ -216,7 +216,7 @@ app.add_middleware(RequestLoggingMiddleware)
 # (en FastAPI, add_middleware inserta al frente — el último agregado se ejecuta primero)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://bot-ventas-ferreteria-production.up.railway.app"],
+    allow_origins=[os.getenv("CORS_ORIGIN", "https://bot-ventas-ferreteria-production.up.railway.app")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -248,7 +248,7 @@ def health():
 # Este handler explícito garantiza que el preflight siempre devuelva los headers
 # correctos independientemente del estado del middleware.
 from fastapi.responses import Response as _Response
-_CORS_ORIGIN = "https://bot-ventas-ferreteria-production.up.railway.app"
+_CORS_ORIGIN = os.getenv("CORS_ORIGIN", "https://bot-ventas-ferreteria-production.up.railway.app")
 
 @app.options("/auth/telegram")
 def auth_telegram_options():
