@@ -21,7 +21,8 @@ export function VendorProvider({ children }) {
         setLoading(false)
       }
     })()
-  }, [authFetch])
+  }, []) // [] — solo al montar. authFetch no está memoizada con useCallback,
+         // incluirla causaría un loop infinito (nueva referencia en cada render).
 
   return (
     <VendorContext.Provider value={{ vendedores, selectedVendor, setSelectedVendor, loading }}>
