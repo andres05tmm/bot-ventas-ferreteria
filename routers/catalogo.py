@@ -455,7 +455,7 @@ class EditarProductoBody(BaseModel):
 # POST /catalogo — crear producto
 # =============================================================================
 @router.post("/catalogo")
-def crear_producto(body: NuevoProducto):
+async def crear_producto(body: NuevoProducto):
     """Crea un producto nuevo directamente en PostgreSQL."""
     try:
         from utils import _normalizar
@@ -538,7 +538,7 @@ def crear_producto(body: NuevoProducto):
 # PATCH /catalogo/{key}/precio
 # =============================================================================
 @router.patch("/catalogo/{key:path}/precio")
-def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
+async def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
     """Actualiza precio_unidad directamente en PostgreSQL."""
     try:
         from memoria import invalidar_cache_memoria
@@ -579,7 +579,7 @@ def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
 # PATCH /catalogo/{key}/fracciones
 # =============================================================================
 @router.patch("/catalogo/{key:path}/fracciones")
-def actualizar_fracciones(key: str, body: FraccionesUpdate):
+async def actualizar_fracciones(key: str, body: FraccionesUpdate):
     """Actualiza precios_fraccion en productos_fracciones (PostgreSQL)."""
     try:
         from memoria import invalidar_cache_memoria
@@ -647,7 +647,7 @@ def actualizar_fracciones(key: str, body: FraccionesUpdate):
 # PATCH /catalogo/{key}/mayorista
 # =============================================================================
 @router.patch("/catalogo/{key:path}/mayorista")
-def actualizar_mayorista(key: str, body: MayoristaUpdate):
+async def actualizar_mayorista(key: str, body: MayoristaUpdate):
     """Actualiza precio_por_cantidad directamente en PostgreSQL."""
     try:
         from memoria import invalidar_cache_memoria
@@ -703,7 +703,7 @@ def actualizar_mayorista(key: str, body: MayoristaUpdate):
 # PATCH /inventario/{key}/stock
 # =============================================================================
 @router.patch("/inventario/{key:path}/stock")
-def actualizar_stock(key: str, body: StockUpdate):
+async def actualizar_stock(key: str, body: StockUpdate):
     """Actualiza cantidad en inventario directamente en PostgreSQL."""
     try:
         from memoria import invalidar_cache_memoria
@@ -757,7 +757,7 @@ def actualizar_stock(key: str, body: StockUpdate):
 # PATCH /catalogo/{key}
 # =============================================================================
 @router.patch("/catalogo/{key:path}")
-def editar_producto(key: str, body: EditarProductoBody):
+async def editar_producto(key: str, body: EditarProductoBody):
     """Edita metadatos de un producto directamente en PostgreSQL."""
     try:
         from utils import _normalizar
@@ -825,7 +825,7 @@ def editar_producto(key: str, body: EditarProductoBody):
 # DELETE /catalogo/{key}
 # =============================================================================
 @router.delete("/catalogo/{key:path}")
-def eliminar_producto(key: str):
+async def eliminar_producto(key: str):
     """Elimina un producto. CASCADE borra inventario, fracciones, alias."""
     try:
         from memoria import invalidar_cache_memoria

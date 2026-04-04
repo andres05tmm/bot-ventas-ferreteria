@@ -124,7 +124,7 @@ class CajaAbrirBody(BaseModel):
 
 
 @router.post("/caja/abrir")
-def caja_abrir(body: CajaAbrirBody):
+async def caja_abrir(body: CajaAbrirBody):
     """Abre la caja del día con un monto inicial."""
     try:
         _require_db()
@@ -172,7 +172,7 @@ def caja_abrir(body: CajaAbrirBody):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.post("/caja/cerrar")
-def caja_cerrar():
+async def caja_cerrar():
     """Cierra la caja del día y retorna el resumen."""
     try:
         _require_db()
@@ -236,7 +236,7 @@ class NuevoGastoBody(BaseModel):
 
 
 @router.post("/gastos")
-def registrar_gasto(body: NuevoGastoBody):
+async def registrar_gasto(body: NuevoGastoBody):
     """Registra un gasto del día directamente en PostgreSQL."""
     try:
         _require_db()
@@ -352,7 +352,7 @@ class NuevaCompraBody(BaseModel):
 
 
 @router.post("/compras")
-def crear_compra(body: NuevaCompraBody):
+async def crear_compra(body: NuevaCompraBody):
     """Registra una compra de mercancía (actualiza inventario + kárdex)."""
     try:
         if not body.producto.strip():
@@ -480,7 +480,7 @@ class EditarCompraBody(BaseModel):
 
 
 @router.put("/compras/{compra_id}")
-def editar_compra(
+async def editar_compra(
     compra_id: int,
     body: EditarCompraBody,
     current_user=Depends(get_current_user),
@@ -537,7 +537,7 @@ def editar_compra(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.post("/compras/{compra_id}/to-fiscal")
-def compra_to_fiscal(
+async def compra_to_fiscal(
     compra_id: int,
     current_user=Depends(get_current_user),
 ):
@@ -686,7 +686,7 @@ class NuevaCompraFiscalBody(BaseModel):
 
 
 @router.post("/compras-fiscal")
-def crear_compra_fiscal(
+async def crear_compra_fiscal(
     body: NuevaCompraFiscalBody,
     current_user=Depends(get_current_user),
 ):
@@ -755,7 +755,7 @@ class EditarCompraFiscalBody(BaseModel):
 
 
 @router.put("/compras-fiscal/{fiscal_id}")
-def editar_compra_fiscal(
+async def editar_compra_fiscal(
     fiscal_id: int,
     body: EditarCompraFiscalBody,
     current_user=Depends(get_current_user),
