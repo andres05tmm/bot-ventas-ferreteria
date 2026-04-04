@@ -15,6 +15,7 @@ Toda la lógica de negocio vive en routers/:
   reportes.py  — /kardex, /resultados, /proyeccion
   historico.py — /historico/*
   chat.py      — /chat/*, /api/health
+  events.py    — /events (SSE tiempo real para el dashboard)
 """
 
 from __future__ import annotations
@@ -35,7 +36,11 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-from routers import ventas, catalogo, caja, clientes, reportes, historico, chat, proveedores, auth, usuarios, facturacion, libro_iva
+from routers import (
+    ventas, catalogo, caja, clientes, reportes, historico,
+    chat, proveedores, auth, usuarios, facturacion, libro_iva,
+    events,  # ← SSE tiempo real
+)
 
 _api_logger = logging.getLogger("ferrebot.api")
 
@@ -73,16 +78,23 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     Rutas GET de polling (dashboard) se omiten para reducir ruido,
     excepto cuando son lentas (>800ms) o devuelven error.
+    /events se excluye siempre — es un stream SSE de larga duración.
     """
-    # Prefijos GET que el dashboard encuesta continuamente — no loguear si son OK y rápidos
+    # Prefijos GET que el dashboard consultaba continuamente — no loguear si son OK y rápidos
     _POLLING_PREFIXES = (
         "/ventas/hoy", "/ventas/resumen", "/ventas/top", "/ventas/semana",
         "/catalogo", "/caja", "/gastos", "/compras", "/historico",
         "/usuarios/vendedores", "/api/health",
     )
+    # Rutas de stream largo — excluir completamente del log de requests
+    _STREAM_PATHS = ("/events",)
     _SLOW_MS = 800  # ms a partir del cual siempre loguear aunque sea GET polling
 
     async def dispatch(self, request: Request, call_next):
+        # El stream SSE /events dura minutos — no tiene sentido loguearlo como request normal
+        if request.url.path in self._STREAM_PATHS:
+            return await call_next(request)
+
         request_id = uuid.uuid4().hex[:8]
         request.state.request_id = request_id
         t0 = time.perf_counter()
@@ -134,6 +146,8 @@ app.include_router(chat.router)
 app.include_router(proveedores.router)
 app.include_router(facturacion.router)
 app.include_router(libro_iva.router)
+app.include_router(events.router)  # ← SSE tiempo real
+
 # ── Health check ─────────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():

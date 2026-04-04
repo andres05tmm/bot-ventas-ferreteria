@@ -19,6 +19,7 @@ from pydantic import BaseModel
 import db
 from routers.shared import _hace_n_dias
 from routers.deps import get_current_user
+from routers.events import broadcast
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -526,6 +527,7 @@ def crear_producto(body: NuevoProducto):
             "stock_inicial": body.stock_inicial,
             "pg_guardado":   True,
         }
+        broadcast("inventario_actualizado", {"accion": "producto_creado", "key": key})
     except HTTPException:
         raise
     except Exception as e:
@@ -566,6 +568,7 @@ def actualizar_precio_endpoint(key: str, body: PrecioUpdate):
             "precio_nuevo":    nuevo_precio,
             "pg_actualizado":  True,
         }
+        broadcast("inventario_actualizado", {"accion": "precio_actualizado", "key": key})
     except HTTPException:
         raise
     except Exception as e:
@@ -633,6 +636,7 @@ def actualizar_fracciones(key: str, body: FraccionesUpdate):
             "fracciones":     fracs_norm,
             "pg_actualizado": True,
         }
+        broadcast("inventario_actualizado", {"accion": "fracciones_actualizadas", "key": key})
     except HTTPException:
         raise
     except Exception as e:
@@ -688,6 +692,7 @@ def actualizar_mayorista(key: str, body: MayoristaUpdate):
             "umbral":           umbral,
             "pg_actualizado":   True,
         }
+        broadcast("inventario_actualizado", {"accion": "mayorista_actualizado", "key": key})
     except HTTPException:
         raise
     except Exception as e:
@@ -741,6 +746,7 @@ def actualizar_stock(key: str, body: StockUpdate):
             "stock_nuevo":    body.stock,
             "pg_actualizado": True,
         }
+        broadcast("inventario_actualizado", {"accion": "stock_actualizado", "key": key})
     except HTTPException:
         raise
     except Exception as e:
@@ -808,6 +814,7 @@ def editar_producto(key: str, body: EditarProductoBody):
             "producto":       dict(prod_resultado or {}),
             "pg_actualizado": True,
         }
+        broadcast("inventario_actualizado", {"accion": "producto_editado", "key": key})
     except HTTPException:
         raise
     except Exception as e:
@@ -842,6 +849,7 @@ def eliminar_producto(key: str):
             "mensaje":    f"'{nombre}' eliminado del catálogo",
             "pg_borrado": True,
         }
+        broadcast("inventario_actualizado", {"accion": "producto_eliminado", "key": key})
     except HTTPException:
         raise
     except Exception as e:

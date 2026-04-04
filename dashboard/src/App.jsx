@@ -4,6 +4,7 @@ import { ThemeContext, THEMES, useTheme } from './components/shared.jsx'
 import { ProtectedRoute } from './components/ProtectedRoute.jsx'
 import { VendorProvider, useVendorFilter } from './hooks/useVendorFilter.jsx'
 import { useAuth } from './hooks/useAuth'
+import { useRealtime } from './hooks/useRealtime'
 import Login from './pages/Login.jsx'
 import TabResumen         from './tabs/TabResumen.jsx'
 import TabTopProductos    from './tabs/TabTopProductos.jsx'
@@ -655,6 +656,26 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
 
   useEffect(() => { setLastRefresh(stamp()) }, [])
 
+  // ── Tiempo real via SSE ────────────────────────────────────────────────────
+  // El servidor notifica al dashboard cada vez que hay una venta, cambio de
+  // inventario, cierre de caja, etc. — sin necesidad de polling constante.
+  const EVENTOS_REFRESH = [
+    'venta_registrada', 'venta_editada', 'venta_eliminada',
+    'caja_abierta', 'caja_cerrada',
+    'gasto_registrado',
+    'compra_registrada', 'compra_actualizada',
+    'inventario_actualizado',
+  ]
+  useRealtime((type) => {
+    if (EVENTOS_REFRESH.includes(type)) {
+      setRefreshKey(k => k + 1)
+      setLastRefresh(stamp())
+    }
+  })
+
+  // ── Fallback: intervalo manual si el usuario lo configura ────────────────
+  // Con SSE activo este timer es solo un respaldo de seguridad.
+  // refreshInterval === 0 → sin fallback (recomendado con SSE).
   useEffect(() => {
     if (refreshInterval === 0) { setCountdown(0); return }
     setCountdown(refreshInterval)

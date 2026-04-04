@@ -20,6 +20,7 @@ from routers.shared import (
 )
 from routers.caja import VentaRapidaPayload, VentaRapidaItem
 from routers.deps import get_filtro_efectivo, get_current_user
+from routers.events import broadcast
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -406,6 +407,13 @@ def venta_rapida(payload: VentaRapidaPayload, current_user=Depends(get_current_u
             except Exception:
                 pass
 
+        broadcast("venta_registrada", {
+            "consecutivo": consecutivo,
+            "total":       sum(ic["item"].total for ic in items_calc),
+            "metodo":      payload.metodo,
+            "vendedor":    payload.vendedor,
+        })
+
         return {
             "ok":          True,
             "venta_id":    venta_id,
@@ -504,6 +512,7 @@ def eliminar_venta(numero: int):
         if not borradas:
             raise HTTPException(status_code=404, detail=f"Consecutivo #{numero} no encontrado")
 
+        broadcast("venta_eliminada", {"consecutivo": numero})
         return {"ok": True, "mensaje": f"Venta #{numero} eliminada"}
     except HTTPException:
         raise
@@ -537,6 +546,7 @@ def eliminar_linea_venta(numero: int, producto: str = Query(...)):
                 detail=f"No se encontró '{producto}' en consecutivo #{numero}",
             )
 
+        broadcast("venta_eliminada", {"consecutivo": numero, "producto": producto})
         return {"ok": True, "borradas": borradas, "mensaje": f"'{producto}' eliminado del consecutivo #{numero}"}
     except HTTPException:
         raise
@@ -609,6 +619,7 @@ def editar_venta(numero: int, body: EditarVentaBody):
             cab_params.append(numero)
             _db.execute(f"UPDATE ventas SET {', '.join(cab_parts)} WHERE consecutivo = %s", cab_params)
 
+        broadcast("venta_editada", {"consecutivo": numero})
         return {"ok": True, "mensaje": f"Venta #{numero} actualizada"}
 
     except HTTPException:
@@ -656,6 +667,12 @@ async def registrar_venta_varia(req: VentaVariaRequest):
         confirmaciones = await registrar_ventas_con_metodo_async(
             [venta], metodo, req.vendedor, -1
         )
+        broadcast("venta_registrada", {
+            "tipo":    "varia",
+            "monto":   req.monto,
+            "metodo":  metodo,
+            "vendedor": req.vendedor,
+        })
         return {
             "ok": True,
             "mensaje": "Venta varia registrada",
