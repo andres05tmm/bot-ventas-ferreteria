@@ -7,6 +7,7 @@ CORRECCIONES v4:
   - limpiar_pendientes_expirados() evita estado atascado tras excepción
 """
 
+import json as _json
 import logging
 import asyncio
 import threading
@@ -258,6 +259,30 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
                         (venta_id, item["producto"], item["cantidad"],
                          item["unidad"], item["precio_u"], item["valor_final"],
                          item.get("alias"), item.get("sin_detalle", False))
+                    )
+                # Notificar al dashboard via PostgreSQL LISTEN/NOTIFY.
+                # El dashboard escucha 'ferrebot_events' y llama broadcast()
+                # para propagar el evento SSE a todos los clientes conectados.
+                # El notify es parte de la misma transacción: se envía solo
+                # cuando el commit ocurre, garantizando que el dashboard
+                # nunca recibe un evento de una venta que no llegó a guardarse.
+                try:
+                    _notify_payload = _json.dumps({
+                        "type": "venta_registrada",
+                        "data": {
+                            "consecutivo": consecutivo,
+                            "total":       total_transaccion,
+                            "metodo":      metodo,
+                            "vendedor":    vendedor,
+                        },
+                    })
+                    _db.execute(
+                        "SELECT pg_notify('ferrebot_events', %s)",
+                        [_notify_payload],
+                    )
+                except Exception as _ne:
+                    logging.getLogger("ferrebot.ventas_state").warning(
+                        f"pg_notify failed (no crítico): {_ne}"
                     )
     except Exception as e:
         logging.getLogger("ferrebot.ventas_state").warning(

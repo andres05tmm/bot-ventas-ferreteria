@@ -20,7 +20,11 @@ Toda la lógica de negocio vive en routers/:
 
 from __future__ import annotations
 
+import json as _json
 import logging
+import os
+import select as _select
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -44,6 +48,71 @@ from routers import (
 
 _api_logger = logging.getLogger("ferrebot.api")
 
+
+# ── PG LISTEN/NOTIFY — puente bot → dashboard ─────────────────────────────────
+def _pg_listen_worker() -> None:
+    """
+    Hilo daemon que mantiene una conexión PostgreSQL dedicada escuchando
+    el canal 'ferrebot_events'.
+
+    Cuando el bot registra una venta llama pg_notify('ferrebot_events', payload).
+    Este hilo recibe esa notificación y llama broadcast() para propagar el evento
+    SSE a todos los clientes del dashboard conectados en ese momento.
+
+    Detalles de implementación:
+    - Usa psycopg2 directo con ISOLATION_LEVEL_AUTOCOMMIT (requerido para LISTEN).
+    - select.select() con timeout de 5 s: detecta desconexiones silenciosas
+      sin consumir CPU en busy-wait.
+    - Reconexión automática con backoff de 5 s ante cualquier error de red o PG.
+    - Hilo daemon: muere automáticamente cuando el proceso principal termina,
+      sin necesidad de cleanup explícito.
+    """
+    import psycopg2
+    from routers.events import broadcast
+
+    dsn = os.getenv("DATABASE_URL")
+    if not dsn:
+        _api_logger.warning("PG listener: DATABASE_URL no configurado — desactivado")
+        return
+
+    _log = logging.getLogger("ferrebot.pg_listener")
+
+    while True:
+        conn = None
+        try:
+            conn = psycopg2.connect(dsn)
+            conn.set_isolation_level(0)  # ISOLATION_LEVEL_AUTOCOMMIT — obligatorio para LISTEN
+            with conn.cursor() as cur:
+                cur.execute("LISTEN ferrebot_events")
+            _log.info("✅ PG listener activo — escuchando canal 'ferrebot_events'")
+
+            while True:
+                # select.select bloquea hasta 5 s esperando datos en el socket.
+                # Si llega un notify antes del timeout, se despierta inmediatamente.
+                readable, _, _ = _select.select([conn], [], [], 5.0)
+                if readable:
+                    conn.poll()
+                    while conn.notifies:
+                        notif = conn.notifies.pop(0)
+                        try:
+                            d = _json.loads(notif.payload)
+                            broadcast(d.get("type", "evento"), d.get("data", {}))
+                            _log.debug("Broadcast desde bot: %s", d.get("type"))
+                        except Exception as _pe:
+                            _log.warning("Error procesando notify: %s", _pe)
+
+        except Exception as exc:
+            _log.warning("PG listener caído (reconectando en 5 s): %s", exc)
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        time.sleep(5)
+
+
 # ── Lifespan: inicializar PostgreSQL al arrancar ──────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,6 +122,17 @@ async def lifespan(app: FastAPI):
         _api_logger.info("✅ PostgreSQL inicializado correctamente")
     else:
         _api_logger.warning("⚠️ PostgreSQL no disponible — API en modo degradado")
+
+    # Arrancar el listener pg_notify en un hilo daemon independiente.
+    # daemon=True garantiza que el hilo no bloquee el shutdown del servidor.
+    _listener = threading.Thread(
+        target=_pg_listen_worker,
+        name="pg-listener",
+        daemon=True,
+    )
+    _listener.start()
+    _api_logger.info("🔔 PG listener thread iniciado")
+
     yield
 
 # ── App ───────────────────────────────────────────────────────────────────────
