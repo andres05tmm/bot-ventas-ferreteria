@@ -47,6 +47,15 @@ from routers import (
     events,  # ← SSE tiempo real
 )
 
+# ── Logging ───────────────────────────────────────────────────────────────────
+# Configurar aquí para que los mensajes sean visibles cuando uvicorn carga
+# api.py directamente (Railway), sin pasar por start.py (desarrollo local).
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
 _api_logger = logging.getLogger("ferrebot.api")
 
 
