@@ -263,7 +263,7 @@ export default function TabCompras({ refreshKey }) {
   const [cantidad,   setCantidad]   = useState('')
   const [costoUnit,  setCostoUnit]  = useState('')
   const [proveedor,  setProveedor]  = useState('')
-  const [incluyeIva, setIncluyeIva] = useState(false)
+  const [incluyeIva, setIncluyeIva] = useState(true)
   const [tarifaIva,  setTarifaIva]  = useState(19)
   const [guardando,  setGuardando]  = useState(false)
   const [msg,        setMsg]        = useState(null)

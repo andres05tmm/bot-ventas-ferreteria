@@ -299,7 +299,7 @@ export default function TabComprasFiscal({ refreshKey }) {
   const [cantidad,      setCantidad]      = useState('')
   const [costoUnit,     setCostoUnit]     = useState('')
   const [proveedor,     setProveedor]     = useState('')
-  const [incluyeIva,    setIncluyeIva]    = useState(false)
+  const [incluyeIva,    setIncluyeIva]    = useState(true)
   const [tarifaIva,     setTarifaIva]     = useState(19)
   const [numFactura,    setNumFactura]     = useState('')
   const [notasFiscales, setNotasFiscales] = useState('')
