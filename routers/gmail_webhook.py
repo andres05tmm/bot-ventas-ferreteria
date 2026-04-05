@@ -143,6 +143,7 @@ async def _get_message_ids_from_history(
             return []
         resp.raise_for_status()
         data = resp.json()
+        logger.info("🔍 history.list raw: %s", data)
 
     message_ids = []
     for entry in data.get("history", []):
