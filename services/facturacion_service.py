@@ -639,26 +639,42 @@ async def emitir_factura(venta_id: int) -> dict:
 async def obtener_pdf(cufe: str) -> bytes:
     """
     Descarga el PDF de una factura desde Matias API usando el CUFE (trackId).
-    Endpoint: GET /documents/pdf/{trackId}?regenerate=1
+    Prueba múltiples variantes de URL ya que el endpoint varía entre versiones.
     """
     import asyncio
     token = await asyncio.to_thread(_get_token)
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/pdf, application/json"}
+
+    candidatas = [
+        ("GET",  f"{MATIAS_API_URL}/documents/pdf/{cufe}"),
+        ("GET",  f"{MATIAS_API_URL}/documents/{cufe}/pdf"),
+        ("GET",  f"{MATIAS_API_URL}/documents/pdf/{cufe}?regenerate=1"),
+        ("POST", f"{MATIAS_API_URL}/documents/pdf/{cufe}"),
+    ]
+
+    ultimo_error = "Sin respuesta"
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        resp = await client.get(
-            f"{MATIAS_API_URL}/documents/pdf/{cufe}?regenerate=1",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/pdf, application/json"},
-        )
+        for metodo, url in candidatas:
+            try:
+                resp = await (client.post(url, headers=headers) if metodo == "POST" else client.get(url, headers=headers))
+                content_type = resp.headers.get("content-type", "")
+                logger.debug("PDF intento %s %s → HTTP %s", metodo, url, resp.status_code)
+                if resp.status_code == 200 and "pdf" in content_type:
+                    logger.info("✅ PDF descargado OK — %s %s", metodo, url)
+                    return resp.content
+                if resp.status_code == 405:
+                    ultimo_error = f"405 en {url}"
+                    continue
+                try:
+                    err_data = resp.json()
+                    ultimo_error = err_data.get("message") or err_data.get("error") or str(err_data)
+                except Exception:
+                    ultimo_error = resp.text[:200] if resp.text else f"HTTP {resp.status_code}"
+            except Exception as e:
+                ultimo_error = str(e)
+                continue
 
-    content_type = resp.headers.get("content-type", "")
-    if resp.status_code != 200 or "pdf" not in content_type:
-        try:
-            err_data = resp.json()
-            msg = err_data.get("message") or err_data.get("error") or str(err_data)
-        except Exception:
-            msg = resp.text[:300] if resp.text else f"HTTP {resp.status_code}"
-        raise RuntimeError(f"MATIAS API ({resp.status_code}): {msg}")
-
-    return resp.content
+    raise RuntimeError(f"No se pudo descargar el PDF (probadas {len(candidatas)} URLs). Último error: {ultimo_error}")
 
 
 # ── GET /status — Estado DIAN de un documento ─────────────────────────────────
