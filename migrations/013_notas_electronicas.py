@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-migrations/011_notas_electronicas.py
+migrations/013_notas_electronicas.py
 Extiende facturas_electronicas para soportar notas crédito y débito DIAN.
 
 En vez de crear una tabla nueva, se agregan tres columnas a la tabla existente:
@@ -12,7 +12,7 @@ Las filas existentes quedan con tipo='factura' por DEFAULT.
 Idempotente — seguro para re-ejecutar.
 
 Ejecutar UNA VEZ desde la raíz del proyecto:
-    railway run python migrations/011_notas_electronicas.py
+    railway run python migrations/013_notas_electronicas.py
 """
 import logging
 import os
@@ -27,7 +27,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] -- %(message)s",
     stream=sys.stdout,
 )
-logger = logging.getLogger("011_notas_electronicas")
+logger = logging.getLogger("013_notas_electronicas")
 
 import db as _db
 
