@@ -658,13 +658,39 @@ async def obtener_pdf(cufe: str) -> bytes:
             try:
                 resp = await (client.post(url, headers=headers) if metodo == "POST" else client.get(url, headers=headers))
                 content_type = resp.headers.get("content-type", "")
-                logger.debug("PDF intento %s %s → HTTP %s", metodo, url, resp.status_code)
+                logger.debug("PDF intento %s %s → HTTP %s | %s", metodo, url, resp.status_code, content_type)
+
                 if resp.status_code == 200 and "pdf" in content_type:
-                    logger.info("✅ PDF descargado OK — %s %s", metodo, url)
+                    logger.info("✅ PDF descargado OK (binario) — %s %s", metodo, url)
                     return resp.content
+
+                if resp.status_code == 200 and "json" in content_type:
+                    # MATIAS API devuelve el PDF como base64 en campo 'data'
+                    # Ejemplo: {"path":"...","url":"...","data":"JVBERi0x..."}
+                    try:
+                        import base64
+                        json_data = resp.json()
+                        b64 = json_data.get("data")
+                        if b64:
+                            pdf_bytes = base64.b64decode(b64)
+                            logger.info("✅ PDF descargado OK (base64 JSON) — %s %s", metodo, url)
+                            return pdf_bytes
+                        # Si no hay 'data' pero hay 'url', descargamos desde esa URL
+                        pdf_url = json_data.get("url")
+                        if pdf_url:
+                            pdf_resp = await client.get(pdf_url, headers=headers)
+                            if pdf_resp.status_code == 200:
+                                logger.info("✅ PDF descargado OK (url JSON) — %s", pdf_url)
+                                return pdf_resp.content
+                        ultimo_error = f"JSON sin 'data' ni 'url': {list(json_data.keys())}"
+                    except Exception as e:
+                        ultimo_error = f"Error decodificando base64: {e}"
+                    continue
+
                 if resp.status_code == 405:
                     ultimo_error = f"405 en {url}"
                     continue
+
                 try:
                     err_data = resp.json()
                     ultimo_error = err_data.get("message") or err_data.get("error") or str(err_data)
