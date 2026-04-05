@@ -360,7 +360,46 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Registro en compras_fiscal
+# 5. Persistencia de historyId en ferrebot_config
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _cargar_last_history_id() -> str | None:
+    """
+    Lee el último historyId procesado exitosamente desde ferrebot_config.
+    Retorna None si no hay valor guardado (primera ejecución).
+    """
+    try:
+        row = _db.query_one(
+            "SELECT valor FROM ferrebot_config WHERE clave = 'gmail_last_history_id'"
+        )
+        return row["valor"] if row else None
+    except Exception as e:
+        logger.warning("Error leyendo gmail_last_history_id de ferrebot_config: %s", e)
+        return None
+
+
+def _guardar_last_history_id(history_id: str) -> None:
+    """
+    Guarda (upsert) el historyId procesado en ferrebot_config para que la
+    próxima notificación arranque desde el punto correcto, incluso tras reinicios.
+    """
+    try:
+        _db.execute(
+            """
+            INSERT INTO ferrebot_config (clave, valor, updated_at)
+            VALUES ('gmail_last_history_id', %s, NOW())
+            ON CONFLICT (clave) DO UPDATE
+                SET valor = EXCLUDED.valor, updated_at = NOW()
+            """,
+            (history_id,),
+        )
+        logger.debug("gmail_last_history_id guardado: %s", history_id)
+    except Exception as e:
+        logger.warning("Error guardando gmail_last_history_id en ferrebot_config: %s", e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Registro en compras_fiscal
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _ya_procesado(gmail_message_id: str) -> bool:
@@ -417,7 +456,7 @@ def _registrar_factura(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. Procesamiento completo de un mensaje
+# 8. Procesamiento completo de un mensaje
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _procesar_mensaje(message_id: str, token: str, user: str) -> dict:
@@ -457,15 +496,27 @@ async def _procesar_mensaje(message_id: str, token: str, user: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. Tarea de fondo
+# 9. Tarea de fondo
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _background_procesar(history_id: str) -> None:
+async def _background_procesar(history_id_notificacion: str) -> None:
     if not _db.DB_DISPONIBLE:
         logger.error("DB no disponible — no se pueden registrar facturas")
         return
 
     gmail_user = (os.getenv("GMAIL_USER") or "me").strip()
+
+    # Usar el historyId guardado en DB si es anterior al de la notificación,
+    # para no perder mensajes entre notificaciones o tras un reinicio.
+    history_id_guardado = _cargar_last_history_id()
+    if history_id_guardado and int(history_id_guardado) < int(history_id_notificacion):
+        start_history_id = history_id_guardado
+        logger.info(
+            "Usando historyId guardado en DB (%s) en vez del de la notificación (%s)",
+            history_id_guardado, history_id_notificacion,
+        )
+    else:
+        start_history_id = history_id_notificacion
 
     try:
         token = await _get_access_token()
@@ -474,13 +525,15 @@ async def _background_procesar(history_id: str) -> None:
         return
 
     try:
-        message_ids = await _get_message_ids_from_history(history_id, token, gmail_user)
+        message_ids = await _get_message_ids_from_history(start_history_id, token, gmail_user)
     except Exception as e:
-        logger.error("Error en history.list (historyId=%s): %s", history_id, e)
+        logger.error("Error en history.list (historyId=%s): %s", start_history_id, e)
         return
 
     if not message_ids:
-        logger.debug("historyId %s sin mensajes nuevos en INBOX", history_id)
+        logger.debug("historyId %s sin mensajes nuevos en INBOX", start_history_id)
+        # Avanzar el puntero aunque no haya mensajes para no reprocessar al siguiente webhook
+        _guardar_last_history_id(history_id_notificacion)
         return
 
     total_registros     = 0
@@ -510,9 +563,12 @@ async def _background_procesar(history_id: str) -> None:
         except Exception as e:
             logger.warning("Error en notify_all tras importar facturas: %s", e)
 
+    # Avanzar el puntero para que la próxima notificación arranque desde aquí
+    _guardar_last_history_id(history_id_notificacion)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8. Endpoints
+# 10. Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.post("/gmail/webhook")
