@@ -254,7 +254,13 @@ def _int_col(val: str) -> int:
 
 
 def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
-    """Parsea una factura electrónica DIAN en formato UBL 2.1."""
+    """Parsea una factura electrónica DIAN en formato UBL 2.1.
+
+    Soporta dos estructuras:
+      - Invoice directa (tag raíz contiene 'Invoice')
+      - AttachedDocument: wrapper DIAN donde la Invoice real viene en
+        cac:Attachment/cac:ExternalReference/cbc:Description como XML en texto plano.
+    """
     try:
         root = ET.fromstring(xml_bytes)
     except ET.ParseError as e:
@@ -262,8 +268,27 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
         return None
 
     tag = root.tag
+    logger.info("parse_ubl_xml — tag raíz: %s", tag)
+
+    # ── AttachedDocument: extraer Invoice del Description interno ─────────────
+    if "AttachedDocument" in tag:
+        logger.info("Detectado AttachedDocument — buscando Invoice interna")
+        desc_el = root.find(
+            "cac:Attachment/cac:ExternalReference/cbc:Description", _NS
+        )
+        if desc_el is None or not (desc_el.text or "").strip():
+            logger.warning("AttachedDocument sin cbc:Description — no se puede extraer Invoice")
+            return None
+        inner_text = desc_el.text.strip()
+        try:
+            inner_bytes = inner_text.encode("utf-8")
+            return parse_ubl_xml(inner_bytes)
+        except Exception as e:
+            logger.warning("Error reparsando Invoice desde AttachedDocument: %s", e)
+            return None
+
     if "Invoice" not in tag and "invoice" not in tag.lower():
-        logger.debug("XML no es una Invoice UBL — tag=%s", tag)
+        logger.warning("XML no es una Invoice UBL ni AttachedDocument — tag=%s", tag)
         return None
 
     def _find(path: str) -> Optional[ET.Element]:
