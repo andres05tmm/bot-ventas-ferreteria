@@ -345,7 +345,11 @@ function PanelEmitir({ onEmitida }) {
   const isMob   = useIsMobile()
   const { authFetch } = useAuth()
 
-  const [fecha,     setFecha]     = useState(() => new Date().toISOString().slice(0, 10))
+  // toISOString() devuelve UTC — a las 7pm Colombia ya es medianoche UTC del día siguiente.
+  // en-CA produce YYYY-MM-DD que es el formato que espera el input type="date".
+  const [fecha,     setFecha]     = useState(() =>
+    new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+  )
   const [ventas,    setVentas]    = useState([])
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState(null)

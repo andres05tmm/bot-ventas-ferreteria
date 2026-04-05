@@ -11,7 +11,9 @@ Endpoints:
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
+
+_TZ_BOGOTA = timezone(timedelta(hours=-5))
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
@@ -55,7 +57,7 @@ def ventas_pendientes(fecha: str = Query(default=None)):
     if not _db.DB_DISPONIBLE:
         raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
-    fecha_consulta = fecha or str(date.today())
+    fecha_consulta = fecha or datetime.now(_TZ_BOGOTA).strftime('%Y-%m-%d')
 
     rows = _db.query_all(
         """
