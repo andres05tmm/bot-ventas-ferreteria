@@ -1,300 +1,491 @@
-# FerreBot — Contexto para Claude Code
+# FerreBot — Ferretería Punto Rojo
 
-FerreBot es un bot de Telegram para Ferretería Punto Rojo (Cartagena, Colombia).
-Los vendedores registran ventas por voz o texto, Claude AI interpreta los mensajes,
-y un dashboard React muestra analíticas en tiempo real.
+Bot de Telegram + Dashboard web para gestión de ventas, inventario, caja y facturación electrónica DIAN.
 
-**Estado actual:** PostgreSQL en producción (Railway). Refactorización v3.0 completada — 145 tests verdes.
+---
+
+## Arquitectura
+
+Dos servicios independientes en Railway, mismo repositorio, mismo build:
+
+```
+run.sh
+  ├── SERVICE_TYPE=bot  → python3 start-bot.py     (Bot Telegram, webhook)
+  └── SERVICE_TYPE=api  → uvicorn api:app           (API FastAPI + Dashboard React)
+```
+
+**Bot** (`start-bot.py`, `main.py`): recibe updates de Telegram vía webhook. Usa Claude (Anthropic) + OpenAI para procesar lenguaje natural. Registra ventas, consulta inventario, responde al vendedor por chat. El ~60% de ventas simples se resuelven en Python puro vía `bypass.py` sin llamar a Claude (800ms → <5ms).
+
+**API + Dashboard** (`api.py`): FastAPI sirve la API REST y el build estático de React (`dashboard/dist/`). El dashboard se comunica con el bot en tiempo real vía SSE usando `pg_notify` como bus de eventos.
 
 ---
 
 ## Stack
 
-- **Bot:** Python 3.11 + python-telegram-bot 21.3
-- **API:** FastAPI + Uvicorn (hilo daemon, puerto 8001)
-- **DB:** PostgreSQL en Railway — psycopg2-binary (sync, no asyncpg)
-- **IA:** Claude (Anthropic SDK) + OpenAI SDK
-- **Dashboard:** React 18 + Vite + Recharts
-- **Deploy:** Railway con Nixpacks — `python3 start.py`
+| Capa | Tecnología |
+|------|-----------|
+| Bot | python-telegram-bot 21.3, webhook mode |
+| API | FastAPI + Uvicorn (uvloop), Python 3.11 |
+| Base de datos | PostgreSQL — `db.py` con `ThreadedConnectionPool` (minconn=2, maxconn=10) |
+| Tiempo real | `pg_notify` → `_pg_listen_worker` (hilo daemon) → SSE → `useRealtime.js` |
+| Frontend | React + Vite, servido como static files por FastAPI |
+| IA | Anthropic Claude (chat/análisis), OpenAI Whisper (transcripción de audio) |
+| Facturación | MATIAS API — UBL 2.1, DIAN Colombia |
+| Imágenes | Cloudinary (fotos de facturas de proveedores) |
+| Deploy | Railway (Nixpacks), Node 20 + Python 3.11 |
 
 ---
 
-## Reglas absolutas
-
-1. **No tocar** `db.py`, `config.py`, `main.py` — están correctos, no necesitan cambios
-2. **Nunca borrar** funciones o archivos sin instrucción explícita — solo crear o editar
-3. **Respetar los imports existentes** — `memoria.py` sigue existiendo como thin wrapper
-4. **Cero downtime** — cada commit debe dejar el bot operativo (`python main.py` arranca sin errores)
-5. **Un commit por tarea** con el mensaje indicado en el plan
-
-6. **Imports circulares conocidos — resolver SOLO con lazy imports (dentro del cuerpo de función):**
-   - `handlers.comandos` → `mensajes`: lazy ✓
-   - `catalogo_service` → `memoria`: lazy ✓
-   - `ai.__init__` → `ventas_state`: lazy ✓
-   - `ai.__init__` → `ai.prompt_context` / `ai.prompt_products`: lazy (nuevo en v3.0)
-   - `handlers.dispatch` → `ventas_state` / `memoria`: lazy (nuevo en v3.0)
-   - Antes de cualquier commit que mueva funciones entre módulos, correr:
-     `python -c "import handlers.mensajes; import ai; import handlers.callbacks; print('OK')"`
-
-7. **`memoria.py` es thin wrapper — no modificar firmas sin actualizar el service de origen:**
-   - `buscar_producto_*`, `cargar_memoria` → `services/catalogo_service.py`
-   - `cargar_inventario` → `services/inventario_service.py`
-   - `cargar_caja`, `guardar_gasto` → `services/caja_service.py`
-   - `guardar_fiado_movimiento`, `abonar_fiado` → `services/fiados_service.py`
-
-8. **`ventas_state.py` — no tocar sin tests previos:**
-   Los dicts `ventas_pendientes`, `clientes_en_proceso`, `mensajes_standby` se importan
-   por referencia. Moverlos o reimportarlos crea una segunda instancia vacía → bug invisible.
-   `get_chat_lock(chat_id)` retorna un `asyncio.Lock` real — no mockear con lambda+yield.
-
----
-
-## Arquitectura actual (post refactorización v3.0 — estado real)
+## Mapa de archivos
 
 ```
-config.py        ← configuración central, clientes API, timezone Colombia
-db.py            ← ThreadedConnectionPool (2-10 conns), reconexión automática, 8s timeout
-main.py          ← entry point del bot, registro de handlers
-start.py         ← launcher Railway (bot + API en hilo daemon)
-ventas_state.py  ← estado thread-safe de ventas en curso (NO TOCAR sin tests)
+# ── Entrypoints ──────────────────────────────────────────────────────────────
+api.py              — Entry point FastAPI: lifespan, CORS, routers, static files, pg_listen_worker
+start-bot.py        — Entry point Bot: inicializa DB, webhook, registra handlers de main.py
+start.py            — Desarrollo local: corre bot + API juntos
+main.py             — Registro de todos los handlers PTB (comandos + mensajes + callbacks)
+run.sh              — Script Railway: bifurca por SERVICE_TYPE
 
-ai/
-  __init__.py        ← motor Claude: procesar_con_claude, _pg_* helpers (~690 líneas)
-  prompts.py         ← system prompt: _construir_parte_dinamica (1069 líneas)
-  response_builder.py← parsing de acciones [VENTA]/[GASTO]/[EXCEL] — NUEVO en v2.0 (~629 líneas)
-  excel_gen.py       ← generación y edición de Excel con Claude
-  price_cache.py     ← cache RAM thread-safe de precios recientes
+# ── Núcleo compartido ─────────────────────────────────────────────────────────
+config.py           — Variables de entorno, clientes Anthropic/OpenAI, COLOMBIA_TZ
+db.py               — Pool PostgreSQL, wrappers sync y async, _init_schema()
+memoria.py          — Thin wrapper (~151 callers). Re-exporta desde services/catalogo_service.py
+ventas_state.py     — Estado de ventas pendientes, fiados en proceso, clientes en proceso
+utils.py            — Helpers de formato: convertir_fraccion_a_decimal, decimal_a_fraccion_legible
+bypass.py           — Bypass Python para ventas simples sin Claude (enteros, fracciones, puntillas por peso/caja)
+fuzzy_match.py      — Búsqueda fuzzy de productos por nombre
+alias_manager.py    — Gestión de aliases dinámicos (typos: drwayll→drywall, tiner→thinner)
+skill_loader.py     — Carga skills personalizados del bot desde la BD
+graficas.py         — Generación de gráficas para reportes
+keepalive.py        — Ping periódico para evitar sleep en Railway free tier
 
-memoria.py       ← thin wrapper de re-exports sobre services/ (~1151 líneas)
+# ── Módulo ai/ — Procesamiento IA ────────────────────────────────────────────
+ai/__init__.py      — Re-exporta procesar_con_claude, procesar_acciones, procesar_acciones_async
+ai/prompts.py       — Construcción del system prompt de Claude (incluye _ALIAS_FERRETERIA)
+ai/prompt_context.py— Contexto dinámico por mensaje (caja abierta, deudas, fiados)
+ai/prompt_products.py — Serialización del catálogo para el prompt de Claude
+ai/response_builder.py— Parseo y construcción de respuesta desde la respuesta de Claude
+ai/price_cache.py   — Caché en memoria de precios recientes (TTL 300s) para contexto del prompt
+ai/excel_gen.py     — Generación de reportes Excel vía IA
 
-services/
-  catalogo_service.py   ← búsqueda y actualización de productos
-  inventario_service.py ← descuento y alertas de inventario
-  caja_service.py       ← caja, gastos, resumen
-  fiados_service.py     ← fiados, abonos, resumen por cliente
+# ── Módulo handlers/ — Bot Telegram ──────────────────────────────────────────
+handlers/mensajes.py   — Handler principal: texto, audio (Whisper), documentos Excel
+handlers/dispatch.py   — Flujos especiales sin Claude (wizards, bypasses). TODOS los imports son LAZY
+handlers/intent.py     — Clasificación de intención del mensaje antes de Claude
+handlers/parsing.py    — Parseo de respuestas estructuradas de Claude
+handlers/comandos.py   — /start, /help, /comandos y utilidades generales
+handlers/callbacks.py  — InlineKeyboard callbacks (confirmación pago, botones de método)
+handlers/cliente_flujo.py — Wizard multi-paso de creación de cliente
+handlers/alias_handler.py — Gestión de aliases desde el chat del bot
+handlers/cmd_ventas.py    — /ultima, /anular, /fiado, /deudas del bot
+handlers/cmd_caja.py      — /caja, /apertura, /cierre, /gasto del bot
+handlers/cmd_inventario.py— /inventario, /precio, /stock del bot
+handlers/cmd_clientes.py  — /cliente, /buscar del bot
+handlers/cmd_admin.py     — /admin, /usuarios (solo admin) del bot
+handlers/cmd_auth.py      — /registro, /rol del bot
+handlers/cmd_facturacion.py — /factura_electronica del bot
+handlers/cmd_proveedores.py — /factura, /abonar, /borrar_factura del bot
 
-handlers/
-  mensajes.py      ← _procesar_mensaje (619 líneas) + audio/foto/doc (~1297 total)
-  callbacks.py     ← botones inline (~650 líneas)
-  parsing.py       ← parseo puro de texto sin efectos (~178 líneas)
-  cliente_flujo.py ← wizard de creación de cliente (preguntas/botones) (~52 líneas)
-  comandos.py      ← re-export hub de los cmd_*.py
-  cmd_ventas.py, cmd_inventario.py (~1011 líneas), cmd_clientes.py,
-  cmd_caja.py, cmd_proveedores.py, cmd_admin.py
-  productos.py, alias_handler.py
+# ── Módulo middleware/ — Bot Telegram ─────────────────────────────────────────
+middleware/auth.py      — Decorador @protegido: autenticación por chat_id + rate limiting
 
-middleware/
-  auth.py        ← @protegido decorator + rate limiter
+# ── Módulo auth/ — Usuarios del bot ──────────────────────────────────────────
+auth/usuarios.py        — get_usuario(telegram_id), es_admin(), registrar_telegram_id(), crear_vendedor()
+                          (separado de routers/usuarios.py para evitar imports circulares con handlers)
 
-routers/
-  ventas.py (~812), chat.py (~954), historico.py (~567),
-  catalogo.py (~784), caja.py (~437),
-  clientes.py, proveedores.py, reportes.py, shared.py
+# ── Módulo routers/ — API FastAPI ─────────────────────────────────────────────
+routers/deps.py        — Dependencias de auth: get_current_user, get_filtro_usuario, get_filtro_efectivo
+routers/events.py      — SSE: notify_all(), broadcast(), _event_generator(), _notify_sem
+routers/ventas.py      — CRUD ventas, venta-rapida, venta-varia
+routers/caja.py        — Apertura/cierre caja, gastos, compras, compras fiscales
+routers/catalogo.py    — Productos, precios, stock, fracciones, mayorista
+routers/facturacion.py — Emisión DIAN, historial, webhook MATIAS
+routers/chat.py        — /chat y /chat-stream: IA del dashboard (Haiku → Sonnet según complejidad)
+routers/clientes.py    — CRUD clientes
+routers/proveedores.py — Facturas proveedores + Cloudinary
+routers/auth.py        — JWT login/logout (Telegram Login Widget)
+routers/usuarios.py    — CRUD usuarios (admin)
+routers/libro_iva.py   — Libro IVA
+routers/historico.py   — Historial ventas con filtros
+routers/reportes.py    — /kardex, /resultados, /proyeccion
+routers/shared.py      — Helpers compartidos entre routers: _hoy(), _leer_excel_rango(),
+                          _leer_ventas_postgres(), _stock_wayper(), _leer_compras()
 
-migrations/      ← 7 scripts numerados 001-007 (todos ejecutados)
-tests/           ← 145 tests, 0 failed
-  test_caja_service.py, test_catalogo_service.py, test_fiados_service.py,
-  test_inventario_service.py, test_middleware.py, test_price_cache.py,
-  test_callbacks.py, test_response_builder.py,
-  test_router_chat.py, test_router_historico.py, test_router_ventas.py,
-  test_router_catalogo.py, test_router_caja.py, test_cmd_inventario.py
+# ── Módulo services/ ──────────────────────────────────────────────────────────
+services/catalogo_service.py  — Fuente de verdad del catálogo (memoria.py re-exporta desde aquí)
+services/caja_service.py      — Lógica de caja: apertura, cierre, balance del día
+services/facturacion_service.py — Integración MATIAS API (auth, emisión, PDF, ciudades)
+services/fiados_service.py    — Gestión de créditos/fiados a clientes
+services/inventario_service.py— Actualización de stock, kardex de movimientos
+
+# ── Migraciones ────────────────────────────────────────────────────────────────
+migrations/001_migrate_memoria.py     — productos / catálogo
+migrations/002_migrate_historico.py   — histórico de ventas
+migrations/003_migrate_ventas.py      — tabla ventas + ventas_detalle
+migrations/004_migrate_gastos_caja.py — gastos y caja
+migrations/004_usuarios_auth.py       — tabla usuarios (RBAC)
+migrations/005_migrate_compras.py     — compras a proveedores
+migrations/006_migrate_fiados.py      — fiados / créditos
+migrations/007_migrate_proveedores.py — facturas de proveedores
+migrations/008_migrate_facturacion.py — facturación electrónica DIAN
+migrations/009_iva_compras_saldos.py  — IVA y saldos proveedores
+migrations/010_compras_fiscal.py      — compras fiscales
+
+# ── Dashboard React ───────────────────────────────────────────────────────────
+dashboard/src/App.jsx                  — Router principal, layout con tabs
+dashboard/src/pages/Login.jsx          — Telegram Login Widget + JWT
+dashboard/src/hooks/useRealtime.js     — SSE hook con backoff exponencial y evento 'reconnected'
+dashboard/src/hooks/useAuth.js         — JWT storage, logout, token validation
+dashboard/src/hooks/useVendorFilter.jsx— Selector de vendedor para admins
+dashboard/src/components/ChatWidget.jsx— Chat IA del dashboard (Haiku/Sonnet, toggle Auto/Haiku/Sonnet)
+dashboard/src/components/shared.jsx    — Componentes reutilizables (modales, badges, etc.)
+dashboard/src/components/ui/AnimatedBackground.jsx — Fondo animado con color #C8200E
+dashboard/src/tabs/                    — Un componente .jsx por tab del dashboard
+dashboard/src/utils/generarPDF.js      — Generación de PDF de facturas en cliente
+
+# ── Tests ──────────────────────────────────────────────────────────────────────
+test_suite.py           — Runner principal: corre todos los tests/test_*.py
+tests/                  — 145+ tests unitarios organizados por módulo
 ```
 
 ---
 
-## Verificación estándar antes de cada commit
+## Reglas críticas — leer antes de tocar código
 
-```bash
-# 1. Imports limpios — obligatorio si tocaste handlers/ o ai/
-python -c "import handlers.mensajes; import ai; import handlers.callbacks; print('imports OK')"
-
-# 2. Tests completos
-pytest tests/ -x -q --tb=short
-
-# 3. Si tocaste ai/__init__.py, ai/prompts.py o memoria.py
-python -c "from ai import procesar_con_claude, procesar_acciones, procesar_acciones_async; print('ai OK')"
-
-# 4. Bot arranca
-python -c "import main; print('main OK')"
-```
-
----
-
-## Patrón de tests del proyecto
-
-Stubs de módulo en `sys.modules` ANTES de cualquier import propio.
-Replicar el patrón de `tests/test_catalogo_service.py`:
+### 1. async/await
+Cualquier función de router que llame `await notify_all()` **debe ser `async def`**. FastAPI soporta ambas, pero `await` dentro de `def` es `SyntaxError` en tiempo de importación — crashea el servidor completo.
 
 ```python
-import sys, types, threading
+# ✅ correcto
+async def registrar_venta(...):
+    ...
+    await notify_all("venta_registrada", {...})
 
-for mod, attrs in [
-    ("config", {"COLOMBIA_TZ": None, "claude_client": None}),
-    ("db", {
-        "DB_DISPONIBLE": False,
-        "execute": lambda *a, **kw: None,
-        "query_one": lambda *a, **kw: None,
-        "query_all": lambda *a, **kw: [],
-    }),
-    ("memoria", {"cargar_memoria": lambda: {}, "invalidar_cache_memoria": lambda: None}),
-    ("ventas_state", {
-        "ventas_pendientes": {},
-        "clientes_en_proceso": {},
-        "esperando_correccion": {},
-        "_estado_lock": threading.Lock(),
-        "_guardar_pendiente": lambda *a: None,
-        # get_chat_lock DEBE retornar asyncio.Lock real — no lambda+yield
-        "get_chat_lock": lambda cid: __import__("asyncio").Lock(),
-    }),
-]:
-    if mod not in sys.modules:
-        m = types.ModuleType(mod)
-        for k, v in attrs.items(): setattr(m, k, v)
-        sys.modules[mod] = m
-    else:
-        m = sys.modules[mod]
-        for k, v in attrs.items():
-            if not hasattr(m, k): setattr(m, k, v)
+# ❌ revienta el deploy
+def registrar_venta(...):
+    ...
+    await notify_all("venta_registrada", {...})
 ```
 
-Usar `pytest` + `pytest-mock` (fixture `mocker`). No usar conexión real a DB ni Telegram.
-`pytest-asyncio` requerido para tests `async` — configurar `asyncio_mode = auto` en `pytest.ini`.
+### 2. Zona horaria — siempre Colombia (UTC-5)
+Railway corre en UTC. `date.today()` y `new Date().toISOString()` devuelven UTC — a las 7 PM Colombia ya es medianoche UTC del día siguiente.
+
+```python
+# ✅ Python — usar COLOMBIA_TZ de config.py
+from config import COLOMBIA_TZ
+from datetime import datetime
+hoy = datetime.now(COLOMBIA_TZ).strftime('%Y-%m-%d')
+
+# ❌ nunca esto en el backend
+from datetime import date
+hoy = str(date.today())  # UTC, no Colombia
+```
+
+```js
+// ✅ JS — en-CA produce YYYY-MM-DD, timeZone fija la zona
+new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+
+// ❌ nunca esto en el frontend
+new Date().toISOString().slice(0, 10)  // UTC
+```
+
+### 3. Logging — siempre getLogger, nunca print
+```python
+import logging
+log = logging.getLogger("ferrebot.<modulo>")
+log.info("mensaje")   # visible en Railway
+# nunca: print("mensaje")
+```
+
+### 4. Base de datos — nunca psycopg2 directo
+```python
+# ✅ usar siempre el módulo db.py
+import db as _db
+rows = _db.query_all("SELECT ...", [params])
+await _db.execute_async("INSERT ...", [params])
+
+# ❌ nunca conectar directamente
+conn = psycopg2.connect(DATABASE_URL)
+```
+
+### 5. memoria.py — no cambiar firmas públicas
+`memoria.py` tiene ~151 callers en el proyecto. Es un thin wrapper que re-exporta desde `services/catalogo_service.py`. Cambiar una firma sin actualizar el service original rompe silenciosamente.
+
+### 6. notify_all — siempre await, nunca broadcast directo desde routers
+```python
+# ✅ desde routers: usa pg_notify → llega a TODAS las réplicas
+from routers.events import notify_all
+await notify_all("venta_registrada", {"consecutivo": 42})
+
+# ⚠️ broadcast() es solo para uso interno de _pg_listen_worker
+```
+
+### 7. Handlers del bot — siempre decorar con @protegido
+Todo handler de Telegram registrado en `main.py` debe llevar el decorador `@protegido` de `middleware/auth.py`. Este decorador aplica autenticación por `chat_id` (variable `AUTHORIZED_CHAT_IDS`) y rate limiting thread-safe.
+
+```python
+from middleware.auth import protegido
+
+# ✅ correcto
+@protegido
+async def comando_mi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ...
+
+# ❌ handler sin proteger — cualquier chat externo puede invocarlo
+async def comando_mi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ...
+```
+
+Si `AUTHORIZED_CHAT_IDS` está vacío, el middleware es **fail-open** (permite todo). En producción debe contener el chat_id del grupo de la ferretería.
+
+### 8. Imports lazy en handlers/dispatch.py y similares
+Los módulos `handlers/dispatch.py`, `handlers/callbacks.py` y similares tienen **todos sus imports dentro de las funciones**, no al nivel del módulo. Esto es obligatorio para evitar ciclos de importación con `mensajes.py` y `ventas_state.py`.
+
+```python
+# ✅ import lazy — dentro de la función
+async def manejar_flujo_cliente(update, chat_id: int, mensaje: str) -> bool:
+    from ventas_state import clientes_en_proceso, _estado_lock
+    from handlers.cliente_flujo import guardar_cliente_y_continuar
+    ...
+
+# ❌ import al nivel del módulo en estos archivos — genera ciclo
+from ventas_state import clientes_en_proceso  # NO en dispatch.py
+```
+
+### 9. Auth en routers de la API — usar deps.py
+Al crear un endpoint nuevo en cualquier router, usar siempre las dependencias de `routers/deps.py`:
+
+```python
+from routers.deps import get_current_user, get_filtro_usuario, get_filtro_efectivo
+from fastapi import Depends
+
+# ── Las tres dependencias disponibles ──────────────────────────────────────────
+
+# Valida JWT y retorna payload: {usuario_id, telegram_id, nombre, rol}
+# Usar en endpoints que necesitan saber quién hace la petición
+@router.get("/mi-endpoint")
+async def mi_endpoint(current_user=Depends(get_current_user)):
+    ...
+
+# Retorna usuario_id si rol=vendedor, None si rol=admin
+# Usar para filtros WHERE simples (vendedor ve solo sus datos)
+@router.get("/ventas")
+async def listar_ventas(filtro=Depends(get_filtro_usuario)):
+    ...
+
+# Admin puede impersonar un vendedor pasando ?vendor_id=N
+# Usar cuando el admin necesita ver datos de un vendedor específico
+@router.get("/ventas-admin")
+async def listar_ventas_admin(filtro=Depends(get_filtro_efectivo)):
+    ...
+```
+
+### 10. MATIAS API — IDs de ciudad no son códigos DANE
+MATIAS API usa IDs internos secuenciales propios para ciudades, **no** los códigos DANE municipales del DANE colombiano. Enviar el código DANE como `city_id` causa el error `"El campo customer.city_id no existe en la tabla cities"`.
+
+```python
+# ✅ siempre usar el caché que mapea DANE → ID interno de MATIAS
+from services.facturacion_service import _get_city_id
+city_id = await _get_city_id(dane_code="13001")  # Cartagena
+
+# ❌ nunca pasar el código DANE directo como city_id
+payload = {"customer": {"city_id": 13001}}  # INCORRECTO
+```
+
+El caché `_cities_cache` se carga del endpoint `GET /cities` de MATIAS API y es thread-safe con `threading.Lock`. Si el caché no está cargado, llamar `_cargar_cities()` primero.
 
 ---
 
 ## Convenciones de código
 
-- **Imports:** agrupados con headers `# -- stdlib --`, `# -- terceros --`, `# -- propios --`
-- **Logger:** `logger = logging.getLogger("ferrebot.<modulo>")`
-- **Funciones privadas:** prefijo `_underscore`
-- **Constantes:** `UPPER_SNAKE_CASE`
-- **Docstrings:** en español para lógica de negocio
-- **Errores:** `except Exception as e:` intencional — estabilidad del bot primero
-- **Threading:** `threading.Lock` para todo estado compartido — nunca modificar dicts sin lock
-- **DB en async handlers:** `await asyncio.to_thread(funcion_sync)` — nunca llamar directo
+### Orden de imports — siempre respetar esta estructura
+```python
+"""
+Docstring del módulo en español.
+"""
+
+# -- stdlib --
+import os
+import logging
+from datetime import datetime
+
+# -- terceros --
+from fastapi import HTTPException, Depends
+import httpx
+
+# -- propios --
+import db as _db
+from config import COLOMBIA_TZ
+from routers.deps import get_current_user
+```
+
+### Type hints — sintaxis moderna de Python 3.10+
+```python
+# ✅ correcto
+def buscar(id: int) -> dict | None: ...
+def listar() -> list[dict]: ...
+param: str | None = None
+
+# ❌ nunca esto
+from typing import Optional, Dict, List, Union
+def buscar(id: int) -> Optional[Dict]: ...
+```
+
+### Docstrings en español
+Todos los módulos y funciones públicas usan docstrings en español. Las funciones internas (prefijo `_`) pueden omitirlos si el nombre es autoexplicativo.
+
+```python
+def registrar_venta(datos: dict) -> int:
+    """
+    Registra una venta en PostgreSQL y actualiza el stock.
+    Retorna el consecutivo asignado.
+    """
+    ...
+```
+
+### Separadores visuales de sección
+```python
+# ─────────────────────────────────────────────
+# NOMBRE DE SECCIÓN
+# ─────────────────────────────────────────────
+```
+
+### Nombres
+- Módulos y archivos: `snake_case.py`
+- Funciones y variables: `snake_case`
+- Funciones privadas/internas: `_snake_case` (prefijo underscore)
+- Constantes: `UPPER_SNAKE_CASE`
+- Estado de módulo protegido: `_pool`, `_cache`, `_cache_ts`
+- Handlers de comando: `comando_*` — handlers de acción: `manejar_*`
+- Claves de diccionario: `snake_case` (nunca camelCase)
+
+### Error handling
+- `except Exception as e:` es intencional en la mayoría de casos (estabilidad en producción)
+- Las funciones retornan defaults seguros en vez de propagar excepciones: `dict | None`, `[]`, `0.0`
+- Logging del error con `logger.warning(f"contexto: {e}")` antes de retornar el default
+- Retry logic en `_get_conn()` de `db.py` — no reimplementar en otros módulos
 
 ---
 
 ## Variables de entorno
 
+| Variable | Servicio | Requerida |
+|----------|----------|-----------|
+| `TELEGRAM_TOKEN` | Bot | Sí |
+| `ANTHROPIC_API_KEY` | Bot + API | Sí |
+| `OPENAI_API_KEY` | Bot + API | Sí |
+| `DATABASE_URL` | Ambos | Sí |
+| `SECRET_KEY` | API | Sí (JWT) |
+| `WEBHOOK_URL` | Bot | Sí (modo webhook) |
+| `SERVICE_TYPE` | Ambos | Sí (`bot` o `api`) |
+| `CORS_ORIGIN` | API | No (default: URL Railway) |
+| `CLOUDINARY_CLOUD_NAME` | API | Para proveedores |
+| `CLOUDINARY_API_KEY` | API | Para proveedores |
+| `CLOUDINARY_API_SECRET` | API | Para proveedores |
+| `MATIAS_EMAIL` | API | Sí (facturación DIAN) |
+| `MATIAS_PASSWORD` | API | Sí (facturación DIAN) |
+| `MATIAS_RESOLUTION` | API | Sí (resolución DIAN) |
+| `MATIAS_PREFIX` | API | Sí (prefijo factura, ej: `LZT`) |
+| `MATIAS_NUM_DESDE` | API | Sí (primer número rango DIAN) |
+| `MATIAS_API_URL` | API | No (default: `https://api-v2.matias-api.com/api/ubl2.1`) |
+| `AUTHORIZED_CHAT_IDS` | Bot | No (IDs separados por coma — fail-open si vacío) |
+| `RATE_LIMIT_SEGUNDOS` | Bot | No (default: 2) |
+| `RATE_LIMIT_MAX` | Bot | No (default: 5 mensajes por ventana) |
+| `PORT` | Ambos | Railway lo inyecta automáticamente |
+
+---
+
+## Comandos frecuentes
+
+```bash
+# Desarrollo local (bot + API juntos)
+python start.py
+
+# Solo API en local
+uvicorn api:app --reload --port 8000
+
+# Dashboard en desarrollo
+cd dashboard && npm run dev
+
+# Build del dashboard (Railway lo hace automático)
+cd dashboard && npm run build
+
+# Tests — correr manualmente antes de merge a main
+python test_suite.py
+
+# Ver logs Railway en tiempo real
+railway logs --tail
 ```
-DATABASE_URL          # PostgreSQL Railway
-TELEGRAM_TOKEN        # Token del bot
-ANTHROPIC_API_KEY     # Claude API
-OPENAI_API_KEY        # GPT (fallback)
-ADMIN_CHAT_ID         # ID Telegram del admin
-AUTHORIZED_CHAT_IDS   # IDs separados por coma — enforced por middleware/auth.py
+
+---
+
+## Flujo de una venta (bot)
+
+```
+Usuario Telegram
+  └─► mensajes.py → _procesar_mensaje()
+        ├─► dispatch.py: flujos especiales (wizard cliente, confirmación pago)
+        │     └─► LAZY imports obligatorios aquí
+        ├─► bypass.py: intentar_bypass_python()    ← ~60% de ventas simples
+        │     └─► resuelve en <5ms sin llamar a Claude
+        └─► ai/: procesar_con_claude()             ← el 40% restante
+              ├─► ai/prompts.py: construir system prompt
+              ├─► ai/prompt_context.py: agregar contexto dinámico
+              ├─► ai/prompt_products.py: serializar catálogo relevante
+              ├─► Claude API call
+              └─► ai/response_builder.py: parsear respuesta → registrar venta
 ```
 
-<!-- GSD:project-start source:PROJECT.md -->
-## Project
+---
 
-**FerreBot — Refactorización v3.0 completada**
+## Flujo de tiempo real (SSE)
 
-FerreBot es un bot de Telegram para Ferretería Punto Rojo (Cartagena, Colombia) que permite a vendedores registrar ventas por voz o texto usando IA (Claude). Refactorización v3.0 completada — 145 tests verdes, cobertura extendida a routers y handlers de inventario.
+```
+Router FastAPI
+  └─► await notify_all("evento", data)
+        └─► SELECT pg_notify('ferrebot_events', payload)   ← escribe en PG
+              └─► _pg_listen_worker (hilo daemon en api.py) ← lee con LISTEN
+                    └─► broadcast() → _do_broadcast()
+                          └─► Queue.put_nowait() × N clientes
+                                └─► GET /events (SSE stream) → browser
+                                      └─► useRealtime.js → onEvent()
+```
 
-**Core Value:** El bot no se rompe durante la refactorización — cada commit deja `python main.py` arrancando sin errores.
+**Semáforo**: `_notify_sem = Semaphore(3)` limita concurrencia de `notify_all` para no agotar el pool (maxconn=10).
 
-### Constraints
+**Detección de desconexión**: ciclo interno de 5s (no 25s). Heartbeat sale cada 25s acumulando ciclos. Suscriptores fantasma se limpian en ≤5s.
 
-- **Tech stack**: Python 3.11, python-telegram-bot 21.3, psycopg2-binary (sync) — no cambiar
-- **Archivos protegidos**: `db.py`, `config.py`, `main.py` — no modificar
-- **Deploy**: Railway con Nixpacks, `python3 start.py` — cada commit debe arrancar
-- **Threading**: `threading.Lock` para todo estado compartido — mantener patrón existente
-- **Backwards compat**: `memoria.py` sigue exportando las mismas funciones (thin wrapper)
-<!-- GSD:project-end -->
+**Reconexión frontend**: `useRealtime.js` emite evento sintético `'reconnected'` en cada reconexión (no en la primera conexión). El consumer debe hacer re-fetch completo de datos al recibirlo.
 
-<!-- GSD:stack-start source:codebase/STACK.md -->
-## Technology Stack
+---
 
-## Languages
-- Python 3.11 - Bot backend, API, database operations, AI processing
-- JavaScript/TypeScript - React dashboard frontend
-- SQL - PostgreSQL database schema and queries
-- Shell - Build and startup scripts
-- YAML/TOML - Configuration files
-## Runtime
-- Python 3.11 (specified in `.python-version`)
-- Node.js 20 (specified in `nixpacks.toml`)
-- Railway - Nixpacks build system
-- Startup: `python3 start.py` via Procfile
-## Frameworks
-- python-telegram-bot 21.3 - Telegram bot framework with webhook support
-- FastAPI 0.111.0+ - REST API for dashboard
-- Uvicorn 0.29.0+ - ASGI server (runs on port 8001 as daemon thread)
-- React 18.3.1 - UI framework for dashboard
-- Vite 5.4.2 - Build tool and dev server (port 5173)
-- Recharts 2.12.7 - Charting/visualization library
-- PostgreSQL (on Railway) - primary data store
-- psycopg2-binary 2.9.9+ - PostgreSQL sync driver (NOT asyncpg)
-- ThreadedConnectionPool - thread-safe connection pooling in `db.py`
-## Key Dependencies
-- anthropic 0.49.0+ - Claude API client
-- openai 1.40.0+ - OpenAI SDK (fallback)
-- python-telegram-bot[webhooks] 21.3
-- psycopg2-binary 2.9.9+
-- fastapi 0.111.0+
-- uvicorn[standard] 0.29.0+
-- python-dotenv 1.0.0+
-- openpyxl 3.1.2
-- httpx 0.27.0+
-- rapidfuzz 3.0.0+
-- pytest, pytest-mock, pytest-asyncio - testing
-<!-- GSD:stack-end -->
+## RBAC — Roles y permisos
 
-<!-- GSD:conventions-start source:CONVENTIONS.md -->
-## Conventions
+Dos roles: `admin` y `vendedor`. Columna `rol` en tabla `usuarios`.
 
-## Naming Patterns
-- `snake_case.py` for modules and scripts
-- Private/internal functions prefixed with single underscore: `_normalizar()`, `_leer_catalogo_postgres()`
-- Handler functions: `comando_*` for command handlers, `manejar_*` for action handlers
-- Constants use `UPPER_SNAKE_CASE`
-- Type hints use lowercase: `dict | None` not `Optional[dict]`
-## Code Style
-- Indentation: 4 spaces
-- Imports organized with headers: `# -- stdlib --`, `# -- terceros --`, `# -- propios --`
-- Lazy imports inside function bodies to avoid circular imports
-## Error Handling
-- `except Exception as e:` is intentional — stability over strictness
-- `db.DB_DISPONIBLE` flag: bot operates in degraded mode if DB is offline
-## Threading & Concurrency
-- `threading.Lock()` for all shared state
-- `asyncio.to_thread()` for sync DB operations inside async handlers
-<!-- GSD:conventions-end -->
+| Capacidad | admin | vendedor |
+|-----------|-------|----------|
+| Ver datos de todos los vendedores | ✅ | ❌ (solo los suyos) |
+| Selector de vendedor en dashboard | ✅ | ❌ |
+| CRUD usuarios | ✅ | ❌ |
+| Comandos `/admin` en bot | ✅ | ❌ |
+| Registrar ventas/caja | ✅ | ✅ |
 
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
-## Architecture
+El Telegram ID de Andrés (`1831034712`) está sembrado como admin en la migración `004_usuarios_auth.py`.
 
-## Pattern Overview
-- **Dual-process unified launcher** (`start.py`) — async bot + sync API
-- **Thread-safe state management** — `ventas_state.py` guarded by `threading.Lock`
-- **Message-driven bot layer** (`handlers/`) — text, voice, photos → Claude AI
-- **Router-based API layer** (`routers/`) — REST endpoints for dashboard
-- **Centralized data layer** (`db.py`, `memoria.py`, `services/`)
+**En routers**: usar `get_filtro_efectivo` para que el admin pueda impersonar un vendedor vía `?vendor_id=N`. El filtro retorna `None` cuando el admin no selecciona vendedor (ve todo).
 
-## Error Handling
-- **Database unavailable:** `db.DB_DISPONIBLE` flag — graceful degraded mode
-- **Claude API failures:** Caught in `ai.procesar_con_claude()`, fallback to rule-based parsing
-- **State expiration:** `ventas_state.limpiar_pendientes_expirados()` — removes sales pending >5 min
-<!-- GSD:architecture-end -->
+**En el bot**: `auth/usuarios.py` provee `get_usuario(telegram_id)` para verificar si el usuario está registrado y su rol. Los handlers usan `middleware/auth.py` (`@protegido`) para la capa de autenticación básica del chat.
 
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
+---
 
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+## Notas de contexto del proyecto
 
-Use these entry points:
-- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd:debug` for investigation and bug fixing
-- `/gsd:execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-<!-- GSD:profile-start -->
-## Developer Profile
-
-> Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->
+- **Sin linter configurado**: no hay `.flake8`, `.pylintrc` ni `.black`. Seguir las convenciones del código existente.
+- **Sin CI**: `test_suite.py` se corre manualmente antes de merge a main.
+- **Sin paginación en endpoints de lista**: el volumen de una ferretería lo permite. Tener en cuenta si crece.
+- **Nombres de eventos SSE**: `snake_case` descriptivos — `venta_registrada`, `caja_cerrada`, `inventario_actualizado`, `compra_registrada`, `gasto_registrado`.
+- **Commits**: `tipo: descripción` — tipos: `feat`, `fix`, `refactor`, `chore`. Sin atribución de Claude.
+- **`.planning/`**: directorio con roadmap GSD (milestones, fases, retrospectivas). No tocar al hacer cambios de código.
+- **`_obsidian/`**: vault de Obsidian para notas del proyecto. Ignorar.
+- **`routers/shared.py`**: helpers compartidos entre routers. Antes de crear una función de utilidad en un router, verificar si ya existe aquí. `_leer_excel_rango()` mantiene su nombre por compatibilidad aunque ya no lea Excel — delega a `_leer_ventas_postgres()`.
