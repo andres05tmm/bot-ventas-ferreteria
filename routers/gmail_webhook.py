@@ -6,38 +6,33 @@ FLUJO COMPLETO:
     └─► Gmail notifica a Google Pub/Sub (instantáneo via watch)
           └─► Pub/Sub hace POST a /gmail/webhook (push subscription)
                 └─► descargamos el email con Gmail API
-                      └─► extraemos el XML adjunto (factura electrónica DIAN)
+                      └─► extraemos el XML adjunto (directo o dentro de un ZIP)
                             └─► parseamos campos UBL 2.1
-                                  └─► insertamos en compras_fiscal + libro_iva
+                                  └─► insertamos en compras_fiscal
                                         └─► notify_all → dashboard se actualiza
+
+ADJUNTOS SOPORTADOS:
+  - .xml directo
+  - .zip que contiene .xml + .pdf (formato más común de proveedores DIAN)
 
 VARIABLES DE ENTORNO REQUERIDAS:
   GMAIL_CLIENT_ID         → OAuth2 client ID de Google Cloud Console
   GMAIL_CLIENT_SECRET     → OAuth2 client secret
   GMAIL_REFRESH_TOKEN     → token de refresco obtenido con OAuth playground
   GMAIL_USER              → correo de la ferretería (ej: ferreteria@gmail.com)
-  PUBSUB_TOKEN            → token secreto para verificar que el POST viene de Google
-                            (se incluye en la URL del push subscription)
-
-CONFIGURACIÓN EN GOOGLE CLOUD:
-  1. Habilitar: Gmail API + Cloud Pub/Sub API
-  2. Crear tema:  projects/TU_PROJECT/topics/gmail-facturas
-  3. Crear push subscription apuntando a:
-       https://TU_APP.railway.app/gmail/webhook?token=TU_PUBSUB_TOKEN
-  4. Configurar Gmail watch (ver endpoint POST /gmail/webhook/watch)
-
-XML SOPORTADO:
-  - UBL 2.1 Colombia (DIAN) — facturas electrónicas de proveedores
-  - Parsea: proveedor, número factura, fecha, ítems, IVA, totales
+  GMAIL_PUBSUB_TOPIC      → projects/TU_PROJECT/topics/TU_TEMA
+  PUBSUB_TOKEN            → token secreto incluido en la URL del push subscription
 """
 
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
 import os
 import xml.etree.ElementTree as ET
+import zipfile
 from datetime import date, datetime
 from typing import Optional
 
@@ -61,7 +56,6 @@ _NS = {
     "xades":"http://uri.etsi.org/01903/v1.3.2#",
 }
 
-# ── Constantes ────────────────────────────────────────────────────────────────
 GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_API_BASE  = "https://gmail.googleapis.com/gmail/v1"
 
@@ -71,10 +65,6 @@ GMAIL_API_BASE  = "https://gmail.googleapis.com/gmail/v1"
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _get_access_token() -> str:
-    """
-    Refresca el access_token usando las credenciales OAuth2 guardadas en env.
-    .strip() en todas las variables para evitar saltos de línea invisibles.
-    """
     client_id     = (os.getenv("GMAIL_CLIENT_ID")     or "").strip()
     client_secret = (os.getenv("GMAIL_CLIENT_SECRET") or "").strip()
     refresh_token = (os.getenv("GMAIL_REFRESH_TOKEN") or "").strip()
@@ -97,7 +87,43 @@ async def _get_access_token() -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. Gmail API — descargar mensaje y extraer adjuntos XML
+# 2. Extraer XMLs de bytes — directo o desde ZIP
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _extraer_xmls_de_bytes(fname: str, raw_bytes: bytes) -> list[tuple[str, bytes]]:
+    """
+    Dado un archivo (por nombre y bytes), retorna lista de (nombre, xml_bytes).
+    - Si es .xml → lo retorna directamente.
+    - Si es .zip → lo descomprime y extrae todos los .xml que encuentre dentro.
+    - Cualquier otro tipo → retorna lista vacía.
+    """
+    fname_lower = fname.lower()
+
+    # ── XML directo ───────────────────────────────────────────────────────────
+    if fname_lower.endswith(".xml"):
+        return [(fname, raw_bytes)]
+
+    # ── ZIP con XML adentro ───────────────────────────────────────────────────
+    if fname_lower.endswith(".zip") or raw_bytes[:2] == b"PK":
+        resultados = []
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw_bytes)) as zf:
+                for zname in zf.namelist():
+                    if zname.lower().endswith(".xml"):
+                        xml_bytes = zf.read(zname)
+                        resultados.append((zname, xml_bytes))
+                        logger.info("XML extraído del ZIP %s: %s (%d bytes)", fname, zname, len(xml_bytes))
+        except zipfile.BadZipFile:
+            logger.warning("Adjunto %s no es un ZIP válido", fname)
+        except Exception as e:
+            logger.warning("Error descomprimiendo %s: %s", fname, e)
+        return resultados
+
+    return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Gmail API — descargar mensaje y extraer adjuntos
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _get_message_ids_from_history(
@@ -132,6 +158,12 @@ async def _get_xml_attachments(
     token: str,
     user: str,
 ) -> list[tuple[str, bytes]]:
+    """
+    Descarga el mensaje y retorna lista de (filename, xml_bytes).
+    Soporta adjuntos:
+      - .xml directo
+      - .zip que contiene .xml (formato más común de proveedores DIAN)
+    """
     url = f"{GMAIL_API_BASE}/users/{user}/messages/{message_id}"
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.get(
@@ -142,27 +174,31 @@ async def _get_xml_attachments(
         resp.raise_for_status()
         msg = resp.json()
 
-    xml_parts = []
+    # Recolectamos (filename, bytes_o_attachmentId) de partes XML y ZIP
+    candidatos: list[tuple[str, str | bytes]] = []
 
     def _walk_parts(parts: list) -> None:
         for part in parts:
             mime     = part.get("mimeType", "")
-            filename = part.get("filename", "")
+            filename = part.get("filename", "") or ""
             body     = part.get("body", {})
+            fname_l  = filename.lower()
 
-            if (
-                filename.lower().endswith(".xml")
-                or mime in ("application/xml", "text/xml")
-            ):
+            es_xml = fname_l.endswith(".xml") or mime in ("application/xml", "text/xml")
+            es_zip = fname_l.endswith(".zip") or mime in ("application/zip", "application/x-zip-compressed")
+
+            if es_xml or es_zip:
                 data_b64  = body.get("data")
                 attach_id = body.get("attachmentId")
 
                 if data_b64:
-                    xml_bytes = base64.urlsafe_b64decode(data_b64 + "==")
-                    xml_parts.append((filename or "factura.xml", xml_bytes))
+                    raw = base64.urlsafe_b64decode(data_b64 + "==")
+                    candidatos.append((filename or "adjunto", raw))
                 elif attach_id:
-                    xml_parts.append((filename, attach_id))
+                    # adjunto grande — guardamos el ID para descargarlo después
+                    candidatos.append((filename or "adjunto", attach_id))
 
+            # Recursión en multipart
             sub = part.get("parts", [])
             if sub:
                 _walk_parts(sub)
@@ -172,30 +208,36 @@ async def _get_xml_attachments(
     if parts:
         _walk_parts(parts)
     else:
+        # Mensaje simple sin multipart
         body = payload.get("body", {})
         mime = payload.get("mimeType", "")
         if mime in ("application/xml", "text/xml") and body.get("data"):
-            xml_bytes = base64.urlsafe_b64decode(body["data"] + "==")
-            xml_parts.append(("factura.xml", xml_bytes))
+            raw = base64.urlsafe_b64decode(body["data"] + "==")
+            candidatos.append(("factura.xml", raw))
 
-    result = []
+    # Descargar attachmentIds pendientes
+    resultado_final: list[tuple[str, bytes]] = []
+
     async with httpx.AsyncClient(timeout=20) as client:
-        for fname, content in xml_parts:
+        for fname, content in candidatos:
             if isinstance(content, str):
+                # Es un attachmentId — descargamos
                 att_url  = f"{GMAIL_API_BASE}/users/{user}/messages/{message_id}/attachments/{content}"
                 att_resp = await client.get(att_url, headers={"Authorization": f"Bearer {token}"})
                 att_resp.raise_for_status()
-                data_b64  = att_resp.json().get("data", "")
-                xml_bytes = base64.urlsafe_b64decode(data_b64 + "==")
-                result.append((fname, xml_bytes))
+                raw = base64.urlsafe_b64decode(att_resp.json().get("data", "") + "==")
             else:
-                result.append((fname, content))
+                raw = content
 
-    return result
+            # Extraer XMLs (directo o desde ZIP)
+            xmls = _extraer_xmls_de_bytes(fname, raw)
+            resultado_final.extend(xmls)
+
+    return resultado_final
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. Parser XML — Factura Electrónica DIAN (UBL 2.1)
+# 4. Parser XML — Factura Electrónica DIAN (UBL 2.1)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _txt(el: Optional[ET.Element]) -> str:
@@ -287,6 +329,7 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
             "tarifa_iva":      tarifa,
         })
 
+    # Si no hay líneas detalladas, crear una línea resumen con el total
     if not items and total_factura > 0:
         tarifa_principal = 19
         tax_sub = _find("cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:Percent")
@@ -317,7 +360,7 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Registro en compras_fiscal
+# 5. Registro en compras_fiscal
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _ya_procesado(gmail_message_id: str) -> bool:
@@ -359,7 +402,7 @@ def _registrar_factura(
                 item["incluye_iva"],
                 item["tarifa_iva"],
                 factura["numero_factura"],
-                f"Importado automáticamente desde Gmail. NIT proveedor: {factura.get('nit_proveedor','')}",
+                f"Importado automáticamente desde Gmail. NIT proveedor: {factura.get('nit_proveedor', '')}",
                 gmail_message_id,
                 usuario_id,
             )
@@ -374,7 +417,7 @@ def _registrar_factura(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Procesamiento completo de un mensaje
+# 6. Procesamiento completo de un mensaje
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _procesar_mensaje(message_id: str, token: str, user: str) -> dict:
@@ -384,17 +427,17 @@ async def _procesar_mensaje(message_id: str, token: str, user: str) -> dict:
 
     adjuntos = await _get_xml_attachments(message_id, token, user)
     if not adjuntos:
-        logger.info("Mensaje %s sin adjuntos XML — skip", message_id)
+        logger.info("Mensaje %s sin adjuntos XML (ni directo ni en ZIP) — skip", message_id)
         return {"skip": True, "message_id": message_id, "razon": "sin_xml"}
 
     ids_totales = []
     facturas_ok = []
 
     for fname, xml_bytes in adjuntos:
-        logger.info("Procesando adjunto: %s (%d bytes)", fname, len(xml_bytes))
+        logger.info("Procesando XML: %s (%d bytes)", fname, len(xml_bytes))
         factura = parse_ubl_xml(xml_bytes)
         if not factura:
-            logger.warning("Adjunto %s no es una factura UBL válida", fname)
+            logger.warning("XML %s no es una factura UBL válida — skip", fname)
             continue
         ids = _registrar_factura(factura, message_id)
         ids_totales.extend(ids)
@@ -414,7 +457,7 @@ async def _procesar_mensaje(message_id: str, token: str, user: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. Tarea de fondo: proceso + notify
+# 7. Tarea de fondo
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _background_procesar(history_id: str) -> None:
@@ -469,7 +512,7 @@ async def _background_procesar(history_id: str) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. Endpoints
+# 8. Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.post("/gmail/webhook")
