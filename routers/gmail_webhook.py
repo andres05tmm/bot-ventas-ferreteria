@@ -348,7 +348,7 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
 
         incluye_iva = tarifa > 0 and iva_linea > 0
         costo_total = base_linea + iva_linea
-        costo_unit  = round(costo_total / cantidad) if cantidad else costo_total
+        costo_unit  = round(base_linea / cantidad) if cantidad else base_linea
 
         items.append({
             "producto_nombre": producto_nombre[:300],
