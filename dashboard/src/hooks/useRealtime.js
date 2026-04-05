@@ -41,6 +41,10 @@
  *   compra_registrada     → nueva compra de mercancía o fiscal
  *   compra_actualizada    → compra editada
  *   inventario_actualizado → producto creado, editado, precio o stock cambiado
+ *
+ * Evento sintético (solo del hook, no del backend):
+ *   reconnected           → se perdió la conexión y se restableció; hacer re-fetch
+ *                           de todos los datos críticos para cubrir el gap.
  */
 
 import { useEffect, useRef } from 'react'
@@ -60,6 +64,7 @@ export function useRealtime(onEvent) {
     let retryTimer = null
     let retries = 0
     let destroyed = false
+    let isFirstConnect = true
 
     function connect() {
       if (destroyed) return
@@ -81,7 +86,14 @@ export function useRealtime(onEvent) {
       es = new EventSource(url, { withCredentials: true })
 
       es.onopen = () => {
-        retries = 0 // resetear contador de reintentos al conectar exitosamente
+        // Si es una reconexión (no la primera vez), notificar al consumer para
+        // que haga un re-fetch completo y cubra los eventos perdidos durante la
+        // desconexión. La primera conexión no emite este evento.
+        if (!isFirstConnect) {
+          onEventRef.current?.('reconnected', {})
+        }
+        isFirstConnect = false
+        retries = 0
       }
 
       es.onmessage = (e) => {

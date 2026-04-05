@@ -42,6 +42,12 @@ from fastapi.responses import StreamingResponse
 log = logging.getLogger("ferrebot.events")
 router = APIRouter()
 
+# ── Semáforo para notify_all ──────────────────────────────────────────────────
+# Limita a 3 llamadas concurrentes de notify_all() usando el pool de PG.
+# Con maxconn=10, esto reserva 7 conexiones para queries normales y evita
+# que una ráfaga de eventos agote el pool y bloquee el resto de la API.
+_notify_sem = asyncio.Semaphore(3)
+
 # ── Event loop del proceso principal ─────────────────────────────────────────
 _main_loop: asyncio.AbstractEventLoop | None = None
 
@@ -123,10 +129,11 @@ async def notify_all(event_type: str, data: dict | None = None) -> None:
     payload = json.dumps({"type": event_type, "data": data or {}})
 
     try:
-        await _db.execute_async(
-            "SELECT pg_notify('ferrebot_events', %s)",
-            (payload,),
-        )
+        async with _notify_sem:
+            await _db.execute_async(
+                "SELECT pg_notify('ferrebot_events', %s)",
+                (payload,),
+            )
         log.debug("notify_all via pg_notify: %s", event_type)
     except Exception as exc:
         log.warning(
@@ -146,6 +153,11 @@ async def _event_generator(request: Request) -> AsyncGenerator[str, None]:
 
     El heartbeat de 25 s previene que Railway, nginx u otros proxies cierren
     la conexión por inactividad (timeout típico: 30–60 s).
+
+    El ciclo interno usa un timeout de 5 s (en lugar de 25 s) para detectar
+    desconexiones del cliente en hasta 5 s, reduciendo suscriptores fantasma
+    que de otro modo vivirían hasta 25 s después de que el browser se cierre.
+    El heartbeat se emite acumulando esos ciclos de 5 s hasta llegar a 25 s.
     """
     queue: asyncio.Queue = asyncio.Queue(maxsize=50)
     _subscribers.append(queue)
@@ -154,16 +166,25 @@ async def _event_generator(request: Request) -> AsyncGenerator[str, None]:
     try:
         yield ": connected\n\n"
 
+        # Acumula tiempo sin actividad para disparar el heartbeat cada 25 s.
+        idle_seconds = 0
+        HEARTBEAT_INTERVAL = 25
+        POLL_INTERVAL = 5  # cada cuántos segundos se verifica desconexión
+
         while True:
             if await request.is_disconnected():
                 log.debug("SSE client detectado como desconectado — cerrando generator")
                 break
 
             try:
-                payload = await asyncio.wait_for(queue.get(), timeout=25.0)
+                payload = await asyncio.wait_for(queue.get(), timeout=POLL_INTERVAL)
+                idle_seconds = 0
                 yield f"data: {payload}\n\n"
             except asyncio.TimeoutError:
-                yield ": heartbeat\n\n"
+                idle_seconds += POLL_INTERVAL
+                if idle_seconds >= HEARTBEAT_INTERVAL:
+                    idle_seconds = 0
+                    yield ": heartbeat\n\n"
 
     except asyncio.CancelledError:
         log.debug("SSE generator cancelado")
