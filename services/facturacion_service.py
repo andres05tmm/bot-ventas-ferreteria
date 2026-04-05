@@ -537,8 +537,10 @@ async def emitir_factura(venta_id: int) -> dict:
     numero  = f"{MATIAS_PREFIX}{num_dian}"
 
     # ── Obtener token (login automático si expiró) ────────────────────────────
+    # asyncio.to_thread evita bloquear el event loop durante el HTTP de login.
+    import asyncio
     try:
-        token = _get_token()
+        token = await asyncio.to_thread(_get_token)
     except RuntimeError as e:
         return {"ok": False, "error": str(e)}
     except ValueError as e:

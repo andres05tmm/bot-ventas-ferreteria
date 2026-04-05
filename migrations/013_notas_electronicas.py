@@ -60,7 +60,7 @@ def run():
             logger.info("✓ índices adicionales creados")
 
         conn.commit()
-        logger.info("✅ Migración 011 notas electrónicas aplicada correctamente")
+        logger.info("✅ Migración 013 notas electrónicas aplicada correctamente")
 
 
 if __name__ == "__main__":
