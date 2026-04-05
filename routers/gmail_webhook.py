@@ -37,7 +37,6 @@ import base64
 import json
 import logging
 import os
-import re
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from typing import Optional
@@ -74,12 +73,11 @@ GMAIL_API_BASE  = "https://gmail.googleapis.com/gmail/v1"
 async def _get_access_token() -> str:
     """
     Refresca el access_token usando las credenciales OAuth2 guardadas en env.
-    Los access_token de Google expiran en 1 hora; refreshear en cada webhook
-    garantiza que nunca usemos uno vencido sin complejidad extra de caché.
+    .strip() en todas las variables para evitar saltos de línea invisibles.
     """
-    client_id     = os.getenv("GMAIL_CLIENT_ID")
-    client_secret = os.getenv("GMAIL_CLIENT_SECRET")
-    refresh_token = os.getenv("GMAIL_REFRESH_TOKEN")
+    client_id     = (os.getenv("GMAIL_CLIENT_ID")     or "").strip()
+    client_secret = (os.getenv("GMAIL_CLIENT_SECRET") or "").strip()
+    refresh_token = (os.getenv("GMAIL_REFRESH_TOKEN") or "").strip()
 
     if not all([client_id, client_secret, refresh_token]):
         raise RuntimeError(
@@ -107,10 +105,6 @@ async def _get_message_ids_from_history(
     token: str,
     user: str,
 ) -> list[str]:
-    """
-    Usa Gmail history.list para obtener los IDs de mensajes nuevos
-    recibidos desde el historyId notificado por Pub/Sub.
-    """
     url = f"{GMAIL_API_BASE}/users/{user}/history"
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(url, headers={"Authorization": f"Bearer {token}"}, params={
@@ -119,7 +113,6 @@ async def _get_message_ids_from_history(
             "labelId":        "INBOX",
         })
         if resp.status_code == 404:
-            # historyId expirado (>7 días sin watch o primer registro)
             logger.warning("historyId %s expirado — sin mensajes que procesar", history_id)
             return []
         resp.raise_for_status()
@@ -139,11 +132,6 @@ async def _get_xml_attachments(
     token: str,
     user: str,
 ) -> list[tuple[str, bytes]]:
-    """
-    Descarga el mensaje completo y retorna lista de (filename, xml_bytes)
-    para cada adjunto .xml encontrado.
-    También revisa partes inline con content-type application/xml.
-    """
     url = f"{GMAIL_API_BASE}/users/{user}/messages/{message_id}"
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.get(
@@ -158,26 +146,23 @@ async def _get_xml_attachments(
 
     def _walk_parts(parts: list) -> None:
         for part in parts:
-            mime = part.get("mimeType", "")
+            mime     = part.get("mimeType", "")
             filename = part.get("filename", "")
-            body = part.get("body", {})
+            body     = part.get("body", {})
 
-            # Adjunto XML directo
             if (
                 filename.lower().endswith(".xml")
                 or mime in ("application/xml", "text/xml")
             ):
-                data_b64 = body.get("data")
+                data_b64  = body.get("data")
                 attach_id = body.get("attachmentId")
 
                 if data_b64:
                     xml_bytes = base64.urlsafe_b64decode(data_b64 + "==")
                     xml_parts.append((filename or "factura.xml", xml_bytes))
                 elif attach_id:
-                    # El adjunto es grande — descargarlo por separado
-                    xml_parts.append((filename, attach_id))  # pendiente de descarga
+                    xml_parts.append((filename, attach_id))
 
-            # Recursión en multipart
             sub = part.get("parts", [])
             if sub:
                 _walk_parts(sub)
@@ -187,23 +172,20 @@ async def _get_xml_attachments(
     if parts:
         _walk_parts(parts)
     else:
-        # Mensaje simple (no multipart)
         body = payload.get("body", {})
         mime = payload.get("mimeType", "")
         if mime in ("application/xml", "text/xml") and body.get("data"):
             xml_bytes = base64.urlsafe_b64decode(body["data"] + "==")
             xml_parts.append(("factura.xml", xml_bytes))
 
-    # Descargar los adjuntos grandes que solo tenemos el attachmentId
     result = []
     async with httpx.AsyncClient(timeout=20) as client:
         for fname, content in xml_parts:
             if isinstance(content, str):
-                # Es un attachmentId, descargamos
-                att_url = f"{GMAIL_API_BASE}/users/{user}/messages/{message_id}/attachments/{content}"
+                att_url  = f"{GMAIL_API_BASE}/users/{user}/messages/{message_id}/attachments/{content}"
                 att_resp = await client.get(att_url, headers={"Authorization": f"Bearer {token}"})
                 att_resp.raise_for_status()
-                data_b64 = att_resp.json().get("data", "")
+                data_b64  = att_resp.json().get("data", "")
                 xml_bytes = base64.urlsafe_b64decode(data_b64 + "==")
                 result.append((fname, xml_bytes))
             else:
@@ -221,7 +203,6 @@ def _txt(el: Optional[ET.Element]) -> str:
 
 
 def _int_col(val: str) -> int:
-    """Convierte string de monto colombiano a entero (sin decimales)."""
     if not val:
         return 0
     try:
@@ -231,17 +212,7 @@ def _int_col(val: str) -> int:
 
 
 def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
-    """
-    Parsea una factura electrónica DIAN en formato UBL 2.1.
-
-    Retorna un dict con:
-      numero_factura, fecha, proveedor, nit_proveedor,
-      items: [{producto_nombre, cantidad, costo_unitario, costo_total,
-               incluye_iva, tarifa_iva}],
-      total_factura, total_iva, tarifa_iva_principal
-
-    Retorna None si el XML no es una factura UBL válida.
-    """
+    """Parsea una factura electrónica DIAN en formato UBL 2.1."""
     try:
         root = ET.fromstring(xml_bytes)
     except ET.ParseError as e:
@@ -249,7 +220,6 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
         return None
 
     tag = root.tag
-    # Verificar que sea una Invoice UBL
     if "Invoice" not in tag and "invoice" not in tag.lower():
         logger.debug("XML no es una Invoice UBL — tag=%s", tag)
         return None
@@ -260,7 +230,6 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
     def _findall(path: str) -> list[ET.Element]:
         return root.findall(path, _NS)
 
-    # ── Datos de cabecera ─────────────────────────────────────────────────────
     numero_factura = _txt(_find("cbc:ID"))
     fecha_str      = _txt(_find("cbc:IssueDate"))
     try:
@@ -268,73 +237,46 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
     except ValueError:
         fecha = date.today()
 
-    # ── Proveedor ─────────────────────────────────────────────────────────────
-    supplier = _find("cac:AccountingSupplierParty")
-    proveedor = ""
+    supplier      = _find("cac:AccountingSupplierParty")
+    proveedor     = ""
     nit_proveedor = ""
     if supplier:
-        # Nombre comercial o razón social
-        name_el = supplier.find(
-            "cac:Party/cac:PartyName/cbc:Name", _NS
-        ) or supplier.find(
-            "cac:Party/cac:PartyLegalEntity/cbc:RegistrationName", _NS
-        )
+        name_el   = supplier.find("cac:Party/cac:PartyName/cbc:Name", _NS) or \
+                    supplier.find("cac:Party/cac:PartyLegalEntity/cbc:RegistrationName", _NS)
         proveedor = _txt(name_el)
-
-        # NIT/RUT del proveedor
-        nit_el = supplier.find(
-            "cac:Party/cac:PartyIdentification/cbc:ID", _NS
-        ) or supplier.find(
-            "cac:Party/cac:PartyTaxScheme/cbc:CompanyID", _NS
-        )
+        nit_el    = supplier.find("cac:Party/cac:PartyIdentification/cbc:ID", _NS) or \
+                    supplier.find("cac:Party/cac:PartyTaxScheme/cbc:CompanyID", _NS)
         nit_proveedor = _txt(nit_el)
 
-    # ── IVA total de la factura ───────────────────────────────────────────────
-    total_iva_el = _find("cac:TaxTotal/cbc:TaxAmount")
-    total_iva    = _int_col(_txt(total_iva_el))
+    total_iva_el  = _find("cac:TaxTotal/cbc:TaxAmount")
+    total_iva     = _int_col(_txt(total_iva_el))
+    total_el      = _find("cac:LegalMonetaryTotal/cbc:PayableAmount")
+    total_factura = _int_col(_txt(total_el))
 
-    # ── Total a pagar ─────────────────────────────────────────────────────────
-    total_el       = _find("cac:LegalMonetaryTotal/cbc:PayableAmount")
-    total_factura  = _int_col(_txt(total_el))
-
-    # ── Líneas de la factura ──────────────────────────────────────────────────
-    items = []
+    items  = []
     lineas = _findall("cac:InvoiceLine")
 
     for linea in lineas:
-        # Descripción del producto
-        desc_el = (
-            linea.find("cac:Item/cbc:Description", _NS)
-            or linea.find("cac:Item/cac:StandardItemIdentification/cbc:ID", _NS)
-        )
+        desc_el = linea.find("cac:Item/cbc:Description", _NS) or \
+                  linea.find("cac:Item/cac:StandardItemIdentification/cbc:ID", _NS)
         producto_nombre = _txt(desc_el) or "Sin descripción"
 
-        # Cantidad
-        qty_el  = linea.find("cbc:InvoicedQuantity", _NS)
+        qty_el = linea.find("cbc:InvoicedQuantity", _NS)
         try:
             cantidad = float(_txt(qty_el) or "1")
         except ValueError:
             cantidad = 1.0
 
-        # Monto de la línea sin IVA
         ext_el       = linea.find("cbc:LineExtensionAmount", _NS)
         base_linea   = _int_col(_txt(ext_el))
-
-        # IVA de la línea
         iva_linea_el = linea.find("cac:TaxTotal/cbc:TaxAmount", _NS)
         iva_linea    = _int_col(_txt(iva_linea_el))
-
-        # Tarifa IVA (porcentaje)
-        pct_el   = linea.find(
-            "cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:Percent", _NS
-        )
-        tarifa   = _int_col(_txt(pct_el)) if pct_el is not None else 0
+        pct_el       = linea.find("cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:Percent", _NS)
+        tarifa       = _int_col(_txt(pct_el)) if pct_el is not None else 0
 
         incluye_iva = tarifa > 0 and iva_linea > 0
-
-        # Costo total de la línea (con IVA si aplica)
-        costo_total  = base_linea + iva_linea
-        costo_unit   = round(costo_total / cantidad) if cantidad else costo_total
+        costo_total = base_linea + iva_linea
+        costo_unit  = round(costo_total / cantidad) if cantidad else costo_total
 
         items.append({
             "producto_nombre": producto_nombre[:300],
@@ -345,16 +287,14 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
             "tarifa_iva":      tarifa,
         })
 
-    # Si no hay líneas detalladas, crear una línea resumen
     if not items and total_factura > 0:
-        tarifa_principal = 19  # tarifa estándar Colombia
+        tarifa_principal = 19
         tax_sub = _find("cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:Percent")
         if tax_sub is not None:
             try:
                 tarifa_principal = int(float(_txt(tax_sub)))
             except ValueError:
                 pass
-
         items.append({
             "producto_nombre": f"Factura {numero_factura} — {proveedor}",
             "cantidad":        1.0,
@@ -364,17 +304,15 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
             "tarifa_iva":      tarifa_principal if total_iva > 0 else 0,
         })
 
-    tarifa_iva_principal = items[0]["tarifa_iva"] if items else 0
-
     return {
-        "numero_factura":    numero_factura,
-        "fecha":             fecha,
-        "proveedor":         proveedor[:200] if proveedor else "Sin proveedor",
-        "nit_proveedor":     nit_proveedor,
-        "items":             items,
-        "total_factura":     total_factura,
-        "total_iva":         total_iva,
-        "tarifa_iva_principal": tarifa_iva_principal,
+        "numero_factura":       numero_factura,
+        "fecha":                fecha,
+        "proveedor":            proveedor[:200] if proveedor else "Sin proveedor",
+        "nit_proveedor":        nit_proveedor,
+        "items":                items,
+        "total_factura":        total_factura,
+        "total_iva":            total_iva,
+        "tarifa_iva_principal": items[0]["tarifa_iva"] if items else 0,
     }
 
 
@@ -383,7 +321,6 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _ya_procesado(gmail_message_id: str) -> bool:
-    """Verifica si ya registramos este email (idempotencia)."""
     row = _db.query_one(
         "SELECT id FROM compras_fiscal WHERE gmail_message_id = %s LIMIT 1",
         (gmail_message_id,)
@@ -396,13 +333,7 @@ def _registrar_factura(
     gmail_message_id: str,
     usuario_id: Optional[int] = None,
 ) -> list[int]:
-    """
-    Inserta cada ítem de la factura en compras_fiscal.
-    Retorna lista de IDs creados.
-    """
     ids_creados = []
-    fecha = factura["fecha"]
-
     for item in factura["items"]:
         row = _db.query_one(
             """
@@ -414,17 +345,12 @@ def _registrar_factura(
                 gmail_message_id, usuario_id,
                 created_at, updated_at
             ) VALUES (
-                %s, %s, %s,
-                %s, %s, %s,
-                %s, %s,
-                %s, %s,
-                %s, %s,
-                NOW(), NOW()
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
             )
             RETURNING id
             """,
             (
-                fecha,
+                factura["fecha"],
                 factura["proveedor"],
                 item["producto_nombre"],
                 item["cantidad"],
@@ -444,7 +370,6 @@ def _registrar_factura(
                 "compras_fiscal #%s creado: %s — %s",
                 row["id"], factura["numero_factura"], item["producto_nombre"]
             )
-
     return ids_creados
 
 
@@ -453,16 +378,10 @@ def _registrar_factura(
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _procesar_mensaje(message_id: str, token: str, user: str) -> dict:
-    """
-    Descarga, parsea y registra un mensaje de Gmail.
-    Retorna un dict con el resultado del procesamiento.
-    """
-    # Idempotencia: skip si ya procesamos este mensaje
     if _ya_procesado(message_id):
         logger.info("Mensaje %s ya procesado — skip", message_id)
         return {"skip": True, "message_id": message_id}
 
-    # Descargar adjuntos XML
     adjuntos = await _get_xml_attachments(message_id, token, user)
     if not adjuntos:
         logger.info("Mensaje %s sin adjuntos XML — skip", message_id)
@@ -474,25 +393,23 @@ async def _procesar_mensaje(message_id: str, token: str, user: str) -> dict:
     for fname, xml_bytes in adjuntos:
         logger.info("Procesando adjunto: %s (%d bytes)", fname, len(xml_bytes))
         factura = parse_ubl_xml(xml_bytes)
-
         if not factura:
             logger.warning("Adjunto %s no es una factura UBL válida", fname)
             continue
-
         ids = _registrar_factura(factura, message_id)
         ids_totales.extend(ids)
         facturas_ok.append({
-            "numero":   factura["numero_factura"],
+            "numero":    factura["numero_factura"],
             "proveedor": factura["proveedor"],
-            "total":    factura["total_factura"],
-            "items":    len(ids),
+            "total":     factura["total_factura"],
+            "items":     len(ids),
         })
 
     return {
-        "skip":          False,
-        "message_id":    message_id,
-        "facturas":      facturas_ok,
-        "registros_db":  ids_totales,
+        "skip":         False,
+        "message_id":   message_id,
+        "facturas":     facturas_ok,
+        "registros_db": ids_totales,
     }
 
 
@@ -501,15 +418,11 @@ async def _procesar_mensaje(message_id: str, token: str, user: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _background_procesar(history_id: str) -> None:
-    """
-    Tarea de fondo que corre después de responder 200 a Pub/Sub.
-    Pub/Sub requiere respuesta en < 10 s; el procesamiento puede tardar más.
-    """
     if not _db.DB_DISPONIBLE:
         logger.error("DB no disponible — no se pueden registrar facturas")
         return
 
-    gmail_user = os.getenv("GMAIL_USER", "me")
+    gmail_user = (os.getenv("GMAIL_USER") or "me").strip()
 
     try:
         token = await _get_access_token()
@@ -527,7 +440,7 @@ async def _background_procesar(history_id: str) -> None:
         logger.debug("historyId %s sin mensajes nuevos en INBOX", history_id)
         return
 
-    total_registros = 0
+    total_registros     = 0
     facturas_importadas = []
 
     for mid in message_ids:
@@ -539,14 +452,13 @@ async def _background_procesar(history_id: str) -> None:
         except Exception as e:
             logger.error("Error procesando mensaje %s: %s", mid, e, exc_info=True)
 
-    # Notificar dashboard si se registraron facturas nuevas
     if facturas_importadas:
         try:
             await notify_all("compra_fiscal_importada", {
-                "fuente":       "gmail",
-                "facturas":     facturas_importadas,
-                "total_items":  total_registros,
-                "timestamp":    datetime.now().isoformat(),
+                "fuente":      "gmail",
+                "facturas":    facturas_importadas,
+                "total_items": total_registros,
+                "timestamp":   datetime.now().isoformat(),
             })
             logger.info(
                 "✅ %d factura(s) importadas desde Gmail (%d ítems en compras_fiscal)",
@@ -566,40 +478,25 @@ async def gmail_pubsub_webhook(
     background_tasks: BackgroundTasks,
     token: str = Query(..., description="Token secreto configurado en PUBSUB_TOKEN"),
 ):
-    """
-    Recibe notificaciones push de Google Pub/Sub cuando llega un email nuevo.
-
-    Google envía:
-      POST /gmail/webhook?token=TU_TOKEN
-      Authorization: Bearer <jwt-de-google>
-      Body: { "message": { "data": "<base64>", "messageId": "..." }, "subscription": "..." }
-
-    El `data` decodificado contiene: { "emailAddress": "...", "historyId": "123" }
-
-    Respondemos 200 inmediatamente (Pub/Sub reintenta si no recibe 2xx en < 10 s).
-    El procesamiento real ocurre en background_tasks.
-    """
-    # ── Verificar token secreto ───────────────────────────────────────────────
-    pubsub_token = os.getenv("PUBSUB_TOKEN")
+    """Recibe notificaciones push de Google Pub/Sub cuando llega un email nuevo."""
+    pubsub_token = (os.getenv("PUBSUB_TOKEN") or "").strip()
     if not pubsub_token or token != pubsub_token:
         logger.warning("Webhook recibido con token inválido: %s", token[:8] if token else "—")
         raise HTTPException(status_code=403, detail="Token inválido")
 
-    # ── Parsear body Pub/Sub ──────────────────────────────────────────────────
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Body inválido — se esperaba JSON")
 
-    message = body.get("message", {})
+    message  = body.get("message", {})
     data_b64 = message.get("data", "")
 
     if not data_b64:
-        logger.warning("Webhook sin data en message — ignorado")
         return {"ok": True, "skip": "sin_data"}
 
     try:
-        data_json = json.loads(base64.urlsafe_b64decode(data_b64 + "==").decode())
+        data_json  = json.loads(base64.urlsafe_b64decode(data_b64 + "==").decode())
         history_id = str(data_json.get("historyId", ""))
     except Exception as e:
         logger.warning("Error decodificando data Pub/Sub: %s", e)
@@ -609,29 +506,18 @@ async def gmail_pubsub_webhook(
         return {"ok": True, "skip": "sin_historyId"}
 
     logger.info("📬 Webhook Pub/Sub recibido — historyId=%s", history_id)
-
-    # ── Procesar en background (respondemos 200 de inmediato) ─────────────────
     background_tasks.add_task(_background_procesar, history_id)
-
     return {"ok": True, "historyId": history_id}
 
 
 @router.post("/gmail/webhook/watch")
-async def gmail_watch_setup(
-    current_user=None,  # opcional: quitar Depends si se llama una sola vez manual
-):
+async def gmail_watch_setup():
     """
     Configura (o renueva) el Gmail watch para recibir notificaciones Pub/Sub.
-
-    Gmail watch expira cada 7 días — llamar este endpoint semanalmente
-    (o configurar un cron en Railway).
-
-    Requiere que el tema Pub/Sub tenga permisos para gmail-api-push@system.gserviceaccount.com.
-
-    Responde con el historyId y fecha de expiración del watch.
+    Gmail watch expira cada 7 días — llamar este endpoint semanalmente.
     """
-    pubsub_topic = os.getenv("GMAIL_PUBSUB_TOPIC")
-    gmail_user   = os.getenv("GMAIL_USER", "me")
+    pubsub_topic = (os.getenv("GMAIL_PUBSUB_TOPIC") or "").strip()
+    gmail_user   = (os.getenv("GMAIL_USER") or "me").strip()
 
     if not pubsub_topic:
         raise HTTPException(
@@ -649,10 +535,7 @@ async def gmail_watch_setup(
         resp = await client.post(
             url,
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={
-                "labelIds":  ["INBOX"],
-                "topicName": pubsub_topic,
-            }
+            json={"labelIds": ["INBOX"], "topicName": pubsub_topic},
         )
         try:
             resp.raise_for_status()
@@ -661,51 +544,45 @@ async def gmail_watch_setup(
                 status_code=502,
                 detail=f"Gmail API error {e.response.status_code}: {e.response.text}"
             )
-
         data = resp.json()
 
     expire_dt = None
     if "expiration" in data:
         try:
-            expire_ms = int(data["expiration"])
-            expire_dt = datetime.fromtimestamp(expire_ms / 1000).isoformat()
+            expire_dt = datetime.fromtimestamp(int(data["expiration"]) / 1000).isoformat()
         except Exception:
             pass
 
     logger.info("✅ Gmail watch configurado — historyId=%s, expira=%s", data.get("historyId"), expire_dt)
     return {
-        "ok":         True,
-        "historyId":  data.get("historyId"),
-        "expira":     expire_dt,
-        "topic":      pubsub_topic,
-        "nota":       "El watch expira en ~7 días. Renuévalo antes con POST /gmail/webhook/watch",
+        "ok":        True,
+        "historyId": data.get("historyId"),
+        "expira":    expire_dt,
+        "topic":     pubsub_topic,
+        "nota":      "El watch expira en ~7 días. Renuévalo con POST /gmail/webhook/watch",
     }
 
 
 @router.get("/gmail/webhook/status")
 async def gmail_webhook_status():
-    """
-    Estado del webhook: cuántas facturas fueron importadas desde Gmail.
-    Útil para verificar que la integración funciona.
-    """
+    """Estado del webhook: cuántas facturas fueron importadas desde Gmail."""
     if not _db.DB_DISPONIBLE:
         raise HTTPException(status_code=503, detail="DB no disponible")
 
     fila = _db.query_one(
         """
         SELECT
-            COUNT(*)                                   AS total_items,
-            COUNT(DISTINCT gmail_message_id)           AS total_emails,
-            COUNT(DISTINCT numero_factura)             AS total_facturas,
-            MAX(created_at)::text                      AS ultima_importacion,
-            SUM(costo_total)                           AS monto_total
+            COUNT(*)                         AS total_items,
+            COUNT(DISTINCT gmail_message_id) AS total_emails,
+            COUNT(DISTINCT numero_factura)   AS total_facturas,
+            MAX(created_at)::text            AS ultima_importacion,
+            SUM(costo_total)                 AS monto_total
         FROM compras_fiscal
         WHERE gmail_message_id IS NOT NULL
         """
     )
     return {
-        "ok":                True,
-        "importaciones":     dict(fila) if fila else {},
-        "webhook_url_base":  "/gmail/webhook",
-        "watch_url":         "/gmail/webhook/watch",
+        "ok":            True,
+        "importaciones": dict(fila) if fila else {},
+        "watch_url":     "/gmail/webhook/watch",
     }
