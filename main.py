@@ -33,7 +33,11 @@ from handlers.mensajes import manejar_mensaje, manejar_audio, manejar_documento,
 from handlers.callbacks import manejar_metodo_pago, manejar_callback_cliente, manejar_callback_foto
 from handlers.productos import comando_productos, manejar_callback_productos
 from keepalive import loop_keepalive
-from handlers.cmd_facturacion import comando_factura_electronica 
+from handlers.cmd_facturacion import (
+    comando_factura_electronica,
+    comando_nota_credito,
+    comando_estado_factura,
+)
 
 
 def build_app() -> Application:
@@ -68,6 +72,8 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("borrar_factura", comando_borrar_factura))
     app.add_handler(CommandHandler("facturas",       comando_facturas))
     app.add_handler(CommandHandler("factura_electronica", comando_factura_electronica))
+    app.add_handler(CommandHandler("nota_credito",        comando_nota_credito))
+    app.add_handler(CommandHandler("estado_factura",      comando_estado_factura))
     app.add_handler(CommandHandler("clientes",      comando_clientes))
     app.add_handler(CommandHandler("nuevo_cliente", comando_nuevo_cliente))
     app.add_handler(CommandHandler("grafica",    comando_grafica))

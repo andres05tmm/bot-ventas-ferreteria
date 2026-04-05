@@ -46,6 +46,48 @@ _MEDIOS_PAGO = {
     "datafono":      48,
 }
 
+# ── Mapa de unidades internas → quantity_units_id de MATIAS API ───────────────
+# MATIAS API usa IDs numéricos propios (NO códigos UNECE como string).
+# IDs verificados con GET /quantity-units (endpoint público):
+#   id:70  code:"94"  → "unidad"           ← "70" del código original era correcto
+#   id:686 code:"GLL" → "galón"
+#   id:767 code:"KGM" → "kilogramo"
+#   id:692 code:"GRM" → "gramo"
+#   id:821 code:"LTR" → "litro"
+#   id:852 code:"MLT" → "mililitro"
+#   id:865 code:"MTR" → "metro"
+#   id:495 code:"CMT" → "centímetro"
+# Los valores internos vienen de _UNIDAD_MAP en routers/catalogo.py.
+_UNIDAD_DIAN: dict[str, str] = {
+    # unidad genérica (default)
+    "Unidad":  "70",
+    "unidad":  "70",
+    # galón (US — pinturas, solventes, impermeabilizantes)
+    "Galón":   "686",
+    "galon":   "686",
+    "Gal":     "686",
+    # kilogramo (puntillas a granel, materiales por peso)
+    "Kg":      "767",
+    "kg":      "767",
+    # gramo (tintes, pigmentos)
+    "GRM":     "692",
+    "gramo":   "692",
+    # metro lineal (cables, mangueras, tubería, perfilería)
+    "Mts":     "865",
+    "Mt":      "865",
+    "metro":   "865",
+    # centímetro
+    "Cms":     "495",
+    "Cm":      "495",
+    # litro
+    "Lt":      "821",
+    "Lts":     "821",
+    "litro":   "821",
+    # mililitro (tintes en cc/ml)
+    "MLT":     "852",
+    "ml":      "852",
+}
+
 # ── Caché de ciudades MATIAS API (dane_code → matias_id interno) ──────────────
 #
 # IMPORTANTE: MATIAS API usa sus propios IDs secuenciales internos para ciudades,
@@ -283,8 +325,10 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     )
 
     # ── Totales ───────────────────────────────────────────────────────────────
-    subtotal  = sum(int(d.get("total") or 0) for d in detalle)
-    total_iva = sum(
+    subtotal          = sum(int(d.get("total") or 0) for d in detalle)
+    # subtotal_gravable: solo ítems con IVA (base imponible real para la DIAN)
+    subtotal_gravable = sum(int(d.get("total") or 0) for d in detalle if d.get("tiene_iva"))
+    total_iva         = sum(
         int(int(d.get("total") or 0) * int(d.get("porcentaje_iva") or 0) / 100)
         for d in detalle if d.get("tiene_iva")
     )
@@ -295,16 +339,55 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     # Se resuelve dinámicamente vía _matias_city_id(). Si no se puede resolver
     # (Consumidor Final, cliente sin municipio_dian), se omite del payload para
     # evitar el error: "El campo customer.city_id no existe en la tabla cities".
+    #
+    # identity_document_id — IDs internos de MATIAS API.
+    # Verificados con GET /identity-documents (endpoint público):
+    #   id:1=CC  id:2=CE  id:3=NIT  id:6=RC  id:7=TI  id:8=TE
+    #   id:9=PA/PPN  id:10=DE  id:11=NIT extranjero  id:12=NUIP
+    #   id:13=PPT  id:14=PEP  id:15=SC  id:20=CD
+    # ⚠️ Bug histórico: el código anterior usaba "3" para CC y "6" para NIT,
+    #    pero id:3=NIT y id:6=Registro Civil. Corregido con los IDs reales.
+    _TIPO_ID_MATIAS = {
+        "CC":   "1",   # Cédula de Ciudadanía
+        "CE":   "2",   # Cédula de Extranjería
+        "NIT":  "3",   # NIT
+        "RC":   "6",   # Registro Civil de Nacimiento
+        "TI":   "7",   # Tarjeta de Identidad
+        "TE":   "8",   # Tarjeta de Extranjería
+        "PA":   "9",   # Pasaporte
+        "PPN":  "9",   # Pasaporte (alias)
+        "DE":   "10",  # Documento de identificación extranjero
+        "NITE": "11",  # NIT de otro país
+        "NUIP": "12",  # NUIP
+        "PPT":  "13",  # Permiso Protección Temporal
+        "PEP":  "14",  # Permiso Especial de Permanencia
+        "SC":   "15",  # Salvoconducto
+        "CD":   "20",  # Carné Diplomático
+    }
+    tipo_id_raw     = (venta.get("tipo_id") or "CC").upper().strip()
+    identity_doc_id = _TIPO_ID_MATIAS.get(tipo_id_raw, "1")   # fallback → CC
+
+    # ── send_email: 1 solo si hay correo real del cliente ─────────────────────
+    # Para Consumidor Final o sin correo, poner email genérico de la empresa
+    # emisora y enviar send_email=0 (MATIAS API no intenta enviar ese correo).
+    # El PDF llega al grupo de Telegram en ese caso (ver lógica en emitir_factura).
+    tiene_correo_real = not _sin_correo_real(venta.get("correo_cliente"))
+    email_payload     = (
+        venta.get("correo_cliente")
+        if tiene_correo_real
+        else _EMAIL_PLACEHOLDER
+    )
+
     customer = {
         "country_id":            "45",
-        "identity_document_id":  "6" if es_nit else "3",
+        "identity_document_id":  identity_doc_id,
         "type_organization_id":  1   if es_nit else 2,
         "tax_regime_id":         1   if es_nit else 2,
         "tax_level_id":          1   if es_nit else 5,
         "company_name":          (venta.get("cliente_nombre") or "CONSUMIDOR FINAL").upper(),
         "dni":                   venta.get("identificacion_cliente") or "222222222222",
         "mobile":                venta.get("telefono_cliente")       or "3000000000",
-        "email":                 venta.get("correo_cliente")         or "sinfactura@ferreteriapuntorojo.com",
+        "email":                 email_payload,
         "address":               venta.get("direccion_cliente")      or "Cartagena",
     }
     # Agregar city_id solo si se puede resolver el ID interno de MATIAS API
@@ -327,9 +410,16 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         pct_iva   = int(item.get("porcentaje_iva") or 0)
         iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else "0.00"
 
+        # Resolver quantity_units_id desde unidad_medida del ítem.
+        # ventas_detalle.unidad_medida se pobla al registrar la venta con el
+        # valor del catálogo (Galón, Kg, GRM, MLT, Mts, etc.).
+        # Fallback "70" = Unidad si no se reconoce el valor.
+        unidad_raw     = (item.get("unidad_medida") or "Unidad").strip()
+        qty_units_id   = _UNIDAD_DIAN.get(unidad_raw, _UNIDAD_DIAN.get(unidad_raw.lower(), "70"))
+
         lines.append({
             "invoiced_quantity":            cantidad,
-            "quantity_units_id":            "70",
+            "quantity_units_id":            qty_units_id,
             "line_extension_amount":        total_l,
             "free_of_charge_indicator":     False,
             "description":                  (item.get("producto_nombre") or "Producto").upper(),
@@ -347,10 +437,12 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         })
 
     # ── Tax totals a nivel documento ──────────────────────────────────────────
+    # taxable_amount = solo la base gravable (ítems con IVA), no el subtotal total.
+    # Régimen simple: todos los productos con IVA están al 19% → un único entry.
     doc_tax_totals = [{
         "tax_id":         "1" if total_iva > 0 else "4",
         "tax_amount":     _fmt(total_iva),
-        "taxable_amount": _fmt(subtotal) if total_iva > 0 else "0.00",
+        "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else "0.00",
         "percent":        "19.00" if total_iva > 0 else "0.00",
     }]
 
@@ -365,6 +457,10 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "payable_amount":         _fmt(total_doc),
     }
 
+    # payment_method_id: 1=contado, 2=crédito (fiado)
+    es_fiado           = bool(venta.get("es_fiado") or venta.get("fiado"))
+    payment_method_id  = 2 if es_fiado else 1
+
     return {
         "resolution_number":      MATIAS_RESOLUTION,
         "prefix":                 MATIAS_PREFIX,
@@ -373,13 +469,14 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "time":                   ahora.strftime("%H:%M:%S"),
         "type_document_id":       7,   # 7 = Factura de Venta en MATIAS API (ID interno, ≠ código DIAN "01")
         "operation_type_id":      1,
-        "graphic_representation": True,
-        "send_email":             True,
+        "notes":                  venta.get("notas") or "Ferretería Punto Rojo",
+        "graphic_representation": 1,   # MATIAS API espera entero, no booleano
+        "send_email":             1 if tiene_correo_real else 0,
         "customer":               customer,
         "tax_totals":             doc_tax_totals,
         "legal_monetary_totals":  legal_monetary_totals,
         "payments": [{
-            "payment_method_id": 1,
+            "payment_method_id": payment_method_id,
             "means_payment_id":  medio_id,
             "value_paid":        _fmt(total_doc),
         }],
@@ -560,3 +657,500 @@ async def obtener_pdf(cufe: str) -> bytes:
         raise RuntimeError(f"MATIAS API ({resp.status_code}): {msg}")
 
     return resp.content
+
+
+# ── GET /status — Estado DIAN de un documento ─────────────────────────────────
+
+async def consultar_estado_dian(numero: str, prefix: str | None = None) -> dict:
+    """
+    Consulta el estado de validación DIAN de un documento emitido.
+    Endpoint: GET /status?number={numero}&prefix={prefix}
+
+    Retorna el JSON de MATIAS API con campos como:
+        is_valid, status_description, StatusCode, StatusDescription, etc.
+    """
+    import asyncio
+    token = await asyncio.to_thread(_get_token)
+    params: dict = {"number": numero}
+    if prefix:
+        params["prefix"] = prefix
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            f"{MATIAS_API_URL}/status",
+            params=params,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
+
+    try:
+        data = resp.json()
+    except Exception:
+        raise RuntimeError(f"MATIAS API /status devolvió respuesta no JSON (HTTP {resp.status_code})")
+
+    if resp.status_code not in (200, 201):
+        msg = data.get("message") or str(data)
+        raise RuntimeError(f"MATIAS API /status ({resp.status_code}): {msg}")
+
+    logger.info("Estado DIAN doc %s: %s", numero, data.get("StatusDescription") or data.get("status_description"))
+    return data
+
+
+# ── GET /documents/last — Último número emitido ───────────────────────────────
+
+async def obtener_ultimo_documento(
+    resolution: str | None = None, prefix: str | None = None
+) -> dict:
+    """
+    Obtiene el último número de documento emitido en MATIAS API para sincronizar
+    contadores locales y detectar desfases con la DIAN.
+    Endpoint: GET /documents/last?resolution={resolution}&prefix={prefix}
+    """
+    import asyncio
+    token = await asyncio.to_thread(_get_token)
+    params: dict = {}
+    if resolution:
+        params["resolution"] = resolution
+    elif MATIAS_RESOLUTION:
+        params["resolution"] = MATIAS_RESOLUTION
+    if prefix:
+        params["prefix"] = prefix
+    elif MATIAS_PREFIX:
+        params["prefix"] = MATIAS_PREFIX
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            f"{MATIAS_API_URL}/documents/last",
+            params=params,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
+
+    try:
+        data = resp.json()
+    except Exception:
+        raise RuntimeError(f"MATIAS API /documents/last devolvió respuesta no JSON (HTTP {resp.status_code})")
+
+    if resp.status_code not in (200, 201):
+        msg = data.get("message") or str(data)
+        raise RuntimeError(f"MATIAS API /documents/last ({resp.status_code}): {msg}")
+
+    logger.info("Último documento MATIAS API: %s", data)
+    return data
+
+
+# ── GET /acquirer — Validar adquirente en RUT/DIAN ───────────────────────────
+
+async def consultar_adquirente(
+    tipo_id: str, numero_identificacion: str
+) -> dict:
+    """
+    Valida los datos de un cliente en el RUT/DIAN antes de emitir factura.
+    Endpoint: GET /acquirer?identificationType={tipo}&identificationNumber={numero}
+
+    tipo_id: código interno MATIAS API (CC=1, NIT=3, etc.) — acepta tanto
+             el código string ("CC", "NIT") como el ID numérico ("1", "3").
+
+    Retorna dict con datos del adquirente según DIAN:
+        razón social, dirección, municipio, régimen, etc.
+    """
+    import asyncio
+    _TIPO_LOOKUP: dict[str, str] = {
+        "CC": "1", "CE": "2", "NIT": "3", "RC": "6", "TI": "7",
+        "TE": "8", "PA": "9", "PPN": "9", "DE": "10", "NITE": "11",
+        "NUIP": "12", "PPT": "13", "PEP": "14", "SC": "15", "CD": "20",
+    }
+    tipo_normalizado = _TIPO_LOOKUP.get(tipo_id.upper(), tipo_id)
+
+    token = await asyncio.to_thread(_get_token)
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            f"{MATIAS_API_URL}/acquirer",
+            params={
+                "identificationType":   tipo_normalizado,
+                "identificationNumber": numero_identificacion,
+            },
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
+
+    try:
+        data = resp.json()
+    except Exception:
+        raise RuntimeError(f"MATIAS API /acquirer devolvió respuesta no JSON (HTTP {resp.status_code})")
+
+    if resp.status_code not in (200, 201):
+        msg = data.get("message") or str(data)
+        raise RuntimeError(f"MATIAS API /acquirer ({resp.status_code}): {msg}")
+
+    logger.info(
+        "Adquirente validado — %s %s: %s",
+        tipo_id, numero_identificacion,
+        data.get("company_name") or data.get("names") or "OK",
+    )
+    return data
+
+
+# ── POST /documents/sendmail/{trackId} — Reenviar correo al cliente ───────────
+
+async def reenviar_correo_factura(track_id: str) -> dict:
+    """
+    Reenvía el PDF de una factura al correo del cliente registrado en MATIAS API.
+    Endpoint: POST /documents/sendmail/{trackId}
+
+    Útil cuando el primer envío falló o el cliente solicita reenvío.
+    Retorna dict con confirmación de envío.
+    """
+    import asyncio
+    token = await asyncio.to_thread(_get_token)
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(
+            f"{MATIAS_API_URL}/documents/sendmail/{track_id}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept":        "application/json",
+                "Content-Type":  "application/json",
+            },
+        )
+
+    try:
+        data = resp.json()
+    except Exception:
+        raise RuntimeError(f"MATIAS API /documents/sendmail devolvió respuesta no JSON (HTTP {resp.status_code})")
+
+    if resp.status_code not in (200, 201):
+        msg = data.get("message") or str(data)
+        raise RuntimeError(f"MATIAS API /documents/sendmail ({resp.status_code}): {msg}")
+
+    logger.info("📧 Correo de factura reenviado — trackId: %s…", track_id[:20])
+    return data
+
+
+# ── POST /notes/credit — Nota Crédito ─────────────────────────────────────────
+
+# Razones de discrepancia DIAN para nota crédito (discrepancy_response_id)
+RAZONES_NC = {
+    1: "Devolución parcial de los bienes",
+    2: "Anulación de factura",
+    3: "Rebaja o descuento parcial",
+    4: "Ajuste de precio",
+    5: "Otro",
+}
+
+
+async def emitir_nota_credito(
+    factura_cufe: str,
+    factura_numero: str,
+    factura_fecha: str,
+    razon_id: int,
+    venta_id: int,
+    lineas_devueltas: list[dict],
+) -> dict:
+    """
+    Emite una nota crédito DIAN para anular/corregir una factura emitida.
+    Endpoint: POST /notes/credit
+
+    Args:
+        factura_cufe    — CUFE de la factura original
+        factura_numero  — Número de la factura original (ej: "LZT5280")
+        factura_fecha   — Fecha de la factura original (YYYY-MM-DD)
+        razon_id        — ID de razón DIAN (1=devolución, 2=anulación, 3=descuento,
+                          4=ajuste precio, 5=otro)
+        venta_id        — ID interno de la venta (para trazar en la DB)
+        lineas_devueltas — Lista de ítems que se devuelven/corrigen. Mismo formato
+                           que ventas_detalle (producto_nombre, cantidad, precio_unitario,
+                           total, tiene_iva, porcentaje_iva, unidad_medida).
+    """
+    if not MATIAS_EMAIL or not MATIAS_PASSWORD:
+        return {"ok": False, "error": "MATIAS_EMAIL/MATIAS_PASSWORD no configurados"}
+
+    ahora    = datetime.now(COLOMBIA_TZ)
+    subtotal = sum(int(d.get("total") or 0) for d in lineas_devueltas)
+    subtotal_gravable = sum(
+        int(d.get("total") or 0) for d in lineas_devueltas if d.get("tiene_iva")
+    )
+    total_iva = sum(
+        int(int(d.get("total") or 0) * int(d.get("porcentaje_iva") or 0) / 100)
+        for d in lineas_devueltas if d.get("tiene_iva")
+    )
+    total_doc = subtotal + total_iva
+
+    lines = []
+    for item in lineas_devueltas:
+        precio_u  = _fmt(item.get("precio_unitario") or 0)
+        cantidad  = str(float(item.get("cantidad") or 1))
+        total_l   = _fmt(item.get("total") or 0)
+        tiene_iva = bool(item.get("tiene_iva"))
+        pct_iva   = int(item.get("porcentaje_iva") or 0)
+        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else "0.00"
+        unidad_raw   = (item.get("unidad_medida") or "Unidad").strip()
+        qty_units_id = _UNIDAD_DIAN.get(unidad_raw, _UNIDAD_DIAN.get(unidad_raw.lower(), "70"))
+
+        lines.append({
+            "invoiced_quantity":            cantidad,
+            "quantity_units_id":            qty_units_id,
+            "line_extension_amount":        total_l,
+            "free_of_charge_indicator":     False,
+            "description":                  (item.get("producto_nombre") or "Devolución").upper(),
+            "code":                         str(item.get("producto_id") or "SC"),
+            "type_item_identifications_id": "4",
+            "reference_price_id":           "1",
+            "price_amount":                 precio_u,
+            "base_quantity":                cantidad,
+            "tax_totals": [{
+                "tax_id":         "1" if tiene_iva else "4",
+                "tax_amount":     iva_val,
+                "taxable_amount": total_l if tiene_iva else "0.00",
+                "percent":        _fmt(pct_iva),
+            }],
+        })
+
+    payload = {
+        "type_document_id":       5,   # 5 = Nota Crédito en MATIAS API
+        "date":                   ahora.strftime("%Y-%m-%d"),
+        "time":                   ahora.strftime("%H:%M:%S"),
+        "notes":                  RAZONES_NC.get(razon_id, "Nota crédito"),
+        "graphic_representation": 1,
+        "send_email":             0,
+        "discrepancy_response": {
+            "discrepancy_response_id": razon_id,
+            "description":             RAZONES_NC.get(razon_id, "Otro"),
+        },
+        "billing_reference": {
+            "number": factura_numero,
+            "uuid":   factura_cufe,
+            "date":   factura_fecha,
+        },
+        "tax_totals": [{
+            "tax_id":         "1" if total_iva > 0 else "4",
+            "tax_amount":     _fmt(total_iva),
+            "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else "0.00",
+            "percent":        "19.00" if total_iva > 0 else "0.00",
+        }],
+        "legal_monetary_totals": {
+            "line_extension_amount":  _fmt(subtotal),
+            "tax_exclusive_amount":   _fmt(subtotal),
+            "tax_inclusive_amount":   _fmt(total_doc),
+            "allowance_total_amount": "0.00",
+            "charge_total_amount":    "0.00",
+            "pre_paid_amount":        "0.00",
+            "payable_amount":         _fmt(total_doc),
+        },
+        "lines": lines,
+    }
+
+    import asyncio
+    try:
+        token = await asyncio.to_thread(_get_token)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type":  "application/json",
+        "Accept":        "application/json",
+    }
+
+    logger.debug("Payload nota crédito venta %s: %s", venta_id, payload)
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(f"{MATIAS_API_URL}/notes/credit", json=payload, headers=headers)
+        data = resp.json()
+    except Exception as e:
+        logger.error("MATIAS API nota crédito venta %s: %s", venta_id, e)
+        return {"ok": False, "error": f"Error de conexión con Matias API: {e}"}
+
+    valido = bool(data.get("success"))
+    cufe   = data.get("XmlDocumentKey") or data.get("document_key") or data.get("track_id", "")
+    numero = data.get("document_number") or data.get("number") or ""
+
+    if not valido:
+        msg    = data.get("message") or ""
+        errors = data.get("errors") or {}
+        if isinstance(errors, dict) and errors:
+            error_detail = " | ".join(f"{k}: {v}" for k, v in errors.items())
+            error_msg    = f"{msg} | {error_detail}".strip(" |")
+        else:
+            error_msg = msg or str(data)
+        logger.error("Nota crédito rechazada venta %s: %s", venta_id, error_msg)
+        _guardar_nota_db("credito", venta_id, numero, cufe, factura_cufe, razon_id, total_doc, "error", error_msg)
+        return {"ok": False, "error": error_msg}
+
+    _guardar_nota_db("credito", venta_id, numero, cufe, factura_cufe, razon_id, total_doc, "emitida", None)
+    logger.info("✅ Nota crédito %s emitida — CUFE: %s…", numero, cufe[:20] if cufe else "?")
+    return {"ok": True, "cufe": cufe, "numero": numero, "tipo": "credito"}
+
+
+# ── POST /notes/debit — Nota Débito ──────────────────────────────────────────
+
+# Razones DIAN para nota débito (discrepancy_response_id)
+RAZONES_ND = {
+    1: "Intereses",
+    2: "Gastos por cobrar",
+    3: "Cambio del valor",
+    4: "Otro",
+}
+
+
+async def emitir_nota_debito(
+    factura_cufe: str,
+    factura_numero: str,
+    factura_fecha: str,
+    razon_id: int,
+    venta_id: int,
+    lineas: list[dict],
+) -> dict:
+    """
+    Emite una nota débito DIAN para agregar cargos adicionales a una factura.
+    Endpoint: POST /notes/debit
+
+    Args:
+        factura_cufe   — CUFE de la factura original
+        factura_numero — Número de la factura original (ej: "LZT5280")
+        factura_fecha  — Fecha de la factura original (YYYY-MM-DD)
+        razon_id       — ID de razón DIAN (1=intereses, 2=gastos, 3=cambio valor, 4=otro)
+        venta_id       — ID interno de la venta
+        lineas         — Ítems del cargo adicional (mismo formato que ventas_detalle)
+    """
+    if not MATIAS_EMAIL or not MATIAS_PASSWORD:
+        return {"ok": False, "error": "MATIAS_EMAIL/MATIAS_PASSWORD no configurados"}
+
+    ahora    = datetime.now(COLOMBIA_TZ)
+    subtotal = sum(int(d.get("total") or 0) for d in lineas)
+    subtotal_gravable = sum(int(d.get("total") or 0) for d in lineas if d.get("tiene_iva"))
+    total_iva = sum(
+        int(int(d.get("total") or 0) * int(d.get("porcentaje_iva") or 0) / 100)
+        for d in lineas if d.get("tiene_iva")
+    )
+    total_doc = subtotal + total_iva
+
+    lines_payload = []
+    for item in lineas:
+        precio_u  = _fmt(item.get("precio_unitario") or 0)
+        cantidad  = str(float(item.get("cantidad") or 1))
+        total_l   = _fmt(item.get("total") or 0)
+        tiene_iva = bool(item.get("tiene_iva"))
+        pct_iva   = int(item.get("porcentaje_iva") or 0)
+        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else "0.00"
+        unidad_raw   = (item.get("unidad_medida") or "Unidad").strip()
+        qty_units_id = _UNIDAD_DIAN.get(unidad_raw, _UNIDAD_DIAN.get(unidad_raw.lower(), "70"))
+
+        lines_payload.append({
+            "invoiced_quantity":            cantidad,
+            "quantity_units_id":            qty_units_id,
+            "line_extension_amount":        total_l,
+            "free_of_charge_indicator":     False,
+            "description":                  (item.get("producto_nombre") or "Cargo adicional").upper(),
+            "code":                         str(item.get("producto_id") or "SC"),
+            "type_item_identifications_id": "4",
+            "reference_price_id":           "1",
+            "price_amount":                 precio_u,
+            "base_quantity":                cantidad,
+            "tax_totals": [{
+                "tax_id":         "1" if tiene_iva else "4",
+                "tax_amount":     iva_val,
+                "taxable_amount": total_l if tiene_iva else "0.00",
+                "percent":        _fmt(pct_iva),
+            }],
+        })
+
+    payload = {
+        "type_document_id":       4,   # 4 = Nota Débito en MATIAS API
+        "date":                   ahora.strftime("%Y-%m-%d"),
+        "time":                   ahora.strftime("%H:%M:%S"),
+        "notes":                  RAZONES_ND.get(razon_id, "Nota débito"),
+        "graphic_representation": 1,
+        "send_email":             0,
+        "discrepancy_response": {
+            "discrepancy_response_id": razon_id,
+            "description":             RAZONES_ND.get(razon_id, "Otro"),
+        },
+        "billing_reference": {
+            "number": factura_numero,
+            "uuid":   factura_cufe,
+            "date":   factura_fecha,
+        },
+        "tax_totals": [{
+            "tax_id":         "1" if total_iva > 0 else "4",
+            "tax_amount":     _fmt(total_iva),
+            "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else "0.00",
+            "percent":        "19.00" if total_iva > 0 else "0.00",
+        }],
+        "legal_monetary_totals": {
+            "line_extension_amount":  _fmt(subtotal),
+            "tax_exclusive_amount":   _fmt(subtotal),
+            "tax_inclusive_amount":   _fmt(total_doc),
+            "allowance_total_amount": "0.00",
+            "charge_total_amount":    "0.00",
+            "pre_paid_amount":        "0.00",
+            "payable_amount":         _fmt(total_doc),
+        },
+        "lines": lines_payload,
+    }
+
+    import asyncio
+    try:
+        token = await asyncio.to_thread(_get_token)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type":  "application/json",
+        "Accept":        "application/json",
+    }
+
+    logger.debug("Payload nota débito venta %s: %s", venta_id, payload)
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(f"{MATIAS_API_URL}/notes/debit", json=payload, headers=headers)
+        data = resp.json()
+    except Exception as e:
+        logger.error("MATIAS API nota débito venta %s: %s", venta_id, e)
+        return {"ok": False, "error": f"Error de conexión con Matias API: {e}"}
+
+    valido = bool(data.get("success"))
+    cufe   = data.get("XmlDocumentKey") or data.get("document_key") or data.get("track_id", "")
+    numero = data.get("document_number") or data.get("number") or ""
+
+    if not valido:
+        msg    = data.get("message") or ""
+        errors = data.get("errors") or {}
+        if isinstance(errors, dict) and errors:
+            error_detail = " | ".join(f"{k}: {v}" for k, v in errors.items())
+            error_msg    = f"{msg} | {error_detail}".strip(" |")
+        else:
+            error_msg = msg or str(data)
+        logger.error("Nota débito rechazada venta %s: %s", venta_id, error_msg)
+        _guardar_nota_db("debito", venta_id, numero, cufe, factura_cufe, razon_id, total_doc, "error", error_msg)
+        return {"ok": False, "error": error_msg}
+
+    _guardar_nota_db("debito", venta_id, numero, cufe, factura_cufe, razon_id, total_doc, "emitida", None)
+    logger.info("✅ Nota débito %s emitida — CUFE: %s…", numero, cufe[:20] if cufe else "?")
+    return {"ok": True, "cufe": cufe, "numero": numero, "tipo": "debito"}
+
+
+# ── Helpers para persistir notas en DB ───────────────────────────────────────
+
+def _guardar_nota_db(
+    tipo: str, venta_id: int, numero: str, cufe: str,
+    factura_cufe_ref: str, razon_id: int, total: float,
+    estado: str, error_msg: str | None,
+) -> None:
+    """
+    Persiste una nota crédito/débito en facturas_electronicas.
+    Reutiliza la misma tabla que las facturas; tipo='nota_credito'|'nota_debito'
+    distingue el tipo de documento. factura_cufe_ref apunta a la FE original.
+    """
+    try:
+        _db.execute(
+            """
+            INSERT INTO facturas_electronicas
+                (venta_id, numero, cufe, total, estado, error_msg,
+                 tipo, razon_id, factura_cufe_ref)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            [venta_id, numero or "", cufe or "", int(total or 0),
+             estado, error_msg, tipo, razon_id, factura_cufe_ref],
+        )
+    except Exception as e:
+        logger.warning("No se pudo guardar nota %s en DB: %s", tipo, e)

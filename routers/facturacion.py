@@ -2,11 +2,18 @@
 routers/facturacion.py — Facturación Electrónica DIAN vía MATIAS API
 
 Endpoints:
-  POST /facturacion/emitir              — emite la FE para una venta registrada
-  GET  /facturacion/lista               — lista las últimas facturas emitidas
-  GET  /facturacion/pdf/{cufe}          — descarga el PDF desde MATIAS API por CUFE
-  GET  /facturacion/ventas-pendientes   — ventas sin FE en una fecha dada (para el dashboard)
-  POST /facturacion/webhook             — recibe eventos de MATIAS API (invoice.accepted, email.sent)
+  POST /facturacion/emitir                  — emite la FE para una venta registrada
+  GET  /facturacion/lista                   — lista las últimas facturas emitidas
+  GET  /facturacion/pdf/{cufe}              — descarga el PDF desde MATIAS API por CUFE
+  GET  /facturacion/ventas-pendientes       — ventas sin FE en una fecha dada (para el dashboard)
+  POST /facturacion/webhook                 — recibe eventos de MATIAS API (invoice.accepted, email.sent)
+  GET  /facturacion/estado/{numero}         — consulta estado DIAN de un documento
+  GET  /facturacion/ultimo-numero           — último número emitido en MATIAS API
+  GET  /facturacion/validar-cliente         — valida datos de cliente en RUT/DIAN
+  POST /facturacion/reenviar-correo/{cufe}  — reenvía PDF de factura al correo del cliente
+  POST /facturacion/nota-credito            — emite nota crédito DIAN
+  POST /facturacion/nota-debito             — emite nota débito DIAN
+  GET  /facturacion/notas                   — lista notas crédito/débito emitidas
 """
 from __future__ import annotations
 
@@ -29,6 +36,37 @@ router = APIRouter()
 
 class FacturarRequest(BaseModel):
     venta_id: int
+
+
+class LineaNotaItem(BaseModel):
+    producto_nombre:  str
+    producto_id:      int | None = None
+    cantidad:         float
+    precio_unitario:  float
+    total:            float
+    tiene_iva:        bool  = False
+    porcentaje_iva:   int   = 0
+    unidad_medida:    str   = "Unidad"
+
+
+class NotaCreditoRequest(BaseModel):
+    """Cuerpo para emitir una nota crédito DIAN."""
+    factura_cufe:    str
+    factura_numero:  str
+    factura_fecha:   str               # YYYY-MM-DD
+    razon_id:        int = 2           # 2=anulación es la más común en ferretería
+    venta_id:        int | None = None
+    lineas:          list[LineaNotaItem]
+
+
+class NotaDebitoRequest(BaseModel):
+    """Cuerpo para emitir una nota débito DIAN."""
+    factura_cufe:    str
+    factura_numero:  str
+    factura_fecha:   str               # YYYY-MM-DD
+    razon_id:        int = 3           # 3=cambio de valor
+    venta_id:        int | None = None
+    lineas:          list[LineaNotaItem]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -126,33 +164,217 @@ async def descargar_pdf(cufe: str):
     return Response(content=pdf_bytes, media_type="application/pdf")
 
 
+# ── GET /facturacion/estado/{numero} — Estado DIAN ────────────────────────────
+
+@router.get("/facturacion/estado/{numero}")
+async def estado_dian(numero: str, prefix: str = Query(default=None)):
+    """
+    Consulta el estado de validación DIAN de un documento emitido.
+    Ejemplo: GET /facturacion/estado/LZT5280  o  /facturacion/estado/5280?prefix=LZT
+    """
+    from services.facturacion_service import consultar_estado_dian
+    try:
+        data = await consultar_estado_dian(numero, prefix)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return data
+
+
+# ── GET /facturacion/ultimo-numero — Último número emitido ────────────────────
+
+@router.get("/facturacion/ultimo-numero")
+async def ultimo_numero(
+    resolution: str = Query(default=None),
+    prefix:     str = Query(default=None),
+):
+    """
+    Obtiene el último número de documento emitido en MATIAS API.
+    Sirve para sincronizar el contador local con el estado real de la DIAN.
+    """
+    from services.facturacion_service import obtener_ultimo_documento
+    try:
+        data = await obtener_ultimo_documento(resolution, prefix)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return data
+
+
+# ── GET /facturacion/validar-cliente — Validar adquirente en RUT ──────────────
+
+@router.get("/facturacion/validar-cliente")
+async def validar_cliente(
+    tipo_id:             str = Query(..., description="Tipo de identificación: CC, NIT, CE, etc."),
+    numero_identificacion: str = Query(..., description="Número de identificación del cliente"),
+):
+    """
+    Valida los datos de un cliente en el RUT/DIAN antes de emitir la factura.
+    Útil en el dashboard para autocompletar datos fiscales del cliente.
+    """
+    from services.facturacion_service import consultar_adquirente
+    try:
+        data = await consultar_adquirente(tipo_id, numero_identificacion)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return data
+
+
+# ── POST /facturacion/reenviar-correo/{cufe} — Reenviar PDF por email ─────────
+
+@router.post("/facturacion/reenviar-correo/{cufe}")
+async def reenviar_correo(cufe: str):
+    """
+    Reenvía el PDF de una factura al correo del cliente registrado en MATIAS API.
+    Útil cuando el envío original falló o el cliente solicita una copia.
+    """
+    from services.facturacion_service import reenviar_correo_factura
+    try:
+        data = await reenviar_correo_factura(cufe)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return data
+
+
+# ── POST /facturacion/nota-credito — Emitir Nota Crédito ─────────────────────
+
+@router.post("/facturacion/nota-credito")
+async def emitir_nota_credito(req: NotaCreditoRequest):
+    """
+    Emite una nota crédito DIAN para anular o corregir una factura emitida.
+
+    Razones disponibles (razon_id):
+        1 — Devolución parcial de los bienes
+        2 — Anulación de factura  ← más común en ferretería
+        3 — Rebaja o descuento parcial
+        4 — Ajuste de precio
+        5 — Otro
+    """
+    from services.facturacion_service import emitir_nota_credito as _emitir_nc
+
+    lineas = [l.model_dump() for l in req.lineas]
+    resultado = await _emitir_nc(
+        factura_cufe    = req.factura_cufe,
+        factura_numero  = req.factura_numero,
+        factura_fecha   = req.factura_fecha,
+        razon_id        = req.razon_id,
+        venta_id        = req.venta_id or 0,
+        lineas_devueltas= lineas,
+    )
+    if not resultado["ok"]:
+        raise HTTPException(status_code=400, detail=resultado["error"])
+    return resultado
+
+
+# ── POST /facturacion/nota-debito — Emitir Nota Débito ───────────────────────
+
+@router.post("/facturacion/nota-debito")
+async def emitir_nota_debito(req: NotaDebitoRequest):
+    """
+    Emite una nota débito DIAN para agregar cargos adicionales a una factura.
+
+    Razones disponibles (razon_id):
+        1 — Intereses
+        2 — Gastos por cobrar
+        3 — Cambio del valor  ← más común
+        4 — Otro
+    """
+    from services.facturacion_service import emitir_nota_debito as _emitir_nd
+
+    lineas = [l.model_dump() for l in req.lineas]
+    resultado = await _emitir_nd(
+        factura_cufe   = req.factura_cufe,
+        factura_numero = req.factura_numero,
+        factura_fecha  = req.factura_fecha,
+        razon_id       = req.razon_id,
+        venta_id       = req.venta_id or 0,
+        lineas         = lineas,
+    )
+    if not resultado["ok"]:
+        raise HTTPException(status_code=400, detail=resultado["error"])
+    return resultado
+
+
+# ── GET /facturacion/notas — Historial de notas crédito/débito ────────────────
+
+@router.get("/facturacion/notas")
+def listar_notas(
+    tipo:   str | None = Query(default=None, description="credito | debito"),
+    limite: int        = Query(default=50),
+):
+    """Lista las notas crédito/débito emitidas, más recientes primero."""
+    if not _db.DB_DISPONIBLE:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible")
+
+    filtro_tipo = "AND fe.tipo = %s" if tipo else ""
+    params      = [tipo, limite] if tipo else [limite]
+
+    rows = _db.query_all(
+        f"""
+        SELECT fe.id, fe.tipo, fe.numero, fe.cufe, fe.factura_cufe_ref,
+               fe.razon_id, fe.total, fe.estado, fe.error_msg, fe.created_at,
+               v.consecutivo AS venta_consecutivo
+        FROM facturas_electronicas fe
+        LEFT JOIN ventas v ON fe.venta_id = v.id
+        WHERE fe.tipo IN ('nota_credito', 'nota_debito') {filtro_tipo}
+        ORDER BY fe.created_at DESC
+        LIMIT %s
+        """,
+        params,
+    )
+    return [dict(r) for r in rows]
+
+
 # ── Webhook MATIAS API ────────────────────────────────────────────────────────
 
 @router.post("/facturacion/webhook")
 async def webhook_matias(request: Request):
     """
-    Recibe eventos de MATIAS API en tiempo real.
+    Recibe eventos de MATIAS API en tiempo real (compatible v2 y v3.0.0).
 
     Configura esta URL en el panel de MATIAS API:
         https://tu-app.railway.app/facturacion/webhook
 
-    Eventos que maneja:
-        invoice.accepted  — DIAN aceptó la factura → actualiza estado en DB + notifica bot
-        invoice.rejected  — DIAN rechazó → guarda error
-        email.sent        — confirmación de que el correo llegó al cliente
+    v3.0.0: verifica firma HMAC-SHA256 si MATIAS_WEBHOOK_SECRET está configurado.
+    Header: X-Webhook-Signature: sha256=<hash>
 
-    MATIAS API envía un POST con JSON, sin firma HMAC en v2 pública.
-    Si en el futuro agregan firma, validarla aquí con MATIAS_WEBHOOK_SECRET.
+    Eventos soportados:
+        document.accepted  — DIAN aceptó → actualiza estado en DB + notifica bot
+        document.rejected  — DIAN rechazó → guarda error
+        document.voided    — Factura anulada
+        email.sent / email.delivered — confirmación correo al cliente
     """
+    import hashlib, hmac as _hmac, os as _os
+
+    raw_body = await request.body()
+
+    # ── Verificar firma HMAC-SHA256 (v3.0.0) ─────────────────────────────────
+    webhook_secret = _os.getenv("MATIAS_WEBHOOK_SECRET")
+    if webhook_secret:
+        sig_header = request.headers.get("x-webhook-signature", "")
+        if sig_header:
+            expected = "sha256=" + _hmac.new(
+                webhook_secret.encode(), raw_body, hashlib.sha256
+            ).hexdigest()
+            if not _hmac.compare_digest(sig_header, expected):
+                logger.warning("Webhook MATIAS API: firma HMAC inválida — posible request falso")
+                raise HTTPException(status_code=401, detail="Firma webhook inválida")
+
     try:
-        payload = await request.json()
+        payload = __import__("json").loads(raw_body)
     except Exception:
         raise HTTPException(status_code=400, detail="Payload JSON inválido")
 
-    evento   = payload.get("event") or payload.get("type") or ""
-    data     = payload.get("data") or payload.get("document") or payload
-    cufe     = data.get("XmlDocumentKey") or data.get("document_key") or data.get("cufe") or ""
-    numero   = data.get("number") or data.get("document_number") or ""
+    evento = payload.get("event") or payload.get("type") or ""
+    data   = payload.get("data") or payload.get("document") or payload
+
+    # ── Extraer CUFE compatible con v2 (XmlDocumentKey) y v3 (track_id) ──────
+    cufe = (
+        data.get("track_id")        or   # v3.0.0
+        data.get("XmlDocumentKey")  or   # v2
+        data.get("document_key")    or
+        data.get("cufe")            or
+        ""
+    )
+    numero   = data.get("document_number") or data.get("number") or ""
     email_ok = data.get("email_sent") or data.get("email_delivered")
 
     logger.info("Webhook MATIAS API — evento: %s | cufe: %s…", evento, cufe[:20] if cufe else "?")
@@ -160,8 +382,8 @@ async def webhook_matias(request: Request):
     if not _db.DB_DISPONIBLE:
         return {"ok": True, "msg": "DB no disponible, evento ignorado"}
 
-    # ── invoice.accepted ─────────────────────────────────────────────────────
-    if "accept" in evento.lower() or payload.get("success"):
+    # ── document.accepted (v3) / invoice.accepted (v2) ───────────────────────
+    if "accept" in evento.lower() or evento == "document.emitted" or payload.get("success"):
         if cufe:
             try:
                 _db.execute(
@@ -188,8 +410,8 @@ async def webhook_matias(request: Request):
             except Exception as e:
                 logger.error("Webhook: error actualizando DB para cufe %s: %s", cufe[:20], e)
 
-    # ── invoice.rejected ─────────────────────────────────────────────────────
-    elif "reject" in evento.lower() or "error" in evento.lower():
+    # ── document.rejected (v3) / invoice.rejected (v2) ───────────────────────
+    elif "reject" in evento.lower() or "error" in evento.lower() or evento == "document.voided":
         error_msg = data.get("message") or data.get("errors") or "Rechazada por DIAN"
         if isinstance(error_msg, dict):
             error_msg = " | ".join(f"{k}: {v}" for k, v in error_msg.items())
