@@ -31,6 +31,7 @@ import io
 import json
 import logging
 import os
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import date, datetime
@@ -253,6 +254,30 @@ def _int_col(val: str) -> int:
         return 0
 
 
+_RE_TRAILING_DIGITS = re.compile(r'(\s+\d{6,})+\s*$')
+
+
+def _limpiar_descripcion(descripcion: str, codigo_ref: str) -> str:
+    """
+    Limpia cbc:Description cuando viene con códigos concatenados
+    (patrón SEGAR y otros proveedores colombianos).
+
+    1. Quita palabras numéricas puras de 6+ dígitos al final.
+    2. Quita la primera palabra si coincide con codigo_ref o si es
+       puramente alfanumérica sin espacios.
+    Si el resultado queda vacío, retorna el original sin modificar.
+    """
+    limpio = _RE_TRAILING_DIGITS.sub('', descripcion).strip()
+
+    palabras = limpio.split()
+    if palabras:
+        primera = palabras[0]
+        if primera == codigo_ref or re.match(r'^[A-Za-z0-9]+$', primera):
+            limpio = ' '.join(palabras[1:]).strip()
+
+    return limpio if limpio else descripcion
+
+
 def _parse_documento(
     root: ET.Element,
     tag_linea: str,
@@ -307,8 +332,11 @@ def _parse_documento(
             linea.find("cac:Item/cac:SellersItemIdentification/cbc:ID", _NS)
             or linea.find("cac:Item/cac:StandardItemIdentification/cbc:ID", _NS)
         )
-        producto_nombre = _txt(desc_el) if desc_el is not None else (_txt(ref_el) or "Sin descripción")
         codigo_ref      = _txt(ref_el)
+        producto_nombre = _limpiar_descripcion(
+            _txt(desc_el) if desc_el is not None else (_txt(ref_el) or "Sin descripción"),
+            codigo_ref,
+        )
 
         qty_el = linea.find(tag_cantidad, _NS)
         try:
