@@ -540,7 +540,7 @@ async def gmail_pubsub_webhook(
 
     try:
         data_json  = json.loads(base64.urlsafe_b64decode(data_b64 + "==").decode())
-        history_id = str(data_json.get("historyId", ""))
+        history_id = str(int(data_json.get("historyId", 0)) - 1)
     except Exception as e:
         logger.warning("Error decodificando data Pub/Sub: %s", e)
         return {"ok": True, "skip": "data_invalida"}
