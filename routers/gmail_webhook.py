@@ -136,7 +136,6 @@ async def _get_message_ids_from_history(
         resp = await client.get(url, headers={"Authorization": f"Bearer {token}"}, params={
             "startHistoryId": history_id,
             "historyTypes":   "messageAdded",
-            "labelId":        "INBOX",
         })
         if resp.status_code == 404:
             logger.warning("historyId %s expirado — sin mensajes que procesar", history_id)
