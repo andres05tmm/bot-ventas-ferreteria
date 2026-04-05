@@ -324,9 +324,14 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
     lineas = _findall("cac:InvoiceLine")
 
     for linea in lineas:
-        desc_el = linea.find("cac:Item/cbc:Description", _NS) or \
-                  linea.find("cac:Item/cac:StandardItemIdentification/cbc:ID", _NS)
-        producto_nombre = _txt(desc_el) or "Sin descripción"
+        # Usar 'is not None' — ET.Element con solo texto es falsy en bool context
+        desc_el = linea.find("cac:Item/cbc:Description", _NS)
+        ref_el  = (
+            linea.find("cac:Item/cac:SellersItemIdentification/cbc:ID", _NS)
+            or linea.find("cac:Item/cac:StandardItemIdentification/cbc:ID", _NS)
+        )
+        producto_nombre = _txt(desc_el) if desc_el is not None else (_txt(ref_el) or "Sin descripción")
+        codigo_ref      = _txt(ref_el)
 
         qty_el = linea.find("cbc:InvoicedQuantity", _NS)
         try:
@@ -347,6 +352,7 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
 
         items.append({
             "producto_nombre": producto_nombre[:300],
+            "codigo_ref":      codigo_ref[:100] if codigo_ref else "",
             "cantidad":        cantidad,
             "costo_unitario":  costo_unit,
             "costo_total":     costo_total,
@@ -365,6 +371,7 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
                 pass
         items.append({
             "producto_nombre": f"Factura {numero_factura} — {proveedor}",
+            "codigo_ref":      "",
             "cantidad":        1.0,
             "costo_unitario":  total_factura,
             "costo_total":     total_factura,
@@ -466,7 +473,10 @@ def _registrar_factura(
                 item["incluye_iva"],
                 item["tarifa_iva"],
                 factura["numero_factura"],
-                f"Importado automáticamente desde Gmail. NIT proveedor: {factura.get('nit_proveedor', '')}",
+                (
+                    f"Importado automáticamente desde Gmail. NIT proveedor: {factura.get('nit_proveedor', '')}"
+                    + (f". Ref: {item['codigo_ref']}" if item.get("codigo_ref") else "")
+                ),
                 gmail_message_id,
                 usuario_id,
             )
