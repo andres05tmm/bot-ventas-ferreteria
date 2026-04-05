@@ -253,51 +253,28 @@ def _int_col(val: str) -> int:
         return 0
 
 
-def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
-    """Parsea una factura electrónica DIAN en formato UBL 2.1.
-
-    Soporta dos estructuras:
-      - Invoice directa (tag raíz contiene 'Invoice')
-      - AttachedDocument: wrapper DIAN donde la Invoice real viene en
-        cac:Attachment/cac:ExternalReference/cbc:Description como XML en texto plano.
+def _parse_documento(
+    root: ET.Element,
+    tag_linea: str,
+    tag_cantidad: str,
+    es_nota_credito: bool,
+) -> Optional[dict]:
     """
-    try:
-        root = ET.fromstring(xml_bytes)
-    except ET.ParseError as e:
-        logger.warning("XML inválido: %s", e)
-        return None
+    Núcleo compartido de parseo UBL 2.1 para Invoice y CreditNote.
 
-    tag = root.tag
-    logger.info("parse_ubl_xml — tag raíz: %s", tag)
-
-    # ── AttachedDocument: extraer Invoice del Description interno ─────────────
-    if "AttachedDocument" in tag:
-        logger.info("Detectado AttachedDocument — buscando Invoice interna")
-        desc_el = root.find(
-            "cac:Attachment/cac:ExternalReference/cbc:Description", _NS
-        )
-        if desc_el is None or not (desc_el.text or "").strip():
-            logger.warning("AttachedDocument sin cbc:Description — no se puede extraer Invoice")
-            return None
-        inner_text = desc_el.text.strip()
-        try:
-            inner_bytes = inner_text.encode("utf-8")
-            return parse_ubl_xml(inner_bytes)
-        except Exception as e:
-            logger.warning("Error reparsando Invoice desde AttachedDocument: %s", e)
-            return None
-
-    if "Invoice" not in tag and "invoice" not in tag.lower():
-        logger.warning("XML no es una Invoice UBL ni AttachedDocument — tag=%s", tag)
-        return None
-
+    Parámetros:
+      tag_linea      — 'cac:InvoiceLine' o 'cac:CreditNoteLine'
+      tag_cantidad   — 'cbc:InvoicedQuantity' o 'cbc:CreditedQuantity'
+      es_nota_credito — si True, cantidad va negativa y numero_factura lleva prefijo NC-
+    """
     def _find(path: str) -> Optional[ET.Element]:
         return root.find(path, _NS)
 
     def _findall(path: str) -> list[ET.Element]:
         return root.findall(path, _NS)
 
-    numero_factura = _txt(_find("cbc:ID"))
+    numero_raw     = _txt(_find("cbc:ID"))
+    numero_factura = f"NC-{numero_raw}" if es_nota_credito else numero_raw
     fecha_str      = _txt(_find("cbc:IssueDate"))
     try:
         fecha = date.fromisoformat(fecha_str) if fecha_str else date.today()
@@ -321,7 +298,7 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
     total_factura = _int_col(_txt(total_el))
 
     items  = []
-    lineas = _findall("cac:InvoiceLine")
+    lineas = _findall(tag_linea)
 
     for linea in lineas:
         # Usar 'is not None' — ET.Element con solo texto es falsy en bool context
@@ -333,11 +310,13 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
         producto_nombre = _txt(desc_el) if desc_el is not None else (_txt(ref_el) or "Sin descripción")
         codigo_ref      = _txt(ref_el)
 
-        qty_el = linea.find("cbc:InvoicedQuantity", _NS)
+        qty_el = linea.find(tag_cantidad, _NS)
         try:
             cantidad = float(_txt(qty_el) or "1")
         except ValueError:
             cantidad = 1.0
+        if es_nota_credito:
+            cantidad = -abs(cantidad)
 
         ext_el       = linea.find("cbc:LineExtensionAmount", _NS)
         base_linea   = _int_col(_txt(ext_el))
@@ -348,7 +327,7 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
 
         incluye_iva = tarifa > 0 and iva_linea > 0
         costo_total = base_linea + iva_linea
-        costo_unit  = round(base_linea / cantidad) if cantidad else base_linea
+        costo_unit  = round(base_linea / abs(cantidad)) if cantidad else base_linea
 
         items.append({
             "producto_nombre": producto_nombre[:300],
@@ -369,10 +348,11 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
                 tarifa_principal = int(float(_txt(tax_sub)))
             except ValueError:
                 pass
+        cantidad_resumen = -1.0 if es_nota_credito else 1.0
         items.append({
             "producto_nombre": f"Factura {numero_factura} — {proveedor}",
             "codigo_ref":      "",
-            "cantidad":        1.0,
+            "cantidad":        cantidad_resumen,
             "costo_unitario":  total_factura,
             "costo_total":     total_factura,
             "incluye_iva":     total_iva > 0,
@@ -389,6 +369,63 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
         "total_iva":            total_iva,
         "tarifa_iva_principal": items[0]["tarifa_iva"] if items else 0,
     }
+
+
+def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
+    """Parsea una factura electrónica DIAN en formato UBL 2.1.
+
+    Soporta:
+      - Invoice directa
+      - CreditNote directa (nota crédito, cantidades negativas, prefijo NC-)
+      - AttachedDocument: wrapper DIAN donde el documento real viene en
+        cac:Attachment/cac:ExternalReference/cbc:Description como XML en texto plano.
+    """
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError as e:
+        logger.warning("XML inválido: %s", e)
+        return None
+
+    tag = root.tag
+    logger.info("parse_ubl_xml — tag raíz: %s", tag)
+
+    # ── AttachedDocument: extraer documento interno y reparsear ───────────────
+    if "AttachedDocument" in tag:
+        logger.info("Detectado AttachedDocument — buscando documento interno")
+        desc_el = root.find(
+            "cac:Attachment/cac:ExternalReference/cbc:Description", _NS
+        )
+        if desc_el is None or not (desc_el.text or "").strip():
+            logger.warning("AttachedDocument sin cbc:Description — no se puede extraer documento")
+            return None
+        inner_text = desc_el.text.strip()
+        try:
+            return parse_ubl_xml(inner_text.encode("utf-8"))
+        except Exception as e:
+            logger.warning("Error reparsando documento desde AttachedDocument: %s", e)
+            return None
+
+    # ── CreditNote ────────────────────────────────────────────────────────────
+    if "CreditNote" in tag:
+        logger.info("Detectado CreditNote — parseando como nota crédito")
+        return _parse_documento(
+            root,
+            tag_linea      = "cac:CreditNoteLine",
+            tag_cantidad   = "cbc:CreditedQuantity",
+            es_nota_credito= True,
+        )
+
+    # ── Invoice ───────────────────────────────────────────────────────────────
+    if "Invoice" not in tag and "invoice" not in tag.lower():
+        logger.warning("XML no es Invoice, CreditNote ni AttachedDocument — tag=%s", tag)
+        return None
+
+    return _parse_documento(
+        root,
+        tag_linea      = "cac:InvoiceLine",
+        tag_cantidad   = "cbc:InvoicedQuantity",
+        es_nota_credito= False,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
