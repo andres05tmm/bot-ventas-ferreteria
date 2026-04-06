@@ -545,149 +545,141 @@ export default function TabCompras({ refreshKey }) {
             <KpiCard label="Productos"        value={Object.keys(d.por_producto||{}).length} sub="Artículos" icon="🔢" color={t.textSub}/>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <GlassCard>
-              <SectionTitle>Por Proveedor</SectionTitle>
-              {porProv.length === 0 ? <EmptyState/> : (
-                <>
-                  <ResponsiveContainer width="100%" height={120}>
-                    <PieChart>
-                      <Pie data={pieData} dataKey="value" cx="50%" cy="50%" innerRadius={30} outerRadius={55} paddingAngle={2}>
-                        {pieData.map((_, i) => <Cell key={i} fill={PROV_COLORS[i % PROV_COLORS.length]}/>)}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 8, color: t.text, fontSize: 11 }}
-                        formatter={v => [cop(v)]}/>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-                    {porProv.map(([prov, val], i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: PROV_COLORS[i % PROV_COLORS.length], flexShrink: 0, display: 'inline-block' }}/>
-                          <span style={{ fontSize: 11, color: t.textSub }}>{prov}</span>
-                        </div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: t.text }}>{cop(val)}</span>
+          {/* Gráficas — columna única para móvil */}
+          <GlassCard>
+            <SectionTitle>Por Proveedor</SectionTitle>
+            {porProv.length === 0 ? <EmptyState/> : (
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <ResponsiveContainer width={120} height={120}>
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" cx="50%" cy="50%" innerRadius={30} outerRadius={55} paddingAngle={2}>
+                      {pieData.map((_, i) => <Cell key={i} fill={PROV_COLORS[i % PROV_COLORS.length]}/>)}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 8, color: t.text, fontSize: 11 }}
+                      formatter={v => [cop(v)]}/>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ flex: 1, minWidth: 140, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {porProv.map(([prov, val], i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: PROV_COLORS[i % PROV_COLORS.length], flexShrink: 0, display: 'inline-block' }}/>
+                        <span style={{ fontSize: 11, color: t.textSub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prov}</span>
                       </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </GlassCard>
-
-            <GlassCard>
-              <SectionTitle>Productos más Comprados</SectionTitle>
-              {porProd.length === 0 ? <EmptyState/> : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {porProd.map(([prod, val], i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ color: t.textMuted, fontSize: 11, minWidth: 18, textAlign: 'right' }}>#{i+1}</span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 11, color: t.text, marginBottom: 3 }}>{prod}</div>
-                        <div style={{ height: 3, background: t.border, borderRadius: 2 }}>
-                          <div style={{ height: '100%', width: `${(val / (porProd[0]?.[1] || 1)) * 100}%`, background: t.blue, borderRadius: 2 }}/>
-                        </div>
-                      </div>
-                      <span style={{ fontSize: 11, color: t.blue, fontWeight: 600, whiteSpace: 'nowrap' }}>{cop(val)}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: t.text, flexShrink: 0 }}>{cop(val)}</span>
                     </div>
                   ))}
                 </div>
-              )}
-            </GlassCard>
-          </div>
+              </div>
+            )}
+          </GlassCard>
 
-          {/* Tabla con acciones */}
+          <GlassCard>
+            <SectionTitle>Productos más Comprados</SectionTitle>
+            {porProd.length === 0 ? <EmptyState/> : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {porProd.map(([prod, val], i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ color: t.textMuted, fontSize: 11, minWidth: 22, textAlign: 'right', fontWeight: 700 }}>#{i+1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prod}</span>
+                        <span style={{ fontSize: 12, color: t.blue, fontWeight: 700, flexShrink: 0 }}>{cop(val)}</span>
+                      </div>
+                      <div style={{ height: 3, background: t.border, borderRadius: 2 }}>
+                        <div style={{ height: '100%', width: `${(val / (porProd[0]?.[1] || 1)) * 100}%`, background: t.blue, borderRadius: 2 }}/>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </GlassCard>
+
+          {/* Detalle — cards en lugar de tabla para móvil */}
           <GlassCard style={{ padding: 0 }}>
-            <div style={{ padding: '14px 18px', borderBottom: `1px solid ${t.border}` }}>
+            <div style={{ padding: '14px 18px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <SectionTitle>Detalle de Compras</SectionTitle>
+              <span style={{ fontSize: 11, color: t.textMuted }}>{compras.length} registros</span>
             </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: t.tableAlt }}>
-                    {['Fecha','Producto','Cant.','Costo Unit.','Total','IVA','Proveedor','Acciones'].map((h, i) => (
-                      <th key={i} style={{
-                        padding: '9px 12px',
-                        textAlign: [2,3,4,5].includes(i) ? 'right' : 'left',
-                        fontSize: 10, color: t.textMuted, textTransform: 'uppercase',
-                        letterSpacing: '.08em', fontWeight: 500,
-                        borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap',
-                      }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {compras.map((c, i) => {
-                    const { iva }    = c.incluye_iva && c.tarifa_iva ? calcIVA(c.costo_total, c.tarifa_iva) : { iva: 0 }
-                    const yaEnFiscal = !!c.compra_fiscal_id
-                    const cargando  = !!enviandoFiscal[c.id]
 
-                    return (
-                      <tr key={i} style={{ borderBottom: `1px solid ${t.border}` }}
-                        onMouseEnter={e => { e.currentTarget.style.background = t.cardHover }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
-                        <td style={{ padding: '8px 12px', color: t.textMuted, whiteSpace: 'nowrap' }}>{String(c.fecha||'').slice(0,10)}</td>
-                        <td style={{ padding: '8px 12px', color: t.text }}>{c.producto||'—'}</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right', color: t.textSub }}>{num(c.cantidad)}</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right', color: t.textMuted }}>{cop(c.costo_unitario)}</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right', color: t.blue, fontWeight: 600 }}>{cop(c.costo_total)}</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                          {c.incluye_iva && c.tarifa_iva > 0
-                            ? <span style={{ color: t.green, fontWeight: 600, fontSize: 11 }}>
-                                {cop(iva)}<span style={{ fontSize: 9, marginLeft: 4, color: t.textMuted }}>{c.tarifa_iva}%</span>
-                              </span>
-                            : <span style={{ color: t.textMuted, fontSize: 11 }}>—</span>
-                          }
-                        </td>
-                        <td style={{ padding: '8px 12px', color: t.textMuted, fontSize: 11 }}>{c.proveedor||'—'}</td>
-                        <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                          <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
-                            {/* Editar */}
-                            <button
-                              onClick={() => setEditando(c)}
-                              title="Editar compra"
-                              style={{
-                                background: `${t.blue}15`, border: `1px solid ${t.blue}40`,
-                                borderRadius: 6, color: t.blue, padding: '4px 10px',
-                                fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
-                              }}>
-                              ✏️ Editar
-                            </button>
-                            {/* → Fiscal */}
-                            <button
-                              onClick={() => !yaEnFiscal && !cargando && enviarAFiscal(c)}
-                              title={yaEnFiscal ? 'Ya registrada en Compras Fiscal' : 'Enviar a Compras Fiscal'}
-                              style={{
-                                background: yaEnFiscal ? `${t.green}15` : `${t.accent}15`,
-                                border: `1px solid ${yaEnFiscal ? t.green : t.accent}40`,
-                                borderRadius: 6, color: yaEnFiscal ? t.green : t.accent,
-                                padding: '4px 10px', fontSize: 11,
-                                cursor: yaEnFiscal ? 'default' : 'pointer',
-                                fontFamily: 'inherit', fontWeight: 600,
-                                opacity: cargando ? 0.6 : 1,
-                              }}>
-                              {cargando ? '…' : yaEnFiscal ? '✓ Fiscal' : '📊 → Fiscal'}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr style={{ background: t.tableFoot, borderTop: `1px solid ${t.border}` }}>
-                    <td colSpan={4} style={{ padding: '10px 12px', fontSize: 10, color: t.textMuted, fontWeight: 600, textAlign: 'right' }}>TOTAL INVERTIDO</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', color: t.blue, fontWeight: 700, fontSize: 14 }}>{cop(total)}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', color: t.green, fontWeight: 700, fontSize: 12 }}>
-                      {cop(compras.filter(c => c.incluye_iva && c.tarifa_iva > 0).reduce((s, c) => {
-                        const { iva } = calcIVA(c.costo_total, c.tarifa_iva)
-                        return s + iva
-                      }, 0))}
-                    </td>
-                    <td colSpan={2}/>
-                  </tr>
-                </tfoot>
-              </table>
+            {/* Totales compactos */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '10px 18px', background: t.tableAlt,
+              borderBottom: `1px solid ${t.border}`,
+            }}>
+              <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em' }}>Total Invertido</span>
+              <span style={{ fontSize: 13, color: t.blue, fontWeight: 700 }}>{cop(total)}</span>
+            </div>
+
+            {/* Cards */}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {compras.map((c, i) => {
+                const { iva }    = c.incluye_iva && c.tarifa_iva ? calcIVA(c.costo_total, c.tarifa_iva) : { iva: 0 }
+                const yaEnFiscal = !!c.compra_fiscal_id
+                const cargando  = !!enviandoFiscal[c.id]
+
+                return (
+                  <div key={i} style={{
+                    padding: '12px 18px',
+                    borderBottom: i < compras.length - 1 ? `1px solid ${t.border}` : 'none',
+                  }}>
+                    {/* Fila 1: fecha + proveedor */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                      <span style={{ fontSize: 11, color: t.textMuted }}>{String(c.fecha||'').slice(0,10)}</span>
+                      <span style={{ fontSize: 11, color: t.textMuted, fontStyle: 'italic' }}>{c.proveedor||'Sin proveedor'}</span>
+                    </div>
+
+                    {/* Fila 2: producto */}
+                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8, lineHeight: 1.35 }}>
+                      {c.producto||'—'}
+                    </div>
+
+                    {/* Fila 3: cantidades */}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{
+                        fontSize: 11, color: t.textMuted, background: t.tableAlt,
+                        borderRadius: 5, padding: '2px 8px', border: `1px solid ${t.border}`,
+                      }}>{num(c.cantidad)} uds × {cop(c.costo_unitario)}</span>
+                      <span style={{ fontSize: 12, color: t.blue, fontWeight: 700 }}>{cop(c.costo_total)}</span>
+                      {c.incluye_iva && c.tarifa_iva > 0 && (
+                        <span style={{
+                          fontSize: 11, color: t.green, fontWeight: 600,
+                          background: `${t.green}12`, borderRadius: 5, padding: '2px 8px',
+                          border: `1px solid ${t.green}30`,
+                        }}>IVA {cop(iva)} ({c.tarifa_iva}%)</span>
+                      )}
+                    </div>
+
+                    {/* Acciones */}
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={() => setEditando(c)}
+                        style={{
+                          flex: 1, background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
+                          borderRadius: 7, color: t.blue, padding: '7px 0',
+                          fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
+                        }}>✏️ Editar</button>
+                      <button
+                        onClick={() => !yaEnFiscal && !cargando && enviarAFiscal(c)}
+                        style={{
+                          flex: 1,
+                          background: yaEnFiscal ? `${t.green}14` : `${t.accent}14`,
+                          border: `1px solid ${yaEnFiscal ? t.green : t.accent}40`,
+                          borderRadius: 7, color: yaEnFiscal ? t.green : t.accent,
+                          padding: '7px 0', fontSize: 12,
+                          cursor: yaEnFiscal ? 'default' : 'pointer',
+                          fontFamily: 'inherit', fontWeight: 600,
+                          opacity: cargando ? 0.6 : 1,
+                        }}>
+                        {cargando ? '…' : yaEnFiscal ? '✓ En Fiscal' : '📊 → Fiscal'}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </GlassCard>
         </>
