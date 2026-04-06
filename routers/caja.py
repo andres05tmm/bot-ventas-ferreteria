@@ -389,7 +389,7 @@ async def crear_compra(body: NuevaCompraBody):
 @router.get("/compras")
 def compras(
     dias: int = Query(default=30, ge=1, le=365),
-    filtro: int | None = Depends(get_filtro_efectivo)
+    current_user=Depends(get_current_user),
 ):
     try:
         _require_db()
@@ -397,17 +397,14 @@ def compras(
         fecha_fin    = ahora.strftime("%Y-%m-%d")
         fecha_inicio = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d")
 
-        # Filtrar por usuario_id si aplica
-        where_usuario = "AND usuario_id = %s" if filtro is not None else ""
-        params = (fecha_inicio, fecha_fin, filtro) if filtro is not None else (fecha_inicio, fecha_fin)
-
+        # Las compras son registros contables globales — no se filtran por usuario
         rows = _db.query_all(
             f"SELECT id, fecha::text, hora::text, proveedor, producto_nombre, "
             f"       cantidad, costo_unitario, costo_total, incluye_iva, tarifa_iva, "
             f"       compra_fiscal_id "
             f"FROM compras "
-            f"WHERE fecha >= %s AND fecha <= %s {where_usuario} ORDER BY fecha DESC, hora DESC",
-            params,
+            f"WHERE fecha >= %s AND fecha <= %s ORDER BY fecha DESC, hora DESC",
+            (fecha_inicio, fecha_fin),
         )
 
         resultado: list                = []
@@ -607,7 +604,7 @@ async def compra_to_fiscal(
 @router.get("/compras-fiscal")
 def compras_fiscal(
     dias: int = Query(default=30, ge=1, le=365),
-    filtro: int | None = Depends(get_filtro_efectivo),
+    current_user=Depends(get_current_user),
 ):
     try:
         _require_db()
@@ -615,9 +612,7 @@ def compras_fiscal(
         fecha_fin    = ahora.strftime("%Y-%m-%d")
         fecha_inicio = (ahora - timedelta(days=dias)).strftime("%Y-%m-%d")
 
-        where_usuario = "AND usuario_id = %s" if filtro is not None else ""
-        params = (fecha_inicio, fecha_fin, filtro) if filtro is not None else (fecha_inicio, fecha_fin)
-
+        # Las compras fiscales son registros contables globales — no se filtran por usuario
         rows = _db.query_all(
             f"""
             SELECT id, fecha::text, hora::text, proveedor, producto_nombre,
@@ -625,10 +620,10 @@ def compras_fiscal(
                    incluye_iva, tarifa_iva,
                    numero_factura, notas_fiscales, compra_origen_id
             FROM compras_fiscal
-            WHERE fecha >= %s AND fecha <= %s {where_usuario}
+            WHERE fecha >= %s AND fecha <= %s
             ORDER BY fecha DESC, hora DESC
             """,
-            params,
+            (fecha_inicio, fecha_fin),
         )
 
         resultado: list                 = []
