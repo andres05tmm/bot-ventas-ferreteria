@@ -30,6 +30,24 @@ function calcIVA(total, tarifa) {
   return { base, iva }
 }
 
+// Agrupa compras por proveedor + fecha (día).
+// Pedidos de un mismo proveedor en el mismo día → acordeón.
+// Compras sueltas (proveedor "Sin proveedor" o días distintos) → card individual.
+function agruparCompras(lista) {
+  const map = new Map()
+  lista.forEach(c => {
+    const fecha = String(c.fecha || '').slice(0, 10)
+    const prov  = c.proveedor || 'Sin proveedor'
+    const key   = `${prov}__${fecha}`
+    if (!map.has(key)) map.set(key, { prov, fecha, items: [] })
+    map.get(key).items.push(c)
+  })
+  return Array.from(map.values()).map(g => ({
+    ...g,
+    isGroup: g.items.length >= 2 && g.prov !== 'Sin proveedor',
+  }))
+}
+
 // ── Buscador de productos del catálogo ─────────────────────────────────────────
 function ProductoSearchInput({ value, onChange, style, placeholder }) {
   const t = useTheme()
@@ -274,6 +292,9 @@ export default function TabCompras({ refreshKey }) {
   // Enviando a fiscal por id de compra
   const [enviandoFiscal, setEnviandoFiscal] = useState({})
 
+  // Acordeón: qué grupos están expandidos (key = "proveedor__fecha")
+  const [expandedGroups, setExpandedGroups] = useState({})
+
   const mostrarMsg = (tipo, texto) => {
     setMsg({ tipo, texto })
     setTimeout(() => setMsg(null), 4000)
@@ -339,6 +360,7 @@ export default function TabCompras({ refreshKey }) {
   const total    = d.total_invertido || 0
   const pieData  = porProv.map(([name, value]) => ({ name, value }))
   const sinDatos = compras.length === 0
+  const agrupados = agruparCompras(compras)
 
   const inpStyle = {
     width: '100%', boxSizing: 'border-box',
@@ -601,7 +623,7 @@ export default function TabCompras({ refreshKey }) {
           <GlassCard style={{ padding: 0 }}>
             <div style={{ padding: '14px 18px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <SectionTitle>Detalle de Compras</SectionTitle>
-              <span style={{ fontSize: 11, color: t.textMuted }}>{compras.length} registros</span>
+              <span style={{ fontSize: 11, color: t.textMuted }}>{agrupados.length} entradas · {compras.length} ítems</span>
             </div>
 
             {/* Totales compactos */}
@@ -616,28 +638,178 @@ export default function TabCompras({ refreshKey }) {
 
             {/* Cards */}
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {compras.map((c, i) => {
+              {agrupados.map((grupo, gi) => {
+                const isLast = gi === agrupados.length - 1
+
+                // ── Grupo / acordeón (mismo proveedor + mismo día, ≥2 ítems) ──
+                if (grupo.isGroup) {
+                  const key          = `${grupo.prov}__${grupo.fecha}`
+                  const expanded     = !!expandedGroups[key]
+                  const items        = grupo.items
+                  const totalGrupo   = items.reduce((s, x) => s + (x.costo_total || 0), 0)
+                  const tieneIva     = items.some(x => x.incluye_iva && x.tarifa_iva > 0)
+                  const yaEnFiscal   = items.filter(x => !!x.compra_fiscal_id).length
+                  const todosEnFisc  = yaEnFiscal === items.length
+                  const toggle       = () =>
+                    setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }))
+
+                  return (
+                    <div key={key} style={{ borderBottom: !isLast ? `1px solid ${t.border}` : 'none' }}>
+                      {/* Cabecera acordeón */}
+                      <div
+                        style={{ padding: '12px 18px', cursor: 'pointer', userSelect: 'none',
+                          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}
+                        onClick={toggle}
+                      >
+                        <span style={{
+                          fontSize: 10, color: t.textMuted, flexShrink: 0,
+                          display: 'inline-block',
+                          transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                          transition: 'transform .15s',
+                        }}>▶</span>
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
+                              {grupo.prov}
+                            </span>
+                            <span style={{ fontSize: 11, color: t.textMuted }}>{grupo.fecha}</span>
+                            <span style={{
+                              fontSize: 10, color: t.textMuted,
+                              background: t.tableAlt, borderRadius: 5,
+                              padding: '2px 8px', border: `1px solid ${t.border}`,
+                            }}>{items.length} ítems</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 13, color: t.blue, fontWeight: 700 }}>{cop(totalGrupo)}</span>
+                            {tieneIva && (
+                              <span style={{
+                                fontSize: 10, color: t.green, fontWeight: 600,
+                                background: `${t.green}12`, borderRadius: 5,
+                                padding: '2px 8px', border: `1px solid ${t.green}30`,
+                              }}>IVA</span>
+                            )}
+                            {todosEnFisc ? (
+                              <span style={{
+                                fontSize: 10, color: t.green, fontWeight: 600,
+                                background: `${t.green}12`, borderRadius: 5,
+                                padding: '2px 8px', border: `1px solid ${t.green}30`,
+                              }}>✓ Todo en Fiscal</span>
+                            ) : yaEnFiscal > 0 ? (
+                              <span style={{
+                                fontSize: 10, color: t.accent, fontWeight: 600,
+                                background: `${t.accent}12`, borderRadius: 5,
+                                padding: '2px 8px', border: `1px solid ${t.accent}30`,
+                              }}>{yaEnFiscal} de {items.length} en fiscal</span>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Cuerpo expandible */}
+                      {expanded && (
+                        <div style={{ borderTop: `1px solid ${t.border}` }}>
+                          {/* Cabecera tabla */}
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '2fr 70px 90px 90px 60px 36px',
+                            gap: 4, padding: '6px 18px',
+                            background: t.tableAlt,
+                            fontSize: 10, color: t.textMuted,
+                            fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em',
+                            alignItems: 'center',
+                          }}>
+                            <span>Producto</span>
+                            <span>Cant.</span>
+                            <span>Costo unit.</span>
+                            <span>Total</span>
+                            <span>Fiscal</span>
+                            <span/>
+                          </div>
+                          {/* Filas */}
+                          {items.map(c => {
+                            const yaEnFiscalFila = !!c.compra_fiscal_id
+                            const cargando       = !!enviandoFiscal[c.id]
+                            return (
+                              <div key={c.id} style={{
+                                display: 'grid',
+                                gridTemplateColumns: '2fr 70px 90px 90px 60px 36px',
+                                gap: 4, padding: '8px 18px',
+                                alignItems: 'center',
+                                borderTop: `1px solid ${t.border}30`,
+                                fontSize: 12,
+                              }}>
+                                <span style={{
+                                  color: t.text, fontWeight: 500,
+                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                }}>{c.producto}</span>
+                                <span style={{ color: t.textSub }}>{num(c.cantidad)}</span>
+                                <span style={{ color: t.textMuted }}>{cop(c.costo_unitario)}</span>
+                                <span style={{ color: t.blue, fontWeight: 700 }}>{cop(c.costo_total)}</span>
+                                <span style={{ color: yaEnFiscalFila ? t.green : t.textMuted }}>
+                                  {yaEnFiscalFila ? '✓' : '—'}
+                                </span>
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                  <button
+                                    onClick={() => setEditando(c)}
+                                    style={{
+                                      background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
+                                      borderRadius: 6, color: t.blue, padding: '4px 6px',
+                                      fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                                    }}>✏️</button>
+                                  <button
+                                    onClick={() => !yaEnFiscalFila && !cargando && enviarAFiscal(c)}
+                                    title={yaEnFiscalFila ? 'Ya en Fiscal' : '→ Fiscal'}
+                                    style={{
+                                      background: yaEnFiscalFila ? `${t.green}14` : `${t.accent}14`,
+                                      border: `1px solid ${yaEnFiscalFila ? t.green : t.accent}40`,
+                                      borderRadius: 6,
+                                      color: yaEnFiscalFila ? t.green : t.accent,
+                                      padding: '4px 6px', fontSize: 11,
+                                      cursor: yaEnFiscalFila ? 'default' : 'pointer',
+                                      fontFamily: 'inherit', opacity: cargando ? 0.6 : 1,
+                                    }}>
+                                    {cargando ? '…' : yaEnFiscalFila ? '✓' : '📊'}
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })}
+                          {/* Pie del grupo */}
+                          <div style={{
+                            display: 'flex', justifyContent: 'flex-end',
+                            padding: '8px 18px', background: t.tableAlt,
+                            borderTop: `1px solid ${t.border}`,
+                            fontSize: 12,
+                          }}>
+                            <span style={{ color: t.blue, fontWeight: 700 }}>
+                              Total pedido: {cop(totalGrupo)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
+
+                // ── Individual ────────────────────────────────────────────────
+                const c          = grupo.items[0]
                 const { iva }    = c.incluye_iva && c.tarifa_iva ? calcIVA(c.costo_total, c.tarifa_iva) : { iva: 0 }
                 const yaEnFiscal = !!c.compra_fiscal_id
-                const cargando  = !!enviandoFiscal[c.id]
+                const cargando   = !!enviandoFiscal[c.id]
 
                 return (
-                  <div key={i} style={{
+                  <div key={c.id} style={{
                     padding: '12px 18px',
-                    borderBottom: i < compras.length - 1 ? `1px solid ${t.border}` : 'none',
+                    borderBottom: !isLast ? `1px solid ${t.border}` : 'none',
                   }}>
-                    {/* Fila 1: fecha + proveedor */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
                       <span style={{ fontSize: 11, color: t.textMuted }}>{String(c.fecha||'').slice(0,10)}</span>
                       <span style={{ fontSize: 11, color: t.textMuted, fontStyle: 'italic' }}>{c.proveedor||'Sin proveedor'}</span>
                     </div>
-
-                    {/* Fila 2: producto */}
                     <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8, lineHeight: 1.35 }}>
                       {c.producto||'—'}
                     </div>
-
-                    {/* Fila 3: cantidades */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
                       <span style={{
                         fontSize: 11, color: t.textMuted, background: t.tableAlt,
@@ -652,8 +824,6 @@ export default function TabCompras({ refreshKey }) {
                         }}>IVA {cop(iva)} ({c.tarifa_iva}%)</span>
                       )}
                     </div>
-
-                    {/* Acciones */}
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
                         onClick={() => setEditando(c)}
