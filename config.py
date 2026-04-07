@@ -29,6 +29,7 @@ OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 WEBHOOK_URL       = os.getenv("WEBHOOK_URL", "")
 WEBHOOK_PORT      = int(os.getenv("PORT", "8443"))
 DATABASE_URL      = os.getenv("DATABASE_URL")
+SENTRY_DSN        = os.getenv("SENTRY_DSN", "")   # Opcional — captura errores en producción
 
 # Validar claves obligatorias al importar
 _CLAVES_REQUERIDAS = {

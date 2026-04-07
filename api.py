@@ -59,6 +59,25 @@ logging.basicConfig(
 
 _api_logger = logging.getLogger("ferrebot.api")
 
+# ── Sentry — captura de errores en producción ─────────────────────────────────
+import config as _cfg
+if _cfg.SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    sentry_sdk.init(
+        dsn=_cfg.SENTRY_DSN,
+        integrations=[
+            FastApiIntegration(),
+            LoggingIntegration(level=logging.WARNING, event_level=logging.ERROR),
+        ],
+        traces_sample_rate=0.1,   # 10% de requests trackeados (no afecta rendimiento)
+        environment="production",
+        release=getattr(_cfg, "VERSION", "unknown"),
+    )
+    _api_logger.info("✅ Sentry inicializado")
+
 
 # ── PG LISTEN/NOTIFY — puente bot → dashboard ─────────────────────────────────
 def _pg_listen_worker() -> None:
@@ -252,6 +271,11 @@ app.include_router(events.router)         # ← SSE tiempo real
 @app.get("/api/health")
 def health():
     return {"estado": "activo", "version": "1.0.0"}
+
+# ── Sentry test — BORRAR después de verificar ─────────────────────────────────
+@app.get("/sentry-test")
+def sentry_test():
+    raise ValueError("🧪 Prueba Sentry — si ves esto en Sentry, está funcionando")
 
 # ── Explicit OPTIONS handler para /auth/telegram ──────────────────────────────
 # El catch-all @app.get("/{full_path:path}") puede interceptar el preflight

@@ -4,6 +4,7 @@ Inicializa los servicios y arranca el bot en modo webhook (Railway) o polling (l
 """
 
 import asyncio
+import logging as _logging
 
 from telegram import Update
 from telegram.ext import (
@@ -12,6 +13,21 @@ from telegram.ext import (
 )
 
 import config
+
+# ── Sentry — captura de errores en producción ─────────────────────────────────
+if config.SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.logging import LoggingIntegration
+    sentry_sdk.init(
+        dsn=config.SENTRY_DSN,
+        integrations=[
+            LoggingIntegration(level=_logging.WARNING, event_level=_logging.ERROR),
+        ],
+        traces_sample_rate=0.0,
+        environment="production",
+        release=getattr(config, "VERSION", "unknown"),
+    )
+    print("✅ Sentry inicializado (bot)")
 
 from handlers.comandos import (
     comando_inicio, comando_ventas, comando_buscar,
@@ -38,6 +54,32 @@ from handlers.cmd_facturacion import (
     comando_nota_credito,
     comando_estado_factura,
 )
+
+_logger = _logging.getLogger("ferrebot.main")
+
+
+async def _error_handler(update: object, context) -> None:
+    """
+    Handler global de errores del bot.
+    Captura cualquier excepción no manejada en handlers/comandos/callbacks
+    y la envía a Sentry con contexto del update para facilitar el debug.
+    """
+    if context.error is None:
+        return
+
+    # Contexto adicional para Sentry: qué chat y qué mensaje causó el error
+    if config.SENTRY_DSN:
+        import sentry_sdk
+        with sentry_sdk.push_scope() as scope:
+            if update and hasattr(update, "effective_chat") and update.effective_chat:
+                scope.set_user({"id": str(update.effective_chat.id)})
+            if update and hasattr(update, "effective_message") and update.effective_message:
+                texto = getattr(update.effective_message, "text", "") or ""
+                scope.set_extra("mensaje_usuario", texto[:300])
+            scope.set_tag("componente", "bot-telegram")
+            sentry_sdk.capture_exception(context.error)
+
+    _logger.error("Excepción no manejada en el bot:", exc_info=context.error)
 
 
 def build_app() -> Application:
@@ -106,10 +148,13 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_crear_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_tipoid_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_persona_"))
-    app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_ciudad_"))  # ← AÑADIDO
+    app.add_handler(CallbackQueryHandler(manejar_callback_cliente,  pattern="^cli_ciudad_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_foto,    pattern="^foto_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_grafica,  pattern="^grafica_"))
     app.add_handler(CallbackQueryHandler(manejar_callback_productos, pattern="^prod_"))
+
+    # ── Error handler global — captura excepciones no manejadas y las envía a Sentry ──
+    app.add_error_handler(_error_handler)
 
     return app
 
