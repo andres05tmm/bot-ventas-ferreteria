@@ -258,9 +258,9 @@ def _siguiente_num_dian(cur) -> int:
     return max(siguiente, MATIAS_NUM_DESDE)
 
 
-def _fmt(valor) -> str:
-    """Número → string con 2 decimales (requerido por Matias API)."""
-    return f"{float(valor or 0):.2f}"
+def _fmt(valor) -> float:
+    """Número → float con 2 decimales (MATIAS API espera numérico, no string)."""
+    return round(float(valor or 0), 2)
 
 
 # ── Detección de correo real vs placeholder ───────────────────────────────────
@@ -365,7 +365,11 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "CD":   "20",  # Carné Diplomático
     }
     tipo_id_raw     = (venta.get("tipo_id") or "CC").upper().strip()
-    identity_doc_id = _TIPO_ID_MATIAS.get(tipo_id_raw, "1")   # fallback → CC
+    id_cliente      = venta.get("identificacion_cliente") or ""
+    # Consumidor Final (sin ID real) → identity_document_id="6" según soporte MATIAS API
+    # Para clientes reales → mapeo normal desde _TIPO_ID_MATIAS
+    es_consumidor_final = not id_cliente or id_cliente.strip() == "222222222222"
+    identity_doc_id = "6" if es_consumidor_final else _TIPO_ID_MATIAS.get(tipo_id_raw, "1")
 
     # ── send_email: 1 solo si hay correo real del cliente ─────────────────────
     # Para Consumidor Final o sin correo, poner email genérico de la empresa
@@ -408,7 +412,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         total_l   = _fmt(item.get("total") or 0)
         tiene_iva = bool(item.get("tiene_iva"))
         pct_iva   = int(item.get("porcentaje_iva") or 0)
-        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else "0.00"
+        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else 0.0
 
         # Resolver quantity_units_id desde unidad_medida del ítem.
         # ventas_detalle.unidad_medida se pobla al registrar la venta con el
@@ -431,7 +435,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             "tax_totals": [{
                 "tax_id":         "1" if tiene_iva else "4",
                 "tax_amount":     iva_val,
-                "taxable_amount": total_l if tiene_iva else "0.00",
+                "taxable_amount": total_l if tiene_iva else 0.0,
                 "percent":        _fmt(pct_iva),
             }],
         })
@@ -442,8 +446,8 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     doc_tax_totals = [{
         "tax_id":         "1" if total_iva > 0 else "4",
         "tax_amount":     _fmt(total_iva),
-        "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else "0.00",
-        "percent":        "19.00" if total_iva > 0 else "0.00",
+        "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else 0.0,
+        "percent":        19.0 if total_iva > 0 else 0.0,
     }]
 
     # ── legal_monetary_totals (campo obligatorio) ─────────────────────────────
@@ -451,9 +455,9 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "line_extension_amount":  _fmt(subtotal),
         "tax_exclusive_amount":   _fmt(subtotal),
         "tax_inclusive_amount":   _fmt(total_doc),
-        "allowance_total_amount": "0.00",
-        "charge_total_amount":    "0.00",
-        "pre_paid_amount":        "0.00",
+        "allowance_total_amount": 0.0,
+        "charge_total_amount":    0.0,
+        "pre_paid_amount":        0.0,
         "payable_amount":         _fmt(total_doc),
     }
 
@@ -923,7 +927,7 @@ async def emitir_nota_credito(
         total_l   = _fmt(item.get("total") or 0)
         tiene_iva = bool(item.get("tiene_iva"))
         pct_iva   = int(item.get("porcentaje_iva") or 0)
-        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else "0.00"
+        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else 0.0
         unidad_raw   = (item.get("unidad_medida") or "Unidad").strip()
         qty_units_id = _UNIDAD_DIAN.get(unidad_raw, _UNIDAD_DIAN.get(unidad_raw.lower(), "70"))
 
@@ -941,7 +945,7 @@ async def emitir_nota_credito(
             "tax_totals": [{
                 "tax_id":         "1" if tiene_iva else "4",
                 "tax_amount":     iva_val,
-                "taxable_amount": total_l if tiene_iva else "0.00",
+                "taxable_amount": total_l if tiene_iva else 0.0,
                 "percent":        _fmt(pct_iva),
             }],
         })
@@ -965,16 +969,16 @@ async def emitir_nota_credito(
         "tax_totals": [{
             "tax_id":         "1" if total_iva > 0 else "4",
             "tax_amount":     _fmt(total_iva),
-            "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else "0.00",
-            "percent":        "19.00" if total_iva > 0 else "0.00",
+            "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else 0.0,
+            "percent":        19.0 if total_iva > 0 else 0.0,
         }],
         "legal_monetary_totals": {
             "line_extension_amount":  _fmt(subtotal),
             "tax_exclusive_amount":   _fmt(subtotal),
             "tax_inclusive_amount":   _fmt(total_doc),
-            "allowance_total_amount": "0.00",
-            "charge_total_amount":    "0.00",
-            "pre_paid_amount":        "0.00",
+            "allowance_total_amount": 0.0,
+            "charge_total_amount":    0.0,
+            "pre_paid_amount":        0.0,
             "payable_amount":         _fmt(total_doc),
         },
         "lines": lines,
@@ -1073,7 +1077,7 @@ async def emitir_nota_debito(
         total_l   = _fmt(item.get("total") or 0)
         tiene_iva = bool(item.get("tiene_iva"))
         pct_iva   = int(item.get("porcentaje_iva") or 0)
-        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else "0.00"
+        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else 0.0
         unidad_raw   = (item.get("unidad_medida") or "Unidad").strip()
         qty_units_id = _UNIDAD_DIAN.get(unidad_raw, _UNIDAD_DIAN.get(unidad_raw.lower(), "70"))
 
@@ -1091,7 +1095,7 @@ async def emitir_nota_debito(
             "tax_totals": [{
                 "tax_id":         "1" if tiene_iva else "4",
                 "tax_amount":     iva_val,
-                "taxable_amount": total_l if tiene_iva else "0.00",
+                "taxable_amount": total_l if tiene_iva else 0.0,
                 "percent":        _fmt(pct_iva),
             }],
         })
@@ -1115,16 +1119,16 @@ async def emitir_nota_debito(
         "tax_totals": [{
             "tax_id":         "1" if total_iva > 0 else "4",
             "tax_amount":     _fmt(total_iva),
-            "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else "0.00",
-            "percent":        "19.00" if total_iva > 0 else "0.00",
+            "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else 0.0,
+            "percent":        19.0 if total_iva > 0 else 0.0,
         }],
         "legal_monetary_totals": {
             "line_extension_amount":  _fmt(subtotal),
             "tax_exclusive_amount":   _fmt(subtotal),
             "tax_inclusive_amount":   _fmt(total_doc),
-            "allowance_total_amount": "0.00",
-            "charge_total_amount":    "0.00",
-            "pre_paid_amount":        "0.00",
+            "allowance_total_amount": 0.0,
+            "charge_total_amount":    0.0,
+            "pre_paid_amount":        0.0,
             "payable_amount":         _fmt(total_doc),
         },
         "lines": lines_payload,
