@@ -273,7 +273,7 @@ def health():
     return {"estado": "activo", "version": "1.0.0"}
 
 # ── Sentry test — BORRAR después de verificar ─────────────────────────────────
-@app.get("/sentry-test")
+@app.get("/api/sentry-test")
 def sentry_test():
     raise ValueError("🧪 Prueba Sentry — si ves esto en Sentry, está funcionando")
 
