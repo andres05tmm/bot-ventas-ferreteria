@@ -272,10 +272,74 @@ app.include_router(events.router)         # ← SSE tiempo real
 def health():
     return {"estado": "activo", "version": "1.0.0"}
 
-# ── Sentry test — BORRAR después de verificar ─────────────────────────────────
-@app.get("/api/sentry-test")
-def sentry_test():
-    raise ValueError("🧪 Prueba Sentry — si ves esto en Sentry, está funcionando")
+
+# ── Sentry webhook → alerta en Telegram ──────────────────────────────────────
+@app.post("/webhooks/sentry")
+async def sentry_webhook(request: Request):
+    """
+    Recibe alertas de Sentry y las reenvía al grupo de Telegram.
+
+    Configurar en Sentry:
+      Alerts → Create Alert → Issue Alert
+      Acción: Send a notification via webhook
+      URL: https://bot-ventas-ferreteria-production.up.railway.app/webhooks/sentry
+
+    Variable de entorno requerida:
+      SENTRY_ALERT_CHAT_ID — ID del grupo/chat de Telegram donde llegan las alertas
+                             (ej: -100123456789 para grupos)
+    """
+    import httpx
+
+    try:
+        data = await request.json()
+    except Exception:
+        return {"ok": True}
+
+    # Solo notificar cuando se crea un error nuevo o escala — ignorar resolved, assigned, etc.
+    accion = data.get("action", "")
+    if accion not in ("created", "escalating"):
+        return {"ok": True}
+
+    issue = data.get("data", {}).get("issue", {})
+    titulo = issue.get("title", "Error desconocido")
+    culprit = issue.get("culprit", "")
+    url = issue.get("web_url", "")
+    nivel = issue.get("level", "error").upper()
+
+    emoji = "🔴" if nivel == "ERROR" else "⚠️" if nivel == "WARNING" else "🔵"
+    accion_texto = "Nuevo error" if accion == "created" else "Error escalando"
+
+    mensaje = (
+        f"{emoji} *{accion_texto} en FerreBot* [{nivel}]\n\n"
+        f"*{titulo}*\n"
+    )
+    if culprit:
+        mensaje += f"📍 `{culprit}`\n"
+    if url:
+        mensaje += f"\n[Ver en Sentry]({url})"
+
+    token = os.getenv("TELEGRAM_TOKEN")
+    chat_id = os.getenv("SENTRY_ALERT_CHAT_ID")
+
+    if token and chat_id:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={
+                        "chat_id": chat_id,
+                        "text": mensaje,
+                        "parse_mode": "Markdown",
+                        "disable_web_page_preview": True,
+                    },
+                )
+        except Exception as e:
+            _api_logger.warning(f"Error enviando alerta Sentry a Telegram: {e}")
+    else:
+        _api_logger.warning("SENTRY_ALERT_CHAT_ID o TELEGRAM_TOKEN no configurados — alerta no enviada")
+
+    return {"ok": True}
+
 
 # ── Explicit OPTIONS handler para /auth/telegram ──────────────────────────────
 # El catch-all @app.get("/{full_path:path}") puede interceptar el preflight
