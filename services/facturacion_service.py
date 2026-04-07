@@ -6,11 +6,12 @@ Auth:     https://auth-v2.matias-api.com  (login con email + password → JWT re
 API base: https://api-v2.matias-api.com/api/ubl2.1
 
 Variables de entorno en Railway:
-    MATIAS_EMAIL        demo@lopezsoft.net.co
-    MATIAS_PASSWORD     DEMO123456
-    MATIAS_RESOLUTION   18764074347312
-    MATIAS_PREFIX       LZT
-    MATIAS_NUM_DESDE    5280   (primer número del rango autorizado DIAN)
+    MATIAS_EMAIL        tu_email@dominio.com
+    MATIAS_PASSWORD     tu_password
+    MATIAS_RESOLUTION   18760000001          (resolución DIAN)
+    MATIAS_PREFIX       SETP                 (pruebas) o FEV (producción)
+    MATIAS_NUM_DESDE    990000000            (primer número del rango — pruebas)
+    MATIAS_TESTSET_ID   b562e2f8-f0eb-...   (solo en pruebas; vacío en producción)
 """
 from __future__ import annotations
 
@@ -34,8 +35,11 @@ MATIAS_API_URL    = os.getenv("MATIAS_API_URL", "https://api-v2.matias-api.com/a
 MATIAS_EMAIL      = os.getenv("MATIAS_EMAIL")
 MATIAS_PASSWORD   = os.getenv("MATIAS_PASSWORD")
 MATIAS_RESOLUTION = os.getenv("MATIAS_RESOLUTION")
-MATIAS_PREFIX     = os.getenv("MATIAS_PREFIX", "LZT")
-MATIAS_NUM_DESDE  = int(os.getenv("MATIAS_NUM_DESDE", "5280"))
+MATIAS_PREFIX     = os.getenv("MATIAS_PREFIX", "SETP")
+MATIAS_NUM_DESDE  = int(os.getenv("MATIAS_NUM_DESDE", "990000000"))
+# TestSetId asignado por la DIAN para el set de habilitación.
+# Dejar vacío ("") una vez aprobado el set y pasar a producción.
+MATIAS_TESTSET_ID = os.getenv("MATIAS_TESTSET_ID", "")
 
 _MEDIOS_PAGO = {
     "efectivo":      10,
@@ -465,7 +469,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     es_fiado           = bool(venta.get("es_fiado") or venta.get("fiado"))
     payment_method_id  = 2 if es_fiado else 1
 
-    return {
+    payload: dict = {
         "resolution_number":      MATIAS_RESOLUTION,
         "prefix":                 MATIAS_PREFIX,
         "document_number":        str(num_dian),
@@ -486,6 +490,11 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         }],
         "lines": lines,
     }
+    # En ambiente de habilitación (pruebas DIAN) se incluye el TestSetId.
+    # Cuando MATIAS_TESTSET_ID esté vacío el campo no se envía (producción).
+    if MATIAS_TESTSET_ID:
+        payload["test_set_id"] = MATIAS_TESTSET_ID
+    return payload
 
 
 # ── Función principal ─────────────────────────────────────────────────────────
