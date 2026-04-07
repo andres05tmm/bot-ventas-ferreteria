@@ -71,67 +71,74 @@ export default function Login() {
   return (
     <div style={{
       minHeight: '100dvh',
-      background: t.bgPattern,
+      background: '#000000',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
       padding: '20px',
-      fontFamily: "'Sora', system-ui, sans-serif",
-      color: t.text,
+      fontFamily: "'Inter', Arial, Helvetica, sans-serif",
+      color: '#FFFFFF',
     }}>
+      {/* Card */}
       <div style={{
-        background: t.card,
-        borderRadius: '20px',
-        padding: '48px',
-        boxShadow: t.shadow,
-        border: `1px solid ${t.border}`,
-        maxWidth: '420px',
+        background: '#FFFFFF',
+        borderRadius: '2px',
+        padding: '48px 40px',
+        boxShadow: 'none',
+        border: '1px solid #CCCCCC',
+        maxWidth: '380px',
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: '24px',
+        gap: '28px',
       }}>
         {/* Branding */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '12px',
-          marginBottom: '8px',
+          gap: '10px',
+          width: '100%',
         }}>
-          <div style={{
-            width: '56px',
-            height: '56px',
-            borderRadius: '12px',
-            background: t.accentSub,
-            border: `2px solid ${t.accent}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '32px',
-          }}>
-            🏪
-          </div>
-          <h1 style={{
-            margin: '0',
-            fontSize: '24px',
-            fontWeight: '800',
-            color: '#C8200E',
-            letterSpacing: '-0.02em',
-          }}>
-            Ferretería Punto Rojo
-          </h1>
+          {/* Red accent bar */}
+          <div style={{ width: 32, height: 3, background: '#DA291C', marginBottom: 4 }}/>
           <p style={{
             margin: '0',
-            fontSize: '13px',
-            color: t.textMuted,
+            fontSize: '9px',
             fontWeight: '500',
+            color: '#8F8F8F',
+            letterSpacing: '.2em',
+            textTransform: 'uppercase',
+          }}>
+            Ferretería
+          </p>
+          <h1 style={{
+            margin: '0',
+            fontSize: '22px',
+            fontWeight: '800',
+            color: '#181818',
+            letterSpacing: '-0.02em',
+            lineHeight: 1.1,
+            textAlign: 'center',
+          }}>
+            Punto Rojo
+          </h1>
+          <p style={{
+            margin: '4px 0 0',
+            fontSize: '11px',
+            color: '#8F8F8F',
+            fontWeight: '400',
+            letterSpacing: '.08em',
+            textTransform: 'uppercase',
           }}>
             Dashboard de ventas
           </p>
         </div>
+
+        {/* Divider */}
+        <div style={{ width: '100%', height: 1, background: '#EEEEEE' }}/>
 
         {/* Widget container — el script se inyecta aquí */}
         <div
@@ -140,6 +147,7 @@ export default function Login() {
             display: 'flex',
             justifyContent: 'center',
             minHeight: '48px',
+            width: '100%',
           }}
         />
 
@@ -149,15 +157,16 @@ export default function Login() {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            color: t.textMuted,
-            fontSize: '13px',
+            color: '#666666',
+            fontSize: '12px',
+            letterSpacing: '.04em',
           }}>
             <div style={{
-              width: '14px',
-              height: '14px',
+              width: '13px',
+              height: '13px',
               borderRadius: '50%',
-              border: `2px solid ${t.accentSub}`,
-              borderTopColor: t.accent,
+              border: '2px solid #EEEEEE',
+              borderTopColor: '#DA291C',
               animation: 'spin 0.8s linear infinite',
             }} />
             <span>Autenticando...</span>
@@ -167,15 +176,16 @@ export default function Login() {
         {/* Error */}
         {error && (
           <div style={{
-            background: 'rgba(200, 32, 14, 0.08)',
-            border: '1px solid #C8200E',
-            borderRadius: '10px',
-            padding: '12px 16px',
-            fontSize: '13px',
-            color: '#C8200E',
+            background: 'rgba(218,41,28,0.06)',
+            border: '1px solid #DA291C',
+            borderRadius: '2px',
+            padding: '10px 14px',
+            fontSize: '12px',
+            color: '#DA291C',
             fontWeight: '500',
             width: '100%',
             textAlign: 'center',
+            letterSpacing: '.02em',
           }}>
             {error}
           </div>
@@ -183,20 +193,33 @@ export default function Login() {
 
         <p style={{
           margin: '0',
-          fontSize: '12px',
-          color: t.textMuted,
+          fontSize: '11px',
+          color: '#8F8F8F',
           textAlign: 'center',
-          lineHeight: '1.5',
+          lineHeight: '1.6',
         }}>
           Inicia sesión con tu cuenta de Telegram para acceder al dashboard
         </p>
       </div>
 
+      {/* Footer mark */}
+      <p style={{
+        marginTop: 32,
+        fontSize: '10px',
+        color: '#333333',
+        letterSpacing: '.12em',
+        textTransform: 'uppercase',
+      }}>
+        v5 · Bot Telegram
+      </p>
+
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
       `}</style>
     </div>
   )

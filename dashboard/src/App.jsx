@@ -59,7 +59,7 @@ function Icon({ name, size = 20, color = 'currentColor', strokeWidth = 1.75 }) {
 // ── Logo SVG vectorial ────────────────────────────────────────────────────────
 function Logo({ size = 40, themeId }) {
   const isDark = themeId !== 'caramelo'
-  const red    = themeId === 'brasa' ? '#F03418' : '#C8200E'
+  const red    = themeId === 'brasa' ? '#F03418' : themeId === 'ferrari' ? '#DA291C' : '#C8200E'
   const txt    = isDark ? '#F0E8DC' : '#1C1410'
   const sub    = isDark ? 'rgba(240,232,220,.42)' : 'rgba(28,20,16,.38)'
   const w      = Math.round(size * 4.6)
@@ -99,12 +99,12 @@ function Logo({ size = 40, themeId }) {
       </g>
 
       <text x={size + 10} y={h * 0.41}
-        fontFamily="'Sora',system-ui,sans-serif"
+        fontFamily="'Inter',Arial,Helvetica,sans-serif"
         fontSize={h * 0.225} fontWeight="500" letterSpacing="0.16em"
         fill={sub}>FERRETERÍA</text>
 
       <text x={size + 8} y={h * 0.82}
-        fontFamily="'Sora',system-ui,sans-serif"
+        fontFamily="'Inter',Arial,Helvetica,sans-serif"
         fontSize={h * 0.41} fontWeight="800" letterSpacing="-0.025em"
         fill={txt}>PUNTO ROJO</text>
 
@@ -165,7 +165,7 @@ function HeaderVendorSelector() {
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
       background: t.card, border: `1px solid ${t.border}`,
-      borderRadius: 10, padding: '8px 12px',
+      borderRadius: t.radius ?? 10, padding: '8px 12px',
     }}>
       <label style={{
         fontSize: 11, color: t.textMuted, fontWeight: 600,
@@ -180,7 +180,7 @@ function HeaderVendorSelector() {
         }}
         style={{
           background: t.card, border: `1px solid #C8200E66`,
-          color: t.text, borderRadius: 6, padding: '4px 8px',
+          color: t.text, borderRadius: t.radius ?? 6, padding: '4px 8px',
           fontSize: 11, fontWeight: 500, cursor: 'pointer',
           outline: 'none',
         }}
@@ -206,7 +206,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
       WebkitBackdropFilter: t.headerBlur,
       borderBottom: `1px solid ${t.border}`,
       position: 'sticky', top: 0, zIndex: 30,
-      boxShadow: isDark
+      boxShadow: themeId === 'ferrari' ? 'none' : isDark
         ? '0 1px 0 rgba(255,255,255,.04), 0 8px 32px rgba(0,0,0,.40)'
         : '0 1px 0 rgba(0,0,0,.04), 0 4px 20px rgba(0,0,0,.06)',
     }}>
@@ -221,7 +221,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
             fontSize: 9, fontWeight: 800, letterSpacing: '.18em',
             color: t.accent, background: t.accentSub,
             border: `1px solid ${t.accent}30`,
-            borderRadius: 99, padding: '3px 9px', textTransform: 'uppercase',
+            borderRadius: t.radius ?? 99, padding: '3px 9px', textTransform: 'uppercase',
           }}>v5</span>
         </div>
 
@@ -230,7 +230,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
             <div style={{
               display: 'flex', alignItems: 'center', gap: 6,
               background: t.card, border: `1px solid ${t.border}`,
-              borderRadius: 10, padding: '6px 12px',
+              borderRadius: t.radius ?? 10, padding: '6px 12px',
               fontSize: 11, color: t.textSub, fontWeight: 500,
             }}>
               <span style={{ fontSize: 13, opacity: .7 }}>🕐</span>
@@ -238,7 +238,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
               {refreshInterval > 0 && countdown > 0 && (
                 <span style={{
                   background: t.accent, color: '#fff',
-                  borderRadius: 99, padding: '1px 7px', fontSize: 9,
+                  borderRadius: t.radius ?? 99, padding: '1px 7px', fontSize: 9,
                   fontWeight: 800, marginLeft: 2,
                 }}>{countdown}s</span>
               )}
@@ -247,7 +247,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
 
           <button onClick={onRefresh} title="Actualizar" style={{
             background: t.accentSub, border: `1.5px solid ${t.accent}40`,
-            color: t.accent, borderRadius: 10, width: 38, height: 38,
+            color: t.accent, borderRadius: t.radius ?? 10, width: 38, height: 38,
             cursor: 'pointer', display: 'flex',
             alignItems: 'center', justifyContent: 'center', transition: 'all .15s',
           }}>
@@ -259,7 +259,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
           <div style={{
             display: 'flex', alignItems: 'center', gap: 6,
             background: t.card, border: `1px solid ${t.border}`,
-            borderRadius: 10, padding: '5px 10px',
+            borderRadius: t.radius ?? 10, padding: '5px 10px',
           }}>
             <span style={{
               fontSize: 9, color: t.textMuted, fontWeight: 700,
@@ -273,7 +273,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
                   border: `1px solid ${active ? t.accent : t.border}`,
                   color: active ? '#fff' : t.textMuted,
                   fontSize: 10, fontWeight: active ? 700 : 500,
-                  padding: '3px 9px', borderRadius: 99, cursor: 'pointer',
+                  padding: '3px 9px', borderRadius: t.radius ?? 99, cursor: 'pointer',
                   transition: 'all .13s',
                 }}>{opt.label}</button>
               )
@@ -285,7 +285,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
           <div style={{
             display: 'flex', gap: 2,
             background: t.card, border: `1px solid ${t.border}`,
-            borderRadius: 10, padding: 4,
+            borderRadius: t.radius ?? 10, padding: 4,
           }}>
             {Object.values(THEMES).map(th => {
               const cur = themeId === th.id
@@ -293,7 +293,7 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
                 <button key={th.id} onClick={() => setThemeId(th.id)}
                   title={th.label} style={{
                     background: cur ? t.accent : 'transparent',
-                    border: 'none', borderRadius: 7,
+                    border: 'none', borderRadius: t.radius ?? 7,
                     color: cur ? '#fff' : t.textMuted,
                     width: 32, height: 28, fontSize: 14, cursor: 'pointer',
                     transition: 'all .13s',
@@ -312,13 +312,13 @@ function HeaderDesktop({ themeId, setThemeId, refreshInterval, setRefreshInterva
           <div style={{
             display: 'flex', alignItems: 'center', gap: 7,
             background: t.card, border: `1px solid ${t.border}`,
-            borderRadius: 10, padding: '6px 12px',
+            borderRadius: t.radius ?? 10, padding: '6px 12px',
             fontSize: 11, color: t.textSub,
           }}>
             <span style={{
               display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
               background: '#34D060',
-              boxShadow: '0 0 0 2px rgba(52,208,96,.18), 0 0 8px rgba(52,208,96,.5)',
+              boxShadow: themeId === 'ferrari' ? 'none' : '0 0 0 2px rgba(52,208,96,.18), 0 0 8px rgba(52,208,96,.5)',
               animation: 'pulse 2.5s ease infinite',
             }}/>
             <span style={{ fontWeight: 600 }}>Bot activo</span>
@@ -346,7 +346,7 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
       position: 'sticky', top: 0, zIndex: 30,
       height: 'calc(58px + env(safe-area-inset-top, 0px))',
       paddingTop: 'env(safe-area-inset-top, 0px)',
-      boxShadow: themeId !== 'caramelo'
+      boxShadow: themeId === 'ferrari' ? 'none' : themeId !== 'caramelo'
         ? '0 4px 24px rgba(0,0,0,.45)'
         : '0 2px 12px rgba(0,0,0,.06)',
     }}>
@@ -358,7 +358,7 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
         display: 'flex', alignItems: 'center', gap: 6,
         background: t.accentSub,
         border: `1px solid ${t.accent}25`,
-        borderRadius: 99,
+        borderRadius: t.radius ?? 99,
         padding: '5px 12px',
       }}>
         <Icon name={activeTab} size={13} color={t.accent} strokeWidth={2.2}/>
@@ -370,7 +370,7 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
       <div style={{ display:'flex', gap: 6 }}>
         <button onClick={onRefresh} style={{
           background: t.accentSub, border: `1.5px solid ${t.accent}40`,
-          color: t.accent, borderRadius: 10, width: 36, height: 36,
+          color: t.accent, borderRadius: t.radius ?? 10, width: 36, height: 36,
           cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <Icon name="Refresh" size={15} color={t.accent} strokeWidth={2.2}/>
@@ -380,7 +380,7 @@ function HeaderMobile({ themeId, setThemeId, onRefresh, activeTab }) {
           setThemeId(tIds[(i + 1) % tIds.length])
         }} style={{
           background: t.card, border: `1px solid ${t.border}`,
-          color: t.textMuted, borderRadius: 10, width: 36, height: 36,
+          color: t.textMuted, borderRadius: t.radius ?? 10, width: 36, height: 36,
           fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>{THEMES[themeId]?.label.split(' ')[0] ?? '🎨'}</button>
       </div>
@@ -421,25 +421,32 @@ function TabsNavDesktop({ activeTab, setTab }) {
               onMouseEnter={() => setHoveredGroup(group.id)}
               onMouseLeave={() => setHoveredGroup(null)}
               style={{
-                position: 'relative', border: 'none',
-                background: isActive ? t.accentSub : isHovered ? `${t.accentSub}50` : 'transparent',
+                position: 'relative', cursor: 'pointer', whiteSpace: 'nowrap',
+                display: 'flex', alignItems: 'center', gap: 7,
+                border: 'none',
+                background: t.id === 'ferrari'
+                  ? 'transparent'
+                  : isActive ? t.accentSub : isHovered ? `${t.accentSub}50` : 'transparent',
                 color: isActive ? t.accent : isHovered ? t.textSub : t.textMuted,
                 fontSize: 12, fontWeight: isActive ? 700 : 500,
-                padding: '8px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
-                display: 'flex', alignItems: 'center', gap: 7,
-                borderRadius: 8, margin: '5px 0',
-                transition: 'color .15s, background .15s',
-                boxShadow: isActive ? `inset 0 0 0 1px ${t.accent}25` : 'none',
+                padding: t.id === 'ferrari' ? '10px 14px 8px' : '8px 14px',
+                borderRadius: t.id === 'ferrari' ? 0 : t.radius ?? 8,
+                margin: t.id === 'ferrari' ? '0' : '5px 0',
+                borderBottom: t.id === 'ferrari'
+                  ? isActive ? `2px solid ${t.accent}` : '2px solid transparent'
+                  : 'none',
+                transition: 'color .15s, background .15s, border-color .15s',
+                boxShadow: t.id === 'ferrari' ? 'none' : isActive ? `inset 0 0 0 1px ${t.accent}25` : 'none',
               }}
             >
               <Icon name={group.icon} size={13} color={isActive ? t.accent : isHovered ? t.textSub : t.textMuted} strokeWidth={isActive ? 2.2 : 1.75}/>
               <span>{group.label}</span>
-              {group.tabs.length > 1 && (
+              {group.tabs.length > 1 && t.id !== 'ferrari' && (
                 <span style={{
                   fontSize: 9, fontWeight: 600,
                   color: isActive ? t.accent : t.textMuted,
                   background: isActive ? `${t.accent}18` : `${t.textMuted}15`,
-                  borderRadius: 99, padding: '1px 5px',
+                  borderRadius: t.radius ?? 99, padding: '1px 5px',
                   minWidth: 16, textAlign: 'center',
                 }}>{group.tabs.length}</span>
               )}
@@ -470,9 +477,11 @@ function TabsNavDesktop({ activeTab, setTab }) {
                   fontSize: 11, fontWeight: active ? 700 : 400,
                   padding: '5px 11px', cursor: 'pointer', whiteSpace: 'nowrap',
                   display: 'flex', alignItems: 'center', gap: 6,
-                  borderRadius: 6, margin: '4px 0',
-                  transition: 'color .15s, background .15s',
+                  borderRadius: t.id === 'ferrari' ? 0 : t.radius ?? 6,
+                  margin: t.id === 'ferrari' ? '0' : '4px 0',
+                  transition: 'color .15s, background .15s, border-color .15s',
                   borderBottom: active ? `2px solid ${t.accent}` : '2px solid transparent',
+                  paddingBottom: t.id === 'ferrari' ? '7px' : '5px',
                 }}
               >
                 <Icon name={tab} size={12} color={active ? t.accent : hovered ? t.textSub : t.textMuted} strokeWidth={active ? 2.2 : 1.75}/>
@@ -529,7 +538,7 @@ function BottomNav({ activeTab, setTab }) {
               flex: 1, background: 'none', border: 'none',
               display: 'flex', flexDirection: 'column', alignItems: 'center',
               justifyContent: 'center', gap: 4, cursor: 'pointer',
-              padding: '8px 2px', borderRadius: 12, position: 'relative',
+              padding: '8px 2px', borderRadius: t.radius ?? 12, position: 'relative',
               transition: 'all .18s',
             }}>
               {(isActive || isOpen) && (
@@ -538,7 +547,7 @@ function BottomNav({ activeTab, setTab }) {
                   transform: 'translateX(-50%)',
                   width: 36, height: 34,
                   background: isActive ? t.accentSub : `${t.textMuted}15`,
-                  borderRadius: 10,
+                  borderRadius: t.radius ?? 10,
                   border: `1px solid ${isActive ? t.accent + '25' : t.border}`,
                 }}/>
               )}
@@ -566,7 +575,7 @@ function BottomNav({ activeTab, setTab }) {
         }}>
           <div onClick={e => e.stopPropagation()} style={{
             background: t.card,
-            borderRadius: '20px 20px 0 0',
+            borderRadius: `${t.radius ?? 20}px ${t.radius ?? 20}px 0 0`,
             padding: '20px 0',
             paddingBottom: 'calc(72px + env(safe-area-inset-bottom, 0px))',
             animation: 'drawerUp .2s cubic-bezier(.22,1,.36,1)',
@@ -575,7 +584,7 @@ function BottomNav({ activeTab, setTab }) {
           }}>
             <style>{`@keyframes drawerUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
             <div style={{ display:'flex', justifyContent:'center', marginBottom: 16 }}>
-              <div style={{ width: 36, height: 4, borderRadius: 99, background: t.border }}/>
+              <div style={{ width: 36, height: 4, borderRadius: t.radius ?? 99, background: t.border }}/>
             </div>
             <div style={{ padding: '0 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name={drawerGroup.icon} size={16} color={t.accent} strokeWidth={2}/>
@@ -591,7 +600,7 @@ function BottomNav({ activeTab, setTab }) {
                     display: 'flex', flexDirection: 'column', alignItems: 'center',
                     gap: 8, padding: '16px 6px', cursor: 'pointer',
                     color: active ? t.accent : t.text,
-                    borderRadius: 14, transition: 'all .15s',
+                    borderRadius: t.radius ?? 14, transition: 'all .15s',
                   }}>
                     <Icon name={tab} size={22} color={active ? t.accent : t.textMuted} strokeWidth={active ? 2.2 : 1.75}/>
                     <span style={{ fontSize: 11, fontWeight: active ? 700 : 500, textAlign: 'center', lineHeight: 1.2 }}>{tab}</span>
@@ -609,21 +618,33 @@ function BottomNav({ activeTab, setTab }) {
 // ── Footer ────────────────────────────────────────────────────────────────────
 function Footer() {
   const t = useTheme()
+  const isFerrari = t.id === 'ferrari'
   return (
     <footer style={{
-      borderTop: `1px solid ${t.border}`, padding: '14px 28px', marginTop: 24,
-      maxWidth: 1400, margin: '24px auto 0', width: '100%',
+      borderTop: `1px solid ${isFerrari ? '#303030' : t.border}`,
+      background: isFerrari ? '#303030' : 'transparent',
+      padding: '14px 28px', marginTop: 24,
+      maxWidth: isFerrari ? '100%' : 1400,
+      margin: isFerrari ? '24px 0 0' : '24px auto 0',
+      width: '100%',
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     }}>
-      <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 600, letterSpacing: '.04em' }}>
+      <span style={{
+        fontSize: 10,
+        color: isFerrari ? '#8F8F8F' : t.textMuted,
+        fontWeight: isFerrari ? 400 : 600,
+        letterSpacing: isFerrari ? '.1em' : '.04em',
+        textTransform: isFerrari ? 'uppercase' : 'none',
+      }}>
         Ferretería Punto Rojo · Dashboard v5
       </span>
       <div style={{ display:'flex', alignItems:'center', gap: 7 }}>
         <span style={{
           display:'inline-block', width: 6, height: 6, borderRadius: '50%',
-          background: '#34D060', boxShadow: '0 0 6px rgba(52,208,96,.5)',
+          background: '#34D060',
+          boxShadow: isFerrari ? 'none' : '0 0 6px rgba(52,208,96,.5)',
         }}/>
-        <span style={{ fontSize: 10, color: t.textMuted }}>
+        <span style={{ fontSize: 10, color: isFerrari ? '#8F8F8F' : t.textMuted }}>
           PostgreSQL · Railway
         </span>
       </div>
@@ -699,7 +720,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
 
   return (
     <div style={{
-      fontFamily: "'Sora', system-ui, sans-serif",
+      fontFamily: "'Inter', Arial, Helvetica, sans-serif",
       background: t.id === 'caramelo' ? 'transparent' : t.bgPattern,
       minHeight: '100dvh',
       color: t.text,
@@ -707,7 +728,7 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
       transition: 'background .3s, color .25s',
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
         ${t.id === 'caramelo' ? 'html,body{background:#F8F5F1}' : ''}
         *, *::before, *::after { box-sizing:border-box; margin:0; padding:0 }
         html { -webkit-text-size-adjust: 100% }
@@ -858,7 +879,7 @@ function Dashboard({ themeId, setThemeId, refreshRef }) {
 
 export default function App() {
   const [themeId, setThemeId] = useState(
-    () => localStorage.getItem('ferrebot_theme') || 'caramelo'
+    () => localStorage.getItem('ferrebot_theme') || 'ferrari'
   )
   const refreshRef = useRef(null)
 

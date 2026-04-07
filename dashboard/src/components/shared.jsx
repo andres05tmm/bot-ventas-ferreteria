@@ -32,6 +32,39 @@ export function useCountUp(target, duration = 800) {
 // TEMAS
 // ─────────────────────────────────────────────────────────────────────────────
 export const THEMES = {
+  // ── Tema Ferrari: editorial negro/blanco + rojo Rosso Corsa ───────────────
+  ferrari: {
+    id: 'ferrari',
+    label: '◆ Ferrari',
+    bg:         '#FFFFFF',
+    bgPattern:  '#FFFFFF',
+    header:     '#000000',
+    headerBlur: 'none',
+    card:       '#FFFFFF',
+    cardHover:  '#FFFFFF',
+    cardGrad:   '#FFFFFF',
+    border:     '#CCCCCC',
+    borderSoft: '#D2D2D2',
+    text:       '#181818',
+    textSub:    '#666666',
+    textMuted:  '#8F8F8F',
+    accent:     '#DA291C',
+    accentSub:  'rgba(218,41,28,0.06)',
+    accentHov:  '#B01E0A',
+    accentGlow: 'rgba(218,41,28,0.12)',
+    green:      '#03904A',
+    greenSub:   'rgba(3,144,74,0.08)',
+    yellow:     '#F6E500',
+    yellowSub:  'rgba(246,229,0,0.10)',
+    blue:       '#4C98B9',
+    blueSub:    'rgba(76,152,185,0.10)',
+    tableAlt:   '#F8F8F8',
+    tableFoot:  '#F0F0F0',
+    shadow:     'none',
+    shadowHov:  'none',
+    shadowCard: 'none',
+    radius:     2,
+  },
   // ── Tema claro: arena cálida + rojo ladrillo ──────────────────────────────
   caramelo: {
     id: 'caramelo',
@@ -201,7 +234,9 @@ export function useFetch(path, deps = []) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function Card({ children, style = {} }) {
-  const t = useTheme()
+  const t         = useTheme()
+  const isFerrari = t.id === 'ferrari'
+  const r         = t.radius ?? 16
   const [hovered, setHovered] = useState(false)
   return (
     <div
@@ -211,32 +246,36 @@ export function Card({ children, style = {} }) {
         position:     'relative',
         background:   t.cardGrad,
         border:       `1px solid ${hovered ? t.accent + '30' : t.border}`,
-        borderRadius: 16,
+        borderRadius: r,
         padding:      20,
         boxShadow:    hovered ? t.shadowHov : t.shadowCard,
         overflow:     'hidden',
-        transform:    hovered ? 'translateY(-2px)' : 'translateY(0)',
+        transform:    (hovered && !isFerrari) ? 'translateY(-2px)' : 'translateY(0)',
         transition:   'transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease',
         ...style,
       }}
     >
-      {/* Accent line top */}
-      <div style={{
-        position:   'absolute',
-        top:        0, left: 16, right: 16,
-        height:     2,
-        background: `linear-gradient(90deg, transparent, ${t.accent}${hovered ? '60' : '40'}, transparent)`,
-        borderRadius: 99,
-        transition: 'opacity 0.22s ease',
-      }}/>
+      {/* Accent line top — solo en temas no-ferrari */}
+      {!isFerrari && (
+        <div style={{
+          position:   'absolute',
+          top:        0, left: 16, right: 16,
+          height:     2,
+          background: `linear-gradient(90deg, transparent, ${t.accent}${hovered ? '60' : '40'}, transparent)`,
+          borderRadius: 99,
+          transition: 'opacity 0.22s ease',
+        }}/>
+      )}
       {children}
     </div>
   )
 }
 
 export function GlassCard({ children, style = {} }) {
-  const t = useTheme()
+  const t         = useTheme()
   const isCaramelo = t.id === 'caramelo'
+  const isFerrari  = t.id === 'ferrari'
+  const r          = t.radius ?? 16
   const [hovered, setHovered] = useState(false)
   return (
     <div
@@ -252,7 +291,7 @@ export function GlassCard({ children, style = {} }) {
         border:         isCaramelo
           ? `0.5px solid rgba(200,32,14,${hovered ? '0.22' : '0.12'})`
           : `1px solid ${hovered ? t.accent + '40' : t.border}`,
-        borderRadius:   16,
+        borderRadius:   r,
         padding:        20,
         boxShadow:      isCaramelo
           ? (hovered
@@ -260,7 +299,7 @@ export function GlassCard({ children, style = {} }) {
               : '0 2px 12px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(200,32,14,0.08)')
           : (hovered ? t.shadowHov : t.shadowCard),
         overflow:       'hidden',
-        transform:      hovered ? 'translateY(-2px)' : 'translateY(0)',
+        transform:      (hovered && !isFerrari) ? 'translateY(-2px)' : 'translateY(0)',
         transition:     'transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease',
         ...style,
       }}
@@ -274,6 +313,8 @@ export function KpiCard({ label, value, sub, color, icon }) {
   const t          = useTheme()
   const c          = color || t.accent
   const isCaramelo = t.id === 'caramelo'
+  const isFerrari  = t.id === 'ferrari'
+  const r          = t.radius ?? 16
   const [hovered, setHovered] = useState(false)
 
   // Count-up: parse numeric value from formatted string or raw number
@@ -297,7 +338,7 @@ export function KpiCard({ label, value, sub, color, icon }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
-      whileHover={{ scale: 1.025, y: -3 }}
+      whileHover={isFerrari ? undefined : { scale: 1.025, y: -3 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -311,7 +352,7 @@ export function KpiCard({ label, value, sub, color, icon }) {
         border: isCaramelo
           ? `0.5px solid rgba(200,32,14,${hovered ? '0.28' : '0.14'})`
           : `1px solid ${hovered ? t.accent + '40' : t.border}`,
-        borderRadius: 16,
+        borderRadius: r,
         padding: '16px 18px 16px 22px',
         cursor: 'default',
         transition: 'border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease',
@@ -323,14 +364,14 @@ export function KpiCard({ label, value, sub, color, icon }) {
         overflow: 'hidden',
       }}
     >
-      {/* Left accent bar */}
+      {/* Left accent bar — barra vertical de acento */}
       <div style={{
         position: 'absolute',
-        left: 0, top: '20%', bottom: '20%',
-        width: 3,
-        background: `linear-gradient(180deg, ${c}00, ${c}, ${c}00)`,
-        borderRadius: 99,
-        opacity: hovered ? 0.9 : 0.55,
+        left: 0, top: isFerrari ? 0 : '20%', bottom: isFerrari ? 0 : '20%',
+        width: isFerrari ? 2 : 3,
+        background: isFerrari ? c : `linear-gradient(180deg, ${c}00, ${c}, ${c}00)`,
+        borderRadius: 0,
+        opacity: isFerrari ? (hovered ? 1 : 0.7) : (hovered ? 0.9 : 0.55),
         transition: 'opacity 0.22s ease',
       }}/>
 
@@ -376,16 +417,17 @@ export function KpiCard({ label, value, sub, color, icon }) {
 }
 
 export function SectionTitle({ children }) {
-  const t = useTheme()
+  const t         = useTheme()
+  const isFerrari = t.id === 'ferrari'
   return (
     <h2 style={{
-      fontSize:      13,
-      fontWeight:    700,
-      color:         t.textSub,
+      fontSize:      isFerrari ? 11 : 13,
+      fontWeight:    isFerrari ? 400 : 700,
+      color:         t.textMuted,
       marginBottom:  16,
       paddingBottom: 10,
       borderBottom:  `1px solid ${t.border}`,
-      letterSpacing: '.04em',
+      letterSpacing: isFerrari ? '1px' : '.04em',
       textTransform: 'uppercase',
       display:       'flex',
       alignItems:    'center',
@@ -413,13 +455,14 @@ export function Spinner() {
 }
 
 export function ErrorMsg({ msg }) {
-  const t = useTheme()
-  const isDark = t.id !== 'caramelo'
+  const t         = useTheme()
+  const isDark    = t.id !== 'caramelo' && t.id !== 'ferrari'
+  const r         = t.radius ?? 10
   return (
     <div style={{
       background:   isDark ? `${t.accent}10` : '#fef2f2',
       border:       `1px solid ${t.accent}40`,
-      borderRadius: 10,
+      borderRadius: r,
       padding:      '12px 16px',
       color:        isDark ? '#f87171' : t.accent,
       fontSize:     13,
@@ -450,19 +493,21 @@ export function EmptyState({ msg = 'Sin datos para este período.' }) {
 export function Badge({ children, color }) {
   const t   = useTheme()
   const col = color || t.accent
+  const r   = t.radius ?? 99
   return (
     <span style={{
-      display:      'inline-flex',
-      alignItems:   'center',
-      padding:      '3px 10px',
-      borderRadius: 99,
-      background:   col + '18',
-      color:        col,
-      border:       `1px solid ${col}35`,
-      fontSize:     10,
-      fontWeight:   700,
-      letterSpacing: '.04em',
-      whiteSpace:   'nowrap',
+      display:       'inline-flex',
+      alignItems:    'center',
+      padding:       '3px 10px',
+      borderRadius:  r,
+      background:    col + '18',
+      color:         col,
+      border:        `1px solid ${col}35`,
+      fontSize:      10,
+      fontWeight:    t.id === 'ferrari' ? 400 : 700,
+      letterSpacing: t.id === 'ferrari' ? '1px' : '.04em',
+      textTransform: t.id === 'ferrari' ? 'uppercase' : undefined,
+      whiteSpace:    'nowrap',
     }}>
       {children}
     </span>
@@ -471,20 +516,22 @@ export function Badge({ children, color }) {
 
 export function PeriodBtn({ children, active, onClick }) {
   const t = useTheme()
+  const r = t.radius ?? 8
   return (
     <button
       onClick={onClick}
       style={{
-        background:   active ? t.accent : t.accentSub,
-        border:       `1px solid ${active ? t.accent : t.border}`,
-        color:        active ? '#fff' : t.textMuted,
-        fontSize:     11,
-        padding:      '5px 14px',
-        borderRadius: 8,
-        cursor:       'pointer',
-        fontFamily:   'inherit',
-        transition:   'all .15s',
-        fontWeight:   active ? 700 : 500,
+        background:    active ? t.accent : 'transparent',
+        border:        `1px solid ${active ? t.accent : t.border}`,
+        color:         active ? '#fff' : t.textMuted,
+        fontSize:      11,
+        padding:       '5px 14px',
+        borderRadius:  r,
+        cursor:        'pointer',
+        fontFamily:    'inherit',
+        transition:    'all .15s',
+        fontWeight:    active ? 700 : 400,
+        letterSpacing: t.id === 'ferrari' ? '0.05em' : undefined,
       }}
       onMouseEnter={e => { if (!active) { e.currentTarget.style.borderColor = t.accent + '60'; e.currentTarget.style.color = t.text } }}
       onMouseLeave={e => { if (!active) { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textMuted } }}
@@ -508,7 +555,7 @@ export function StyledInput({ value, onChange, placeholder, style = {} }) {
         border:       `1px solid ${t.border}`,
         color:        t.text,
         padding:      '8px 12px',
-        borderRadius: 9,
+        borderRadius: t.radius ?? 9,
         fontSize:     isMob ? 16 : 12,
         outline:      'none',
         fontFamily:   'inherit',
