@@ -879,7 +879,7 @@ function Dashboard({ themeId, setThemeId, refreshRef }) {
 
 export default function App() {
   const [themeId, setThemeId] = useState(
-    () => localStorage.getItem('ferrebot_theme') || 'ferrari'
+    () => localStorage.getItem('ferrebot_theme') || 'caramelo'
   )
   const refreshRef = useRef(null)
 
