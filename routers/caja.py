@@ -879,3 +879,96 @@ def fiscal_to_compra(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POST /compras-fiscal/bulk-to-compras  — envío masivo de fiscales → almacén
+# ─────────────────────────────────────────────────────────────────────────────
+
+class BulkToComprasItem(BaseModel):
+    id:             int
+    producto:       str
+    cantidad:       float
+    costo_unitario: float
+
+
+class BulkToComprasBody(BaseModel):
+    items: list[BulkToComprasItem]
+
+
+@router.post("/compras-fiscal/bulk-to-compras")
+async def fiscal_bulk_to_compras(
+    body: BulkToComprasBody,
+    current_user=Depends(get_current_user),
+):
+    """Envía múltiples compras fiscales al módulo de almacén en una sola operación.
+    Usa producto/cantidad/costo_unitario del body para permitir ajustes pre-envío.
+    Retorna resumen: { procesados, ya_existian, errores }."""
+    try:
+        _require_db()
+        procesados:  int        = 0
+        ya_existian: list[int]  = []
+        errores:     list[dict] = []
+
+        for item in body.items:
+            try:
+                cf = _db.query_one(
+                    "SELECT * FROM compras_fiscal WHERE id = %s", (item.id,)
+                )
+                if not cf:
+                    errores.append({"id": item.id, "error": "No encontrado"})
+                    continue
+
+                if cf.get("compra_origen_id"):
+                    ya_existian.append(item.id)
+                    continue
+
+                costo_total = round(item.cantidad * item.costo_unitario, 2)
+                nueva = _db.query_one(
+                    """
+                    INSERT INTO compras
+                        (fecha, hora, proveedor, producto_id, producto_nombre,
+                         cantidad, costo_unitario, costo_total,
+                         incluye_iva, tarifa_iva)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        cf["fecha"], cf.get("hora"),
+                        cf.get("proveedor"),
+                        cf.get("producto_id"),
+                        item.producto,
+                        item.cantidad,
+                        item.costo_unitario,
+                        costo_total,
+                        bool(cf.get("incluye_iva") or False),
+                        int(cf.get("tarifa_iva") or 0),
+                    ),
+                )
+                compra_id = nueva["id"] if nueva else None
+                if compra_id:
+                    _db.execute(
+                        "UPDATE compras_fiscal SET compra_origen_id = %s WHERE id = %s",
+                        (compra_id, item.id),
+                    )
+                    _db.execute(
+                        "UPDATE compras SET compra_fiscal_id = %s WHERE id = %s",
+                        (item.id, compra_id),
+                    )
+                    procesados += 1
+            except Exception as e_item:
+                errores.append({"id": item.id, "error": str(e_item)})
+                logger.warning(f"bulk-to-compras item {item.id}: {e_item}")
+
+        await notify_all("compra_registrada", {"bulk": True, "procesados": procesados})
+
+        return {
+            "ok":          True,
+            "procesados":  procesados,
+            "ya_existian": len(ya_existian),
+            "errores":     errores,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
