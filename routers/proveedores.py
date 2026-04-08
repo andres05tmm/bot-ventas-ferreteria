@@ -72,6 +72,7 @@ class FacturaBody(BaseModel):
     descripcion: str
     total:       float
     fecha:       Optional[str] = None
+    compras_ids: list[int] = []
 
 
 class AbonoBody(BaseModel):
@@ -81,6 +82,36 @@ class AbonoBody(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@router.get("/proveedores/compras-sin-factura")
+def get_compras_sin_factura(
+    proveedor: str = "",
+    current_user=Depends(get_current_user),
+):
+    """Compras sin factura_proveedor_id para un proveedor dado (búsqueda parcial). Admin only."""
+    if current_user["rol"] != "admin":
+        raise HTTPException(status_code=403, detail="Solo admin")
+    import db as _db
+    if not _db.DB_DISPONIBLE:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    filtro_sql = "AND proveedor ILIKE %s" if proveedor.strip() else ""
+    params: list = []
+    if proveedor.strip():
+        params.append(f"%{proveedor.strip()}%")
+    rows = _db.query_all(
+        f"""
+        SELECT id, producto_nombre AS producto, cantidad, costo_unitario,
+               costo_total, fecha::text AS fecha, proveedor
+        FROM compras
+        WHERE factura_proveedor_id IS NULL
+          {filtro_sql}
+        ORDER BY fecha DESC, id DESC
+        LIMIT 100
+        """,
+        params or None,
+    )
+    return [dict(r) for r in rows]
+
 
 @router.get("/proveedores/facturas")
 def get_facturas(
@@ -135,6 +166,12 @@ def crear_factura(
             total       = body.total,
             fecha       = body.fecha,
         )
+        if body.compras_ids:
+            import db as _db
+            _db.execute(
+                "UPDATE compras SET factura_proveedor_id = %s, estado_fiscal = 'con_factura' WHERE id = ANY(%s)",
+                (factura["id"], body.compras_ids),
+            )
         return {"ok": True, "factura": factura}
     except HTTPException:
         raise

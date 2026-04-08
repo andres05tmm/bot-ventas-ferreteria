@@ -2,7 +2,7 @@
  * TabProveedores.jsx
  * Gestión de cuentas por pagar, facturas y abonos a proveedores.
  */
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import FacturasElectronicasRecibidas from './FacturasElectronicasRecibidas'
 import {
   useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard,
@@ -266,6 +266,29 @@ function ModalNuevaFactura({ onClose, onCreada, t }) {
   const [err, setErr]           = useState('')
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  const [comprasSinFac, setComprasSinFac] = useState([])
+  const [comprasSel,    setComprasSel]    = useState(new Set())
+  const [cargandoComp,  setCargandoComp]  = useState(false)
+
+  useEffect(() => {
+    const prov = form.proveedor.trim()
+    if (prov.length < 3) { setComprasSinFac([]); setComprasSel(new Set()); return }
+    const timer = setTimeout(async () => {
+      setCargandoComp(true)
+      try {
+        const r = await authFetch(`${API_BASE}/proveedores/compras-sin-factura?proveedor=${encodeURIComponent(prov)}`)
+        const d = await r.json()
+        if (r.ok) setComprasSinFac(Array.isArray(d) ? d : [])
+        else setComprasSinFac([])
+      } catch { setComprasSinFac([]) }
+      finally { setCargandoComp(false) }
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [form.proveedor])
+
+  const toggleCompra = id =>
+    setComprasSel(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+
   const seleccionarFoto = e => {
     const file = e.target.files[0]
     if (!file) return
@@ -294,6 +317,7 @@ function ModalNuevaFactura({ onClose, onCreada, t }) {
           total:       Number(form.total),
           descripcion: form.descripcion.trim() || 'Sin descripción',
           fecha:       form.fecha || undefined,
+          compras_ids: [...comprasSel],
         }),
       })
       const d = await r.json()
@@ -356,6 +380,53 @@ function ModalNuevaFactura({ onClose, onCreada, t }) {
           <label style={labelStyle(t)}>Fecha (por defecto hoy)</label>
           <StyledInput value={form.fecha} onChange={e => set('fecha', e.target.value)}
             type="date" style={{ marginBottom: 14 }} />
+
+          {/* Compras sin factura del proveedor */}
+          {(cargandoComp || comprasSinFac.length > 0) && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle(t)}>
+                Compras sin factura{comprasSinFac.length > 0 ? ` (${comprasSinFac.length})` : ''}
+              </label>
+              {cargandoComp ? (
+                <div style={{ color: t.textMuted, fontSize: 12, padding: '8px 0' }}>Buscando…</div>
+              ) : (
+                <div style={{
+                  border: `1px solid ${t.border}`, borderRadius: 8,
+                  maxHeight: 180, overflowY: 'auto',
+                }}>
+                  {comprasSinFac.map(c => (
+                    <label key={c.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '8px 12px', cursor: 'pointer',
+                      borderBottom: `1px solid ${t.border}22`,
+                      background: comprasSel.has(c.id) ? `${t.accent}10` : 'transparent',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={comprasSel.has(c.id)}
+                        onChange={() => toggleCompra(c.id)}
+                        style={{ accentColor: t.accent, flexShrink: 0 }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, color: t.text, fontWeight: 500,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.producto}
+                        </div>
+                        <div style={{ fontSize: 10, color: t.textMuted }}>
+                          {c.fecha} · {c.cantidad} uds · {cop(c.costo_total)}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {comprasSel.size > 0 && (
+                <div style={{ fontSize: 11, color: t.accent, marginTop: 5 }}>
+                  {comprasSel.size} compra(s) seleccionada(s) → se vincularán a esta factura
+                </div>
+              )}
+            </div>
+          )}
 
           {err && <div style={{ color: t.accent, fontSize: 12, marginBottom: 10 }}>{err}</div>}
           <BtnPrimario t={t} onClick={guardarDatos} disabled={estado === 'saving'}>

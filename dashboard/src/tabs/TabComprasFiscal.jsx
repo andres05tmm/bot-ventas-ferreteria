@@ -1476,15 +1476,30 @@ export default function TabComprasFiscal({ refreshKey }) {
                                       <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1, lineHeight: 1.35 }}>
                                         {c.producto}
                                       </span>
-                                      <button
-                                        onClick={() => setEditando(c)}
-                                        title="Editar ítem"
-                                        style={{
-                                          background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
-                                          borderRadius: 6, color: t.blue, padding: '4px 8px',
-                                          fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-                                          fontWeight: 600, flexShrink: 0,
-                                        }}>✏️</button>
+                                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                                        <button
+                                          onClick={() => setEditando(c)}
+                                          title="Editar ítem"
+                                          style={{
+                                            background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
+                                            borderRadius: 6, color: t.blue, padding: '4px 8px',
+                                            fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                                            fontWeight: 600, flexShrink: 0,
+                                          }}>✏️</button>
+                                        {!enAlmacenFila && (
+                                          <button
+                                            onClick={() => !enviandoCompra[c.id] && enviarACompras(c)}
+                                            disabled={!!enviandoCompra[c.id]}
+                                            title="Agregar a almacén"
+                                            style={{
+                                              background: `${t.accent}14`, border: `1px solid ${t.accent}40`,
+                                              borderRadius: 6, color: t.accent, padding: '4px 8px',
+                                              fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                                              fontWeight: 600, flexShrink: 0,
+                                              opacity: enviandoCompra[c.id] ? 0.6 : 1,
+                                            }}>{enviandoCompra[c.id] ? '…' : '📦'}</button>
+                                        )}
+                                      </div>
                                     </div>
                                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                                       <span style={{
@@ -1516,7 +1531,7 @@ export default function TabComprasFiscal({ refreshKey }) {
                             <>
                               <div style={{
                                 display: 'grid',
-                                gridTemplateColumns: '2fr 70px 90px 90px 60px 60px 36px',
+                                gridTemplateColumns: '2fr 70px 90px 90px 60px 80px 36px',
                                 gap: 4, padding: '6px 18px',
                                 background: t.tableAlt,
                                 fontSize: 10, color: t.textMuted,
@@ -1535,10 +1550,11 @@ export default function TabComprasFiscal({ refreshKey }) {
                                 const { iva } = c.incluye_iva && c.tarifa_iva
                                   ? calcIVA(c.costo_total, c.tarifa_iva) : { iva: 0 }
                                 const enAlmacenFila = !!c.compra_origen_id
+                                const cargandoFila  = !!enviandoCompra[c.id]
                                 return (
                                   <div key={c.id} style={{
                                     display: 'grid',
-                                    gridTemplateColumns: '2fr 70px 90px 90px 60px 60px 36px',
+                                    gridTemplateColumns: '2fr 70px 90px 90px 60px 80px 36px',
                                     gap: 4, padding: '8px 18px',
                                     alignItems: 'center',
                                     borderTop: `1px solid ${t.border}30`,
@@ -1554,9 +1570,20 @@ export default function TabComprasFiscal({ refreshKey }) {
                                     <span style={{ color: c.incluye_iva && c.tarifa_iva ? t.green : t.textMuted }}>
                                       {c.incluye_iva && c.tarifa_iva ? `${c.tarifa_iva}%` : '—'}
                                     </span>
-                                    <span style={{ color: enAlmacenFila ? t.green : t.textMuted }}>
-                                      {enAlmacenFila ? '✓' : '—'}
-                                    </span>
+                                    {enAlmacenFila ? (
+                                      <span style={{ color: t.green, fontSize: 11, fontWeight: 600 }}>✓</span>
+                                    ) : (
+                                      <button
+                                        onClick={() => !cargandoFila && enviarACompras(c)}
+                                        disabled={cargandoFila}
+                                        title="Agregar a almacén"
+                                        style={{
+                                          background: `${t.accent}14`, border: `1px solid ${t.accent}40`,
+                                          borderRadius: 5, color: t.accent, padding: '3px 6px',
+                                          fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
+                                          fontWeight: 600, opacity: cargandoFila ? 0.6 : 1,
+                                        }}>{cargandoFila ? '…' : '📦 Almacén'}</button>
+                                    )}
                                     <button
                                       onClick={() => setEditando(c)}
                                       style={{
