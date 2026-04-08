@@ -414,21 +414,21 @@ def _upsert_precio_producto_postgres(clave: str, datos_prod: dict, fraccion: str
                 datos_frac.get("precio_unitario", 0),
             ))
 
-    # Actualizar precio_por_cantidad si existe en el producto
+    # Actualizar precio_por_cantidad — columnas inline en productos
     pxc = datos_prod.get("precio_por_cantidad", {})
     if pxc:
         _db.execute("""
-            INSERT INTO productos_precio_cantidad
-                (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (producto_id) DO UPDATE SET
-                precio_bajo_umbral  = EXCLUDED.precio_bajo_umbral,
-                precio_sobre_umbral = EXCLUDED.precio_sobre_umbral
+            UPDATE productos
+            SET precio_umbral       = %s,
+                precio_bajo_umbral  = %s,
+                precio_sobre_umbral = %s,
+                updated_at          = NOW()
+            WHERE id = %s
         """, (
-            prod_id,
             pxc.get("umbral", 50),
             pxc.get("precio_bajo_umbral", datos_prod.get("precio_unidad", 0)),
             pxc.get("precio_sobre_umbral", 0),
+            prod_id,
         ))
 
 
