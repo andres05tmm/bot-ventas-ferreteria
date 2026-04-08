@@ -107,7 +107,10 @@ def ventas_pendientes(fecha: str = Query(default=None)):
             COALESCE(v.metodo_pago, 'efectivo')            AS metodo_pago,
             COALESCE(v.factura_estado, 'sin_factura')      AS factura_estado,
             v.fecha::text                                   AS fecha,
-            COALESCE(v.hora::text, '')                      AS hora,
+            COALESCE(
+                v.hora::text,
+                TO_CHAR(v.created_at AT TIME ZONE 'America/Bogota', 'HH24:MI')
+            )                                               AS hora,
             COALESCE(v.vendedor, '')                        AS vendedor
         FROM ventas v
         WHERE v.fecha::date = %s

@@ -20,11 +20,15 @@ import { useAuth } from '../hooks/useAuth.js'
 
 function fmtFecha(str) {
   if (!str) return '—'
-  const d = new Date(str)
+  // fecha_emision viene como TIMESTAMP sin TZ desde Railway (UTC).
+  // Si el string no trae info de zona horaria, lo tratamos como UTC añadiendo 'Z'.
+  const utcStr = (str.includes('T') && !str.endsWith('Z') && !str.includes('+')) ? str + 'Z' : str
+  const d = new Date(utcStr)
   if (isNaN(d)) return str
   return d.toLocaleDateString('es-CO', {
     day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
+    timeZone: 'America/Bogota',
   })
 }
 
