@@ -8,10 +8,9 @@ API base: https://api-v2.matias-api.com/api/ubl2.1
 Variables de entorno en Railway:
     MATIAS_EMAIL        tu_email@dominio.com
     MATIAS_PASSWORD     tu_password
-    MATIAS_RESOLUTION   18760000001          (resolución DIAN)
-    MATIAS_PREFIX       SETP                 (pruebas) o FEV (producción)
-    MATIAS_NUM_DESDE    990000000            (primer número del rango — pruebas)
-    MATIAS_TESTSET_ID   b562e2f8-f0eb-...   (solo en pruebas; vacío en producción)
+    MATIAS_RESOLUTION   18764108150755          (resolución DIAN)
+    MATIAS_PREFIX       FPR                     (producción)
+    MATIAS_NUM_DESDE    1                       (produccion)
 
 REGLA DE ORO (MATIAS API v3):
     Consultas GET  → códigos DIAN  (CC=13, NIT=31, CE=22...)
@@ -39,9 +38,8 @@ MATIAS_API_URL    = os.getenv("MATIAS_API_URL", "https://api-v2.matias-api.com/a
 MATIAS_EMAIL      = os.getenv("MATIAS_EMAIL")
 MATIAS_PASSWORD   = os.getenv("MATIAS_PASSWORD")
 MATIAS_RESOLUTION = os.getenv("MATIAS_RESOLUTION")
-MATIAS_PREFIX     = os.getenv("MATIAS_PREFIX", "SETP")
-MATIAS_NUM_DESDE  = int(os.getenv("MATIAS_NUM_DESDE", "990000000"))
-MATIAS_TESTSET_ID = os.getenv("MATIAS_TESTSET_ID", "")
+MATIAS_PREFIX     = os.getenv("MATIAS_PREFIX", "FPR")
+MATIAS_NUM_DESDE  = int(os.getenv("MATIAS_NUM_DESDE", "1"))
 
 _MEDIOS_PAGO = {
     "efectivo":      10,
@@ -449,7 +447,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
 async def emitir_factura(venta_id: int) -> dict:
     """
     Emite la factura electrónica DIAN para una venta ya registrada en PostgreSQL.
-    Retorna: { "ok": True,  "cufe": "...", "numero": "SETP990000001" }
+    Retorna: { "ok": True,  "cufe": "...", "numero": "FPR1" }
           o  { "ok": False, "error": "mensaje legible" }
     """
     if not MATIAS_EMAIL or not MATIAS_PASSWORD:
