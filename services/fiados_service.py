@@ -29,37 +29,16 @@ def cargar_fiados() -> dict:
         import db as _db
         if _db.DB_DISPONIBLE:
             rows = _db.query_all(
-                """SELECT f.id, f.nombre, f.deuda,
-                          COALESCE(
-                              json_agg(
-                                  json_build_object(
-                                      'fecha', fh.fecha::text,
-                                      'concepto', fh.concepto,
-                                      'cargo', CASE WHEN fh.tipo='cargo' THEN fh.monto ELSE 0 END,
-                                      'abono', CASE WHEN fh.tipo='abono' THEN fh.monto ELSE 0 END,
-                                      'saldo', 0
-                                  ) ORDER BY fh.created_at
-                              ) FILTER (WHERE fh.id IS NOT NULL),
-                              '[]'
-                          ) AS movimientos
-                   FROM fiados f
-                   LEFT JOIN fiados_historial fh ON fh.fiado_id = f.id
-                   GROUP BY f.id, f.nombre, f.deuda""",
+                "SELECT id, nombre, saldo_actual FROM fiados",
                 ()
             )
-            result = {}
-            for r in rows:
-                movimientos = r["movimientos"] if r["movimientos"] else []
-                # Reconstruct running saldo for each movement
-                saldo_acumulado = 0
-                for mov in movimientos:
-                    saldo_acumulado += mov["cargo"] - mov["abono"]
-                    mov["saldo"] = saldo_acumulado
-                result[r["nombre"]] = {
-                    "saldo": r["deuda"],
-                    "movimientos": movimientos,
+            return {
+                r["nombre"]: {
+                    "saldo": r["saldo_actual"],
+                    "movimientos": [],
                 }
-            return result
+                for r in rows
+            }
     except Exception as e:
         logger.warning("Postgres read cargar_fiados failed: %s", e)
 
@@ -116,27 +95,15 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
 
     existing = _db.query_one("SELECT id FROM fiados WHERE nombre = %s", (cliente,))
     if existing:
-        fiado_id = existing["id"]
         _db.execute(
-            "UPDATE fiados SET deuda=%s, updated_at=NOW() WHERE id=%s",
-            (int(saldo_nuevo), fiado_id)
+            "UPDATE fiados SET saldo_actual=%s, ultima_actualizacion=NOW(), updated_at=NOW() WHERE id=%s",
+            (int(saldo_nuevo), existing["id"])
         )
     else:
-        row = _db.execute_returning(
-            "INSERT INTO fiados (nombre, deuda) VALUES (%s, %s) RETURNING id",
+        _db.execute_returning(
+            "INSERT INTO fiados (nombre, saldo_actual, ultima_actualizacion) VALUES (%s, %s, NOW()) RETURNING id",
             (cliente, int(saldo_nuevo))
         )
-        fiado_id = row["id"]
-    tipo     = "cargo" if cargo > 0 else "abono"
-    monto_pg = int(cargo if cargo > 0 else abono)
-    _db.execute(
-        """INSERT INTO fiados_historial
-           (fiado_id, tipo, monto, concepto, fecha, hora)
-           VALUES (%s, %s, %s, %s, %s, %s)""",
-        (fiado_id, tipo, monto_pg, concepto,
-         datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d"),
-         datetime.now(config.COLOMBIA_TZ).strftime("%H:%M"))
-    )
     return saldo_nuevo
 
 

@@ -88,8 +88,8 @@ def test_cargar_fiados_sin_db():
 def test_cargar_fiados_desde_db():
     """cargar_fiados construye el dict correcto desde rows de DB."""
     rows_mock = [
-        {"id": 1, "nombre": "Pedro Lopez", "deuda": 150000, "movimientos": []},
-        {"id": 2, "nombre": "Maria Garcia", "deuda": 0, "movimientos": []},
+        {"id": 1, "nombre": "Pedro Lopez", "saldo_actual": 150000},
+        {"id": 2, "nombre": "Maria Garcia", "saldo_actual": 0},
     ]
     with patch("db.DB_DISPONIBLE", True), \
          patch("db.query_all", return_value=rows_mock):
