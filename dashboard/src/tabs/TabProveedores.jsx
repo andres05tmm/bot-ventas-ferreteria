@@ -3,6 +3,7 @@
  * Gestión de cuentas por pagar, facturas y abonos a proveedores.
  */
 import { useState, useCallback, useRef } from 'react'
+import FacturasElectronicasRecibidas from './FacturasElectronicasRecibidas'
 import {
   useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard,
   Spinner, ErrorMsg, cop, useIsMobile, API_BASE, StyledInput,
@@ -784,6 +785,7 @@ function BtnPrimario({ t, onClick, disabled, children }) {
     >
       {children}
     </button>
+      <FacturasElectronicasRecibidas />
   )
 }
 

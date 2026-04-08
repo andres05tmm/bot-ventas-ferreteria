@@ -298,6 +298,109 @@ async def subir_foto_abono(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EVENTOS DIAN — Facturas electrónicas de proveedores (RADIAN)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class EventoBody(BaseModel):
+    cufe:             str
+    compra_fiscal_id: int
+
+
+class ReclamoBody(BaseModel):
+    cufe:             str
+    compra_fiscal_id: int
+    motivo:           str
+
+
+@router.get("/proveedores/facturas-electronicas")
+def listar_facturas_electronicas(
+    estado: Optional[str] = None,   # 'pendiente' | 'aceptada' | 'reclamada'
+    limit:  int           = 50,
+    current_user=Depends(get_current_user),
+):
+    """Lista FE de proveedores recibidas por Gmail con estado de eventos DIAN."""
+    if current_user["rol"] != "admin":
+        raise HTTPException(status_code=403, detail="Solo admin")
+    import db as _db
+    if not _db.DB_DISPONIBLE:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+
+    filtro = "AND evento_estado = %s" if estado else ""
+    params = ([estado, limit] if estado else [limit])
+    rows = _db.query_all(
+        f"""
+        SELECT id, fecha::text AS fecha, proveedor, numero_factura, costo_total,
+               cufe_proveedor, gmail_message_id,
+               evento_030_at::text AS evento_030_at,
+               evento_031_at::text AS evento_031_at,
+               evento_032_at::text AS evento_032_at,
+               evento_033_at::text AS evento_033_at,
+               evento_estado, evento_error, created_at::text AS created_at
+        FROM compras_fiscal
+        WHERE cufe_proveedor IS NOT NULL
+          {filtro}
+        ORDER BY created_at DESC
+        LIMIT %s
+        """,
+        params,
+    )
+    return [dict(r) for r in rows]
+
+
+@router.post("/proveedores/aceptar")
+async def aceptar_factura_proveedor(
+    body: EventoBody,
+    current_user=Depends(get_current_user),
+):
+    """Acepta una FE de proveedor: envía eventos 032 + 033 a la DIAN."""
+    if current_user["rol"] != "admin":
+        raise HTTPException(status_code=403, detail="Solo admin")
+    from services.eventos_dian_service import aceptar_factura
+    resultado = await aceptar_factura(body.cufe, body.compra_fiscal_id)
+    if not resultado["ok"]:
+        raise HTTPException(
+            status_code=400,
+            detail=resultado.get("error") or "Error enviando eventos a DIAN",
+        )
+    return {"ok": True, "mensaje": "Factura aceptada (eventos 032 + 033 enviados)"}
+
+
+@router.post("/proveedores/reclamar")
+async def reclamar_factura_proveedor(
+    body: ReclamoBody,
+    current_user=Depends(get_current_user),
+):
+    """Envía reclamo (evento 031) sobre una FE de proveedor."""
+    if current_user["rol"] != "admin":
+        raise HTTPException(status_code=403, detail="Solo admin")
+    if not body.motivo.strip():
+        raise HTTPException(status_code=400, detail="El motivo del reclamo es obligatorio")
+    from services.eventos_dian_service import reclamar_factura
+    resultado = await reclamar_factura(body.cufe, body.compra_fiscal_id, body.motivo.strip())
+    if not resultado["ok"]:
+        raise HTTPException(
+            status_code=400,
+            detail=resultado.get("error") or "Error enviando reclamo a DIAN",
+        )
+    return {"ok": True, "mensaje": "Reclamo enviado a la DIAN (evento 031)"}
+
+
+@router.post("/proveedores/reintentar-030")
+async def reintentar_acuse_recibo(
+    body: EventoBody,
+    current_user=Depends(get_current_user),
+):
+    """Reintenta el acuse de recibo (030) si falló al recibir el correo."""
+    if current_user["rol"] != "admin":
+        raise HTTPException(status_code=403, detail="Solo admin")
+    from services.eventos_dian_service import reintentar_acuse
+    ev = await reintentar_acuse(body.cufe, body.compra_fiscal_id)
+    if not ev.get("ok"):
+        raise HTTPException(status_code=400, detail=ev.get("error") or "Error reenviando 030")
+    return {"ok": True, "mensaje": "Acuse 030 reenviado correctamente"}
+
 @router.get("/proveedores/resumen")
 def resumen_proveedores(current_user=Depends(get_current_user)):
     """Resumen por proveedor: deuda total, facturas pendientes. Admin only."""

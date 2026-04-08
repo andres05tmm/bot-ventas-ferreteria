@@ -387,6 +387,14 @@ def _parse_documento(
             "tarifa_iva":      tarifa_principal if total_iva > 0 else 0,
         })
 
+    # ── Extraer CUFE (UUID del documento) — varias rutas posibles en UBL 2.1 ──
+    cufe = ""
+    for _path in ["cbc:UUID", ".//sts:CUFE"]:
+        _el = root.find(_path, _NS)
+        if _el is not None and (_el.text or "").strip():
+            cufe = _el.text.strip()
+            break
+
     return {
         "numero_factura":       numero_factura,
         "fecha":                fecha,
@@ -396,6 +404,7 @@ def _parse_documento(
         "total_factura":        total_factura,
         "total_iva":            total_iva,
         "tarifa_iva_principal": items[0]["tarifa_iva"] if items else 0,
+        "cufe":                 cufe,
     }
 
 
@@ -522,9 +531,10 @@ def _registrar_factura(
                 incluye_iva, tarifa_iva,
                 numero_factura, notas_fiscales,
                 gmail_message_id, usuario_id,
+                cufe_proveedor, evento_estado,
                 created_at, updated_at
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
             )
             RETURNING id
             """,
@@ -544,6 +554,8 @@ def _registrar_factura(
                 ),
                 gmail_message_id,
                 usuario_id,
+                factura.get("cufe") or None,
+                "pendiente",
             )
         )
         if row:
@@ -586,6 +598,14 @@ async def _procesar_mensaje(message_id: str, token: str, user: str) -> dict:
             "total":     factura["total_factura"],
             "items":     len(ids),
         })
+
+        # ── Acuse de recibo 030 automático ───────────────────────────────
+        cufe = factura.get("cufe") or ""
+        if cufe and ids:
+            import asyncio as _asyncio
+            _asyncio.create_task(_enviar_eventos_automaticos(cufe, ids[0]))
+            logger.info("📨 Evento 030 programado — CUFE: %s… (compra_fiscal #%s)",
+                        cufe[:30], ids[0])
 
     return {
         "skip":         False,
@@ -785,3 +805,28 @@ async def gmail_webhook_status():
         "importaciones": dict(fila) if fila else {},
         "watch_url":     "/gmail/webhook/watch",
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Eventos DIAN automáticos
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _enviar_eventos_automaticos(cufe: str, compra_fiscal_id: int) -> None:
+    """
+    Envía el acuse de recibo (030) automáticamente cuando llega una factura
+    de proveedor por correo. Espera 3s para que la DIAN procese el documento.
+    Fallo silencioso — no afecta el webhook.
+    """
+    import asyncio
+    await asyncio.sleep(3)
+    try:
+        from services.eventos_dian_service import procesar_factura_entrante
+        res = await procesar_factura_entrante(cufe, compra_fiscal_id)
+        if res.get("evento_030"):
+            logger.info("✅ Acuse 030 enviado — CUFE: %s… (compra_fiscal #%s)",
+                        cufe[:30], compra_fiscal_id)
+        else:
+            logger.warning("⚠️ No se pudo enviar 030 — CUFE: %s | %s",
+                           cufe[:30], res.get("error", "desconocido"))
+    except Exception as e:
+        logger.error("Error eventos automáticos CUFE %s: %s", cufe[:30], e)
