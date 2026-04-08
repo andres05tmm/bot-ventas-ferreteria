@@ -437,8 +437,6 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         }],
         "lines": lines,
     }
-    if MATIAS_TESTSET_ID:
-        payload["test_set_id"] = MATIAS_TESTSET_ID
     return payload
 
 
@@ -668,24 +666,17 @@ async def consultar_estado_dian(cufe: str | None = None, numero: str | None = No
     """
     Consulta el estado de validación DIAN de un documento.
 
-    MATIAS API v3 tiene tres endpoints de estado:
-    - GET /status/zip/{trackId}      → modo PRUEBAS (TestSet) — responde con estado del ZIP enviado a DIAN
+    MATIAS API v3 tiene dos endpoints de estado:
     - GET /status/document/{trackId} → PRODUCCIÓN — valida directamente contra DIAN
     - GET /status?number=...         → consulta general por número/prefijo
-
-    Se elige automáticamente según si hay MATIAS_TESTSET_ID configurado.
     """
     import asyncio
     token = await asyncio.to_thread(_get_token)
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
     async with httpx.AsyncClient(timeout=20) as client:
-        # Si tenemos CUFE y estamos en pruebas → /status/zip/{trackId}
-        if cufe and MATIAS_TESTSET_ID:
-            resp = await client.get(f"{MATIAS_API_URL}/status/zip/{cufe}", headers=headers)
-
-        # Si tenemos CUFE y estamos en producción → /status/document/{trackId}
-        elif cufe and not MATIAS_TESTSET_ID:
+        # Si tenemos CUFE → /status/document/{trackId}
+        if cufe:
             resp = await client.get(f"{MATIAS_API_URL}/status/document/{cufe}", headers=headers)
 
         # Fallback por número → /status?number=...
