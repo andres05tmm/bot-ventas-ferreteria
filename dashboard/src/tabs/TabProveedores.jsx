@@ -737,6 +737,7 @@ export default function TabProveedores({ refreshKey }) {
           onAbonado={() => reload()}
         />
       )}
+    <FacturasElectronicasRecibidas />
     </div>
   )
 }
@@ -785,7 +786,6 @@ function BtnPrimario({ t, onClick, disabled, children }) {
     >
       {children}
     </button>
-      <FacturasElectronicasRecibidas />
   )
 }
 
