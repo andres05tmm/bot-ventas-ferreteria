@@ -371,16 +371,16 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
                     if p_mayorista > 0 or p_unidad > 0:
                         _db_pm.execute(
                             """
-                            INSERT INTO productos_precio_cantidad
-                                (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
-                            VALUES (%s, %s, %s, %s)
-                            ON CONFLICT (producto_id) DO UPDATE
-                            SET umbral              = EXCLUDED.umbral,
-                                precio_bajo_umbral  = EXCLUDED.precio_bajo_umbral,
-                                precio_sobre_umbral = EXCLUDED.precio_sobre_umbral
+                            UPDATE productos
+                            SET precio_umbral       = %s,
+                                precio_bajo_umbral  = %s,
+                                precio_sobre_umbral = %s,
+                                updated_at          = NOW()
+                            WHERE id = %s
                             """,
-                            (prod_id_pm, umbral, precio_bajo,
-                             round(p_mayorista) if p_mayorista > 0 else precio_bajo),
+                            (umbral, precio_bajo,
+                             round(p_mayorista) if p_mayorista > 0 else precio_bajo,
+                             prod_id_pm),
                         )
                     _inv()
                     msg = f"🧠 {nombre_display}: unidad=${p_unidad:,.0f}" if p_unidad else f"🧠 {nombre_display}"
