@@ -87,10 +87,9 @@ def productos(current_user=Depends(get_current_user)):
             SELECT p.id, p.clave, p.nombre, p.categoria, p.precio_unidad,
                    p.codigo, p.unidad_medida,
                    i.cantidad AS stock,
-                   ppc.umbral, ppc.precio_sobre_umbral
+                   p.precio_umbral AS umbral, p.precio_sobre_umbral
             FROM productos p
-            LEFT JOIN inventario i               ON i.producto_id = p.id
-            LEFT JOIN productos_precio_cantidad ppc ON ppc.producto_id = p.id
+            LEFT JOIN inventario i ON i.producto_id = p.id
             WHERE p.activo = TRUE
             ORDER BY p.nombre
             """
@@ -243,10 +242,9 @@ def catalogo_nav(q: str = Query(default=""), current_user=Depends(get_current_us
             SELECT p.id, p.clave, p.nombre, p.categoria, p.precio_unidad,
                    p.codigo, p.unidad_medida,
                    i.cantidad AS stock, i.costo_promedio,
-                   ppc.umbral, ppc.precio_sobre_umbral
+                   p.precio_umbral AS umbral, p.precio_sobre_umbral
             FROM productos p
-            LEFT JOIN inventario i               ON i.producto_id = p.id
-            LEFT JOIN productos_precio_cantidad ppc ON ppc.producto_id = p.id
+            LEFT JOIN inventario i ON i.producto_id = p.id
             WHERE p.activo = TRUE
             ORDER BY p.nombre
             """
@@ -704,25 +702,25 @@ async def actualizar_mayorista(key: str, body: MayoristaUpdate):
         if not row_prod:
             raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
 
-        ppc_actual  = db.query_one(
-            "SELECT umbral, precio_bajo_umbral FROM productos_precio_cantidad WHERE producto_id = %s",
+        # Leer valores actuales de columnas inline de productos
+        prod_actual = db.query_one(
+            "SELECT precio_umbral, precio_bajo_umbral FROM productos WHERE id = %s",
             [row_prod["id"]],
         )
-        umbral      = body.umbral if body.umbral else (ppc_actual["umbral"] if ppc_actual else 50)
-        precio_bajo = ppc_actual["precio_bajo_umbral"] if ppc_actual else (row_prod["precio_unidad"] or 0)
+        umbral      = body.umbral if body.umbral else (prod_actual["precio_umbral"] if prod_actual and prod_actual["precio_umbral"] else 50)
+        precio_bajo = prod_actual["precio_bajo_umbral"] if prod_actual and prod_actual["precio_bajo_umbral"] else (row_prod["precio_unidad"] or 0)
         precio_sobre = int(body.precio)
 
         db.execute(
             """
-            INSERT INTO productos_precio_cantidad
-                (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (producto_id) DO UPDATE
-            SET umbral              = EXCLUDED.umbral,
-                precio_bajo_umbral  = EXCLUDED.precio_bajo_umbral,
-                precio_sobre_umbral = EXCLUDED.precio_sobre_umbral
+            UPDATE productos
+            SET precio_umbral       = %s,
+                precio_bajo_umbral  = %s,
+                precio_sobre_umbral = %s,
+                updated_at          = NOW()
+            WHERE id = %s
             """,
-            (row_prod["id"], umbral, precio_bajo, precio_sobre),
+            (umbral, precio_bajo, precio_sobre, row_prod["id"]),
         )
         invalidar_cache_memoria()
 
