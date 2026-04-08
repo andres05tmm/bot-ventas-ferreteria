@@ -942,13 +942,13 @@ async def _procesar_linea_precio(linea: str, update):
                 (round(precio), prod_id),
             )
             _db.execute(
-                """INSERT INTO productos_precio_cantidad
-                       (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
-                   VALUES (%s, 50, %s, %s)
-                   ON CONFLICT (producto_id) DO UPDATE
-                       SET precio_bajo_umbral  = EXCLUDED.precio_bajo_umbral,
-                           precio_sobre_umbral = EXCLUDED.precio_sobre_umbral""",
-                (prod_id, round(precio), round(precio_mayorista)),
+                """UPDATE productos
+                   SET precio_umbral       = 50,
+                       precio_bajo_umbral  = %s,
+                       precio_sobre_umbral = %s,
+                       updated_at          = NOW()
+                   WHERE id = %s""",
+                (round(precio), round(precio_mayorista), prod_id),
             )
             # Mantener caché de memoria sincronizada
             actualizar_precio_en_catalogo(nombre_display, round(precio), None)
