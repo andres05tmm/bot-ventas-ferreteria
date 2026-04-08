@@ -2573,8 +2573,8 @@ export default function TabVentasRapidas({ refreshKey }) {
 
       </div>{/* fin grid */}
 
-      {/* ══ MÓVIL: barra inferior fija del carrito ══ */}
-      {isMobile && createPortal(
+      {/* ══ MÓVIL: barra inferior fija del carrito — solo cuando hay ítems ══ */}
+      {isMobile && totalItems > 0 && createPortal(
         <div style={{
           position: 'fixed', bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))', left: 0, right: 0,
           zIndex: 200, padding: '8px 12px',
