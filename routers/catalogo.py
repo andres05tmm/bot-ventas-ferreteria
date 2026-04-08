@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 import db
 from routers.shared import _hace_n_dias
-from routers.deps import get_current_user
+from routers.deps import get_current_user, get_filtro_efectivo
 from routers.events import notify_all
 
 logger = logging.getLogger("ferrebot.api")
@@ -139,6 +139,48 @@ def productos(current_user=Depends(get_current_user)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# GET /productos/frecuentes
+# =============================================================================
+@router.get("/productos/frecuentes")
+def productos_frecuentes(
+    limit: int = Query(default=12, ge=1, le=50),
+    filtro: int | None = Depends(get_filtro_efectivo),
+    current_user=Depends(get_current_user),
+):
+    """Retorna los N productos más vendidos en los últimos 30 días (por frecuencia de venta)."""
+    try:
+        params: list = []
+        filtro_sql = ""
+        if filtro is not None:
+            filtro_sql = "AND v.usuario_id = %s"
+            params.append(filtro)
+        params.append(limit)
+
+        rows = db.query_all(
+            f"""
+            SELECT p.clave AS key, p.nombre,
+                   COUNT(*) AS frecuencia,
+                   COALESCE(SUM(vd.cantidad), 0) AS total_unidades
+            FROM ventas_detalle vd
+            JOIN productos p ON p.id = vd.producto_id
+            JOIN ventas v ON v.id = vd.venta_id
+            WHERE v.fecha >= NOW() - INTERVAL '30 days'
+              AND p.activo = TRUE
+              AND p.precio_unidad > 0
+              {filtro_sql}
+            GROUP BY p.id, p.clave, p.nombre
+            ORDER BY COUNT(*) DESC
+            LIMIT %s
+            """,
+            params,
+        )
+        return {"frecuentes": [dict(r) for r in rows]}
+    except Exception as e:
+        logger.warning(f"productos_frecuentes: {e}")
+        return {"frecuentes": []}
 
 
 # =============================================================================

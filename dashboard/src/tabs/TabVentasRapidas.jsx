@@ -33,6 +33,11 @@ const FAV_KEY = 'vr_favs_v2'
 const loadFavs  = () => { try { return JSON.parse(localStorage.getItem(FAV_KEY) || '[]') } catch { return [] } }
 const saveFavs  = (keys) => { try { localStorage.setItem(FAV_KEY, JSON.stringify(keys)) } catch {} }
 
+// ── Carrito persistido en sesión ──────────────────────────────────────────────
+const CART_KEY = 'vr_carrito_v1'
+const loadCart  = () => { try { return JSON.parse(sessionStorage.getItem(CART_KEY) || '[]') } catch { return [] } }
+const saveCart  = (items) => { try { sessionStorage.setItem(CART_KEY, JSON.stringify(items)) } catch {} }
+
 // ── Icono por categoría ───────────────────────────────────────────────────────
 const CAT_ICON = {
   '1 artículos de ferreteria':                    '🔧',
@@ -119,7 +124,7 @@ function tipoProd(prod) {
 // ══════════════════════════════════════════════════════════════════════════════
 // PRODUCT CARD
 // ══════════════════════════════════════════════════════════════════════════════
-function ProdCard({ prod, onClick, isFav, onFav, cantCarrito }) {
+function ProdCard({ prod, onClick, isFav, onFav, cantCarrito, isHighlighted }) {
   const t    = useTheme()
   const tipo = tipoProd(prod)
 
@@ -128,7 +133,8 @@ function ProdCard({ prod, onClick, isFav, onFav, cantCarrito }) {
       onClick={() => onClick(prod)}
       style={{
         background:   cantCarrito > 0 ? t.accentSub : t.card,
-        border:       `1px solid ${cantCarrito > 0 ? t.accent + '55' : t.border}`,
+        border:       `1px solid ${isHighlighted ? t.accent : cantCarrito > 0 ? t.accent + '55' : t.border}`,
+        boxShadow:    isHighlighted ? `0 0 0 2px ${t.accent}55` : undefined,
         borderRadius: 9,
         padding:      '10px 10px 8px',
         cursor:       'pointer',
@@ -205,7 +211,7 @@ function ProdCard({ prod, onClick, isFav, onFav, cantCarrito }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // SECCIÓN
 // ══════════════════════════════════════════════════════════════════════════════
-function Seccion({ icono, titulo, cantidad, productos, carrito, favKeys, onClickProd, onFav, columnas = 6 }) {
+function Seccion({ icono, titulo, cantidad, productos, carrito, favKeys, onClickProd, onFav, columnas = 6, highlightedKey }) {
   const t = useTheme()
   if (!productos.length) return null
   return (
@@ -242,6 +248,7 @@ function Seccion({ icono, titulo, cantidad, productos, carrito, favKeys, onClick
             isFav={favKeys.includes(p.key)}
             onFav={onFav}
             cantCarrito={carrito.filter(c => c.key === p.key).reduce((s, c) => s + (c.qty || 1), 0)}
+            isHighlighted={p.key === highlightedKey}
           />
         ))}
       </div>
@@ -942,38 +949,298 @@ function ModalQty({ prod, onClose, onConfirm }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // CARRITO ITEM
 // ══════════════════════════════════════════════════════════════════════════════
-function CartItem({ item, idx, onRemove, onQtyChange }) {
+function CartItem({ item, idx, onRemove, onQtyChange, onQtySet }) {
   const t = useTheme()
+  const [editingQty, setEditingQty] = useState(false)
+  const [qtyInput,   setQtyInput]   = useState(String(item.qty))
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (editingQty && inputRef.current) inputRef.current.select()
+  }, [editingQty])
+
+  const commitEdit = () => {
+    const n = parseInt(qtyInput)
+    if (n >= 1) onQtySet(idx, n)
+    setEditingQty(false)
+  }
+
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 7,
-      padding: '8px 14px', borderBottom: `1px solid ${t.border}`,
-      animation: 'cIn .15s ease',
-    }}>
+    <div style={{ padding: '8px 14px', borderBottom: `1px solid ${t.border}`, animation: 'cIn .15s ease' }}>
       <style>{`@keyframes cIn{from{opacity:0;transform:translateX(6px)}to{opacity:1;transform:translateX(0)}}`}</style>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nombre}</div>
-        <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>{item.desc}</div>
+      {/* Fila principal: nombre + total + trash */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: item.tipo === 'simple' ? 6 : 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nombre}</div>
+          <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>{item.desc}</div>
+        </div>
+        <div style={{ fontSize: 11, fontFamily: 'monospace', color: t.green, minWidth: 54, textAlign: 'right' }}>{cop(item.total)}</div>
+        <span
+          onClick={() => onRemove(idx)}
+          title="Eliminar"
+          style={{ color: t.textMuted, cursor: 'pointer', fontSize: 14, padding: '2px 4px', transition: 'color .1s', flexShrink: 0 }}
+          onMouseEnter={e => e.currentTarget.style.color = t.accent}
+          onMouseLeave={e => e.currentTarget.style.color = t.textMuted}
+        >🗑</span>
       </div>
+
+      {/* Fila multiplicadores — solo productos simples */}
       {item.tipo === 'simple' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          <button onClick={() => onQtyChange(idx, -1)} style={{ width: 20, height: 20, background: t.card, border: `1px solid ${t.border}`, borderRadius: 4, color: t.text, cursor: 'pointer', fontSize: 12 }}>−</button>
-          <span style={{ fontFamily: 'monospace', fontSize: 11, width: 20, textAlign: 'center' }}>{item.qty}</span>
-          <button onClick={() => onQtyChange(idx, +1)} style={{ width: 20, height: 20, background: t.card, border: `1px solid ${t.border}`, borderRadius: 4, color: t.text, cursor: 'pointer', fontSize: 12 }}>+</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+          {[1, 2, 3, 5, 10].map(m => (
+            <button key={m} onClick={() => onQtySet(idx, m)} style={{
+              padding: '2px 7px', borderRadius: 5, fontSize: 10,
+              background: item.qty === m ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#1a1a1a'),
+              border: `1px solid ${item.qty === m ? t.accent : t.border}`,
+              color: item.qty === m ? t.accent : t.textMuted,
+              cursor: 'pointer', fontFamily: 'inherit', fontWeight: item.qty === m ? 700 : 400,
+              transition: 'all .1s',
+            }}>×{m}</button>
+          ))}
+          {editingQty ? (
+            <input
+              ref={inputRef}
+              type="number" min="1"
+              value={qtyInput}
+              onChange={e => setQtyInput(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingQty(false) }}
+              style={{
+                width: 40, fontSize: 11, fontFamily: 'monospace', textAlign: 'center',
+                background: 'transparent', border: 'none',
+                borderBottom: `1px solid ${t.accent}`,
+                color: t.accent, outline: 'none', padding: '1px 0',
+                MozAppearance: 'textfield', appearance: 'textfield',
+              }}
+            />
+          ) : (
+            <span
+              onDoubleClick={() => { setQtyInput(String(item.qty)); setEditingQty(true) }}
+              title="Doble clic para cantidad personalizada"
+              style={{
+                fontSize: 10, fontFamily: 'monospace', color: t.textMuted,
+                cursor: 'text', padding: '2px 5px', borderRadius: 4,
+                border: `1px dashed ${t.border}`, minWidth: 24, textAlign: 'center',
+              }}
+            >{item.qty}</span>
+          )}
         </div>
       )}
-      <div style={{ fontSize: 11, fontFamily: 'monospace', color: t.green, minWidth: 54, textAlign: 'right' }}>{cop(item.total)}</div>
-      <span onClick={() => onRemove(idx)}
-        style={{ color: t.textMuted, cursor: 'pointer', fontSize: 13, padding: '2px 4px', transition: 'color .1s' }}
-        onMouseEnter={e => e.currentTarget.style.color = t.accent}
-        onMouseLeave={e => e.currentTarget.style.color = t.textMuted}
-      >✕</span>
     </div>
   )
 }
 
 
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MODAL CHECKOUT
+// ══════════════════════════════════════════════════════════════════════════════
+function ModalCheckout({ show, total, metodo, setMetodo, onClose, onConfirm, enviando }) {
+  const t = useTheme()
+  const [recibido, setRecibido] = useState('')
+
+  useEffect(() => { if (show) setRecibido('') }, [show])
+
+  if (!show) return null
+  const recNum = parseInt(recibido) || 0
+  const cambio = recibido !== '' && recNum >= total ? recNum - total : null
+
+  return createPortal(
+    <div
+      onClick={e => e.target === e.currentTarget && !enviando && onClose()}
+      style={{
+        position: 'fixed', inset: 0, background: '#000000cc',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 9999, padding: 16, pointerEvents: 'auto',
+      }}
+    >
+      <div style={{
+        background: t.card, border: `1px solid ${t.accent}44`,
+        borderRadius: 14, width: 'calc(100% - 32px)', maxWidth: 360,
+        animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)', overflow: 'hidden',
+      }}>
+        <div style={{ padding: '16px 18px 12px', borderBottom: `1px solid ${t.border}` }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: t.text }}>Confirmar venta</div>
+        </div>
+        <div style={{ padding: '16px 18px' }}>
+          {/* Total */}
+          <div style={{ textAlign: 'center', marginBottom: 20 }}>
+            <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 4 }}>Total a cobrar</div>
+            <div style={{ fontSize: 38, fontFamily: 'monospace', fontWeight: 800, color: t.accent }}>{cop(total)}</div>
+          </div>
+
+          {/* Método de pago */}
+          <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Método de pago</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 16 }}>
+            {[
+              { key: 'efectivo',      label: 'Efectivo',  icon: '💵' },
+              { key: 'transferencia', label: 'Transfer.', icon: '📲' },
+              { key: 'datafono',      label: 'Datáfono',  icon: '💳' },
+            ].map(m => (
+              <button key={m.key} onClick={() => setMetodo(m.key)} style={{
+                padding: '8px 4px',
+                background: metodo === m.key ? t.accentSub : (t.id === 'caramelo' ? '#f8fafc' : '#0f0f0f'),
+                border: `1px solid ${metodo === m.key ? t.accent : t.border}`,
+                borderRadius: 8, color: metodo === m.key ? t.accent : t.textMuted,
+                fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                transition: 'all .15s',
+              }}>
+                <span style={{ fontSize: 16 }}>{m.icon}</span>{m.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Recibido + cambio (solo efectivo) */}
+          {metodo === 'efectivo' && (
+            <>
+              <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Recibido (opcional)</div>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 13px', marginBottom: 10,
+              }}>
+                <span style={{ fontSize: 14, color: t.textMuted }}>$</span>
+                <input
+                  autoFocus
+                  type="number" min="0"
+                  value={recibido}
+                  onChange={e => setRecibido(e.target.value)}
+                  placeholder={String(total)}
+                  style={{
+                    flex: 1, background: 'transparent', border: 'none',
+                    color: t.text, fontSize: 22, fontFamily: 'monospace',
+                    outline: 'none', padding: '2px 0',
+                    MozAppearance: 'textfield', appearance: 'textfield',
+                  }}
+                />
+              </div>
+              {cambio !== null && (
+                <div style={{
+                  padding: '8px 13px', marginBottom: 6,
+                  background: `${t.green}18`, border: `1px solid ${t.green}44`,
+                  borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <span style={{ fontSize: 11, color: t.green }}>Cambio</span>
+                  <span style={{ fontSize: 20, fontFamily: 'monospace', fontWeight: 700, color: t.green }}>{cop(cambio)}</span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8, padding: '0 18px 18px' }}>
+          <button onClick={onClose} disabled={enviando} style={{
+            flex: 1, padding: 11, background: t.border, border: 'none',
+            borderRadius: 8, color: t.textMuted, cursor: enviando ? 'not-allowed' : 'pointer',
+            fontFamily: 'inherit', fontSize: 12,
+          }}>Cancelar</button>
+          <button onClick={onConfirm} disabled={enviando} style={{
+            flex: 2, padding: 11,
+            background: enviando ? t.border : t.accent,
+            border: 'none', borderRadius: 8,
+            color: enviando ? t.textMuted : '#fff',
+            cursor: enviando ? 'not-allowed' : 'pointer',
+            fontFamily: 'inherit', fontSize: 13, fontWeight: 700,
+          }}>
+            {enviando ? 'Registrando...' : '✓ Registrar venta'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    getPortalRoot()
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MODAL MISCELÁNEA
+// ══════════════════════════════════════════════════════════════════════════════
+function ModalMiscelanea({ show, onClose, onConfirm }) {
+  const t = useTheme()
+  const [monto, setMonto] = useState('')
+  const [desc,  setDesc]  = useState('')
+
+  useEffect(() => { if (show) { setMonto(''); setDesc('') } }, [show])
+
+  if (!show) return null
+  const montoNum = parseInt(monto) || 0
+  const valid = montoNum > 0
+
+  return createPortal(
+    <div
+      onClick={e => e.target === e.currentTarget && onClose()}
+      style={{
+        position: 'fixed', inset: 0, background: '#000000cc',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 9999, padding: 16, pointerEvents: 'auto',
+      }}
+    >
+      <div style={{
+        background: t.card, border: `1px solid ${t.accent}44`,
+        borderRadius: 14, width: 'calc(100% - 32px)', maxWidth: 360,
+        animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)', overflow: 'hidden',
+      }}>
+        <div style={{ padding: '16px 18px 12px', borderBottom: `1px solid ${t.border}` }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: t.text }}>💸 Venta miscelánea</div>
+          <div style={{ fontSize: 11, color: t.textMuted, marginTop: 3 }}>Monto libre · no descuenta inventario</div>
+        </div>
+        <div style={{ padding: '16px 18px' }}>
+          <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Monto</div>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+            border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 13px', marginBottom: 16,
+          }}>
+            <span style={{ fontSize: 14, color: t.textMuted }}>$</span>
+            <input
+              autoFocus
+              type="number" min="0"
+              value={monto}
+              onChange={e => setMonto(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && valid && onConfirm({ monto: montoNum, desc: desc.trim() || 'Miscelánea' })}
+              placeholder="0"
+              style={{
+                flex: 1, background: 'transparent', border: 'none',
+                color: t.text, fontSize: 22, fontFamily: 'monospace',
+                outline: 'none', padding: '2px 0',
+                MozAppearance: 'textfield', appearance: 'textfield',
+              }}
+            />
+          </div>
+          <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Descripción (opcional)</div>
+          <input
+            type="text"
+            value={desc}
+            onChange={e => setDesc(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && valid && onConfirm({ monto: montoNum, desc: desc.trim() || 'Miscelánea' })}
+            placeholder="ej: Miscelánea varios"
+            style={{
+              width: '100%', background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+              border: `1px solid ${t.border}`, borderRadius: 8,
+              color: t.text, fontSize: 13, padding: '9px 12px',
+              fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
+            }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 8, padding: '0 18px 18px' }}>
+          <button onClick={onClose} style={{
+            flex: 1, padding: 11, background: t.border, border: 'none',
+            borderRadius: 8, color: t.textMuted, cursor: 'pointer',
+            fontFamily: 'inherit', fontSize: 12,
+          }}>Cancelar</button>
+          <button onClick={() => valid && onConfirm({ monto: montoNum, desc: desc.trim() || 'Miscelánea' })} disabled={!valid} style={{
+            flex: 2, padding: 11,
+            background: valid ? t.accent : t.border, border: 'none', borderRadius: 8,
+            color: valid ? '#fff' : t.textMuted,
+            cursor: valid ? 'pointer' : 'not-allowed',
+            fontFamily: 'inherit', fontSize: 13, fontWeight: 700,
+          }}>Agregar al carrito</button>
+        </div>
+      </div>
+    </div>,
+    getPortalRoot()
+  )
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MODAL COLOR PREPARADO
@@ -1599,7 +1866,7 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
 // ══════════════════════════════════════════════════════════════════════════════
 function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo, setMetodo,
                         clienteSeleccionado, setClienteSeleccionado,
-                        removeItem, qtyChange, registrar, enviando, sticky, mobile }) {
+                        removeItem, qtyChange, qtySet, onCheckout, enviando, sticky, mobile }) {
   return (
     <div style={{
       background: t.card, border: mobile ? 'none' : `1px solid ${t.border}`,
@@ -1632,7 +1899,7 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
           </div>
         ) : (
           carrito.map((item, idx) => (
-            <CartItem key={item.id} item={item} idx={idx} onRemove={removeItem} onQtyChange={qtyChange} />
+            <CartItem key={item.id} item={item} idx={idx} onRemove={removeItem} onQtyChange={qtyChange} onQtySet={qtySet} />
           ))
         )}
       </div>
@@ -1696,7 +1963,7 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
 
       {/* Botón registrar */}
       <button
-        onClick={registrar}
+        onClick={() => carrito.length && onCheckout()}
         disabled={!carrito.length || enviando}
         style={{
           margin: '0 14px 14px', padding: mobile ? 16 : 12,
@@ -1724,14 +1991,16 @@ export default function TabVentasRapidas({ refreshKey }) {
   const { selectedVendor } = useVendorFilter()
 
   const { data: dataProd, loading, error } = useFetch('/productos',        [refreshKey])
-  const topUrl = `/ventas/top?periodo=mes${selectedVendor ? `&vendor_id=${selectedVendor}` : ''}`
-  const { data: dataTop }                  = useFetch(topUrl, [refreshKey, selectedVendor])
+  const topUrl  = `/ventas/top?periodo=mes${selectedVendor ? `&vendor_id=${selectedVendor}` : ''}`
+  const frecUrl = `/productos/frecuentes?limit=12${selectedVendor ? `&vendor_id=${selectedVendor}` : ''}`
+  const { data: dataTop }  = useFetch(topUrl,  [refreshKey, selectedVendor])
+  const { data: dataFrec } = useFetch(frecUrl, [refreshKey, selectedVendor])
 
   const [favKeys,   setFavKeys]   = useState(loadFavs)
   const [busq,      setBusq]      = useState('')
   const [filtro,    setFiltro]    = useState('todos')
   const [columnas,  setColumnas]  = useState(() => window.innerWidth < 768 ? 2 : 6)
-  const [carrito,   setCarrito]   = useState([])
+  const [carrito,   setCarrito]   = useState(loadCart)
   const [metodo,    setMetodo]    = useState('efectivo')
   const [vendedor,  setVendedor]  = useState(() => localStorage.getItem('vr_vendedor') || 'Andres')
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null) // {nombre, id} | null
@@ -1741,15 +2010,25 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [modalMlt,  setModalMlt]  = useState(null)
   const [modalGrm,  setModalGrm]  = useState(null)
   const [modalKg,   setModalKg]   = useState(null)
-  const [toast,        setToast]        = useState(null)
-  const [carritoToast, setCarritoToast] = useState(null)
-  const [pulseCarrito, setPulseCarrito] = useState(false)
-  const [enviando,     setEnviando]     = useState(false)
-  const [subcatFiltro,      setSubcatFiltro]      = useState(null)
-  const [modalColorPrep,    setModalColorPrep]    = useState(false)
-  const [precioBaseColor,   setPrecioBaseColor]   = useState(0)
-  const [carritoAbierto,    setCarritoAbierto]    = useState(false)
+  const [toast,           setToast]           = useState(null)
+  const [carritoToast,    setCarritoToast]    = useState(null)
+  const [pulseCarrito,    setPulseCarrito]    = useState(false)
+  const [enviando,        setEnviando]        = useState(false)
+  const [subcatFiltro,    setSubcatFiltro]    = useState(null)
+  const [modalColorPrep,  setModalColorPrep]  = useState(false)
+  const [precioBaseColor, setPrecioBaseColor] = useState(0)
+  const [carritoAbierto,  setCarritoAbierto]  = useState(false)
+  const [modalCheckout,   setModalCheckout]   = useState(false)
+  const [modalMisc,       setModalMisc]       = useState(false)
+  const [highlightedIdx,  setHighlightedIdx]  = useState(-1)
+  const searchRef = useRef(null)
   const isMobile = useIsMobile()
+
+  // Sincronizar carrito con sessionStorage
+  useEffect(() => { saveCart(carrito) }, [carrito])
+
+  // Autofocus buscador al montar
+  useEffect(() => { searchRef.current?.focus() }, [])
 
   const mostrarCarritoToast = (nombre) => {
     setCarritoToast(`✓ ${nombre} agregado`)
@@ -1777,6 +2056,10 @@ export default function TabVentasRapidas({ refreshKey }) {
     const nl = p.nombre.toLowerCase()
     return topNombres.some(tn => tn && (nl.includes(tn) || tn.includes(nl)))
   }).slice(0, 12)
+
+  // Frecuentes — match exacto por clave (key)
+  const frecKeys = (dataFrec?.frecuentes || []).map(x => x.key)
+  const frecuentes = frecKeys.map(k => productos.find(p => p.key === k)).filter(Boolean).slice(0, 12)
 
   // Categorías ordenadas
   const catMap = {}
@@ -1930,13 +2213,36 @@ export default function TabVentasRapidas({ refreshKey }) {
     it.desc  = `${it.qty} ${it.qty === 1 ? 'unidad' : 'unidades'}${may && it.qty >= may.umbral ? ' (mayorista)' : ''}`
     next[idx] = it; return next
   })
-  const removeItem  = idx => setCarrito(p => p.filter((_, i) => i !== idx))
+  const qtySet = (idx, qty) => setCarrito(prev => {
+    const next = [...prev], it = { ...next[idx] }
+    it.qty = Math.max(1, qty)
+    const may = it.mayorista
+    const pUnit = (may && it.qty >= may.umbral) ? may.precio : it.precio
+    it.total = pUnit * it.qty
+    it.desc  = `${it.qty} ${it.qty === 1 ? 'unidad' : 'unidades'}${may && it.qty >= may.umbral ? ' (mayorista)' : ''}`
+    next[idx] = it; return next
+  })
+  const removeItem   = idx => setCarrito(p => p.filter((_, i) => i !== idx))
   const totalCarrito = carrito.reduce((s, c) => s + c.total, 0)
+
+  // ── Miscelánea ─────────────────────────────────────────────────────────────
+  const confirmarMisc = ({ monto, desc }) => {
+    const nombre = desc || 'Miscelánea'
+    setCarrito(prev => [...prev, {
+      id: Date.now(), key: `misc_${Date.now()}`,
+      nombre, precio: monto, qty: 1, total: monto,
+      desc: 'Miscelánea (monto libre)', tipo: 'misc',
+      unidad: 'Unidad',
+    }])
+    setModalMisc(false)
+    if (isMobile) mostrarCarritoToast(nombre)
+  }
 
   // ── Registrar ──────────────────────────────────────────────────────────────
   const registrar = async () => {
     if (!carrito.length || enviando) return
     setEnviando(true)
+    const totalSnapshot = totalCarrito
     try {
       const res = await authFetch(`${API_BASE}/venta-rapida`, {
         method: 'POST',
@@ -1952,12 +2258,13 @@ export default function TabVentasRapidas({ refreshKey }) {
       const data = await res.json()
       setCarrito([])
       setClienteSeleccionado(null)
-      setToast(`✅ Venta #${data.consecutivo} registrada · ${data.productos} producto${data.productos > 1 ? 's' : ''}`)
+      setModalCheckout(false)
+      setToast(`✅ Venta #${data.consecutivo} · ${cop(totalSnapshot)}`)
     } catch (e) {
       setToast(`⚠️ Error: ${e.message}`)
     } finally {
       setEnviando(false)
-      setTimeout(() => setToast(null), 3000)
+      setTimeout(() => setToast(null), 4000)
     }
   }
 
@@ -1973,6 +2280,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   ]
 
   // ── Render ─────────────────────────────────────────────────────────────────
+  const highlightedKey = prodsFiltrados[highlightedIdx]?.key || null
   const seccionProps = { carrito, favKeys, onClickProd: clickProd, onFav: toggleFav, columnas }
 
   // Qué mostrar según filtro activo
@@ -2055,12 +2363,54 @@ export default function TabVentasRapidas({ refreshKey }) {
         </div>
         </div>
 
+        {/* ── Frecuentes ── */}
+        {frecuentes.length > 0 && !busq.trim() && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
+              🔥 Más vendidos
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {frecuentes.map(prod => (
+                <button
+                  key={prod.key}
+                  onClick={() => clickProd(prod)}
+                  style={{
+                    padding: '4px 11px', borderRadius: 99, fontSize: 11,
+                    background: carrito.some(c => c.key === prod.key) ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#1a1a1a'),
+                    border: `1px solid ${carrito.some(c => c.key === prod.key) ? t.accent : t.border}`,
+                    color: carrito.some(c => c.key === prod.key) ? t.accent : t.text,
+                    cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all .15s',
+                  }}
+                >
+                  {iconCat(prod.categoria)} {prod.nombre}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Búsqueda ── */}
-        <div style={{ position: 'relative', marginBottom: 18 }}>
+        <div style={{ position: 'relative', marginBottom: 10 }}>
           <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: t.textMuted, pointerEvents: 'none' }}>🔍</span>
           <input
-            value={busq} onChange={e => { setBusq(e.target.value); if (e.target.value) setFiltro('todos') }}
-            placeholder="Buscar producto..."
+            ref={searchRef}
+            value={busq}
+            onChange={e => { setBusq(e.target.value); if (e.target.value) setFiltro('todos'); setHighlightedIdx(-1) }}
+            onKeyDown={e => {
+              if (!busq.trim() || !prodsFiltrados.length) return
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setHighlightedIdx(i => Math.min(i + 1, prodsFiltrados.length - 1))
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setHighlightedIdx(i => Math.max(i - 1, 0))
+              } else if (e.key === 'Enter') {
+                e.preventDefault()
+                const prod = highlightedIdx >= 0 ? prodsFiltrados[highlightedIdx] : prodsFiltrados[0]
+                if (prod) clickProd(prod)
+              }
+            }}
+            placeholder="Buscar producto... (Enter agrega el primero)"
             style={{
               width: '100%', background: t.card, border: `1px solid ${t.border}`,
               borderRadius: 8, padding: '8px 10px 8px 30px',
@@ -2069,6 +2419,23 @@ export default function TabVentasRapidas({ refreshKey }) {
             onFocus={e => e.currentTarget.style.borderColor = t.accent + '88'}
             onBlur={e  => e.currentTarget.style.borderColor = t.border}
           />
+        </div>
+
+        {/* ── Venta miscelánea ── */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+          <button
+            onClick={() => setModalMisc(true)}
+            style={{
+              padding: '4px 12px', borderRadius: 99, fontSize: 11,
+              background: 'transparent', border: `1px solid ${t.border}`,
+              color: t.textMuted, cursor: 'pointer', fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', gap: 5, transition: 'all .15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = t.accent + '66'; e.currentTarget.style.color = t.text }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textMuted }}
+          >
+            💸 Venta miscelánea
+          </button>
         </div>
 
         {/* ── Subcategorías ── */}
@@ -2107,7 +2474,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         )}
 
         {busq.trim() ? (
-          <Seccion icono="🔍" titulo={`"${busq}"`} cantidad={prodsFiltrados.length} productos={prodsFiltrados} {...seccionProps} />
+          <Seccion icono="🔍" titulo={`"${busq}"`} cantidad={prodsFiltrados.length} productos={prodsFiltrados} highlightedKey={highlightedKey} {...seccionProps} />
         ) : (
           <>
             {/* ── Favoritos ── */}
@@ -2198,8 +2565,8 @@ export default function TabVentasRapidas({ refreshKey }) {
           metodo={metodo} setMetodo={setMetodo}
           clienteSeleccionado={clienteSeleccionado}
           setClienteSeleccionado={setClienteSeleccionado}
-          removeItem={removeItem} qtyChange={qtyChange}
-          registrar={registrar} enviando={enviando}
+          removeItem={removeItem} qtyChange={qtyChange} qtySet={qtySet}
+          onCheckout={() => setModalCheckout(true)} enviando={enviando}
           sticky
         />
       )}
@@ -2236,10 +2603,10 @@ export default function TabVentasRapidas({ refreshKey }) {
               : <span>Carrito vacío</span>
             }
           </button>
-          {/* Botón derecho: registrar — solo cuando hay ítems */}
+          {/* Botón derecho: checkout — solo cuando hay ítems */}
           {totalItems > 0 && (
             <button
-              onClick={enviando ? undefined : registrar}
+              onClick={enviando ? undefined : () => setModalCheckout(true)}
               disabled={enviando}
               style={{
                 padding: '12px 18px',
@@ -2295,8 +2662,8 @@ export default function TabVentasRapidas({ refreshKey }) {
                 metodo={metodo} setMetodo={setMetodo}
                 clienteSeleccionado={clienteSeleccionado}
                 setClienteSeleccionado={setClienteSeleccionado}
-                removeItem={removeItem} qtyChange={qtyChange}
-                registrar={() => { registrar(); setCarritoAbierto(false) }}
+                removeItem={removeItem} qtyChange={qtyChange} qtySet={qtySet}
+                onCheckout={() => { setModalCheckout(true); setCarritoAbierto(false) }}
                 enviando={enviando}
                 mobile
               />
@@ -2304,6 +2671,24 @@ export default function TabVentasRapidas({ refreshKey }) {
           </div>
         </div>
       , document.body)}
+
+      {/* Modal checkout */}
+      <ModalCheckout
+        show={modalCheckout}
+        total={totalCarrito}
+        metodo={metodo}
+        setMetodo={setMetodo}
+        onClose={() => setModalCheckout(false)}
+        onConfirm={registrar}
+        enviando={enviando}
+      />
+
+      {/* Modal miscelánea */}
+      <ModalMiscelanea
+        show={modalMisc}
+        onClose={() => setModalMisc(false)}
+        onConfirm={confirmarMisc}
+      />
 
       {/* Modal color preparado */}
       <ModalColorPreparado
