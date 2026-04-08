@@ -46,7 +46,7 @@ async def comando_consistencia(update, context):
             """SELECT COUNT(*) AS n FROM productos p
                WHERE p.activo = TRUE
                  AND NOT EXISTS (SELECT 1 FROM productos_fracciones pf WHERE pf.producto_id = p.id)
-                 AND NOT EXISTS (SELECT 1 FROM productos_precio_cantidad pc WHERE pc.producto_id = p.id)
+                 AND p.precio_umbral IS NULL
                  AND p.precio_unidad = 0"""
         )["n"]
         por_cat = _db.query_all(
@@ -97,14 +97,14 @@ async def comando_exportar_precios(update, context):
             "SELECT producto_id, fraccion, precio_total FROM productos_fracciones ORDER BY producto_id, fraccion"
         )
         por_cant    = _db.query_all(
-            "SELECT producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral FROM productos_precio_cantidad"
+            "SELECT id, precio_umbral AS umbral, precio_bajo_umbral, precio_sobre_umbral FROM productos WHERE precio_umbral IS NOT NULL"
         )
 
         # Índices para lookup rápido
         frac_idx  = {}
         for f in fracciones:
             frac_idx.setdefault(f["producto_id"], []).append(f)
-        cant_idx  = {r["producto_id"]: r for r in por_cant}
+        cant_idx  = {r["id"]: r for r in por_cant}
 
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment
