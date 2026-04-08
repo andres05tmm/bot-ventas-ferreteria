@@ -466,33 +466,33 @@ def parse_ubl_xml(xml_bytes: bytes) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Persistencia de historyId en ferrebot_config
+# 5. Persistencia de historyId en config
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _cargar_last_history_id() -> str | None:
     """
-    Lee el último historyId procesado exitosamente desde ferrebot_config.
+    Lee el último historyId procesado exitosamente desde config.
     Retorna None si no hay valor guardado (primera ejecución).
     """
     try:
         row = _db.query_one(
-            "SELECT valor FROM ferrebot_config WHERE clave = 'gmail_last_history_id'"
+            "SELECT valor FROM config WHERE clave = 'gmail_last_history_id'"
         )
         return row["valor"] if row else None
     except Exception as e:
-        logger.warning("Error leyendo gmail_last_history_id de ferrebot_config: %s", e)
+        logger.warning("Error leyendo gmail_last_history_id de config: %s", e)
         return None
 
 
 def _guardar_last_history_id(history_id: str) -> None:
     """
-    Guarda (upsert) el historyId procesado en ferrebot_config para que la
+    Guarda (upsert) el historyId procesado en config para que la
     próxima notificación arranque desde el punto correcto, incluso tras reinicios.
     """
     try:
         _db.execute(
             """
-            INSERT INTO ferrebot_config (clave, valor, updated_at)
+            INSERT INTO config (clave, valor, updated_at)
             VALUES ('gmail_last_history_id', %s, NOW())
             ON CONFLICT (clave) DO UPDATE
                 SET valor = EXCLUDED.valor, updated_at = NOW()
@@ -501,7 +501,7 @@ def _guardar_last_history_id(history_id: str) -> None:
         )
         logger.debug("gmail_last_history_id guardado: %s", history_id)
     except Exception as e:
-        logger.warning("Error guardando gmail_last_history_id en ferrebot_config: %s", e)
+        logger.warning("Error guardando gmail_last_history_id en config: %s", e)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
