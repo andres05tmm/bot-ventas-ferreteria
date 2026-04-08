@@ -1038,10 +1038,9 @@ function CartItem({ item, idx, onRemove, onQtyChange, onQtySet }) {
 // ══════════════════════════════════════════════════════════════════════════════
 function ModalCheckout({ show, total, metodo, setMetodo, onClose, onConfirm, enviando }) {
   const t = useTheme()
-  const [recibido,      setRecibido]      = useState('')
-  const [calcCambio,    setCalcCambio]    = useState(false)
+  const [recibido, setRecibido] = useState('')
 
-  useEffect(() => { if (show) { setRecibido(''); setCalcCambio(false) } }, [show])
+  useEffect(() => { if (show) setRecibido('') }, [show])
 
   if (!show) return null
   const recNum = parseInt(recibido) || 0
@@ -1093,68 +1092,39 @@ function ModalCheckout({ show, total, metodo, setMetodo, onClose, onConfirm, env
             ))}
           </div>
 
-          {/* Calcular cambio — toggle (solo efectivo) */}
+          {/* Recibido + cambio (solo efectivo) */}
           {metodo === 'efectivo' && (
             <>
-              <button
-                onClick={() => { setCalcCambio(v => !v); setRecibido('') }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                  background: calcCambio ? `${t.accent}12` : 'transparent',
-                  border: `1px solid ${calcCambio ? t.accent + '55' : t.border}`,
-                  borderRadius: 8, padding: '8px 12px', marginBottom: calcCambio ? 10 : 0,
-                  cursor: 'pointer', fontFamily: 'inherit', transition: 'all .15s',
-                }}
-              >
+              <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Recibido (opcional)</div>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: t.id === 'caramelo' ? '#f8fafc' : '#111',
+                border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 13px', marginBottom: 10,
+              }}>
+                <span style={{ fontSize: 14, color: t.textMuted }}>$</span>
+                <input
+                  autoFocus
+                  type="number" min="0"
+                  value={recibido}
+                  onChange={e => setRecibido(e.target.value)}
+                  placeholder={String(total)}
+                  style={{
+                    flex: 1, background: 'transparent', border: 'none',
+                    color: t.text, fontSize: 22, fontFamily: 'monospace',
+                    outline: 'none', padding: '2px 0',
+                    MozAppearance: 'textfield', appearance: 'textfield',
+                  }}
+                />
+              </div>
+              {cambio !== null && (
                 <div style={{
-                  width: 32, height: 18, borderRadius: 9,
-                  background: calcCambio ? t.accent : t.border,
-                  position: 'relative', flexShrink: 0, transition: 'background .15s',
+                  padding: '8px 13px', marginBottom: 6,
+                  background: `${t.green}18`, border: `1px solid ${t.green}44`,
+                  borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
-                  <div style={{
-                    position: 'absolute', top: 2, left: calcCambio ? 16 : 2,
-                    width: 14, height: 14, borderRadius: '50%', background: '#fff',
-                    transition: 'left .15s',
-                  }} />
+                  <span style={{ fontSize: 11, color: t.green }}>Cambio</span>
+                  <span style={{ fontSize: 20, fontFamily: 'monospace', fontWeight: 700, color: t.green }}>{cop(cambio)}</span>
                 </div>
-                <span style={{ fontSize: 11, color: calcCambio ? t.accent : t.textMuted, fontWeight: 600 }}>
-                  Calcular cambio
-                </span>
-              </button>
-
-              {calcCambio && (
-                <>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-                    border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 13px', marginBottom: 10,
-                  }}>
-                    <span style={{ fontSize: 14, color: t.textMuted }}>$</span>
-                    <input
-                      autoFocus
-                      type="number" min="0"
-                      value={recibido}
-                      onChange={e => setRecibido(e.target.value)}
-                      placeholder={String(total)}
-                      style={{
-                        flex: 1, background: 'transparent', border: 'none',
-                        color: t.text, fontSize: 22, fontFamily: 'monospace',
-                        outline: 'none', padding: '2px 0',
-                        MozAppearance: 'textfield', appearance: 'textfield',
-                      }}
-                    />
-                  </div>
-                  {cambio !== null && (
-                    <div style={{
-                      padding: '8px 13px', marginBottom: 6,
-                      background: `${t.green}18`, border: `1px solid ${t.green}44`,
-                      borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    }}>
-                      <span style={{ fontSize: 11, color: t.green }}>Cambio</span>
-                      <span style={{ fontSize: 20, fontFamily: 'monospace', fontWeight: 700, color: t.green }}>{cop(cambio)}</span>
-                    </div>
-                  )}
-                </>
               )}
             </>
           )}
@@ -1896,7 +1866,8 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
 // ══════════════════════════════════════════════════════════════════════════════
 function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo, setMetodo,
                         clienteSeleccionado, setClienteSeleccionado,
-                        removeItem, qtyChange, qtySet, onCheckout, enviando, sticky, mobile }) {
+                        removeItem, qtyChange, qtySet, onCheckout, calcCambio, setCalcCambio,
+                        enviando, sticky, mobile }) {
   return (
     <div style={{
       background: t.card, border: mobile ? 'none' : `1px solid ${t.border}`,
@@ -1991,6 +1962,36 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
         ))}
       </div>
 
+      {/* Toggle calcular cambio */}
+      {metodo === 'efectivo' && (
+        <button
+          onClick={() => setCalcCambio(v => !v)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            margin: '0 14px 8px', padding: '7px 10px',
+            background: calcCambio ? `${t.accent}12` : 'transparent',
+            border: `1px solid ${calcCambio ? t.accent + '55' : t.border}`,
+            borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
+            transition: 'all .15s', width: 'calc(100% - 28px)',
+          }}
+        >
+          <div style={{
+            width: 28, height: 16, borderRadius: 8,
+            background: calcCambio ? t.accent : t.border,
+            position: 'relative', flexShrink: 0, transition: 'background .15s',
+          }}>
+            <div style={{
+              position: 'absolute', top: 2, left: calcCambio ? 14 : 2,
+              width: 12, height: 12, borderRadius: '50%', background: '#fff',
+              transition: 'left .15s',
+            }} />
+          </div>
+          <span style={{ fontSize: 11, color: calcCambio ? t.accent : t.textMuted, fontWeight: 600 }}>
+            Calcular cambio
+          </span>
+        </button>
+      )}
+
       {/* Botón registrar */}
       <button
         onClick={() => carrito.length && onCheckout()}
@@ -2049,6 +2050,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [precioBaseColor, setPrecioBaseColor] = useState(0)
   const [carritoAbierto,  setCarritoAbierto]  = useState(false)
   const [modalCheckout,   setModalCheckout]   = useState(false)
+  const [calcCambio,      setCalcCambio]      = useState(false)
   const [modalMisc,       setModalMisc]       = useState(false)
   const [highlightedIdx,  setHighlightedIdx]  = useState(-1)
   const searchRef = useRef(null)
@@ -2596,7 +2598,9 @@ export default function TabVentasRapidas({ refreshKey }) {
           clienteSeleccionado={clienteSeleccionado}
           setClienteSeleccionado={setClienteSeleccionado}
           removeItem={removeItem} qtyChange={qtyChange} qtySet={qtySet}
-          onCheckout={() => setModalCheckout(true)} enviando={enviando}
+          onCheckout={() => calcCambio ? setModalCheckout(true) : registrar()}
+          calcCambio={calcCambio} setCalcCambio={setCalcCambio}
+          enviando={enviando}
           sticky
         />
       )}
@@ -2693,7 +2697,11 @@ export default function TabVentasRapidas({ refreshKey }) {
                 clienteSeleccionado={clienteSeleccionado}
                 setClienteSeleccionado={setClienteSeleccionado}
                 removeItem={removeItem} qtyChange={qtyChange} qtySet={qtySet}
-                onCheckout={() => { setModalCheckout(true); setCarritoAbierto(false) }}
+                onCheckout={() => {
+                  if (calcCambio) { setModalCheckout(true); setCarritoAbierto(false) }
+                  else { setCarritoAbierto(false); registrar() }
+                }}
+                calcCambio={calcCambio} setCalcCambio={setCalcCambio}
                 enviando={enviando}
                 mobile
               />
