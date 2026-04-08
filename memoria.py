@@ -3,7 +3,7 @@ Memoria persistente del bot: precios, catálogo, negocio, inventario, caja, gast
 100% PostgreSQL — sin JSON local ni Google Drive.
 
 CORRECCIONES v4:
-  - _cargar_desde_postgres() lee negocio y notas desde config_sistema PG
+  - _cargar_desde_postgres() lee negocio y notas desde config PG
   - guardar_memoria() solo escribe a PG (sin json.dump a disco)
   - construir_producto_desde_fila() y constantes de columnas extraídas de precio_sync.py
   - Lazy import de db dentro de funciones para evitar importación circular
@@ -70,21 +70,11 @@ def _leer_catalogo_postgres(db_module) -> dict:
     La estructura dict es IDENTICA a la que tenia el JSON."""
     productos = db_module.query_all("SELECT * FROM productos WHERE activo = TRUE")
     fracciones = db_module.query_all("SELECT * FROM productos_fracciones")
-    precios_cant = db_module.query_all("SELECT * FROM productos_precio_cantidad")
-    aliases = db_module.query_all("SELECT * FROM productos_alias")
 
     # Indexar por producto_id para joins eficientes en Python
     frac_by_prod = {}
     for f in fracciones:
         frac_by_prod.setdefault(f["producto_id"], []).append(f)
-
-    pxc_by_prod = {}
-    for p in precios_cant:
-        pxc_by_prod[p["producto_id"]] = p
-
-    alias_by_prod = {}
-    for a in aliases:
-        alias_by_prod.setdefault(a["producto_id"], []).append(a["alias"])
 
     catalogo = {}
     for p in productos:
@@ -107,17 +97,17 @@ def _leer_catalogo_postgres(db_module) -> dict:
                 }
                 for f in frac_by_prod[p["id"]]
             }
-        # Precio por cantidad
-        if p["id"] in pxc_by_prod:
-            pxc = pxc_by_prod[p["id"]]
+        # Precio por cantidad — columnas inline en productos
+        if p.get("precio_umbral") is not None:
             prod_dict["precio_por_cantidad"] = {
-                "umbral": pxc["umbral"],
-                "precio_bajo_umbral": pxc["precio_bajo_umbral"],
-                "precio_sobre_umbral": pxc["precio_sobre_umbral"],
+                "umbral": p["precio_umbral"],
+                "precio_bajo_umbral": p["precio_bajo_umbral"],
+                "precio_sobre_umbral": p["precio_sobre_umbral"],
             }
-        # Alias
-        if p["id"] in alias_by_prod:
-            prod_dict["alias"] = alias_by_prod[p["id"]]
+        # Alias — array TEXT[] en productos
+        aliases = p.get("aliases") or []
+        if aliases:
+            prod_dict["alias"] = list(aliases)
 
         catalogo[p["clave"]] = prod_dict
 
@@ -220,9 +210,9 @@ def cargar_memoria() -> dict:
 
 
 def _leer_negocio_postgres(db_module) -> dict:
-    """Lee config_sistema.negocio (JSON) → dict. Retorna {} si aún no existe."""
+    """Lee config.negocio (JSON) → dict. Retorna {} si aún no existe."""
     row = db_module.query_one(
-        "SELECT valor FROM config_sistema WHERE clave = 'negocio'"
+        "SELECT valor FROM config WHERE clave = 'negocio'"
     )
     if not row or not row["valor"]:
         return {}
@@ -234,7 +224,7 @@ def _leer_negocio_postgres(db_module) -> dict:
 
 def _guardar_negocio_postgres(negocio: dict, db_module) -> None:
     db_module.execute(
-        """INSERT INTO config_sistema (clave, valor, updated_at)
+        """INSERT INTO config (clave, valor, updated_at)
            VALUES ('negocio', %s, NOW())
            ON CONFLICT (clave) DO UPDATE
            SET valor = EXCLUDED.valor, updated_at = NOW()""",
@@ -243,9 +233,9 @@ def _guardar_negocio_postgres(negocio: dict, db_module) -> None:
 
 
 def _leer_notas_postgres(db_module) -> dict:
-    """Lee config_sistema.notas (JSON) → dict. Retorna {} si aún no existe."""
+    """Lee config.notas (JSON) → dict. Retorna {} si aún no existe."""
     row = db_module.query_one(
-        "SELECT valor FROM config_sistema WHERE clave = 'notas'"
+        "SELECT valor FROM config WHERE clave = 'notas'"
     )
     if not row or not row["valor"]:
         return {}
@@ -261,7 +251,7 @@ def _leer_notas_postgres(db_module) -> dict:
 
 def _guardar_notas_postgres(notas: dict, db_module) -> None:
     db_module.execute(
-        """INSERT INTO config_sistema (clave, valor, updated_at)
+        """INSERT INTO config (clave, valor, updated_at)
            VALUES ('notas', %s, NOW())
            ON CONFLICT (clave) DO UPDATE
            SET valor = EXCLUDED.valor, updated_at = NOW()""",
@@ -302,31 +292,33 @@ def _sincronizar_catalogo_postgres(catalogo: dict, db_module):
                 VALUES (%s, %s, %s, %s)
             """, (prod_id, frac, datos.get("precio", 0), datos.get("precio_unitario", 0)))
 
-        # Precio por cantidad
+        # Precio por cantidad — columnas inline en productos
         pxc = prod.get("precio_por_cantidad", {})
         if pxc:
             db_module.execute("""
-                INSERT INTO productos_precio_cantidad (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (producto_id) DO UPDATE SET
-                    umbral = EXCLUDED.umbral,
-                    precio_bajo_umbral = EXCLUDED.precio_bajo_umbral,
-                    precio_sobre_umbral = EXCLUDED.precio_sobre_umbral
+                UPDATE productos
+                SET precio_umbral       = %s,
+                    precio_bajo_umbral  = %s,
+                    precio_sobre_umbral = %s,
+                    updated_at          = NOW()
+                WHERE id = %s
             """, (
-                prod_id,
                 pxc.get("umbral", 50),
                 pxc.get("precio_bajo_umbral", prod.get("precio_unidad", 0)),
                 pxc.get("precio_sobre_umbral", 0),
+                prod_id,
             ))
 
-        # Alias
-        for alias_str in prod.get("alias", []):
-            if alias_str and isinstance(alias_str, str) and alias_str.strip():
-                db_module.execute("""
-                    INSERT INTO productos_alias (producto_id, alias)
-                    VALUES (%s, %s)
-                    ON CONFLICT (alias) DO NOTHING
-                """, (prod_id, alias_str.strip()))
+        # Alias — array TEXT[] en productos
+        aliases_list = [
+            a.strip() for a in prod.get("alias", [])
+            if a and isinstance(a, str) and a.strip()
+        ]
+        if aliases_list is not None:
+            db_module.execute(
+                "UPDATE productos SET aliases = %s, updated_at = NOW() WHERE id = %s",
+                (aliases_list, prod_id),
+            )
 
 
 def _upsert_precio_producto_postgres(clave: str, datos_prod: dict, fraccion: str = None):
@@ -363,21 +355,21 @@ def _upsert_precio_producto_postgres(clave: str, datos_prod: dict, fraccion: str
                 datos_frac.get("precio_unitario", 0),
             ))
 
-    # Actualizar precio_por_cantidad si existe en el producto
+    # Actualizar precio_por_cantidad — columnas inline en productos
     pxc = datos_prod.get("precio_por_cantidad", {})
     if pxc:
         _db.execute("""
-            INSERT INTO productos_precio_cantidad
-                (producto_id, umbral, precio_bajo_umbral, precio_sobre_umbral)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (producto_id) DO UPDATE SET
-                precio_bajo_umbral  = EXCLUDED.precio_bajo_umbral,
-                precio_sobre_umbral = EXCLUDED.precio_sobre_umbral
+            UPDATE productos
+            SET precio_umbral       = %s,
+                precio_bajo_umbral  = %s,
+                precio_sobre_umbral = %s,
+                updated_at          = NOW()
+            WHERE id = %s
         """, (
-            prod_id,
             pxc.get("umbral", 50),
             pxc.get("precio_bajo_umbral", datos_prod.get("precio_unidad", 0)),
             pxc.get("precio_sobre_umbral", 0),
+            prod_id,
         ))
 
 
