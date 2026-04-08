@@ -165,18 +165,28 @@ def _init_schema():
 -- CATALOGO DE PRODUCTOS
 -- ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS productos (
-    id              SERIAL PRIMARY KEY,
-    clave           VARCHAR(200) UNIQUE NOT NULL,
-    nombre          VARCHAR(300) NOT NULL,
-    nombre_lower    VARCHAR(300) NOT NULL,
-    codigo          VARCHAR(100),
-    categoria       VARCHAR(200),
-    precio_unidad   INTEGER NOT NULL DEFAULT 0,
-    unidad_medida   VARCHAR(50) DEFAULT 'Unidad',
-    activo          BOOLEAN DEFAULT TRUE,
-    created_at      TIMESTAMP DEFAULT NOW(),
-    updated_at      TIMESTAMP DEFAULT NOW()
+    id                  SERIAL PRIMARY KEY,
+    clave               VARCHAR(200) UNIQUE NOT NULL,
+    nombre              VARCHAR(300) NOT NULL,
+    nombre_lower        VARCHAR(300) NOT NULL,
+    codigo              VARCHAR(100),
+    categoria           VARCHAR(200),
+    precio_unidad       INTEGER NOT NULL DEFAULT 0,
+    unidad_medida       VARCHAR(50) DEFAULT 'Unidad',
+    aliases             TEXT[] DEFAULT '{}',
+    precio_umbral       INTEGER,
+    precio_bajo_umbral  INTEGER,
+    precio_sobre_umbral INTEGER,
+    activo              BOOLEAN DEFAULT TRUE,
+    created_at          TIMESTAMP DEFAULT NOW(),
+    updated_at          TIMESTAMP DEFAULT NOW()
 );
+-- Columnas de precios-por-cantidad e aliases inlineadas post-v1
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS aliases TEXT[] DEFAULT '{}';
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS precio_umbral INTEGER;
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS precio_bajo_umbral INTEGER;
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS precio_sobre_umbral INTEGER;
+CREATE INDEX IF NOT EXISTS idx_productos_aliases ON productos USING GIN(aliases);
 
 -- Precios por fraccion (pinturas/disolventes: 1/4, 1/2, 3/4, etc.)
 CREATE TABLE IF NOT EXISTS productos_fracciones (
@@ -185,23 +195,6 @@ CREATE TABLE IF NOT EXISTS productos_fracciones (
     fraccion        VARCHAR(10) NOT NULL,
     precio_total    INTEGER NOT NULL,
     precio_unitario INTEGER NOT NULL
-);
-
--- Precio por cantidad (tornilleria: precio distinto si compra >= umbral)
-CREATE TABLE IF NOT EXISTS productos_precio_cantidad (
-    id                   SERIAL PRIMARY KEY,
-    producto_id          INTEGER REFERENCES productos(id) ON DELETE CASCADE UNIQUE,
-    umbral               INTEGER NOT NULL DEFAULT 50,
-    precio_bajo_umbral   INTEGER NOT NULL,
-    precio_sobre_umbral  INTEGER NOT NULL
-);
-
--- Alias/sinonimos de productos
-CREATE TABLE IF NOT EXISTS productos_alias (
-    id          SERIAL PRIMARY KEY,
-    producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE,
-    alias       VARCHAR(200) NOT NULL,
-    UNIQUE(alias)
 );
 
 -- ───────────────────────────────────────────────────────────────
@@ -317,23 +310,18 @@ CREATE TABLE IF NOT EXISTS caja (
 -- FIADOS (cuentas de credito a clientes)
 -- ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS fiados (
-    id          SERIAL PRIMARY KEY,
-    cliente_id  INTEGER REFERENCES clientes(id),
-    nombre      VARCHAR(300) NOT NULL,
-    deuda       INTEGER DEFAULT 0,
-    updated_at  TIMESTAMP DEFAULT NOW()
+    id                   SERIAL PRIMARY KEY,
+    cliente_id           INTEGER REFERENCES clientes(id) UNIQUE,
+    nombre               VARCHAR(300) NOT NULL,
+    saldo_actual         INTEGER DEFAULT 0,
+    ultima_actualizacion TIMESTAMP DEFAULT NOW(),
+    notas                TEXT,
+    updated_at           TIMESTAMP DEFAULT NOW()
 );
-
-CREATE TABLE IF NOT EXISTS fiados_historial (
-    id          SERIAL PRIMARY KEY,
-    fiado_id    INTEGER REFERENCES fiados(id) ON DELETE CASCADE,
-    tipo        VARCHAR(20) NOT NULL,
-    monto       INTEGER NOT NULL,
-    concepto    VARCHAR(300),
-    fecha       DATE NOT NULL,
-    hora        TIME,
-    created_at  TIMESTAMP DEFAULT NOW()
-);
+-- Columnas añadidas post-v1 (reemplaza columna deuda + tabla fiados_historial)
+ALTER TABLE fiados ADD COLUMN IF NOT EXISTS saldo_actual INTEGER DEFAULT 0;
+ALTER TABLE fiados ADD COLUMN IF NOT EXISTS ultima_actualizacion TIMESTAMP DEFAULT NOW();
+ALTER TABLE fiados ADD COLUMN IF NOT EXISTS notas TEXT;
 
 -- ───────────────────────────────────────────────────────────────
 -- FACTURAS DE PROVEEDORES (cuentas por pagar)
@@ -366,57 +354,58 @@ CREATE TABLE IF NOT EXISTS facturas_abonos (
 -- HISTORICO DE VENTAS DIARIAS
 -- ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS historico_ventas (
-    fecha           DATE PRIMARY KEY,
-    ventas          INTEGER DEFAULT 0,
-    efectivo        INTEGER DEFAULT 0,
-    transferencia   INTEGER DEFAULT 0,
-    datafono        INTEGER DEFAULT 0,
-    n_transacciones INTEGER DEFAULT 0,
-    gastos          INTEGER DEFAULT 0,
+    fecha              DATE PRIMARY KEY,
+    ventas             INTEGER DEFAULT 0,
+    efectivo           INTEGER DEFAULT 0,
+    transferencia      INTEGER DEFAULT 0,
+    datafono           INTEGER DEFAULT 0,
+    n_transacciones    INTEGER DEFAULT 0,
+    gastos             INTEGER DEFAULT 0,
     abonos_proveedores INTEGER DEFAULT 0,
-    updated_at      TIMESTAMP DEFAULT NOW()
+    origen             VARCHAR(20) DEFAULT 'calculado',
+    incluir_en_balances BOOLEAN DEFAULT TRUE,
+    notas              TEXT,
+    updated_at         TIMESTAMP DEFAULT NOW()
 );
+-- Columnas añadidas post-v1
+ALTER TABLE historico_ventas ADD COLUMN IF NOT EXISTS origen VARCHAR(20) DEFAULT 'calculado';
+ALTER TABLE historico_ventas ADD COLUMN IF NOT EXISTS incluir_en_balances BOOLEAN DEFAULT TRUE;
+ALTER TABLE historico_ventas ADD COLUMN IF NOT EXISTS notas TEXT;
 
 -- ───────────────────────────────────────────────────────────────
 -- COMPRAS DE MERCANCIA
 -- ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS compras (
-    id              SERIAL PRIMARY KEY,
-    fecha           DATE NOT NULL,
-    hora            TIME,
-    proveedor       VARCHAR(200),
-    producto_id     INTEGER REFERENCES productos(id),
-    producto_nombre VARCHAR(300) NOT NULL,
-    cantidad        NUMERIC(10,3) NOT NULL,
-    costo_unitario  INTEGER,
-    costo_total     INTEGER,
-    created_at      TIMESTAMP DEFAULT NOW()
+    id                   SERIAL PRIMARY KEY,
+    fecha                DATE NOT NULL,
+    hora                 TIME,
+    proveedor            VARCHAR(200),
+    producto_id          INTEGER REFERENCES productos(id),
+    producto_nombre      VARCHAR(300) NOT NULL,
+    cantidad             NUMERIC(10,3) NOT NULL,
+    costo_unitario       INTEGER,
+    costo_total          INTEGER,
+    factura_proveedor_id VARCHAR(20) REFERENCES facturas_proveedores(id),
+    estado_fiscal        VARCHAR(20) DEFAULT 'sin_factura',
+    created_at           TIMESTAMP DEFAULT NOW()
 );
-
--- ───────────────────────────────────────────────────────────────
--- PRODUCTOS PENDIENTES (no encontrados en catalogo)
--- ───────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS productos_pendientes (
-    id          SERIAL PRIMARY KEY,
-    nombre      VARCHAR(300) NOT NULL,
-    fecha       DATE NOT NULL,
-    hora        TIME,
-    created_at  TIMESTAMP DEFAULT NOW()
-);
+-- Columnas añadidas post-v1
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS factura_proveedor_id VARCHAR(20) REFERENCES facturas_proveedores(id);
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS estado_fiscal VARCHAR(20) DEFAULT 'sin_factura';
 
 -- ───────────────────────────────────────────────────────────────
 -- CONFIGURACION DEL SISTEMA
 -- ───────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS config_sistema (
-    clave   VARCHAR(100) PRIMARY KEY,
-    valor   TEXT,
+CREATE TABLE IF NOT EXISTS config (
+    clave      VARCHAR(100) PRIMARY KEY,
+    valor      TEXT,
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Valores iniciales
-INSERT INTO config_sistema (clave, valor) VALUES
+INSERT INTO config (clave, valor) VALUES
     ('keepalive_activo', 'false'),
-    ('version', 'v8.0-refactor')
+    ('version', 'v9.0-arch')
 ON CONFLICT (clave) DO NOTHING;
 
 -- Indice unico para fracciones (idempotente UPSERT en migrate_memoria.py)
