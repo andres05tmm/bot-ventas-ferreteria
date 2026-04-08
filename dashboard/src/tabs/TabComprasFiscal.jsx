@@ -12,7 +12,7 @@ import { useState, useRef, useEffect } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard, Spinner, ErrorMsg,
-  PeriodBtn, EmptyState, cop, num, API_BASE,
+  PeriodBtn, EmptyState, cop, num, API_BASE, useIsMobile,
 } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
@@ -119,6 +119,7 @@ function ProductoSearchInput({ value, onChange, style, placeholder }) {
 
 // ── Modal Editar Factura (grupo completo) ─────────────────────────────────────
 function ModalEditarFactura({ factura, onClose, onSaved, authFetch, t }) {
+  const isMobile = useIsMobile()
   // Campos globales (se aplican a todos los ítems al guardar)
   const [proveedor,     setProveedor]     = useState(
     factura.proveedor === 'Sin proveedor' ? '' : (factura.proveedor || '')
@@ -254,7 +255,7 @@ function ModalEditarFactura({ factura, onClose, onSaved, authFetch, t }) {
         )}
 
         {/* Campos globales */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10, marginBottom: 20 }}>
           <div>
             <label style={lblStyle}>Proveedor (aplica a todos)</label>
             <input value={proveedor} onChange={e => setProveedor(e.target.value)}
@@ -276,11 +277,13 @@ function ModalEditarFactura({ factura, onClose, onSaved, authFetch, t }) {
         {/* Tabla de ítems */}
         <div style={{
           border: `1px solid ${t.border}`, borderRadius: 10, overflow: 'hidden', marginBottom: 16,
+          overflowX: 'auto',
         }}>
           {/* Cabecera tabla */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: '2fr 80px 110px 160px 90px',
+            minWidth: 480,
             background: t.tableAlt,
             padding: '8px 12px',
             fontSize: 10, color: t.textMuted,
@@ -302,6 +305,7 @@ function ModalEditarFactura({ factura, onClose, onSaved, authFetch, t }) {
               <div key={c.id} style={{
                 display: 'grid',
                 gridTemplateColumns: '2fr 80px 110px 160px 90px',
+                minWidth: 480,
                 padding: '10px 12px', alignItems: 'center',
                 borderBottom: ri < factura.items.length - 1 ? `1px solid ${t.border}` : 'none',
                 gap: 6,
@@ -541,10 +545,11 @@ function ModalEnviarAlmacen({ factura, onClose, onSaved, authFetch, t }) {
         )}
 
         {/* Tabla */}
-        <div style={{ border: `1px solid ${t.border}`, borderRadius: 10, overflow: 'hidden', marginBottom: 14 }}>
+        <div style={{ border: `1px solid ${t.border}`, borderRadius: 10, overflow: 'hidden', marginBottom: 14, overflowX: 'auto' }}>
           {/* Cabecera tabla */}
           <div style={{
             display: 'grid', gridTemplateColumns: COLS,
+            minWidth: 460,
             background: t.tableAlt, padding: '7px 12px',
             fontSize: 10, color: t.textMuted,
             fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em',
@@ -567,6 +572,7 @@ function ModalEnviarAlmacen({ factura, onClose, onSaved, authFetch, t }) {
             return (
               <div key={c.id} style={{
                 display: 'grid', gridTemplateColumns: COLS,
+                minWidth: 460,
                 padding: '9px 12px', alignItems: 'center', gap: 6,
                 borderBottom: ri < factura.items.length - 1 ? `1px solid ${t.border}` : 'none',
                 opacity: yaEnAlm ? 0.5 : 1,
@@ -864,6 +870,7 @@ function ModalEditarFiscal({ compra, onClose, onSaved, authFetch, t }) {
 // ── Tab principal ─────────────────────────────────────────────────────────────
 export default function TabComprasFiscal({ refreshKey }) {
   const t = useTheme()
+  const isMobile = useIsMobile()
   const { authFetch } = useAuth()
   const { selectedVendor } = useVendorFilter()
   const [dias, setDias] = useState(30)
@@ -1413,18 +1420,21 @@ export default function TabComprasFiscal({ refreshKey }) {
                               proveedor: primerItem.proveedor,
                               items,
                             })}
+                            title="Editar factura"
                             style={{
                               background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
-                              borderRadius: 7, color: t.blue, padding: '6px 12px',
+                              borderRadius: 7, color: t.blue,
+                              padding: isMobile ? '6px 10px' : '6px 12px',
                               fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
-                            }}>✏️ Editar factura</button>
+                            }}>{isMobile ? '✏️' : '✏️ Editar factura'}</button>
                           {todosEnAlmacen ? (
-                            <button disabled style={{
+                            <button disabled title="Todo en almacén" style={{
                               background: `${t.green}14`, border: `1px solid ${t.green}40`,
-                              borderRadius: 7, color: t.green, padding: '6px 12px',
+                              borderRadius: 7, color: t.green,
+                              padding: isMobile ? '6px 10px' : '6px 12px',
                               fontSize: 11, cursor: 'default', fontFamily: 'inherit',
                               fontWeight: 600,
-                            }}>✓ Todo en Almacén</button>
+                            }}>{isMobile ? '✓' : '✓ Todo en Almacén'}</button>
                           ) : (
                             <button
                               onClick={() => setModalEnviarAlmacen({
@@ -1432,15 +1442,15 @@ export default function TabComprasFiscal({ refreshKey }) {
                                 proveedor:      primerItem.proveedor,
                                 items,
                               })}
+                              title={enAlmacenCount > 0 ? '→ Almacén (parcial)' : '→ Almacén'}
                               style={{
                                 background: `${t.accent}14`, border: `1px solid ${t.accent}40`,
-                                borderRadius: 7, color: t.accent, padding: '6px 12px',
+                                borderRadius: 7, color: t.accent,
+                                padding: isMobile ? '6px 10px' : '6px 12px',
                                 fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
                                 fontWeight: 600,
                               }}>
-                              {enAlmacenCount > 0
-                                ? '📦 → Almacén (parcial)'
-                                : '📦 → Almacén'}
+                              {isMobile ? '📦' : (enAlmacenCount > 0 ? '📦 → Almacén (parcial)' : '📦 → Almacén')}
                             </button>
                           )}
                         </div>
@@ -1449,62 +1459,117 @@ export default function TabComprasFiscal({ refreshKey }) {
                       {/* Cuerpo expandible */}
                       {expanded && (
                         <div style={{ borderTop: `1px solid ${t.border}` }}>
-                          {/* Cabecera de tabla */}
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: '2fr 70px 90px 90px 60px 60px 36px',
-                            gap: 4, padding: '6px 18px',
-                            background: t.tableAlt,
-                            fontSize: 10, color: t.textMuted,
-                            fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em',
-                            alignItems: 'center',
-                          }}>
-                            <span>Producto</span>
-                            <span>Cant.</span>
-                            <span>Costo unit.</span>
-                            <span>Total</span>
-                            <span>IVA</span>
-                            <span>Almacén</span>
-                            <span/>
-                          </div>
-                          {/* Filas */}
-                          {items.map(c => {
-                            const { iva } = c.incluye_iva && c.tarifa_iva
-                              ? calcIVA(c.costo_total, c.tarifa_iva) : { iva: 0 }
-                            const enAlmacenFila = !!c.compra_origen_id
-                            return (
-                              <div key={c.id} style={{
+                          {isMobile ? (
+                            /* ── Móvil: cards apiladas ── */
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                              {items.map(c => {
+                                const { iva } = c.incluye_iva && c.tarifa_iva
+                                  ? calcIVA(c.costo_total, c.tarifa_iva) : { iva: 0 }
+                                const enAlmacenFila = !!c.compra_origen_id
+                                return (
+                                  <div key={c.id} style={{
+                                    padding: '10px 16px',
+                                    borderTop: `1px solid ${t.border}30`,
+                                    display: 'flex', flexDirection: 'column', gap: 5,
+                                  }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1, lineHeight: 1.35 }}>
+                                        {c.producto}
+                                      </span>
+                                      <button
+                                        onClick={() => setEditando(c)}
+                                        title="Editar ítem"
+                                        style={{
+                                          background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
+                                          borderRadius: 6, color: t.blue, padding: '4px 8px',
+                                          fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                                          fontWeight: 600, flexShrink: 0,
+                                        }}>✏️</button>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                      <span style={{
+                                        fontSize: 11, color: t.textMuted, background: t.tableAlt,
+                                        borderRadius: 5, padding: '2px 8px', border: `1px solid ${t.border}`,
+                                      }}>{num(c.cantidad)} × {cop(c.costo_unitario)}</span>
+                                      <span style={{ fontSize: 12, color: t.blue, fontWeight: 700 }}>{cop(c.costo_total)}</span>
+                                      {c.incluye_iva && c.tarifa_iva > 0 && (
+                                        <span style={{
+                                          fontSize: 11, color: t.green, fontWeight: 600,
+                                          background: `${t.green}12`, borderRadius: 5,
+                                          padding: '2px 8px', border: `1px solid ${t.green}30`,
+                                        }}>IVA {cop(iva)} ({c.tarifa_iva}%)</span>
+                                      )}
+                                      {enAlmacenFila && (
+                                        <span style={{
+                                          fontSize: 11, color: t.green, fontWeight: 600,
+                                          background: `${t.green}12`, borderRadius: 5,
+                                          padding: '2px 8px', border: `1px solid ${t.green}30`,
+                                        }}>✓ Almacén</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            /* ── Desktop: tabla grid ── */
+                            <>
+                              <div style={{
                                 display: 'grid',
                                 gridTemplateColumns: '2fr 70px 90px 90px 60px 60px 36px',
-                                gap: 4, padding: '8px 18px',
+                                gap: 4, padding: '6px 18px',
+                                background: t.tableAlt,
+                                fontSize: 10, color: t.textMuted,
+                                fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em',
                                 alignItems: 'center',
-                                borderTop: `1px solid ${t.border}30`,
-                                fontSize: 12,
                               }}>
-                                <span style={{
-                                  color: t.text, fontWeight: 500,
-                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                }}>{c.producto}</span>
-                                <span style={{ color: t.textSub }}>{num(c.cantidad)}</span>
-                                <span style={{ color: t.textMuted }}>{cop(c.costo_unitario)}</span>
-                                <span style={{ color: t.blue, fontWeight: 700 }}>{cop(c.costo_total)}</span>
-                                <span style={{ color: c.incluye_iva && c.tarifa_iva ? t.green : t.textMuted }}>
-                                  {c.incluye_iva && c.tarifa_iva ? `${c.tarifa_iva}%` : '—'}
-                                </span>
-                                <span style={{ color: enAlmacenFila ? t.green : t.textMuted }}>
-                                  {enAlmacenFila ? '✓' : '—'}
-                                </span>
-                                <button
-                                  onClick={() => setEditando(c)}
-                                  style={{
-                                    background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
-                                    borderRadius: 6, color: t.blue, padding: '4px 6px',
-                                    fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
-                                    fontWeight: 600, textAlign: 'center',
-                                  }}>✏️</button>
+                                <span>Producto</span>
+                                <span>Cant.</span>
+                                <span>Costo unit.</span>
+                                <span>Total</span>
+                                <span>IVA</span>
+                                <span>Almacén</span>
+                                <span/>
                               </div>
-                            )
-                          })}
+                              {items.map(c => {
+                                const { iva } = c.incluye_iva && c.tarifa_iva
+                                  ? calcIVA(c.costo_total, c.tarifa_iva) : { iva: 0 }
+                                const enAlmacenFila = !!c.compra_origen_id
+                                return (
+                                  <div key={c.id} style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '2fr 70px 90px 90px 60px 60px 36px',
+                                    gap: 4, padding: '8px 18px',
+                                    alignItems: 'center',
+                                    borderTop: `1px solid ${t.border}30`,
+                                    fontSize: 12,
+                                  }}>
+                                    <span style={{
+                                      color: t.text, fontWeight: 500,
+                                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                    }}>{c.producto}</span>
+                                    <span style={{ color: t.textSub }}>{num(c.cantidad)}</span>
+                                    <span style={{ color: t.textMuted }}>{cop(c.costo_unitario)}</span>
+                                    <span style={{ color: t.blue, fontWeight: 700 }}>{cop(c.costo_total)}</span>
+                                    <span style={{ color: c.incluye_iva && c.tarifa_iva ? t.green : t.textMuted }}>
+                                      {c.incluye_iva && c.tarifa_iva ? `${c.tarifa_iva}%` : '—'}
+                                    </span>
+                                    <span style={{ color: enAlmacenFila ? t.green : t.textMuted }}>
+                                      {enAlmacenFila ? '✓' : '—'}
+                                    </span>
+                                    <button
+                                      onClick={() => setEditando(c)}
+                                      style={{
+                                        background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
+                                        borderRadius: 6, color: t.blue, padding: '4px 6px',
+                                        fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                                        fontWeight: 600, textAlign: 'center',
+                                      }}>✏️</button>
+                                  </div>
+                                )
+                              })}
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1567,13 +1632,17 @@ export default function TabComprasFiscal({ refreshKey }) {
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
                         onClick={() => setEditando(c)}
+                        title="Editar"
                         style={{
-                          flex: 1, background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
-                          borderRadius: 7, color: t.blue, padding: '7px 0',
+                          flex: isMobile ? 0 : 1,
+                          background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
+                          borderRadius: 7, color: t.blue,
+                          padding: isMobile ? '7px 14px' : '7px 0',
                           fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
-                        }}>✏️ Editar</button>
+                        }}>{isMobile ? '✏️' : '✏️ Editar'}</button>
                       <button
                         onClick={() => !enAlmacenItem && !cargando && enviarACompras(c)}
+                        title={enAlmacenItem ? 'En Almacén' : '→ Almacén'}
                         style={{
                           flex: 1,
                           background: enAlmacenItem ? `${t.green}14` : `${t.accent}14`,
@@ -1584,7 +1653,9 @@ export default function TabComprasFiscal({ refreshKey }) {
                           fontFamily: 'inherit', fontWeight: 600,
                           opacity: cargando ? 0.6 : 1,
                         }}>
-                        {cargando ? '…' : enAlmacenItem ? '✓ En Almacén' : '📦 → Almacén'}
+                        {cargando ? '…' : isMobile
+                          ? (enAlmacenItem ? '✓ Almacén' : '📦 → Almacén')
+                          : (enAlmacenItem ? '✓ En Almacén' : '📦 → Almacén')}
                       </button>
                     </div>
                   </div>
