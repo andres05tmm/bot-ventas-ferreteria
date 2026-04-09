@@ -577,12 +577,25 @@ async def obtener_pdf(cufe: str) -> bytes:
         "Accept": "application/pdf, application/json",
     }
 
-    url = f"{MATIAS_API_URL}/documents/{cufe}/pdf"
+    url = f"{MATIAS_API_URL}/documents/pdf/{cufe}"
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        # Intento 1: sin regenerate
         try:
             resp = await client.get(url, headers=headers)
+            content_type = resp.headers.get("content-type", "")
+            if resp.status_code == 200 and "application/pdf" in content_type:
+                pdf_bytes = resp.content
+                if len(pdf_bytes) > 100:
+                    logger.info("PDF descargado OK: %s bytes", len(pdf_bytes))
+                    return pdf_bytes
+        except Exception as e:
+            logger.warning("Error en intento 1 descargando PDF %s: %s", cufe, e)
 
+        # Intento 2: con regenerate=1 (fuerza regeneración si el PDF no está listo)
+        try:
+            logger.info("Reintentando PDF con regenerate=1…")
+            resp = await client.get(f"{url}?regenerate=1", headers=headers)
             content_type = resp.headers.get("content-type", "")
 
             if resp.status_code != 200:
@@ -597,12 +610,14 @@ async def obtener_pdf(cufe: str) -> bytes:
             if len(pdf_bytes) < 100:
                 raise RuntimeError(f"PDF muy pequeño ({len(pdf_bytes)} bytes) — posible error")
 
-            logger.info("PDF descargado OK: %s bytes", len(pdf_bytes))
+            logger.info("PDF descargado con regenerate=1: %s bytes", len(pdf_bytes))
             return pdf_bytes
 
         except httpx.HTTPError as e:
             logger.error("Error HTTP descargando PDF %s: %s", cufe, e)
             raise RuntimeError(f"Error de conexión con MATIAS API: {e}")
+
+    raise RuntimeError("No se pudo descargar el PDF")
 
 
 # ── Descargar XML ─────────────────────────────────────────────────────────────
