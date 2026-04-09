@@ -350,19 +350,17 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     tiene_correo_real = not _sin_correo_real(venta.get("correo_cliente"))
 
     if es_consumidor_final:
-        # Campos fijos para Consumidor Final según DIAN / MATIAS API.
-        # Usar siempre estos valores exactos — cualquier desviación causa FAJ43b.
+        # Estructura exacta según asistente IA de MATIAS para Consumidor Final.
+        # Campos y nombres de clave distintos al cliente normal — no mezclar.
         customer = {
-            "country_id":           "45",
-            "identity_document_id": "6",   # Consumidor Final
-            "type_organization_id": 2,     # Persona natural
-            "tax_regime_id":        2,     # Régimen simplificado
-            "tax_level_id":         5,     # No responsable de IVA
-            "company_name":         "CONSUMIDOR FINAL",
-            "dni":                  "222222222222",
-            "mobile":               venta.get("telefono_cliente") or "3000000000",
-            "email":                _EMAIL_PLACEHOLDER,
-            "address":              "Cartagena",
+            "identification_number":           "222222222222",
+            "name":                            "CONSUMIDOR FINAL",
+            "type_document_identification_id": 6,    # Consumidor Final
+            "type_organization_id":            2,    # Persona natural
+            "municipality_id":                 149,  # Cartagena
+            "type_regime_id":                  2,    # Régimen simplificado
+            "address":                         "NA",
+            "email":                           _EMAIL_PLACEHOLDER,
         }
     else:
         identity_doc_id = _TIPO_ID_MATIAS.get(tipo_id_raw, "1")
@@ -382,9 +380,11 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             "address":              venta.get("direccion_cliente") or "Cartagena",
         }
 
-    _resolved_city_id = _matias_city_id(venta.get("municipio_dian"))
-    if _resolved_city_id:
-        customer["city_id"] = _resolved_city_id
+    # city_id solo aplica a clientes con datos reales (CF usa municipality_id fijo)
+    if not es_consumidor_final:
+        _resolved_city_id = _matias_city_id(venta.get("municipio_dian"))
+        if _resolved_city_id:
+            customer["city_id"] = _resolved_city_id
 
     # ── Líneas de detalle ─────────────────────────────────────────────────────
     # quantity_units_id → int (no string)
@@ -459,8 +459,8 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "document_number":        str(num_dian),
         "date":                   str(venta["fecha"])[:10],
         "time":                   ahora.strftime("%H:%M:%S"),
-        "type_document_id":       7,
-        "operation_type_id":      1,
+        "type_document_id":       1,    # Factura estándar
+        "operation_type_id":      10 if es_consumidor_final else 1,  # 10 = CF
         "currency_id":            272,   # COP — recomendado en habilitación DIAN
         "notes":                  venta.get("notas") or "Ferretería Punto Rojo",
         "graphic_representation": 1,
