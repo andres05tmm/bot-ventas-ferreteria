@@ -591,9 +591,11 @@ async def emitir_factura(venta_id: int) -> dict:
 async def obtener_pdf(cufe: str) -> bytes:
     """
     Descarga el PDF desde MATIAS API v3.0.0.
-    Endpoint: POST /documents/pdf/{cufe} con regenerate=1 para forzar logo nuevo.
+    Endpoint: POST /documents/pdf/{cufe} con regenerate=1.
+    MATIAS puede responder con PDF directo O JSON con URL/data en base64.
     """
     import asyncio
+    import base64
     token = await asyncio.to_thread(_get_token)
     headers = {
         "Authorization": f"Bearer {token}",
@@ -612,16 +614,50 @@ async def obtener_pdf(cufe: str) -> bytes:
                 logger.error("MATIAS PDF error HTTP %s: %s", resp.status_code, resp.text[:500])
                 raise RuntimeError(f"MATIAS API devolvió HTTP {resp.status_code}")
 
-            if "application/pdf" not in content_type:
-                logger.error("MATIAS no devolvió PDF, sino %s: %s", content_type, resp.text[:200])
-                raise RuntimeError(f"MATIAS API no devolvió PDF (Content-Type: {content_type})")
+            # Caso 1: PDF directo
+            if "application/pdf" in content_type:
+                pdf_bytes = resp.content
+                if len(pdf_bytes) < 100:
+                    raise RuntimeError(f"PDF muy pequeño ({len(pdf_bytes)} bytes) — posible error")
+                logger.info("✅ PDF descargado directo: %s bytes", len(pdf_bytes))
+                return pdf_bytes
 
-            pdf_bytes = resp.content
-            if len(pdf_bytes) < 100:
-                raise RuntimeError(f"PDF muy pequeño ({len(pdf_bytes)} bytes) — posible error")
+            # Caso 2: JSON con URL o data en base64
+            if "application/json" in content_type:
+                json_resp = resp.json()
+                logger.info("MATIAS devolvió JSON: %s", json_resp.get("message", "sin mensaje"))
+                pdf_info = json_resp.get("pdf", {})
 
-            logger.info("✅ PDF descargado: %s bytes", len(pdf_bytes))
-            return pdf_bytes
+                # Opción A: PDF en base64 en campo "data"
+                if pdf_info.get("data"):
+                    try:
+                        pdf_base64 = pdf_info["data"]
+                        if "base64," in pdf_base64:
+                            pdf_base64 = pdf_base64.split("base64,")[1]
+                        pdf_bytes = base64.b64decode(pdf_base64)
+                        if len(pdf_bytes) < 100:
+                            raise ValueError(f"PDF decodificado muy pequeño ({len(pdf_bytes)} bytes)")
+                        logger.info("✅ PDF decodificado desde base64: %s bytes", len(pdf_bytes))
+                        return pdf_bytes
+                    except Exception as e:
+                        logger.warning("Error decodificando PDF base64: %s", e)
+
+                # Opción B: Descargar desde URL
+                if pdf_info.get("url"):
+                    pdf_url = pdf_info["url"]
+                    logger.info("Descargando PDF desde URL: %s", pdf_url)
+                    pdf_resp = await client.get(pdf_url)
+                    if pdf_resp.status_code == 200:
+                        pdf_bytes = pdf_resp.content
+                        if len(pdf_bytes) < 100:
+                            raise RuntimeError(f"PDF desde URL muy pequeño ({len(pdf_bytes)} bytes)")
+                        logger.info("✅ PDF descargado desde URL: %s bytes", len(pdf_bytes))
+                        return pdf_bytes
+                    raise RuntimeError(f"Error descargando PDF desde URL: HTTP {pdf_resp.status_code}")
+
+                raise RuntimeError(f"JSON no contiene 'data' ni 'url' válidos: {json_resp}")
+
+            raise RuntimeError(f"Content-Type inesperado: {content_type}")
 
         except httpx.HTTPError as e:
             logger.error("Error HTTP descargando PDF %s: %s", cufe, e)
