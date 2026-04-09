@@ -568,7 +568,7 @@ async def emitir_factura(venta_id: int) -> dict:
 async def obtener_pdf(cufe: str) -> bytes:
     """
     Descarga el PDF desde MATIAS API v3.0.0.
-    Endpoint: POST /documents/attached/{cufe}
+    Endpoint: POST /documents/pdf/{cufe} con regenerate=1 para forzar logo nuevo.
     """
     import asyncio
     token = await asyncio.to_thread(_get_token)
@@ -578,15 +578,15 @@ async def obtener_pdf(cufe: str) -> bytes:
         "Content-Type": "application/json",
     }
 
-    url = f"{MATIAS_API_URL}/documents/attached/{cufe}"
+    url = f"{MATIAS_API_URL}/documents/pdf/{cufe}"
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         try:
-            resp = await client.post(url, headers=headers, json={})
+            resp = await client.post(url, headers=headers, json={"regenerate": 1})
             content_type = resp.headers.get("content-type", "")
 
             if resp.status_code != 200:
-                logger.error("MATIAS PDF error HTTP %s: %s", resp.status_code, resp.text[:200])
+                logger.error("MATIAS PDF error HTTP %s: %s", resp.status_code, resp.text[:500])
                 raise RuntimeError(f"MATIAS API devolvió HTTP {resp.status_code}")
 
             if "application/pdf" not in content_type:
@@ -597,7 +597,7 @@ async def obtener_pdf(cufe: str) -> bytes:
             if len(pdf_bytes) < 100:
                 raise RuntimeError(f"PDF muy pequeño ({len(pdf_bytes)} bytes) — posible error")
 
-            logger.info("PDF descargado OK: %s bytes", len(pdf_bytes))
+            logger.info("✅ PDF descargado: %s bytes", len(pdf_bytes))
             return pdf_bytes
 
         except httpx.HTTPError as e:
