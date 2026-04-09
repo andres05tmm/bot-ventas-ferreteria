@@ -341,50 +341,67 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     subtotal  = round(subtotal_gravable + subtotal_exento, 2)
     total_doc = round(total_doc, 2)
 
-    # ── Comprador ─────────────────────────────────────────────────────────────
-    tipo_id_raw         = (venta.get("tipo_id") or "CC").upper().strip()
-    id_cliente          = venta.get("identificacion_cliente") or ""
-    es_consumidor_final = not id_cliente or id_cliente.strip() == "222222222222"
-    es_nit              = tipo_id_raw == "NIT" and not es_consumidor_final
-
+    # ── Comprador — estructura unificada según ejemplos oficiales MATIAS ─────────
+    id_cliente        = venta.get("identificacion_cliente") or ""
+    tipo_id_raw       = (venta.get("tipo_id") or "").upper().strip()
     tiene_correo_real = not _sin_correo_real(venta.get("correo_cliente"))
+    email_cliente     = (
+        venta.get("correo_cliente") if tiene_correo_real else _EMAIL_PLACEHOLDER
+    )
 
-    if es_consumidor_final:
-        # Estructura exacta según asistente IA de MATIAS para Consumidor Final.
-        # Campos y nombres de clave distintos al cliente normal — no mezclar.
+    if not id_cliente or id_cliente.strip() == "222222222222":
+        # Caso 1: Consumidor Final
+        es_consumidor_final = True
         customer = {
             "identification_number":           "222222222222",
             "name":                            "CONSUMIDOR FINAL",
-            "type_document_identification_id": 6,    # Consumidor Final
-            "type_organization_id":            2,    # Persona natural
+            "type_document_identification_id": 6,
+            "type_organization_id":            2,
             "municipality_id":                 149,  # Cartagena
-            "type_regime_id":                  2,    # Régimen simplificado
+            "type_regime_id":                  2,
             "address":                         "NA",
             "email":                           _EMAIL_PLACEHOLDER,
         }
-    else:
-        identity_doc_id = _TIPO_ID_MATIAS.get(tipo_id_raw, "1")
-        email_payload   = (
-            venta.get("correo_cliente") if tiene_correo_real else _EMAIL_PLACEHOLDER
-        )
+
+    elif tipo_id_raw == "NIT":
+        # Caso 2: Empresa con NIT
+        es_consumidor_final = False
+        nit_parts   = id_cliente.split("-")
+        nit_sin_dv  = nit_parts[0].strip()
+        dv          = nit_parts[1].strip() if len(nit_parts) > 1 else ""
         customer = {
-            "country_id":           "45",
-            "identity_document_id": identity_doc_id,
-            "type_organization_id": 1 if es_nit else 2,
-            "tax_regime_id":        1 if es_nit else 2,
-            "tax_level_id":         1 if es_nit else 5,
-            "company_name":         (venta.get("cliente_nombre") or "").upper(),
-            "dni":                  id_cliente,
-            "mobile":               venta.get("telefono_cliente") or "3000000000",
-            "email":                email_payload,
-            "address":              venta.get("direccion_cliente") or "Cartagena",
+            "identification_number":           nit_sin_dv,
+            "dv":                              dv,
+            "name":                            (venta.get("cliente_nombre") or "").upper(),
+            "phone":                           venta.get("telefono_cliente") or "6011234567",
+            "email":                           email_cliente,
+            "address":                         venta.get("direccion_cliente") or "Cartagena",
+            "municipality_id":                 149,
+            "type_document_identification_id": 3,   # NIT
+            "type_organization_id":            1,   # Persona jurídica
+            "type_regime_id":                  1,   # Responsable de IVA
         }
 
-    # city_id solo aplica a clientes con datos reales (CF usa municipality_id fijo)
+    else:
+        # Caso 3: Persona natural (CC, CE, TI, etc.)
+        es_consumidor_final = False
+        customer = {
+            "identification_number":           id_cliente,
+            "name":                            (venta.get("cliente_nombre") or "").upper(),
+            "phone":                           venta.get("telefono_cliente") or "3001234567",
+            "email":                           email_cliente,
+            "address":                         venta.get("direccion_cliente") or "Cartagena",
+            "municipality_id":                 149,
+            "type_document_identification_id": 1,   # Cédula ciudadanía
+            "type_organization_id":            2,   # Persona natural
+            "type_regime_id":                  2,   # Régimen simplificado
+        }
+
+    # Ajustar municipality_id si hay código DIAN específico del cliente
     if not es_consumidor_final:
         _resolved_city_id = _matias_city_id(venta.get("municipio_dian"))
         if _resolved_city_id:
-            customer["city_id"] = _resolved_city_id
+            customer["municipality_id"] = _resolved_city_id
 
     # ── Líneas de detalle ─────────────────────────────────────────────────────
     # quantity_units_id → int (no string)
