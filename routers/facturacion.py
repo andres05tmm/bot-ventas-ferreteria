@@ -337,34 +337,44 @@ async def webhook_matias(request: Request):
     Configura esta URL en el panel de MATIAS API:
         https://tu-app.railway.app/facturacion/webhook
 
-    v3.0.0: verifica firma HMAC-SHA256 si MATIAS_WEBHOOK_SECRET está configurado.
-    Header: X-Webhook-Signature: sha256=<hash>
+    Seguridad: verifica firma HMAC-SHA256 si MATIAS_WEBHOOK_SECRET está configurado
+    en Railway. Header enviado por Matias: X-Webhook-Signature: sha256=<hexdigest>
 
-    Eventos soportados:
-        document.accepted  — DIAN aceptó → actualiza estado en DB + notifica bot
-        document.rejected  — DIAN rechazó → guarda error
-        document.voided    — Factura anulada
-        email.sent / email.delivered — confirmación correo al cliente
+    Flujo de entrega al aceptarse una factura:
+        - Consumidor Final (sin correo real) → PDF enviado al grupo de Telegram
+        - Cliente con correo real            → Matias ya envió el email (send_email=1),
+                                               solo se actualiza la DB y se notifica
+                                               al grupo de Telegram con un mensaje de texto
     """
+    import hashlib
+    import hmac as _hmac
+    import json as _json
+    import os
+
     raw_body = await request.body()
 
-    # ── Verificar firma HMAC-SHA256 (v3.0.0) — DESHABILITADO temporalmente ────
-    # MATIAS no envía la firma correcta; todos los webhooks quedaban en HTTP 401.
-    # import hashlib, hmac as _hmac, os as _os
-    # webhook_secret = _os.getenv("MATIAS_WEBHOOK_SECRET")
-    # if webhook_secret:
-    #     sig_header = request.headers.get("x-webhook-signature", "")
-    #     if sig_header:
-    #         expected = "sha256=" + _hmac.new(
-    #             webhook_secret.encode(), raw_body, hashlib.sha256
-    #         ).hexdigest()
-    #         if not _hmac.compare_digest(sig_header, expected):
-    #             logger.warning("Webhook MATIAS API: firma HMAC inválida — posible request falso")
-    #             raise HTTPException(status_code=401, detail="Firma webhook inválida")
-    logger.info("📥 Webhook MATIAS recibido (verificación HMAC deshabilitada temporalmente)")
+    # ── Verificar firma HMAC-SHA256 ───────────────────────────────────────────
+    # Configura MATIAS_WEBHOOK_SECRET en Railway con el secret del panel de Matias API.
+    # Si la variable NO está configurada, el webhook se acepta igual (modo legacy).
+    webhook_secret = os.getenv("MATIAS_WEBHOOK_SECRET", "")
+    if webhook_secret:
+        sig_header = request.headers.get("x-webhook-signature", "")
+        if not sig_header:
+            # Matias debe enviar siempre la firma si el secret está configurado
+            logger.warning("⚠️ Webhook sin cabecera X-Webhook-Signature — rechazado")
+            raise HTTPException(status_code=401, detail="Firma webhook ausente")
+        expected = "sha256=" + _hmac.new(
+            webhook_secret.encode(), raw_body, hashlib.sha256
+        ).hexdigest()
+        if not _hmac.compare_digest(sig_header, expected):
+            logger.warning("🚫 Webhook MATIAS API: firma HMAC inválida — posible request falso")
+            raise HTTPException(status_code=401, detail="Firma webhook inválida")
+        logger.info("📥 Webhook MATIAS recibido (HMAC ✅ verificado)")
+    else:
+        logger.info("📥 Webhook MATIAS recibido (sin MATIAS_WEBHOOK_SECRET configurado)")
 
     try:
-        payload = __import__("json").loads(raw_body)
+        payload = _json.loads(raw_body)
     except Exception:
         raise HTTPException(status_code=400, detail="Payload JSON inválido")
 
@@ -409,43 +419,34 @@ async def webhook_matias(request: Request):
                 )
                 logger.info("✅ Webhook: factura %s marcada como emitida", numero or cufe[:16])
 
-                # Enviar PDF a Telegram si es Consumidor Final (PDF ya está listo)
-                _procesar_envio_pdf_consumidor_final(cufe, numero)
-
-                # Notificar al bot de Telegram si está disponible
-                _notificar_bot_factura_aceptada(cufe, numero, email_ok)
+                # ── Despacho según tipo de cliente ───────────────────────────
+                # _despachar_post_aceptacion decide si manda PDF a Telegram
+                # (Consumidor Final) o solo notificación de texto (cliente con correo).
+                _despachar_post_aceptacion(cufe, numero, email_ok)
 
             except Exception as e:
                 logger.error("Webhook: error actualizando DB para cufe %s: %s", cufe[:20], e)
 
     # ── document.rejected (v3) / invoice.rejected (v2) ───────────────────────
     elif "reject" in evento.lower() or "error" in evento.lower() or evento == "document.voided":
-        # FIX: loguear payload completo para poder diagnosticar el error real de DIAN
-        import json as _json
         logger.warning("🔍 Webhook payload completo (rechazo): %s", _json.dumps(payload, ensure_ascii=False)[:1000])
 
-        # Extraer error_msg desde múltiples posibles campos que MATIAS puede enviar
         raw_errors = (
-            data.get("errors")          or   # campo 'errors' (array o dict)
-            data.get("message")         or   # campo 'message' (string)
-            data.get("error")           or   # campo 'error' (string)
-            data.get("StatusMessage")   or   # respuesta DIAN directa
-            data.get("description")     or
-            payload.get("message")      or   # a veces está en la raíz del payload
+            data.get("errors")        or
+            data.get("message")       or
+            data.get("error")         or
+            data.get("StatusMessage") or
+            data.get("description")   or
+            payload.get("message")    or
             "Rechazada por DIAN"
         )
 
-        # Normalizar a string legible
         if isinstance(raw_errors, list):
             error_msg = " | ".join(str(e) for e in raw_errors)
         elif isinstance(raw_errors, dict):
-            # Puede venir como {"string": ["Regla FAD06...", "Regla FAV08a..."]}
             parts = []
             for k, v in raw_errors.items():
-                if isinstance(v, list):
-                    parts.extend(str(i) for i in v)
-                else:
-                    parts.append(f"{k}: {v}")
+                parts.extend(str(i) for i in v) if isinstance(v, list) else parts.append(f"{k}: {v}")
             error_msg = " | ".join(parts)
         else:
             error_msg = str(raw_errors)
@@ -456,11 +457,9 @@ async def webhook_matias(request: Request):
                     "UPDATE facturas_electronicas SET estado = 'error', error_msg = %s WHERE cufe = %s",
                     [error_msg[:500], cufe],
                 )
-                # FIX: también actualizar ventas para que vuelva a aparecer en cola de pendientes
                 _db.execute(
                     """
-                    UPDATE ventas
-                    SET factura_estado = 'error'
+                    UPDATE ventas SET factura_estado = 'error'
                     WHERE factura_cufe = %s AND factura_estado = 'emitida'
                     """,
                     [cufe],
@@ -469,55 +468,31 @@ async def webhook_matias(request: Request):
             except Exception as e:
                 logger.error("Webhook: error guardando rechazo cufe %s: %s", cufe[:20], e)
 
-    # ── email.sent ───────────────────────────────────────────────────────────
+    # ── email.sent / email.delivered ─────────────────────────────────────────
     elif "email" in evento.lower():
         logger.info("📧 Webhook: correo de factura %s entregado al cliente", numero or cufe[:16])
-        # Aquí puedes guardar timestamp de entrega de correo si lo necesitas
 
     return {"ok": True, "evento": evento}
 
 
-def _notificar_bot_factura_aceptada(cufe: str, numero: str, email_ok) -> None:
+def _despachar_post_aceptacion(cufe: str, numero: str, email_ok) -> None:
     """
-    Intenta notificar al grupo/canal de Telegram que la DIAN aceptó la factura.
-    Solo actúa si hay un TELEGRAM_NOTIFY_CHAT_ID configurado en Railway.
-    No bloquea — fallo silencioso.
+    Lógica post-aceptación DIAN. Ejecuta en background thread.
+
+    Flujo:
+      - Consumidor Final (sin correo real):
+            → Descarga PDF desde Matias y lo envía al grupo de Telegram.
+              El caption del PDF ya tiene toda la info; no se manda texto adicional.
+
+      - Cliente con correo real:
+            → Matias ya envió el email (send_email=1 en el payload de emisión).
+              Solo se envía un mensaje de texto al grupo de Telegram como
+              notificación interna para el equipo.
     """
-    import os, threading, httpx as _httpx
-
-    chat_id = os.getenv("TELEGRAM_NOTIFY_CHAT_ID")
-    token   = os.getenv("TELEGRAM_TOKEN")
-    if not chat_id or not token:
-        return
-
-    email_txt = " · 📧 correo enviado al cliente" if email_ok else ""
-    texto = (
-        f"✅ *DIAN aceptó factura {numero}*\n"
-        f"CUFE: `{cufe[:24]}…`{email_txt}"
-    )
-
-    def _send():
-        try:
-            _httpx.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": texto, "parse_mode": "Markdown"},
-                timeout=8,
-            )
-        except Exception as e:
-            logger.debug("Notificación Telegram webhook fallida: %s", e)
-
-    threading.Thread(target=_send, daemon=True).start()
-
-
-def _procesar_envio_pdf_consumidor_final(cufe: str, numero: str) -> None:
-    """
-    Si la factura es para Consumidor Final, descarga el PDF y lo envía al grupo de Telegram.
-    Ejecuta en background thread para no bloquear el webhook.
-    Solo actúa cuando llega el webhook document.accepted (PDF ya está listo en MATIAS).
-    """
+    import os
     import threading
 
-    def _enviar():
+    def _run():
         try:
             row = _db.query_one(
                 """
@@ -530,30 +505,60 @@ def _procesar_envio_pdf_consumidor_final(cufe: str, numero: str) -> None:
                 [cufe],
             )
             if not row:
-                logger.warning("PDF Telegram: no se encontró venta para CUFE %s", cufe[:16])
+                logger.warning("Post-aceptación: no se encontró venta para CUFE %s", cufe[:16])
                 return
 
             from services.facturacion_service import _sin_correo_real
-            if not _sin_correo_real(row.get("correo")):
-                logger.info("Factura %s tiene correo real, PDF no se envía a Telegram", numero)
-                return
 
-            logger.info("📤 Descargando PDF de %s para enviar a Telegram (Consumidor Final)…", numero)
+            es_consumidor_final = _sin_correo_real(row.get("correo"))
 
-            import asyncio
-            from services.facturacion_service import _enviar_pdf_grupo_telegram
+            chat_id = os.getenv("TELEGRAM_NOTIFY_CHAT_ID")
+            token   = os.getenv("TELEGRAM_TOKEN")
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(
-                    _enviar_pdf_grupo_telegram(cufe, numero, row.get("cliente_nombre"), row.get("total"))
+            if es_consumidor_final:
+                # ── Consumidor Final → PDF al grupo de Telegram ───────────────
+                if not chat_id or not token:
+                    logger.warning("PDF Telegram: falta TELEGRAM_NOTIFY_CHAT_ID o TELEGRAM_TOKEN")
+                    return
+                logger.info("📤 Descargando PDF %s para Telegram (Consumidor Final)…", numero)
+                import asyncio
+                from services.facturacion_service import _enviar_pdf_grupo_telegram
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(
+                        _enviar_pdf_grupo_telegram(
+                            cufe, numero,
+                            row.get("cliente_nombre"),
+                            row.get("total"),
+                        )
+                    )
+                finally:
+                    loop.close()
+
+            else:
+                # ── Cliente con correo → solo notificación de texto al grupo ──
+                # El email ya fue enviado por Matias (send_email=1).
+                if not chat_id or not token:
+                    return
+                email_txt = " · 📧 correo enviado al cliente" if email_ok else ""
+                texto = (
+                    f"✅ *DIAN aceptó factura {numero}*\n"
+                    f"👤 {row.get('cliente_nombre') or 'Cliente'}\n"
+                    f"💰 ${int(row.get('total') or 0):,}{email_txt}"
                 )
-            finally:
-                loop.close()
+                import httpx as _httpx
+                try:
+                    _httpx.post(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        json={"chat_id": chat_id, "text": texto, "parse_mode": "Markdown"},
+                        timeout=8,
+                    )
+                except Exception as e:
+                    logger.debug("Notificación Telegram (cliente) fallida: %s", e)
 
         except Exception as e:
-            logger.error("Error enviando PDF al grupo Telegram (webhook): %s", e)
+            logger.error("Error en _despachar_post_aceptacion cufe %s: %s", cufe[:16], e)
 
-    threading.Thread(target=_enviar, daemon=True).start()
+    threading.Thread(target=_run, daemon=True).start()
 
