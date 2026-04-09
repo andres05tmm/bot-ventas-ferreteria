@@ -320,13 +320,26 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     )
 
     # ── Totales ───────────────────────────────────────────────────────────────
-    subtotal          = sum(int(d.get("total") or 0) for d in detalle)
-    subtotal_gravable = sum(int(d.get("total") or 0) for d in detalle if d.get("tiene_iva"))
-    total_iva         = sum(
-        int(int(d.get("total") or 0) * int(d.get("porcentaje_iva") or 0) / 100)
-        for d in detalle if d.get("tiene_iva")
-    )
-    total_doc = subtotal + total_iva
+    # Los precios en BD tienen IVA incluido. Se extrae la base gravable dividiendo.
+    # Ejemplo: $9.000 con IVA 19% → base = 9000/1.19 = $7.563,03 | IVA = $1.436,97
+    total_doc         = sum(_fmt(d.get("total") or 0) for d in detalle)  # total real (con IVA)
+    subtotal_gravable = 0.0
+    total_iva         = 0.0
+    subtotal_exento   = 0.0
+
+    for d in detalle:
+        total_item = _fmt(d.get("total") or 0)
+        pct        = int(d.get("porcentaje_iva") or 0)
+        if d.get("tiene_iva") and pct > 0:
+            divisor            = 1 + pct / 100
+            base               = round(total_item / divisor, 2)
+            subtotal_gravable += base
+            total_iva         += round(total_item - base, 2)
+        else:
+            subtotal_exento += total_item
+
+    subtotal  = round(subtotal_gravable + subtotal_exento, 2)
+    total_doc = round(total_doc, 2)
 
     # ── Comprador ─────────────────────────────────────────────────────────────
     tipo_id_raw         = (venta.get("tipo_id") or "CC").upper().strip()
@@ -363,13 +376,23 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     # invoiced_quantity / base_quantity → float (soporta fracciones: 0.5, 2.5, 250, etc.)
     lines = []
     for item in detalle:
-        precio_u  = _fmt(item.get("precio_unitario") or 0)
         # Redondear a 4 decimales para soportar fracciones precisas (ej: 0.0625 = 1/16)
         cantidad  = round(float(item.get("cantidad") or 1), 4)
-        total_l   = _fmt(item.get("total") or 0)
         tiene_iva = bool(item.get("tiene_iva"))
         pct_iva   = int(item.get("porcentaje_iva") or 0)
-        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else 0.0
+
+        # Precios en BD tienen IVA incluido → extraer base gravable
+        total_con_iva  = _fmt(item.get("total") or 0)
+        precio_con_iva = _fmt(item.get("precio_unitario") or 0)
+        if tiene_iva and pct_iva > 0:
+            divisor    = 1 + pct_iva / 100
+            total_base = round(total_con_iva / divisor, 2)
+            precio_u   = round(precio_con_iva / divisor, 2)
+            iva_val    = round(total_con_iva - total_base, 2)
+        else:
+            total_base = total_con_iva
+            precio_u   = precio_con_iva
+            iva_val    = 0.0
 
         unidad_raw   = (item.get("unidad_medida") or "Unidad").strip()
         qty_units_id = _UNIDAD_DIAN.get(unidad_raw, _UNIDAD_DIAN.get(unidad_raw.lower(), 70))
@@ -377,18 +400,18 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         lines.append({
             "invoiced_quantity":            cantidad,        # float
             "quantity_units_id":            qty_units_id,   # int
-            "line_extension_amount":        total_l,
+            "line_extension_amount":        total_base,     # base sin IVA
             "free_of_charge_indicator":     False,
             "description":                  (item.get("producto_nombre") or "Producto").upper(),
             "code":                         str(item.get("producto_id") or "SC"),
             "type_item_identifications_id": "4",
             "reference_price_id":           "1",
-            "price_amount":                 precio_u,
+            "price_amount":                 precio_u,       # precio unitario sin IVA
             "base_quantity":                cantidad,        # float
             "tax_totals": [{
                 "tax_id":         "1" if tiene_iva else "4",
                 "tax_amount":     iva_val,
-                "taxable_amount": total_l if tiene_iva else 0.0,
+                "taxable_amount": total_base if tiene_iva else 0.0,
                 "percent":        _fmt(pct_iva),
             }],
         })
