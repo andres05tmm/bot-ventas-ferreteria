@@ -407,6 +407,9 @@ async def webhook_matias(request: Request):
                 )
                 logger.info("✅ Webhook: factura %s marcada como emitida", numero or cufe[:16])
 
+                # Enviar PDF a Telegram si es Consumidor Final (PDF ya está listo)
+                _procesar_envio_pdf_consumidor_final(cufe, numero)
+
                 # Notificar al bot de Telegram si está disponible
                 _notificar_bot_factura_aceptada(cufe, numero, email_ok)
 
@@ -466,3 +469,53 @@ def _notificar_bot_factura_aceptada(cufe: str, numero: str, email_ok) -> None:
             logger.debug("Notificación Telegram webhook fallida: %s", e)
 
     threading.Thread(target=_send, daemon=True).start()
+
+
+def _procesar_envio_pdf_consumidor_final(cufe: str, numero: str) -> None:
+    """
+    Si la factura es para Consumidor Final, descarga el PDF y lo envía al grupo de Telegram.
+    Ejecuta en background thread para no bloquear el webhook.
+    Solo actúa cuando llega el webhook document.accepted (PDF ya está listo en MATIAS).
+    """
+    import threading
+
+    def _enviar():
+        try:
+            row = _db.query_one(
+                """
+                SELECT v.cliente_nombre, v.total, c.correo
+                FROM facturas_electronicas fe
+                JOIN ventas v ON fe.venta_id = v.id
+                LEFT JOIN clientes c ON v.cliente_id::text = c.id::text
+                WHERE fe.cufe = %s
+                """,
+                [cufe],
+            )
+            if not row:
+                logger.warning("PDF Telegram: no se encontró venta para CUFE %s", cufe[:16])
+                return
+
+            from services.facturacion_service import _sin_correo_real
+            if not _sin_correo_real(row.get("correo")):
+                logger.info("Factura %s tiene correo real, PDF no se envía a Telegram", numero)
+                return
+
+            logger.info("📤 Descargando PDF de %s para enviar a Telegram (Consumidor Final)…", numero)
+
+            import asyncio
+            from services.facturacion_service import _enviar_pdf_grupo_telegram
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(
+                    _enviar_pdf_grupo_telegram(cufe, numero, row.get("cliente_nombre"), row.get("total"))
+                )
+            finally:
+                loop.close()
+
+        except Exception as e:
+            logger.error("Error enviando PDF al grupo Telegram (webhook): %s", e)
+
+    threading.Thread(target=_enviar, daemon=True).start()
+

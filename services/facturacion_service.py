@@ -560,21 +560,7 @@ async def emitir_factura(venta_id: int) -> dict:
         conn.commit()
 
     logger.info("✅ Factura %s emitida — CUFE: %s…", numero, cufe[:20])
-
-    correo_real = venta.get("correo_cliente")
-
-    if _sin_correo_real(correo_real):
-        # Consumidor Final → enviar PDF al grupo de Telegram
-        import asyncio
-        asyncio.create_task(
-            _enviar_pdf_grupo_telegram(cufe, numero, venta.get("cliente_nombre"), venta.get("total"))
-        )
-        logger.info("📤 PDF programado para envío a Telegram (Consumidor Final)")
-        return {"ok": True, "cufe": cufe, "numero": numero, "pdf_enviado_telegram": True}
-    else:
-        # Cliente con correo → MATIAS envía automáticamente
-        logger.info("📧 Correo enviado automáticamente por MATIAS a: %s", correo_real)
-        return {"ok": True, "cufe": cufe, "numero": numero, "correo_enviado": True}
+    return {"ok": True, "cufe": cufe, "numero": numero}
 
 
 # ── Descargar PDF ─────────────────────────────────────────────────────────────
