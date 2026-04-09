@@ -561,78 +561,62 @@ async def emitir_factura(venta_id: int) -> dict:
 
     logger.info("✅ Factura %s emitida — CUFE: %s…", numero, cufe[:20])
 
-    correo_real  = venta.get("correo_cliente")
-    pdf_telegram = False
+    correo_real = venta.get("correo_cliente")
+
     if _sin_correo_real(correo_real):
+        # Consumidor Final → enviar PDF al grupo de Telegram
         import asyncio
         asyncio.create_task(
             _enviar_pdf_grupo_telegram(cufe, numero, venta.get("cliente_nombre"), venta.get("total"))
         )
-        pdf_telegram = True
-
-    return {"ok": True, "cufe": cufe, "numero": numero, "pdf_telegram": pdf_telegram}
+        logger.info("📤 PDF programado para envío a Telegram (Consumidor Final)")
+        return {"ok": True, "cufe": cufe, "numero": numero, "pdf_enviado_telegram": True}
+    else:
+        # Cliente con correo → MATIAS envía automáticamente
+        logger.info("📧 Correo enviado automáticamente por MATIAS a: %s", correo_real)
+        return {"ok": True, "cufe": cufe, "numero": numero, "correo_enviado": True}
 
 
 # ── Descargar PDF ─────────────────────────────────────────────────────────────
 
 async def obtener_pdf(cufe: str) -> bytes:
     """
-    Descarga el PDF desde MATIAS API v3.
-    Endpoint: GET /documents/pdf/{trackId}
+    Descarga el PDF desde MATIAS API v3.0.0.
+    Endpoint correcto: GET /documents/{cufe}/pdf
     """
     import asyncio
     token = await asyncio.to_thread(_get_token)
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/pdf, application/json"}
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/pdf, application/json",
+    }
 
-    candidatas = [
-        ("GET",  f"{MATIAS_API_URL}/documents/pdf/{cufe}"),
-        ("GET",  f"{MATIAS_API_URL}/documents/pdf/{cufe}?regenerate=1"),
-        ("GET",  f"{MATIAS_API_URL}/documents/{cufe}/pdf"),
-        ("POST", f"{MATIAS_API_URL}/documents/attached/{cufe}"),
-    ]
+    url = f"{MATIAS_API_URL}/documents/{cufe}/pdf"
 
-    ultimo_error = "Sin respuesta"
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        for metodo, url in candidatas:
-            try:
-                if metodo == "POST":
-                    resp = await client.post(url, json={"regenerate": 0}, headers=headers)
-                else:
-                    resp = await client.get(url, headers=headers)
+        try:
+            resp = await client.get(url, headers=headers)
 
-                content_type = resp.headers.get("content-type", "")
-                logger.debug("PDF intento %s %s → HTTP %s | %s", metodo, url, resp.status_code, content_type)
+            content_type = resp.headers.get("content-type", "")
 
-                if resp.status_code == 200 and "pdf" in content_type:
-                    return resp.content
+            if resp.status_code != 200:
+                logger.error("MATIAS PDF error HTTP %s: %s", resp.status_code, resp.text[:200])
+                raise RuntimeError(f"MATIAS API devolvió HTTP {resp.status_code}")
 
-                if resp.status_code == 200 and "json" in content_type:
-                    try:
-                        import base64
-                        json_data = resp.json()
-                        b64 = json_data.get("data")
-                        if b64:
-                            return base64.b64decode(b64)
-                        pdf_url = json_data.get("url")
-                        if pdf_url:
-                            pdf_resp = await client.get(pdf_url, headers=headers)
-                            if pdf_resp.status_code == 200:
-                                return pdf_resp.content
-                        ultimo_error = f"JSON sin 'data' ni 'url': {list(json_data.keys())}"
-                    except Exception as e:
-                        ultimo_error = f"Error decodificando: {e}"
-                    continue
+            if "application/pdf" not in content_type:
+                logger.error("MATIAS no devolvió PDF, sino %s: %s", content_type, resp.text[:200])
+                raise RuntimeError(f"MATIAS API no devolvió PDF (Content-Type: {content_type})")
 
-                try:
-                    err_data = resp.json()
-                    ultimo_error = err_data.get("message") or str(err_data)
-                except Exception:
-                    ultimo_error = resp.text[:200] if resp.text else f"HTTP {resp.status_code}"
-            except Exception as e:
-                ultimo_error = str(e)
-                continue
+            pdf_bytes = resp.content
+            if len(pdf_bytes) < 100:
+                raise RuntimeError(f"PDF muy pequeño ({len(pdf_bytes)} bytes) — posible error")
 
-    raise RuntimeError(f"No se pudo descargar el PDF (probadas {len(candidatas)} URLs). Último error: {ultimo_error}")
+            logger.info("PDF descargado OK: %s bytes", len(pdf_bytes))
+            return pdf_bytes
+
+        except httpx.HTTPError as e:
+            logger.error("Error HTTP descargando PDF %s: %s", cufe, e)
+            raise RuntimeError(f"Error de conexión con MATIAS API: {e}")
 
 
 # ── Descargar XML ─────────────────────────────────────────────────────────────

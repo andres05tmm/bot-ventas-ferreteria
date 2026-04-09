@@ -93,7 +93,7 @@ async def comando_factura_electronica(update: Update, ctx: ContextTypes.DEFAULT_
 
     cufe_corto = resultado["cufe"][:40] if resultado["cufe"] else "N/A"
 
-    if resultado.get("pdf_telegram"):
+    if resultado.get("pdf_enviado_telegram"):
         entrega = "📲 Sin correo registrado — PDF enviado al grupo de Telegram."
     else:
         entrega = "📧 PDF enviado al correo del cliente automáticamente."
