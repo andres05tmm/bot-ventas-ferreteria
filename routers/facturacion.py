@@ -329,6 +329,53 @@ def listar_notas(
 
 # ── Webhook MATIAS API ────────────────────────────────────────────────────────
 
+def _verificar_firma_svix(
+    raw_body:       bytes,
+    sig_header:     str,
+    webhook_id:     str,
+    timestamp:      str,
+    webhook_secret: str,
+) -> bool:
+    """
+    Verifica la firma HMAC-SHA256 estilo Svix que usa MATIAS API.
+
+    Algoritmo Svix:
+        secret_bytes  = base64_decode(secret.removeprefix("whsec_"))
+        signed_content = f"{id}\\n{timestamp}\\n" + raw_body   (bytes)
+        signature     = base64(HMAC-SHA256(secret_bytes, signed_content))
+        header        = "v1,<signature>"   (puede ser múltiple: "v1,sig1 v1,sig2")
+
+    También acepta el output en hex por si Matias cambia el encoding.
+    """
+    import hashlib
+    import hmac as _hmac
+    import base64 as _b64
+
+    try:
+        secret_stripped = webhook_secret.removeprefix("whsec_")
+        secret_bytes    = _b64.b64decode(secret_stripped)
+    except Exception as e:
+        logger.error("HMAC: no se pudo decodificar MATIAS_WEBHOOK_SECRET: %s", e)
+        return False
+
+    signed_content = f"{webhook_id}\n{timestamp}\n".encode() + raw_body
+    mac            = _hmac.new(secret_bytes, signed_content, hashlib.sha256).digest()
+    sig_b64        = _b64.b64encode(mac).decode()
+    sig_hex        = mac.hex()
+
+    # El header puede traer múltiples firmas: "v1,aaa v1,bbb"
+    # Svix recomienda aceptar si cualquiera coincide (rotación de secreto)
+    candidatos = [
+        s.removeprefix("v1,").strip()
+        for s in sig_header.replace(",", " ").split()
+        if s.strip()
+    ]
+    # También aceptamos el header crudo sin prefijo (por si Matias lo manda directo)
+    candidatos.append(sig_header.strip())
+
+    return sig_b64 in candidatos or sig_hex in candidatos
+
+
 @router.post("/facturacion/webhook")
 async def webhook_matias(request: Request):
     """
@@ -337,8 +384,9 @@ async def webhook_matias(request: Request):
     Configura esta URL en el panel de MATIAS API:
         https://tu-app.railway.app/facturacion/webhook
 
-    Seguridad: verifica firma HMAC-SHA256 si MATIAS_WEBHOOK_SECRET está configurado
-    en Railway. Header enviado por Matias: X-Webhook-Signature: sha256=<hexdigest>
+    Seguridad: verifica firma HMAC-SHA256 estilo Svix si MATIAS_WEBHOOK_SECRET
+    está configurado en Railway.  El secreto debe empezar con "whsec_" y se
+    obtiene/regenera desde el panel de MATIAS API → Webhooks → Signing Secret.
 
     Flujo de entrega al aceptarse una factura:
         - Consumidor Final (sin correo real) → PDF enviado al grupo de Telegram
@@ -346,66 +394,36 @@ async def webhook_matias(request: Request):
                                                solo se actualiza la DB y se notifica
                                                al grupo de Telegram con un mensaje de texto
     """
-    import hashlib
-    import hmac as _hmac
     import json as _json
     import os
 
     raw_body = await request.body()
 
-    # ── Verificar firma HMAC-SHA256 — DEBUG EXTENDIDO ────────────────────────
+    # ── Verificar firma HMAC-SHA256 (Svix) ───────────────────────────────────
     webhook_secret = os.getenv("MATIAS_WEBHOOK_SECRET", "")
     if webhook_secret:
-        import base64 as _b64
         sig_header  = request.headers.get("x-webhook-signature", "")
         webhook_id  = request.headers.get("x-webhook-id", "")
         timestamp   = request.headers.get("x-webhook-timestamp", "")
 
-        signed_content = f"{webhook_id}\n{timestamp}\n".encode() + raw_body
-
-        # Intento 1: secret como string UTF-8 directo
-        v1 = _hmac.new(webhook_secret.encode(), signed_content, hashlib.sha256).hexdigest()
-        # Intento 2: secret base64-decoded (Svix estándar)
-        try:
-            v2 = _hmac.new(_b64.b64decode(webhook_secret), signed_content, hashlib.sha256).hexdigest()
-        except Exception:
-            v2 = "b64decode-error"
-        # Intento 3: solo body, secret UTF-8
-        v3 = _hmac.new(webhook_secret.encode(), raw_body, hashlib.sha256).hexdigest()
-        # Intento 4: solo body, secret base64-decoded
-        try:
-            v4 = _hmac.new(_b64.b64decode(webhook_secret), raw_body, hashlib.sha256).hexdigest()
-        except Exception:
-            v4 = "b64decode-error"
-        # Intento 5: secret tiene prefijo "whsec_" → quitar y b64-decode (Svix estandar)
-        try:
-            secret_stripped = webhook_secret.removeprefix("whsec_")
-            secret_bytes    = _b64.b64decode(secret_stripped)
-            v5 = _hmac.new(secret_bytes, signed_content, hashlib.sha256).hexdigest()
-            v6 = _hmac.new(secret_bytes, raw_body,       hashlib.sha256).hexdigest()
-        except Exception as _ex:
-            v5 = v6 = f"error-{_ex}"
-
-        logger.warning(
-            "HMAC DEBUG\n"
-            "  recibido : %s\n"
-            "  v1 (id+ts+body, raw)       : %s  match=%s\n"
-            "  v2 (id+ts+body, b64)       : %s  match=%s\n"
-            "  v3 (body only,  raw)       : %s  match=%s\n"
-            "  v4 (body only,  b64)       : %s  match=%s\n"
-            "  v5 (id+ts+body, whsec_b64) : %s  match=%s\n"
-            "  v6 (body only,  whsec_b64) : %s  match=%s\n"
-            "  wh_id=%s ts=%s secret_len=%d",
-            sig_header,
-            v1, sig_header==v1,
-            v2, sig_header==v2,
-            v3, sig_header==v3,
-            v4, sig_header==v4,
-            v5, sig_header==v5,
-            v6, sig_header==v6,
-            webhook_id, timestamp, len(webhook_secret),
+        firma_ok = _verificar_firma_svix(
+            raw_body, sig_header, webhook_id, timestamp, webhook_secret
         )
-        # Sin rechazo todavia — esperando match=True en alguna variante
+
+        if firma_ok:
+            logger.info("Webhook MATIAS: firma HMAC verificada OK")
+        else:
+            # Loguear para diagnóstico pero NO rechazar todavía —
+            # descomentar el raise cuando la firma esté confirmada estable.
+            logger.warning(
+                "Webhook MATIAS: firma HMAC inválida — "
+                "sig_header=%s  wh_id=%s  ts=%s  secret_len=%d. "
+                "Si acabas de regenerar el secreto en Matias API actualiza "
+                "MATIAS_WEBHOOK_SECRET en Railway y redeploya.",
+                sig_header[:30], webhook_id, timestamp, len(webhook_secret),
+            )
+            # raise HTTPException(status_code=401, detail="Firma webhook inválida")
+
     logger.info("Webhook MATIAS recibido")
 
     try:
@@ -432,8 +450,26 @@ async def webhook_matias(request: Request):
     if not _db.DB_DISPONIBLE:
         return {"ok": True, "msg": "DB no disponible, evento ignorado"}
 
-    # ── document.accepted (v3) / invoice.accepted (v2) ───────────────────────
-    if "accept" in evento.lower() or evento == "document.emitted" or payload.get("success"):
+    # ── Eventos de aceptación DIAN ────────────────────────────────────────────
+    # Matias API puede disparar cualquiera de estos eventos cuando la DIAN
+    # acepta el documento:
+    #   document.created   — FIX: era el que faltaba; Matias lo dispara primero
+    #   document.accepted  — v3 confirmación final DIAN
+    #   document.emitted   — alias legacy
+    #   invoice.accepted   — v2
+    _EVENTOS_ACEPTACION = {
+        "document.created",
+        "document.accepted",
+        "document.emitted",
+        "invoice.accepted",
+    }
+    es_aceptacion = (
+        evento in _EVENTOS_ACEPTACION
+        or "accept" in evento.lower()
+        or payload.get("success")
+    )
+
+    if es_aceptacion:
         if cufe:
             try:
                 _db.execute(
@@ -454,15 +490,14 @@ async def webhook_matias(request: Request):
                 )
                 logger.info("✅ Webhook: factura %s marcada como emitida", numero or cufe[:16])
 
-                # ── Despacho según tipo de cliente ───────────────────────────
-                # _despachar_post_aceptacion decide si manda PDF a Telegram
-                # (Consumidor Final) o solo notificación de texto (cliente con correo).
+                # Despachar PDF a Telegram (Consumidor Final) o notificación
+                # de texto (cliente con correo real). Corre en background thread.
                 _despachar_post_aceptacion(cufe, numero, email_ok)
 
             except Exception as e:
                 logger.error("Webhook: error actualizando DB para cufe %s: %s", cufe[:20], e)
 
-    # ── document.rejected (v3) / invoice.rejected (v2) ───────────────────────
+    # ── Eventos de rechazo DIAN ───────────────────────────────────────────────
     elif "reject" in evento.lower() or "error" in evento.lower() or evento == "document.voided":
         logger.warning("🔍 Webhook payload completo (rechazo): %s", _json.dumps(payload, ensure_ascii=False)[:1000])
 
@@ -509,6 +544,8 @@ async def webhook_matias(request: Request):
 
     return {"ok": True, "evento": evento}
 
+
+# ── Despacho post-aceptación DIAN ─────────────────────────────────────────────
 
 def _despachar_post_aceptacion(cufe: str, numero: str, email_ok) -> None:
     """
@@ -596,4 +633,3 @@ def _despachar_post_aceptacion(cufe: str, numero: str, email_ok) -> None:
             logger.error("Error en _despachar_post_aceptacion cufe %s: %s", cufe[:16], e)
 
     threading.Thread(target=_run, daemon=True).start()
-
