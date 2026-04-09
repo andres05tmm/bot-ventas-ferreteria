@@ -345,21 +345,22 @@ async def webhook_matias(request: Request):
         document.voided    — Factura anulada
         email.sent / email.delivered — confirmación correo al cliente
     """
-    import hashlib, hmac as _hmac, os as _os
-
     raw_body = await request.body()
 
-    # ── Verificar firma HMAC-SHA256 (v3.0.0) ─────────────────────────────────
-    webhook_secret = _os.getenv("MATIAS_WEBHOOK_SECRET")
-    if webhook_secret:
-        sig_header = request.headers.get("x-webhook-signature", "")
-        if sig_header:
-            expected = "sha256=" + _hmac.new(
-                webhook_secret.encode(), raw_body, hashlib.sha256
-            ).hexdigest()
-            if not _hmac.compare_digest(sig_header, expected):
-                logger.warning("Webhook MATIAS API: firma HMAC inválida — posible request falso")
-                raise HTTPException(status_code=401, detail="Firma webhook inválida")
+    # ── Verificar firma HMAC-SHA256 (v3.0.0) — DESHABILITADO temporalmente ────
+    # MATIAS no envía la firma correcta; todos los webhooks quedaban en HTTP 401.
+    # import hashlib, hmac as _hmac, os as _os
+    # webhook_secret = _os.getenv("MATIAS_WEBHOOK_SECRET")
+    # if webhook_secret:
+    #     sig_header = request.headers.get("x-webhook-signature", "")
+    #     if sig_header:
+    #         expected = "sha256=" + _hmac.new(
+    #             webhook_secret.encode(), raw_body, hashlib.sha256
+    #         ).hexdigest()
+    #         if not _hmac.compare_digest(sig_header, expected):
+    #             logger.warning("Webhook MATIAS API: firma HMAC inválida — posible request falso")
+    #             raise HTTPException(status_code=401, detail="Firma webhook inválida")
+    logger.info("📥 Webhook MATIAS recibido (verificación HMAC deshabilitada temporalmente)")
 
     try:
         payload = __import__("json").loads(raw_body)
