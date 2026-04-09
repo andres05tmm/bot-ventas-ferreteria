@@ -357,9 +357,9 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             "tax_level_id":         5,     # No responsable de IVA
             "company_name":         "CONSUMIDOR FINAL",
             "dni":                  "222222222222",
-            "mobile":               "3000000000",  # Campo obligatorio
-            "email":                "sinfactura@ferreterlapuntorojo.com",
-            "address":              "Cartagena",
+            "mobile":               venta.get("telefono_cliente") or "3000000000",  # FIX: nunca vacío
+            "email":                venta.get("correo_cliente") or _EMAIL_PLACEHOLDER,  # FIX: nunca vacío
+            "address":              venta.get("direccion_cliente") or "Cartagena",  # FIX: nunca vacío
         }
 
     # Caso 2: Cliente EMPRESA (NIT)
@@ -376,12 +376,12 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             "type_organization_id": 1,      # Empresa/persona jurídica
             "tax_regime_id":        1,      # Responsable IVA (régimen común)
             "tax_level_id":         1,      # Gran contribuyente/responsable
-            "company_name":         (venta.get("cliente_nombre") or "").upper(),
+            "company_name":         (venta.get("cliente_nombre") or "EMPRESA SIN NOMBRE").upper(),  # FIX: nunca vacío
             "dni":                  nit_sin_dv,
             "dv":                   dv,     # Dígito verificación (obligatorio para NIT)
-            "mobile":               venta.get("telefono_cliente") or "6011234567",
-            "email":                venta.get("correo_cliente") if tiene_correo_real else "sinfactura@ferreterlapuntorojo.com",
-            "address":              venta.get("direccion_cliente") or "Cartagena",
+            "mobile":               venta.get("telefono_cliente") or "6011234567",  # FIX: fallback
+            "email":                venta.get("correo_cliente") or _EMAIL_PLACEHOLDER,  # FIX: nunca vacío
+            "address":              venta.get("direccion_cliente") or "Cartagena",  # FIX: nunca vacío
         }
 
     # Caso 3: Cliente PERSONA (CC, CE, TI, Pasaporte, etc.)
@@ -393,11 +393,11 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             "type_organization_id": 2,      # Persona natural
             "tax_regime_id":        2,      # Régimen simplificado
             "tax_level_id":         5,      # No responsable de IVA
-            "company_name":         (venta.get("cliente_nombre") or "").upper(),
+            "company_name":         (venta.get("cliente_nombre") or "CLIENTE").upper(),  # FIX: nunca vacío
             "dni":                  id_cliente,
-            "mobile":               venta.get("telefono_cliente") or "3001234567",
-            "email":                venta.get("correo_cliente") if tiene_correo_real else "sinfactura@ferreterlapuntorojo.com",
-            "address":              venta.get("direccion_cliente") or "Cartagena",
+            "mobile":               venta.get("telefono_cliente") or "3001234567",  # FIX: fallback
+            "email":                venta.get("correo_cliente") or _EMAIL_PLACEHOLDER,  # FIX: nunca vacío
+            "address":              venta.get("direccion_cliente") or "Cartagena",  # FIX: nunca vacío
         }
 
     # Agregar city_id si hay municipio DIAN específico
@@ -483,7 +483,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "date":                   str(venta["fecha"])[:10],
         "time":                   ahora.strftime("%H:%M:%S"),
         "type_document_id":       7,    # Factura electrónica (según documentación oficial)
-        "operation_type_id":      10 if es_consumidor_final else 1,  # 10=CF, 1=Normal
+        "operation_type_id":      1,    # FIX: Siempre 1 (Factura Normal) — identity_document_id define CF/Normal
         "currency_id":            272,   # COP — recomendado en habilitación DIAN
         "notes":                  venta.get("notas") or "Ferretería Punto Rojo",
         "graphic_representation": 1,
@@ -562,11 +562,7 @@ async def emitir_factura(venta_id: int) -> dict:
         "Accept":        "application/json",
     }
 
-    logger.debug("Payload MATIAS API venta %s: %s", venta_id, payload)
-    
-    # 📤 LOG TEMPORAL: Ver JSON completo enviado a MATIAS
-    import json
-    logger.info("📤 JSON COMPLETO enviado a MATIAS API:\n%s", json.dumps(payload, indent=2, ensure_ascii=False))
+    logger.debug("📤 JSON enviado a MATIAS API para venta %s (tamaño payload: %d)", venta_id, len(str(payload)))
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -579,7 +575,13 @@ async def emitir_factura(venta_id: int) -> dict:
     logger.debug("Respuesta MATIAS API venta %s (HTTP %s): %s", venta_id, resp.status_code, data)
 
     valido = bool(data.get("success"))
-    cufe   = data.get("XmlDocumentKey") or data.get("document_key", "")
+    cufe   = (data.get("XmlDocumentKey") or data.get("document_key") or "").strip()
+
+    # FIX FAD06: Validar CUFE tiene longitud mínima (típicamente >40 caracteres)
+    if valido and (not cufe or len(cufe) < 40):
+        logger.error("❌ MATIAS devolvió success=true pero CUFE inválido: '%s' (len=%d)", cufe, len(cufe))
+        valido = False
+        data = {"success": False, "message": "CUFE inválido devuelto por MATIAS API"}
 
     if not valido:
         msg    = data.get("message") or ""
