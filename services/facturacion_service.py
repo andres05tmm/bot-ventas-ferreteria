@@ -582,7 +582,7 @@ async def obtener_pdf(cufe: str) -> bytes:
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         try:
-            resp = await client.post(url, headers=headers, json={})
+            resp = await client.post(url, headers=headers, json={"regenerate": 1})
             content_type = resp.headers.get("content-type", "")
 
             if resp.status_code != 200:
