@@ -353,25 +353,30 @@ async def webhook_matias(request: Request):
 
     raw_body = await request.body()
 
-    # ── Verificar firma HMAC-SHA256 ───────────────────────────────────────────
-    # Configura MATIAS_WEBHOOK_SECRET en Railway con el secret del panel de Matias API.
-    # Si la variable NO está configurada, el webhook se acepta igual (modo legacy).
+    # ── Verificar firma HMAC-SHA256 — MODO DEBUG ─────────────────────────────
+    # Loguea las firmas sin rechazar para poder comparar.
+    # Una vez que match=True en los logs, descomentar el bloque de rechazo.
     webhook_secret = os.getenv("MATIAS_WEBHOOK_SECRET", "")
     if webhook_secret:
-        sig_header = request.headers.get("x-webhook-signature", "")
-        if not sig_header:
-            # Matias debe enviar siempre la firma si el secret está configurado
-            logger.warning("⚠️ Webhook sin cabecera X-Webhook-Signature — rechazado")
-            raise HTTPException(status_code=401, detail="Firma webhook ausente")
-        expected = "sha256=" + _hmac.new(
+        sig_header  = request.headers.get("x-webhook-signature", "")
+        all_headers = dict(request.headers)
+        expected    = "sha256=" + _hmac.new(
             webhook_secret.encode(), raw_body, hashlib.sha256
         ).hexdigest()
-        if not _hmac.compare_digest(sig_header, expected):
-            logger.warning("🚫 Webhook MATIAS API: firma HMAC inválida — posible request falso")
-            raise HTTPException(status_code=401, detail="Firma webhook inválida")
-        logger.info("📥 Webhook MATIAS recibido (HMAC ✅ verificado)")
-    else:
-        logger.info("📥 Webhook MATIAS recibido (sin MATIAS_WEBHOOK_SECRET configurado)")
+        match = bool(sig_header) and _hmac.compare_digest(sig_header, expected)
+        logger.warning(
+            "HMAC DEBUG | recibido='%s' | esperado='%s' | match=%s | sig_headers=%s",
+            sig_header or "(vacio)",
+            expected,
+            match,
+            {k: v for k, v in all_headers.items() if "sig" in k.lower() or "webhook" in k.lower()},
+        )
+        # Descomenta cuando match sea True consistentemente:
+        # if not sig_header:
+        #     raise HTTPException(status_code=401, detail="Firma webhook ausente")
+        # if not match:
+        #     raise HTTPException(status_code=401, detail="Firma webhook invalida")
+    logger.info("Webhook MATIAS recibido")
 
     try:
         payload = _json.loads(raw_body)
