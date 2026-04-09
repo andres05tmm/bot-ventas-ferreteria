@@ -568,20 +568,21 @@ async def emitir_factura(venta_id: int) -> dict:
 async def obtener_pdf(cufe: str) -> bytes:
     """
     Descarga el PDF desde MATIAS API v3.0.0.
-    Endpoint: GET /documents/attached/{cufe}
+    Endpoint: POST /documents/attached/{cufe}
     """
     import asyncio
     token = await asyncio.to_thread(_get_token)
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/pdf, application/json",
+        "Content-Type": "application/json",
     }
 
     url = f"{MATIAS_API_URL}/documents/attached/{cufe}"
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         try:
-            resp = await client.get(url, headers=headers)
+            resp = await client.post(url, headers=headers, json={})
             content_type = resp.headers.get("content-type", "")
 
             if resp.status_code != 200:
