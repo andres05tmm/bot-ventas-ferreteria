@@ -126,7 +126,7 @@ const TAB_GROUPS = [
   { id: 'ventas',       label: 'Ventas',       icon: 'Ventas Rápidas', tabs: ['Ventas Rápidas', 'Historial'] },
   { id: 'finanzas',     label: 'Finanzas',          icon: 'Caja',           tabs: ['Caja', 'Gastos', 'Kárdex'] },
   { id: 'almacen',      label: 'Almacén',           icon: 'Inventario',     tabs: ['Inventario', 'Compras', 'Proveedores'] },
-  { id: 'contabilidad', label: 'Contabilidad Fiscal', icon: 'Libro IVA',   tabs: ['Compras Fiscal', 'Facturación', 'Libro IVA'] },
+  { id: 'contabilidad', label: 'Contabilidad Fiscal', icon: 'Libro IVA',   tabs: ['Facturación', 'Compras Fiscal', 'Libro IVA'] },
 ]
 const TABS = TAB_GROUPS.flatMap(g => g.tabs)
 
