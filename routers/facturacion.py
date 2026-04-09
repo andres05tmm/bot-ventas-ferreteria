@@ -114,7 +114,8 @@ def ventas_pendientes(fecha: str = Query(default=None)):
             COALESCE(v.vendedor, '')                        AS vendedor
         FROM ventas v
         WHERE v.fecha::date = %s
-          AND (v.factura_estado IS NULL OR v.factura_estado != 'emitida')
+          AND (v.factura_estado IS NULL OR v.factura_estado NOT IN ('emitida'))
+          -- FIX: 'error' ahora aparece en pendientes para poder reintentar
         ORDER BY v.consecutivo DESC
         """,
         (fecha_consulta,),
@@ -419,16 +420,52 @@ async def webhook_matias(request: Request):
 
     # ── document.rejected (v3) / invoice.rejected (v2) ───────────────────────
     elif "reject" in evento.lower() or "error" in evento.lower() or evento == "document.voided":
-        error_msg = data.get("message") or data.get("errors") or "Rechazada por DIAN"
-        if isinstance(error_msg, dict):
-            error_msg = " | ".join(f"{k}: {v}" for k, v in error_msg.items())
+        # FIX: loguear payload completo para poder diagnosticar el error real de DIAN
+        import json as _json
+        logger.warning("🔍 Webhook payload completo (rechazo): %s", _json.dumps(payload, ensure_ascii=False)[:1000])
+
+        # Extraer error_msg desde múltiples posibles campos que MATIAS puede enviar
+        raw_errors = (
+            data.get("errors")          or   # campo 'errors' (array o dict)
+            data.get("message")         or   # campo 'message' (string)
+            data.get("error")           or   # campo 'error' (string)
+            data.get("StatusMessage")   or   # respuesta DIAN directa
+            data.get("description")     or
+            payload.get("message")      or   # a veces está en la raíz del payload
+            "Rechazada por DIAN"
+        )
+
+        # Normalizar a string legible
+        if isinstance(raw_errors, list):
+            error_msg = " | ".join(str(e) for e in raw_errors)
+        elif isinstance(raw_errors, dict):
+            # Puede venir como {"string": ["Regla FAD06...", "Regla FAV08a..."]}
+            parts = []
+            for k, v in raw_errors.items():
+                if isinstance(v, list):
+                    parts.extend(str(i) for i in v)
+                else:
+                    parts.append(f"{k}: {v}")
+            error_msg = " | ".join(parts)
+        else:
+            error_msg = str(raw_errors)
+
         if cufe:
             try:
                 _db.execute(
                     "UPDATE facturas_electronicas SET estado = 'error', error_msg = %s WHERE cufe = %s",
-                    [str(error_msg)[:500], cufe],
+                    [error_msg[:500], cufe],
                 )
-                logger.warning("❌ Webhook: factura %s rechazada — %s", numero or cufe[:16], str(error_msg)[:100])
+                # FIX: también actualizar ventas para que vuelva a aparecer en cola de pendientes
+                _db.execute(
+                    """
+                    UPDATE ventas
+                    SET factura_estado = 'error'
+                    WHERE factura_cufe = %s AND factura_estado = 'emitida'
+                    """,
+                    [cufe],
+                )
+                logger.warning("❌ Webhook: factura %s rechazada — %s", numero or cufe[:16], error_msg[:200])
             except Exception as e:
                 logger.error("Webhook: error guardando rechazo cufe %s: %s", cufe[:20], e)
 

@@ -250,8 +250,11 @@ def _siguiente_num_dian(cur) -> int:
             %s - 1
         ) + 1 AS siguiente
         FROM facturas_electronicas
-        WHERE estado != 'error'
         """,
+        # FIX: se eliminó WHERE estado != 'error'.
+        # Un número enviado a DIAN NO se puede reusar aunque sea rechazado.
+        # Sin el filtro, todos los números (incluyendo rechazados) se cuentan,
+        # garantizando que siempre se asigne el siguiente número disponible.
         (MATIAS_NUM_DESDE,),
     )
     siguiente = cur.fetchone()["siguiente"]
