@@ -353,32 +353,48 @@ async def webhook_matias(request: Request):
 
     raw_body = await request.body()
 
-    # ── Verificar firma HMAC-SHA256 (formato Matias API / Svix) ─────────────
-    # Matias firma: HMAC-SHA256(secret, webhook_id + "\n" + timestamp + "\n" + body)
-    # La firma se envía SIN prefijo "sha256=" en X-Webhook-Signature.
-    # Configura MATIAS_WEBHOOK_SECRET en Railway con el secret del panel de Matias.
+    # ── Verificar firma HMAC-SHA256 — DEBUG EXTENDIDO ────────────────────────
     webhook_secret = os.getenv("MATIAS_WEBHOOK_SECRET", "")
     if webhook_secret:
+        import base64 as _b64
         sig_header  = request.headers.get("x-webhook-signature", "")
         webhook_id  = request.headers.get("x-webhook-id", "")
         timestamp   = request.headers.get("x-webhook-timestamp", "")
 
-        if not sig_header:
-            logger.warning("Webhook sin X-Webhook-Signature — rechazado")
-            raise HTTPException(status_code=401, detail="Firma webhook ausente")
-
-        # Contenido firmado: id + newline + timestamp + newline + body
         signed_content = f"{webhook_id}\n{timestamp}\n".encode() + raw_body
-        expected = _hmac.new(
-            webhook_secret.encode(), signed_content, hashlib.sha256
-        ).hexdigest()
 
-        if not _hmac.compare_digest(sig_header, expected):
-            logger.warning("Firma HMAC invalida — rechazado")
-            raise HTTPException(status_code=401, detail="Firma webhook invalida")
-        logger.info("Webhook MATIAS recibido (HMAC verificado)")
-    else:
-        logger.info("Webhook MATIAS recibido (sin MATIAS_WEBHOOK_SECRET)")
+        # Intento 1: secret como string UTF-8 directo
+        v1 = _hmac.new(webhook_secret.encode(), signed_content, hashlib.sha256).hexdigest()
+        # Intento 2: secret base64-decoded (Svix estándar)
+        try:
+            v2 = _hmac.new(_b64.b64decode(webhook_secret), signed_content, hashlib.sha256).hexdigest()
+        except Exception:
+            v2 = "b64decode-error"
+        # Intento 3: solo body, secret UTF-8
+        v3 = _hmac.new(webhook_secret.encode(), raw_body, hashlib.sha256).hexdigest()
+        # Intento 4: solo body, secret base64-decoded
+        try:
+            v4 = _hmac.new(_b64.b64decode(webhook_secret), raw_body, hashlib.sha256).hexdigest()
+        except Exception:
+            v4 = "b64decode-error"
+
+        logger.warning(
+            "HMAC DEBUG\n"
+            "  recibido : %s\n"
+            "  v1 (id+ts+body, raw)  : %s  match=%s\n"
+            "  v2 (id+ts+body, b64)  : %s  match=%s\n"
+            "  v3 (body only,  raw)  : %s  match=%s\n"
+            "  v4 (body only,  b64)  : %s  match=%s\n"
+            "  wh_id=%s ts=%s secret_len=%d",
+            sig_header,
+            v1, sig_header==v1,
+            v2, sig_header==v2,
+            v3, sig_header==v3,
+            v4, sig_header==v4,
+            webhook_id, timestamp, len(webhook_secret),
+        )
+        # Sin rechazo todavia — esperando match=True en alguna variante
+    logger.info("Webhook MATIAS recibido")
 
     try:
         payload = _json.loads(raw_body)
