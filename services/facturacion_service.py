@@ -341,7 +341,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     subtotal  = round(subtotal_gravable + subtotal_exento, 2)
     total_doc = round(total_doc, 2)
 
-    # ── Comprador - ESTRUCTURA UNIFICADA según ejemplos oficiales ─────────
+    # ── Comprador - ESTRUCTURA OFICIAL MATIAS API (3 casos) ─────────────────
     id_cliente          = venta.get("identificacion_cliente") or ""
     tipo_id_raw         = (venta.get("tipo_id") or "").upper().strip()
     tiene_correo_real   = not _sin_correo_real(venta.get("correo_cliente"))
@@ -350,14 +350,15 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     if not id_cliente or id_cliente.strip() == "222222222222":
         es_consumidor_final = True
         customer = {
-            "identification_number":            "222222222222",
-            "name":                             "CONSUMIDOR FINAL",
-            "type_document_identification_id":  6,
-            "type_organization_id":             2,
-            "municipality_id":                  149,  # Cartagena
-            "type_regime_id":                   2,
-            "address":                          "NA",
-            "email":                            "sinfactura@ferreterlapuntorojo.com",
+            "country_id":           "45",
+            "identity_document_id": "6",   # Consumidor Final
+            "type_organization_id": 2,     # Persona natural
+            "tax_regime_id":        2,     # Régimen simplificado
+            "tax_level_id":         5,     # No responsable de IVA
+            "company_name":         "CONSUMIDOR FINAL",
+            "dni":                  "222222222222",
+            "email":                "sinfactura@ferreterlapuntorojo.com",
+            "address":              "Cartagena",
         }
 
     # Caso 2: Cliente EMPRESA (NIT)
@@ -369,39 +370,43 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         dv = nit_parts[1].strip() if len(nit_parts) > 1 else ""
         
         customer = {
-            "identification_number":            nit_sin_dv,
-            "dv":                               dv,  # Obligatorio para empresas
-            "name":                             (venta.get("cliente_nombre") or "").upper(),
-            "phone":                            venta.get("telefono_cliente") or "6011234567",
-            "email":                            venta.get("correo_cliente") if tiene_correo_real else "sinfactura@ferreterlapuntorojo.com",
-            "address":                          venta.get("direccion_cliente") or "Cartagena",
-            "municipality_id":                  149,  # Cartagena (ajustar según cliente)
-            "type_document_identification_id":  3,    # NIT
-            "type_organization_id":             1,    # Empresa/persona jurídica
-            "type_regime_id":                   1,    # Responsable IVA
+            "country_id":           "45",
+            "identity_document_id": "3",    # NIT
+            "type_organization_id": 1,      # Empresa/persona jurídica
+            "tax_regime_id":        1,      # Responsable IVA (régimen común)
+            "tax_level_id":         1,      # Gran contribuyente/responsable
+            "company_name":         (venta.get("cliente_nombre") or "").upper(),
+            "dni":                  nit_sin_dv,
+            "dv":                   dv,     # Dígito verificación (obligatorio para NIT)
+            "mobile":               venta.get("telefono_cliente") or "6011234567",
+            "email":                venta.get("correo_cliente") if tiene_correo_real else "sinfactura@ferreterlapuntorojo.com",
+            "address":              venta.get("direccion_cliente") or "Cartagena",
         }
 
     # Caso 3: Cliente PERSONA (CC, CE, TI, Pasaporte, etc.)
     else:
         es_consumidor_final = False
         customer = {
-            "identification_number":            id_cliente,
-            "name":                             (venta.get("cliente_nombre") or "").upper(),
-            "phone":                            venta.get("telefono_cliente") or "3001234567",
-            "email":                            venta.get("correo_cliente") if tiene_correo_real else "sinfactura@ferreterlapuntorojo.com",
-            "address":                          venta.get("direccion_cliente") or "Cartagena",
-            "municipality_id":                  149,  # Cartagena (ajustar según cliente)
-            "type_document_identification_id":  1,    # CC (cédula ciudadanía)
-            "type_organization_id":             2,    # Persona natural
-            "type_regime_id":                   2,    # Régimen simplificado
+            "country_id":           "45",
+            "identity_document_id": "1",    # CC (cédula ciudadanía)
+            "type_organization_id": 2,      # Persona natural
+            "tax_regime_id":        2,      # Régimen simplificado
+            "tax_level_id":         5,      # No responsable de IVA
+            "company_name":         (venta.get("cliente_nombre") or "").upper(),
+            "dni":                  id_cliente,
+            "mobile":               venta.get("telefono_cliente") or "3001234567",
+            "email":                venta.get("correo_cliente") if tiene_correo_real else "sinfactura@ferreterlapuntorojo.com",
+            "address":              venta.get("direccion_cliente") or "Cartagena",
         }
 
-    # Ajustar municipality_id si hay municipio DIAN específico
+    # Agregar city_id si hay municipio DIAN específico
     municipio_dian = venta.get("municipio_dian")
     if municipio_dian and municipio_dian != "149":
         _resolved_city_id = _matias_city_id(municipio_dian)
         if _resolved_city_id:
-            customer["municipality_id"] = _resolved_city_id
+            customer["city_id"] = _resolved_city_id
+    else:
+        customer["city_id"] = "149"  # Cartagena por defecto
 
     # ── Líneas de detalle ─────────────────────────────────────────────────────
     # quantity_units_id → int (no string)
@@ -476,7 +481,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "document_number":        str(num_dian),
         "date":                   str(venta["fecha"])[:10],
         "time":                   ahora.strftime("%H:%M:%S"),
-        "type_document_id":       1,    # Factura estándar (según ejemplos oficiales)
+        "type_document_id":       7,    # Factura electrónica (según documentación oficial)
         "operation_type_id":      10 if es_consumidor_final else 1,  # 10=CF, 1=Normal
         "currency_id":            272,   # COP — recomendado en habilitación DIAN
         "notes":                  venta.get("notas") or "Ferretería Punto Rojo",
