@@ -377,20 +377,32 @@ async def webhook_matias(request: Request):
             v4 = _hmac.new(_b64.b64decode(webhook_secret), raw_body, hashlib.sha256).hexdigest()
         except Exception:
             v4 = "b64decode-error"
+        # Intento 5: secret tiene prefijo "whsec_" → quitar y b64-decode (Svix estandar)
+        try:
+            secret_stripped = webhook_secret.removeprefix("whsec_")
+            secret_bytes    = _b64.b64decode(secret_stripped)
+            v5 = _hmac.new(secret_bytes, signed_content, hashlib.sha256).hexdigest()
+            v6 = _hmac.new(secret_bytes, raw_body,       hashlib.sha256).hexdigest()
+        except Exception as _ex:
+            v5 = v6 = f"error-{_ex}"
 
         logger.warning(
             "HMAC DEBUG\n"
             "  recibido : %s\n"
-            "  v1 (id+ts+body, raw)  : %s  match=%s\n"
-            "  v2 (id+ts+body, b64)  : %s  match=%s\n"
-            "  v3 (body only,  raw)  : %s  match=%s\n"
-            "  v4 (body only,  b64)  : %s  match=%s\n"
+            "  v1 (id+ts+body, raw)       : %s  match=%s\n"
+            "  v2 (id+ts+body, b64)       : %s  match=%s\n"
+            "  v3 (body only,  raw)       : %s  match=%s\n"
+            "  v4 (body only,  b64)       : %s  match=%s\n"
+            "  v5 (id+ts+body, whsec_b64) : %s  match=%s\n"
+            "  v6 (body only,  whsec_b64) : %s  match=%s\n"
             "  wh_id=%s ts=%s secret_len=%d",
             sig_header,
             v1, sig_header==v1,
             v2, sig_header==v2,
             v3, sig_header==v3,
             v4, sig_header==v4,
+            v5, sig_header==v5,
+            v6, sig_header==v6,
             webhook_id, timestamp, len(webhook_secret),
         )
         # Sin rechazo todavia — esperando match=True en alguna variante
