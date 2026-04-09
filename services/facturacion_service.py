@@ -540,6 +540,10 @@ async def emitir_factura(venta_id: int) -> dict:
     }
 
     logger.debug("Payload MATIAS API venta %s: %s", venta_id, payload)
+    
+    # 📤 LOG TEMPORAL: Ver JSON completo enviado a MATIAS
+    import json
+    logger.info("📤 JSON COMPLETO enviado a MATIAS API:\n%s", json.dumps(payload, indent=2, ensure_ascii=False))
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
