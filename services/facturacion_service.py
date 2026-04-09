@@ -345,28 +345,43 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     tipo_id_raw         = (venta.get("tipo_id") or "CC").upper().strip()
     id_cliente          = venta.get("identificacion_cliente") or ""
     es_consumidor_final = not id_cliente or id_cliente.strip() == "222222222222"
-    # Consumidor Final → identity_document_id="6" según soporte MATIAS
-    identity_doc_id = "6" if es_consumidor_final else _TIPO_ID_MATIAS.get(tipo_id_raw, "1")
+    es_nit              = tipo_id_raw == "NIT" and not es_consumidor_final
 
     tiene_correo_real = not _sin_correo_real(venta.get("correo_cliente"))
-    email_payload     = (
-        venta.get("correo_cliente")
-        if tiene_correo_real
-        else _EMAIL_PLACEHOLDER
-    )
 
-    customer = {
-        "country_id":            "45",
-        "identity_document_id":  identity_doc_id,
-        "type_organization_id":  1   if es_nit else 2,
-        "tax_regime_id":         1   if es_nit else 2,
-        "tax_level_id":          1   if es_nit else 5,
-        "company_name":          (venta.get("cliente_nombre") or "CONSUMIDOR FINAL").upper(),
-        "dni":                   venta.get("identificacion_cliente") or "222222222222",
-        "mobile":                venta.get("telefono_cliente")       or "3000000000",
-        "email":                 email_payload,
-        "address":               venta.get("direccion_cliente")      or "Cartagena",
-    }
+    if es_consumidor_final:
+        # Campos fijos para Consumidor Final según DIAN / MATIAS API.
+        # Usar siempre estos valores exactos — cualquier desviación causa FAJ43b.
+        customer = {
+            "country_id":           "45",
+            "identity_document_id": "6",   # Consumidor Final
+            "type_organization_id": 2,     # Persona natural
+            "tax_regime_id":        2,     # Régimen simplificado
+            "tax_level_id":         5,     # No responsable de IVA
+            "company_name":         "CONSUMIDOR FINAL",
+            "dni":                  "222222222222",
+            "mobile":               venta.get("telefono_cliente") or "3000000000",
+            "email":                _EMAIL_PLACEHOLDER,
+            "address":              "Cartagena",
+        }
+    else:
+        identity_doc_id = _TIPO_ID_MATIAS.get(tipo_id_raw, "1")
+        email_payload   = (
+            venta.get("correo_cliente") if tiene_correo_real else _EMAIL_PLACEHOLDER
+        )
+        customer = {
+            "country_id":           "45",
+            "identity_document_id": identity_doc_id,
+            "type_organization_id": 1 if es_nit else 2,
+            "tax_regime_id":        1 if es_nit else 2,
+            "tax_level_id":         1 if es_nit else 5,
+            "company_name":         (venta.get("cliente_nombre") or "").upper(),
+            "dni":                  id_cliente,
+            "mobile":               venta.get("telefono_cliente") or "3000000000",
+            "email":                email_payload,
+            "address":              venta.get("direccion_cliente") or "Cartagena",
+        }
+
     _resolved_city_id = _matias_city_id(venta.get("municipio_dian"))
     if _resolved_city_id:
         customer["city_id"] = _resolved_city_id
