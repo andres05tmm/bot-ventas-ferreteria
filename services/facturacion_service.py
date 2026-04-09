@@ -357,6 +357,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             "tax_level_id":         5,     # No responsable de IVA
             "company_name":         "CONSUMIDOR FINAL",
             "dni":                  "222222222222",
+            "mobile":               "3000000000",  # Campo obligatorio
             "email":                "sinfactura@ferreterlapuntorojo.com",
             "address":              "Cartagena",
         }
