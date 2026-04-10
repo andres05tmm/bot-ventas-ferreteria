@@ -89,8 +89,6 @@ def get_compras_sin_factura(
     current_user=Depends(get_current_user),
 ):
     """Compras sin factura_proveedor_id para un proveedor dado (búsqueda parcial). Admin only."""
-    if current_user["rol"] != "admin":
-        raise HTTPException(status_code=403, detail="Solo admin")
     import db as _db
     if not _db.DB_DISPONIBLE:
         raise HTTPException(status_code=503, detail="DB no disponible")
@@ -120,8 +118,6 @@ def get_facturas(
 ):
     """Lista todas las facturas (o solo las pendientes/parciales). Admin only."""
     try:
-        if current_user["rol"] != "admin":
-            raise HTTPException(status_code=403, detail="Solo admin")
 
         from memoria import listar_facturas
         facturas = listar_facturas(solo_pendientes=solo_pendientes)
@@ -151,8 +147,6 @@ def crear_factura(
 ):
     """Crea una nueva factura de proveedor (sin foto — la foto va por separado). Admin only."""
     try:
-        if current_user["rol"] != "admin":
-            raise HTTPException(status_code=403, detail="Solo admin")
 
         from memoria import registrar_factura_proveedor
         if not body.proveedor.strip():
@@ -187,8 +181,6 @@ async def subir_foto_factura(
 ):
     """Sube la foto de una factura a Cloudinary y actualiza la URL en PostgreSQL. Admin only."""
     try:
-        if current_user["rol"] != "admin":
-            raise HTTPException(status_code=403, detail="Solo admin")
         import db as _db
 
         if not _db.DB_DISPONIBLE:
@@ -238,8 +230,6 @@ def registrar_abono(
 ):
     """Registra un abono a una factura (sin foto). Admin only."""
     try:
-        if current_user["rol"] != "admin":
-            raise HTTPException(status_code=403, detail="Solo admin")
         from memoria import registrar_abono_factura, listar_facturas
         if body.monto <= 0:
             raise HTTPException(status_code=400, detail="El monto debe ser mayor a 0")
@@ -281,8 +271,6 @@ async def subir_foto_abono(
 ):
     """Sube la foto del comprobante de abono y la adjunta al último abono en PostgreSQL. Admin only."""
     try:
-        if current_user["rol"] != "admin":
-            raise HTTPException(status_code=403, detail="Solo admin")
         import db as _db
 
         if not _db.DB_DISPONIBLE:
@@ -358,8 +346,6 @@ def listar_facturas_electronicas(
     current_user=Depends(get_current_user),
 ):
     """Lista FE de proveedores recibidas por Gmail con estado de eventos DIAN."""
-    if current_user["rol"] != "admin":
-        raise HTTPException(status_code=403, detail="Solo admin")
     import db as _db
     if not _db.DB_DISPONIBLE:
         raise HTTPException(status_code=503, detail="DB no disponible")
@@ -392,8 +378,6 @@ async def aceptar_factura_proveedor(
     current_user=Depends(get_current_user),
 ):
     """Acepta una FE de proveedor: envía eventos 032 + 033 a la DIAN."""
-    if current_user["rol"] != "admin":
-        raise HTTPException(status_code=403, detail="Solo admin")
     from services.eventos_dian_service import aceptar_factura
     resultado = await aceptar_factura(body.cufe, body.compra_fiscal_id)
     if not resultado["ok"]:
@@ -410,8 +394,6 @@ async def reclamar_factura_proveedor(
     current_user=Depends(get_current_user),
 ):
     """Envía reclamo (evento 031) sobre una FE de proveedor."""
-    if current_user["rol"] != "admin":
-        raise HTTPException(status_code=403, detail="Solo admin")
     if not body.motivo.strip():
         raise HTTPException(status_code=400, detail="El motivo del reclamo es obligatorio")
     from services.eventos_dian_service import reclamar_factura
@@ -430,8 +412,6 @@ async def reintentar_acuse_recibo(
     current_user=Depends(get_current_user),
 ):
     """Reintenta el acuse de recibo (030) si falló al recibir el correo."""
-    if current_user["rol"] != "admin":
-        raise HTTPException(status_code=403, detail="Solo admin")
     from services.eventos_dian_service import reintentar_acuse
     ev = await reintentar_acuse(body.cufe, body.compra_fiscal_id)
     if not ev.get("ok"):
@@ -442,8 +422,6 @@ async def reintentar_acuse_recibo(
 def resumen_proveedores(current_user=Depends(get_current_user)):
     """Resumen por proveedor: deuda total, facturas pendientes. Admin only."""
     try:
-        if current_user["rol"] != "admin":
-            raise HTTPException(status_code=403, detail="Solo admin")
         from memoria import listar_facturas
         from collections import defaultdict
 

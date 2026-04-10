@@ -2637,10 +2637,43 @@ export default function TabVentasRapidas({ refreshKey }) {
               : <span>Carrito vacío</span>
             }
           </button>
+          {/* Toggle cambio sutil — solo efectivo */}
+          {totalItems > 0 && metodo === 'efectivo' && (
+            <button
+              onClick={() => setCalcCambio(v => !v)}
+              title={calcCambio ? 'Desactivar cambio' : 'Calcular cambio'}
+              style={{
+                flexShrink: 0,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                background: calcCambio ? `${t.accent}20` : 'transparent',
+                border: `1px solid ${calcCambio ? t.accent + '55' : t.border}`,
+                borderRadius: 10, padding: '6px 8px',
+                cursor: 'pointer', transition: 'all .18s',
+              }}
+            >
+              <div style={{
+                width: 24, height: 14, borderRadius: 7,
+                background: calcCambio ? t.accent : t.border,
+                position: 'relative', transition: 'background .15s',
+              }}>
+                <div style={{
+                  position: 'absolute', top: 2, left: calcCambio ? 12 : 2,
+                  width: 10, height: 10, borderRadius: '50%', background: '#fff',
+                  transition: 'left .15s',
+                }} />
+              </div>
+              <span style={{ fontSize: 8, color: calcCambio ? t.accent : t.textMuted, fontWeight: 700, letterSpacing: '.02em' }}>
+                💱
+              </span>
+            </button>
+          )}
           {/* Botón derecho: checkout — solo cuando hay ítems */}
           {totalItems > 0 && (
             <button
-              onClick={enviando ? undefined : () => setModalCheckout(true)}
+              onClick={enviando ? undefined : () => {
+                if (calcCambio) setModalCheckout(true)
+                else registrar()
+              }}
               disabled={enviando}
               style={{
                 padding: '12px 18px',
