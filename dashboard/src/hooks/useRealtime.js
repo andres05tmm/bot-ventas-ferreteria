@@ -51,6 +51,25 @@ import { useEffect, useRef } from 'react'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 
+/**
+ * Verifica si un JWT está expirado decodificando el campo `exp` del payload.
+ * Devuelve true si expiró o si no se puede decodificar (token corrupto).
+ */
+function isTokenExpired(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    return payload.exp && payload.exp < Date.now() / 1000
+  } catch {
+    return true
+  }
+}
+
+function redirectToLogin() {
+  localStorage.removeItem('ferrebot_token')
+  localStorage.removeItem('ferrebot_user')
+  window.location.href = '/login'
+}
+
 export function useRealtime(onEvent) {
   // Guardar el callback en un ref para que el useEffect no necesite re-ejecutarse
   // cuando el padre re-renderiza con una función nueva en cada render.
@@ -74,8 +93,13 @@ export function useRealtime(onEvent) {
       const token = localStorage.getItem('ferrebot_token')
       if (!token) {
         // Sin token no hay sesión — no conectar para evitar 401 en bucle.
-        // El componente que usa este hook debe llamarlo solo cuando el usuario
-        // ya está autenticado, pero este guard evita crashes silenciosos.
+        return
+      }
+
+      // Si el token ya expiró, redirigir al login en lugar de conectar y
+      // generar un loop de 401s que spamea los logs del servidor.
+      if (isTokenExpired(token)) {
+        redirectToLogin()
         return
       }
 
@@ -111,6 +135,14 @@ export function useRealtime(onEvent) {
         es.close()
         es = null
         if (destroyed) return
+
+        // Si el token expiró mientras estaba conectado, no reintentar —
+        // redirigir al login para que el vendedor obtenga un token nuevo.
+        const currentToken = localStorage.getItem('ferrebot_token')
+        if (!currentToken || isTokenExpired(currentToken)) {
+          redirectToLogin()
+          return
+        }
 
         // Backoff exponencial: 2s, 4s, 8s, 16s, 30s (tope)
         const delay = Math.min(2000 * Math.pow(2, retries), 30_000)

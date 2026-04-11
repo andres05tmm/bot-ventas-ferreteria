@@ -34,21 +34,29 @@ export const useAuth = () => {
   }
 
   /**
-   * authFetch - Wrapper around fetch that automatically adds JWT token
+   * authFetch - Wrapper around fetch that automatically adds JWT token.
+   * Si el servidor responde 401 (token expirado o inválido), hace logout
+   * automático y redirige al login en lugar de dejar la UI en estado vacío.
    * @param {string} url - The URL to fetch
    * @param {Object} options - fetch options (will be merged with auth headers)
    * @returns {Promise} fetch response promise
    */
-  const authFetch = (url, options = {}) => {
+  const authFetch = async (url, options = {}) => {
     const headers = {
       ...getAuthHeaders(),
       ...(options.headers || {})
     }
 
-    return fetch(url, {
-      ...options,
-      headers
-    })
+    const response = await fetch(url, { ...options, headers })
+
+    if (response.status === 401) {
+      // Token expirado o inválido — limpiar sesión y redirigir al login
+      localStorage.removeItem('ferrebot_token')
+      localStorage.removeItem('ferrebot_user')
+      window.location.href = '/login'
+    }
+
+    return response
   }
 
   return { getToken, getUser, logout, isAdmin, authHeader, getAuthHeaders, authFetch }
