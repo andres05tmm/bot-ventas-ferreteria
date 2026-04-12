@@ -468,7 +468,7 @@ function MayoristaInline({ mayorista, prodKey, onSaved, topSpacing, authFetch })
   )
 }
 
-function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
+function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete, authFetch }) {
   const t = useTheme()
   const [p, setP] = useState(pInit)
   const hasFracs   = p.fracciones && Object.keys(p.fracciones).length > 0
@@ -570,7 +570,7 @@ function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
 }
 
 // ── Tabla / Cards ────────────────────────────────────────────────────────────
-function TablaCat({ prods, onEdit, onDelete, isMobile }) {
+function TablaCat({ prods, onEdit, onDelete, isMobile, authFetch }) {
   const t = useTheme()
   const [expanded, setExpanded] = useState({})
   const toggle = useCallback(k => setExpanded(p=>({...p,[k]:!p[k]})), [])
@@ -579,7 +579,7 @@ function TablaCat({ prods, onEdit, onDelete, isMobile }) {
     <div style={{ borderTop:`1px solid ${t.border}`, padding:'8px 10px', display:'flex', flexDirection:'column', gap:8 }}>
       {prods.map(p => (
         <MobileProductCard key={p.key} p={p} expanded={!!expanded[p.key]} onToggle={()=>toggle(p.key)}
-          onEdit={()=>onEdit(p)} onDelete={()=>onDelete(p)} />
+          onEdit={()=>onEdit(p)} onDelete={()=>onDelete(p)} authFetch={authFetch} />
       ))}
     </div>
   )
@@ -601,7 +601,7 @@ function TablaCat({ prods, onEdit, onDelete, isMobile }) {
         <tbody>
           {prods.map(p => (
             <ProductoRow key={p.key} p={p} expanded={!!expanded[p.key]} onToggle={()=>toggle(p.key)}
-              onEdit={()=>onEdit(p)} onDelete={()=>onDelete(p)}/>
+              onEdit={()=>onEdit(p)} onDelete={()=>onDelete(p)} authFetch={authFetch}/>
           ))}
         </tbody>
       </table>
@@ -610,7 +610,7 @@ function TablaCat({ prods, onEdit, onDelete, isMobile }) {
 }
 
 // ── Card de producto para móvil ──────────────────────────────────────────────
-function MobileProductCard({ p: pInit, expanded, onToggle, onEdit, onDelete }) {
+function MobileProductCard({ p: pInit, expanded, onToggle, onEdit, onDelete, authFetch }) {
   const t = useTheme()
   const [p, setP] = useState(pInit)
   const hasFracs   = p.fracciones && Object.keys(p.fracciones).length > 0
@@ -1292,7 +1292,7 @@ export default function TabInventario({ refreshKey }) {
                   {expandida && (
                     prodsVisibles.length===0
                       ? <div style={{padding:'20px',textAlign:'center',color:t.textMuted,fontSize:12}}>Sin productos en esta subcategoría.</div>
-                      : <TablaCat prods={prodsVisibles} onEdit={setEditandoProd} onDelete={setEliminandoProd} isMobile={isMobile}/>
+                      : <TablaCat prods={prodsVisibles} onEdit={setEditandoProd} onDelete={setEliminandoProd} isMobile={isMobile} authFetch={authFetch}/>
                   )}
                 </div>
               )
