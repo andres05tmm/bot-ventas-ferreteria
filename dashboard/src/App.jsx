@@ -770,23 +770,31 @@ function AppShell({ themeId, setThemeId, refreshRef }) {
         paddingBottom: isMobile ? 'calc(72px + env(safe-area-inset-bottom, 0px) + 16px)' : 24,
         position: 'relative',
       }}>
-        <div className="tab-content" key={tab}>
-          {tab==='Resumen'          && <TabResumen         refreshKey={refreshKey}/>}
-          {tab==='Ventas Rápidas'   && <TabVentasRapidas   refreshKey={refreshKey}/>}
-          {tab==='Top 10'           && <TabTopProductos    refreshKey={refreshKey}/>}
-          {tab==='Inventario'       && <TabInventario      refreshKey={refreshKey}/>}
-          {tab==='Historial'        && <TabHistorial       refreshKey={refreshKey}/>}
-          {tab==='Caja'             && <TabCaja            refreshKey={refreshKey}/>}
-          {tab==='Gastos'           && <TabGastos          refreshKey={refreshKey}/>}
-          {tab==='Compras'          && <TabCompras         refreshKey={refreshKey}/>}
-          {tab==='Compras Fiscal'   && <TabComprasFiscal   refreshKey={refreshKey}/>}
-          {tab==='Kárdex'           && <TabKardex          refreshKey={refreshKey}/>}
-          {tab==='Resultados'       && <TabResultados      refreshKey={refreshKey}/>}
-          {tab==='Histórico'        && <TabHistoricoVentas refreshKey={refreshKey}/>}
-          {tab==='Proveedores'      && <TabProveedores     refreshKey={refreshKey}/>}
-          {tab==='Facturación'      && <TabFacturacion     refreshKey={refreshKey}/>}
-          {tab==='Libro IVA'        && <TabLibroIVA        refreshKey={refreshKey}/>}
+        {/* Ventas Rápidas — siempre montado para preservar el carrito entre tabs */}
+        <div className={tab==='Ventas Rápidas' ? 'tab-content' : undefined}
+             style={{ display: tab==='Ventas Rápidas' ? 'block' : 'none' }}>
+          <TabVentasRapidas refreshKey={refreshKey}/>
         </div>
+
+        {/* Resto de tabs — se montan/desmontan normalmente con animación */}
+        {tab !== 'Ventas Rápidas' && (
+          <div className="tab-content" key={tab}>
+            {tab==='Resumen'          && <TabResumen         refreshKey={refreshKey}/>}
+            {tab==='Top 10'           && <TabTopProductos    refreshKey={refreshKey}/>}
+            {tab==='Inventario'       && <TabInventario      refreshKey={refreshKey}/>}
+            {tab==='Historial'        && <TabHistorial       refreshKey={refreshKey}/>}
+            {tab==='Caja'             && <TabCaja            refreshKey={refreshKey}/>}
+            {tab==='Gastos'           && <TabGastos          refreshKey={refreshKey}/>}
+            {tab==='Compras'          && <TabCompras         refreshKey={refreshKey}/>}
+            {tab==='Compras Fiscal'   && <TabComprasFiscal   refreshKey={refreshKey}/>}
+            {tab==='Kárdex'           && <TabKardex          refreshKey={refreshKey}/>}
+            {tab==='Resultados'       && <TabResultados      refreshKey={refreshKey}/>}
+            {tab==='Histórico'        && <TabHistoricoVentas refreshKey={refreshKey}/>}
+            {tab==='Proveedores'      && <TabProveedores     refreshKey={refreshKey}/>}
+            {tab==='Facturación'      && <TabFacturacion     refreshKey={refreshKey}/>}
+            {tab==='Libro IVA'        && <TabLibroIVA        refreshKey={refreshKey}/>}
+          </div>
+        )}
       </main>
 
       {!isMobile && <Footer/>}
