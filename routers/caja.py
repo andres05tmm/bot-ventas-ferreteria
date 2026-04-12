@@ -89,10 +89,21 @@ def caja(current_user=Depends(get_current_user)):
 
         total_gastos_caja = sum(g["monto"] for g in gastos_hoy if g.get("origen") == "caja")
         total_gastos      = sum(g["monto"] for g in gastos_hoy)
-        efectivo          = int(caja_row.get("efectivo", 0))
-        transferencias    = int(caja_row.get("transferencias", 0))
-        datafono          = int(caja_row.get("datafono", 0))
         apertura          = int(caja_row.get("monto_apertura", 0))
+
+        # Calcular totales SIEMPRE desde la tabla ventas para que sean
+        # correctos aunque la caja haya sido cerrada y reabierta en el día.
+        ventas_metodo = _db.query_one(
+            """SELECT
+                COALESCE(SUM(CASE WHEN metodo_pago = 'efectivo'      THEN total ELSE 0 END), 0) AS efectivo,
+                COALESCE(SUM(CASE WHEN metodo_pago = 'transferencia' THEN total ELSE 0 END), 0) AS transferencias,
+                COALESCE(SUM(CASE WHEN metodo_pago = 'datafono'      THEN total ELSE 0 END), 0) AS datafono
+               FROM ventas WHERE fecha = %s""",
+            (hoy,),
+        )
+        efectivo       = int(ventas_metodo["efectivo"])      if ventas_metodo else int(caja_row.get("efectivo", 0))
+        transferencias = int(ventas_metodo["transferencias"]) if ventas_metodo else int(caja_row.get("transferencias", 0))
+        datafono       = int(ventas_metodo["datafono"])      if ventas_metodo else int(caja_row.get("datafono", 0))
         total_ventas      = efectivo + transferencias + datafono
         efectivo_esperado = apertura + efectivo - total_gastos_caja
 
@@ -140,10 +151,9 @@ async def caja_abrir(body: CajaAbrirBody):
                ON CONFLICT (fecha) DO UPDATE
                  SET abierta        = TRUE,
                      monto_apertura = EXCLUDED.monto_apertura,
-                     efectivo       = 0,
-                     transferencias = 0,
-                     datafono       = 0,
                      cerrada_at     = NULL""",
+            # NOTA: al reabrir NO se resetean efectivo/transferencias/datafono
+            # porque GET /caja los recalcula siempre desde la tabla ventas.
             (hoy, int(body.monto_apertura)),
         )
 
