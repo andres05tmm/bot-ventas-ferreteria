@@ -469,14 +469,55 @@ def construir_seccion_match(
             return f"{p['nombre']}:{p['precio_unidad']}"
 
     if palabras_clave:
+        # ── Helper: sub-dividir segmentos en " y " cuando separa dos productos ──
+        # Ejemplo: "1 aerosol azul y 1/2 galón de sellado corriente"
+        #          → ["1 aerosol azul", "1/2 galón de sellado corriente"]
+        # NO divide: "1 y medio galones de thinner" (izquierda es solo un número)
+        # NO divide: "drywall y sellador" sin cantidades (sin inicio de cantidad)
+        _CANTIDAD_INICIO_RE = re.compile(
+            r'^(?:un |una |medio |media |\d[\d/\.\-]*\s)', re.IGNORECASE
+        )
+
+        def _sub_segmentar_por_y(seg: str) -> list[str]:
+            """
+            Divide el segmento en ' y ' solo cuando:
+              1. Lo que sigue al 'y' empieza con una cantidad (número o fracción).
+              2. Lo que precede al 'y' tiene al menos una palabra no numérica
+                 (un nombre de producto, no solo un dígito como en '1 y medio').
+            """
+            partes = re.split(r'\s+y\s+', seg)
+            if len(partes) <= 1:
+                return [seg]
+            resultado = []
+            buffer = partes[0]
+            for parte in partes[1:]:
+                parte_strip = parte.strip()
+                izq = buffer.strip()
+                # ¿El lado izquierdo tiene al menos una palabra no numérica?
+                palabras_izq = [
+                    p for p in izq.split()
+                    if not re.match(r'^[\d/\.\-]+$', p)
+                ]
+                if _CANTIDAD_INICIO_RE.match(parte_strip) and palabras_izq:
+                    resultado.append(buffer)
+                    buffer = parte_strip
+                else:
+                    buffer = buffer + ' y ' + parte_strip
+            resultado.append(buffer)
+            return resultado
+
         # FIX MULTI-PRODUCTO: segmentar el mensaje por producto para que cada uno
         # tenga garantizado su candidato.
+        # Primera pasada: dividir por coma y salto de línea.
+        # Segunda pasada: sub-dividir cada segmento en " y " entre productos.
         _segmentos_raw = re.split(r'[,\n]+', mensaje_usuario.lower())
         _segmentos = []
         for seg in _segmentos_raw:
             seg = seg.strip()
             if len(seg) > 3:
-                _segmentos.append(seg)
+                for sub in _sub_segmentar_por_y(seg):
+                    if len(sub) > 3:
+                        _segmentos.append(sub)
 
         combinados = {}
         _candidatos_garantizados = {}  # nl → prod: el mejor hit por segmento, siempre incluido
