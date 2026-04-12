@@ -313,7 +313,33 @@ async def procesar_con_claude(
     mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
 
     parte_estatica = _construir_parte_estatica(memoria)
-    parte_dinamica = _construir_parte_dinamica(mensaje_usuario, nombre_usuario, memoria)
+
+    # ── FIX MULTI-TURNO: si el mensaje actual es una clarificación corta ──────
+    # Cuando el bot pregunta "¿qué tamaño?" y el usuario responde solo con
+    # "Segmentado de 4", construir_seccion_match() solo ve esa respuesta y no
+    # encuentra candidatos para brocha/rodillo/teflón del turno anterior.
+    # Solución: detectar clarificaciones y augmentar el mensaje usado para
+    # candidatos con el contenido del último turno del usuario en el historial.
+    # IMPORTANTE: solo se usa para construir candidatos — el mensaje real que
+    # va a Claude sigue siendo mensaje_usuario sin modificar.
+    _msg_para_match = mensaje_usuario
+    if historial_chat:
+        _palabras_match = [w for w in _msg_bypass.lower().split() if len(w) > 2]
+        _es_clarificacion = len(_palabras_match) <= 6 and "," not in _msg_bypass
+        if _es_clarificacion:
+            for _hmsg in reversed(historial_chat):
+                if _hmsg.get("role") == "user":
+                    _prev_content = _hmsg.get("content", "")
+                    # Solo augmentar si el mensaje previo tiene más contexto de productos
+                    if isinstance(_prev_content, str) and len(_prev_content) > len(mensaje_usuario):
+                        _msg_para_match = _prev_content + ", " + mensaje_usuario
+                        logging.getLogger("ferrebot.ai").info(
+                            f"[multi-turno] clarificación detectada — augmentando match: "
+                            f"'{mensaje_usuario}' → '{_msg_para_match[:80]}'"
+                        )
+                    break
+
+    parte_dinamica = _construir_parte_dinamica(_msg_para_match, nombre_usuario, memoria)
 
     # Fix 2+3: cuando hay imagen, inyectar catalogo completo con fracciones
     # + skill foto_cuaderno al frente de la parte dinamica.
