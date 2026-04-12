@@ -411,6 +411,20 @@ ON CONFLICT (clave) DO NOTHING;
 -- Indice unico para fracciones (idempotente UPSERT en migrate_memoria.py)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_prod_fraccion
     ON productos_fracciones(producto_id, fraccion);
+
+-- ───────────────────────────────────────────────────────────────
+-- LOGS DE AUDIO (transcripciones Whisper)
+-- ───────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audio_logs (
+    id               SERIAL PRIMARY KEY,
+    chat_id          BIGINT       NOT NULL,
+    vendedor         TEXT         NOT NULL,
+    texto_original   TEXT         NOT NULL,
+    texto_corregido  TEXT         NOT NULL,
+    duracion_seg     FLOAT,
+    fecha            TIMESTAMPTZ  DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS audio_logs_fecha_idx ON audio_logs (fecha DESC);
 """
     with _get_conn() as conn:
         with conn.cursor() as cur:

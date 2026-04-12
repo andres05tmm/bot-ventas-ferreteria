@@ -22,6 +22,7 @@ import asyncio
 import os
 import re
 import tempfile
+import threading
 import time
 import traceback
 from datetime import datetime
@@ -646,6 +647,191 @@ async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, ven
             except Exception:
                 pass
 
+# ─────────────────────────────────────────────
+# HELPERS DE AUDIO
+# ─────────────────────────────────────────────
+
+# ── Caché del prompt de Whisper (TTL 30 min) ──────────────────────────────────
+# Evita reconstruir el prompt en cada audio — las ventas no cambian en segundos.
+# Patrón idéntico al de ai/price_cache.py.
+_whisper_prompt_cache: dict = {"prompt": None, "ts": 0.0}
+_whisper_prompt_lock  = threading.Lock()
+_WHISPER_PROMPT_TTL   = 1800  # 30 minutos
+
+
+def _top_productos_vendidos(limite: int = 12) -> list[str]:
+    """
+    Retorna los nombres de los N productos más vendidos en los últimos 30 días,
+    ordenados de mayor a menor volumen. Fuente: ventas_detalle JOIN ventas.
+    """
+    try:
+        import db as _db
+        filas = _db.query_all(
+            """
+            SELECT vd.producto_nombre,
+                   SUM(vd.cantidad) AS total
+            FROM ventas_detalle vd
+            JOIN ventas v ON v.id = vd.venta_id
+            WHERE v.fecha >= NOW() - INTERVAL '30 days'
+              AND vd.producto_nombre IS NOT NULL
+              AND vd.sin_detalle IS NOT TRUE
+            GROUP BY vd.producto_nombre
+            ORDER BY total DESC
+            LIMIT %s
+            """,
+            [limite],
+        )
+        return [r["producto_nombre"] for r in filas if r.get("producto_nombre")]
+    except Exception:
+        return []
+
+
+def _palabras_mas_corregidas(limite: int = 8) -> list[str]:
+    """
+    Analiza audio_logs del último mes para encontrar las palabras que Whisper
+    transcribe mal con más frecuencia — son las que más necesitan el prior.
+    Lógica: palabras presentes en texto_corregido pero no en texto_original
+    = las que el pipeline tuvo que reparar.
+    """
+    try:
+        import re as _re
+        from collections import Counter as _Counter
+        import db as _db
+
+        filas = _db.query_all(
+            """
+            SELECT texto_original, texto_corregido
+            FROM audio_logs
+            WHERE fecha >= NOW() - INTERVAL '30 days'
+              AND texto_original <> texto_corregido
+            LIMIT 200
+            """,
+            [],
+        )
+        contador: _Counter = _Counter()
+        for fila in filas:
+            orig = set(_re.findall(r'\w+', fila["texto_original"].lower()))
+            corr = set(_re.findall(r'\w+', fila["texto_corregido"].lower()))
+            for palabra in (corr - orig):
+                if len(palabra) > 3:  # ignorar artículos y partículas
+                    contador[palabra] += 1
+        return [p for p, _ in contador.most_common(limite)]
+    except Exception:
+        return []
+
+
+def _build_whisper_prompt() -> str:
+    """
+    Construye el prompt de vocabulario para Whisper con tres capas de prioridad:
+      1. Top 12 productos más vendidos del mes  → mayor probabilidad de aparecer
+      2. Top 8 palabras más corregidas en audio_logs → errores reales detectados
+      3. Términos colombianos/técnicos que Whisper no conoce por entrenamiento
+
+    El resultado se cachea 30 min (TTL) para no consultar la BD en cada audio.
+    LÍMITE WHISPER: 224 tokens. Este prompt ocupa ~120-150 tokens.
+    """
+    # ── Verificar caché ───────────────────────────────────────────────────────
+    with _whisper_prompt_lock:
+        if _whisper_prompt_cache["prompt"] and (
+            time.monotonic() - _whisper_prompt_cache["ts"] < _WHISPER_PROMPT_TTL
+        ):
+            return _whisper_prompt_cache["prompt"]
+
+    # ── Capa 1: más vendidos — van PRIMERO porque sobreviven el truncado ──────
+    top_vendidos   = _top_productos_vendidos(12)
+
+    # ── Capa 2: más corregidos — errores reales detectados en producción ──────
+    mas_corregidos = _palabras_mas_corregidas(8)
+
+    # ── Capa 3: términos base — solo los que Whisper genuinamente no conoce ───
+    # Excluye palabras españolas comunes (metro, litro, caja) que Whisper
+    # ya maneja bien. Solo marcas, nombres colombianos y medidas fraccionarias.
+    _HARD_TERMS = (
+        "drywall, waypercol, latecol, pañete, chazos, bisagra, segueta, "
+        "puntilla, thinner, broca 3/8, tornillo 1x6, manguera 1/2, "
+        "tres cuartos, cinco octavos, tres octavos"
+    )
+
+    # ── Ensamblar en orden de prioridad ───────────────────────────────────────
+    partes = []
+    if top_vendidos:
+        partes.append(", ".join(top_vendidos))
+    if mas_corregidos:
+        partes.append(", ".join(mas_corregidos))
+    partes.append(_HARD_TERMS)
+
+    prompt = f"Ferretería colombiana. {', '.join(partes)}."
+
+    # ── Guardar en caché ──────────────────────────────────────────────────────
+    with _whisper_prompt_lock:
+        _whisper_prompt_cache["prompt"] = prompt
+        _whisper_prompt_cache["ts"]     = time.monotonic()
+
+    logger.info(
+        "[audio] Whisper prompt reconstruido — vendidos:%d corregidos:%d",
+        len(top_vendidos), len(mas_corregidos),
+    )
+    return prompt
+
+
+
+async def _normalizar_con_haiku(texto: str) -> str:
+    """
+    Normaliza la transcripción al vocabulario del catálogo usando Haiku.
+    Corrige errores residuales que corregir_texto_audio() no alcanza.
+    Solo se ejecuta si el texto tiene ≥5 palabras para evitar llamadas innecesarias.
+    """
+    if not texto or len(texto.split()) < 5:
+        return texto
+    try:
+        from memoria import cargar_memoria as _cm
+        catalogo = _cm().get("catalogo", {})
+        nombres = sorted(
+            {v["nombre"] for v in catalogo.values() if v.get("nombre")},
+            key=len
+        )[:60]
+        vocab = ", ".join(nombres)
+
+        system = (
+            "Eres corrector de transcripciones de audio para una ferretería colombiana. "
+            "Tu ÚNICA tarea: corregir errores de pronunciación y transcripción de productos. "
+            "Devuelve SOLO el texto corregido, sin explicaciones ni comentarios. "
+            "Si no hay errores claros, devuelve el texto exactamente igual. "
+            "No agregues ni quites productos. No reformules. Solo corrige.\n"
+            f"Vocabulario del catálogo: {vocab}"
+        )
+        respuesta = await asyncio.to_thread(
+            lambda: config.claude_client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=300,
+                system=system,
+                messages=[{"role": "user", "content": texto}],
+            )
+        )
+        resultado = respuesta.content[0].text.strip()
+        # Sanity check: Haiku no debería devolver algo mucho más largo
+        if resultado and len(resultado) < len(texto) * 2:
+            return resultado
+    except Exception as _e:
+        logger.warning(f"[audio] Haiku normalization falló: {_e}")
+    return texto
+
+
+def _log_audio(chat_id: int, vendedor: str, texto_original: str, texto_corregido: str) -> None:
+    """Guarda la transcripción en audio_logs para análisis posterior. No bloquea."""
+    try:
+        import db as _db
+        _db.execute(
+            """
+            INSERT INTO audio_logs (chat_id, vendedor, texto_original, texto_corregido)
+            VALUES (%s, %s, %s, %s)
+            """,
+            [chat_id, vendedor, texto_original, texto_corregido],
+        )
+    except Exception as _e:
+        logger.warning(f"[audio] No se pudo guardar en audio_logs: {_e}")
+
+
 async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from auth.usuarios import get_usuario as _get_usuario
     _u = _get_usuario(update.effective_user.id)
@@ -692,10 +878,16 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                 else:
                     raise _e
 
+        # ── [1] Prompt de vocabulario del catálogo para Whisper ───────────────
+        _whisper_prompt = await asyncio.to_thread(_build_whisper_prompt)
+
         def _transcribir():
             with open(ruta_audio, "rb") as audio_file:
                 return config.openai_client.audio.transcriptions.create(
-                    model="whisper-1", file=audio_file, language="es"
+                    model="whisper-1",
+                    file=audio_file,
+                    language="es",
+                    prompt=_whisper_prompt,
                 )
 
         transcripcion = None
@@ -717,9 +909,21 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                     )
                     return
 
-        texto         = corregir_texto_audio(transcripcion.text)
+        # ── [2] Correcciones regex — rápidas, sin red ────────────────────────
+        texto_raw = transcripcion.text
+        texto     = corregir_texto_audio(texto_raw)
+
+        # ── [3] Mostrar transcripción al usuario inmediatamente ──────────────
+        # Haiku corre DESPUÉS de este punto — el vendedor ve el 📝 sin esperar a Haiku
         await update.message.reply_text(f"📝 {texto}")
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+        # ── [4] Normalización con Haiku (corre mientras Claude piensa) ───────
+        # Claude recibe el texto ya mejorado; si Haiku falla, usa el texto regex
+        texto = await _normalizar_con_haiku(texto)
+
+        # ── [5] Log a audio_logs (no bloquea el flujo principal) ─────────────
+        _log_audio(chat_id, vendedor, texto_raw, texto)
 
         # ── Verificar modo corrección/modificación (igual que en texto) ──
         with _estado_lock:
@@ -850,7 +1054,6 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
         logger.error("Error en audio: %s", traceback.format_exc())
         await update.message.reply_text("Problema con el audio. Intenta de nuevo.")
     finally:
-        # CORRECCIÓN: verificar que ruta_audio fue asignada antes de intentar borrarla
         if ruta_audio and os.path.exists(ruta_audio):
             try:
                 os.unlink(ruta_audio)

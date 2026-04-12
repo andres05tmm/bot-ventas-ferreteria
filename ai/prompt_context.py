@@ -172,6 +172,61 @@ def construir_seccion_clientes(mensaje_usuario: str) -> str:
     return "\n\n".join(partes)
 
 
+def construir_contexto_turno() -> str:
+    """
+    Retorna contexto situacional que ayuda a Claude a ser proactivo sin que
+    nadie pregunte: hora del día, día de semana y últimas ventas registradas hoy.
+
+    Se llama una vez por mensaje, siempre — no depende de keywords.
+    """
+    # Lazy imports — evita ciclo con ai/__init__.py
+    from config import COLOMBIA_TZ
+    from datetime import datetime as _dt
+    import db as _db
+
+    partes = []
+
+    # ── Momento del día ───────────────────────────────────────────────────────
+    ahora    = _dt.now(COLOMBIA_TZ)
+    hora     = ahora.hour
+    periodo  = "mañana" if hora < 12 else ("tarde" if hora < 18 else "noche")
+    _DIAS    = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+    dia_sem  = _DIAS[ahora.weekday()]
+    partes.append(
+        f"MOMENTO: {dia_sem} en la {periodo} ({ahora.strftime('%H:%M')} hora Colombia)"
+    )
+
+    # ── Últimas 3 ventas del día (contexto de qué se está vendiendo) ──────────
+    try:
+        ultimas = _db.query_all(
+            """
+            SELECT v.consecutivo,
+                   v.total,
+                   v.metodo_pago,
+                   STRING_AGG(d.nombre_producto, ', ' ORDER BY d.id) AS productos
+            FROM ventas v
+            LEFT JOIN ventas_detalle d ON d.venta_id = v.id
+            WHERE DATE(v.fecha AT TIME ZONE 'America/Bogota') = CURRENT_DATE
+              AND v.estado = 'registrada'
+            GROUP BY v.id, v.consecutivo, v.total, v.metodo_pago
+            ORDER BY v.id DESC
+            LIMIT 3
+            """,
+            [],
+        )
+        if ultimas:
+            lineas = [
+                f"  #{r['consecutivo']}: {r.get('productos') or 'sin detalle'} — "
+                f"${r['total']:,.0f} ({r.get('metodo_pago') or 'sin método'})"
+                for r in ultimas
+            ]
+            partes.append("ÚLTIMAS VENTAS HOY:\n" + "\n".join(lineas))
+    except Exception:
+        pass
+
+    return "\n\n".join(partes)
+
+
 def construir_seccion_operaciones(mensaje_usuario: str) -> str:
     """
     Retorna texto con inventario bajo stock, caja del día, gastos y facturas pendientes.

@@ -222,6 +222,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         construir_seccion_ventas,
         construir_seccion_clientes,
         construir_seccion_operaciones,
+        construir_contexto_turno,
     )
     from ai.prompt_products import construir_seccion_match, construir_precalculos_especiales
 
@@ -232,9 +233,11 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     clientes_texto    = construir_seccion_clientes(mensaje_usuario)
     operaciones_texto = construir_seccion_operaciones(mensaje_usuario)
     skills_texto      = skill_loader.obtener_skills_dinamicos(mensaje_usuario)
+    turno_texto       = construir_contexto_turno()
 
     partes = [
         p for p in [
+            turno_texto,
             match_texto,
             especiales_texto,
             clientes_texto,
