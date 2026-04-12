@@ -58,7 +58,7 @@ def _leer_ventas_postgres(dias: int | None = None, mes_actual: bool = False) -> 
             SELECT
                 v.consecutivo AS num,
                 v.fecha::text AS fecha,
-                COALESCE(v.hora::text, '') AS hora,
+                COALESCE(v.hora::text, TO_CHAR(v.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota', 'HH24:MI')) AS hora,
                 COALESCE(v.cliente_nombre, 'Consumidor Final') AS cliente,
                 CASE WHEN v.cliente_id IS NULL THEN 'CF' ELSE v.cliente_id::text END AS id_cliente,
                 COALESCE(p.codigo, '') AS codigo_producto,

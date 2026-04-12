@@ -731,7 +731,7 @@ def export_ventas_xlsx(
         sql = f"""
             SELECT
                 v.fecha::text                                               AS fecha,
-                COALESCE(v.hora::text, '')                                  AS hora,
+                COALESCE(v.hora::text, TO_CHAR(v.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota', 'HH24:MI')) AS hora,
                 CASE WHEN v.cliente_id IS NULL THEN 'CF'
                      ELSE v.cliente_id::text END                            AS id_cliente,
                 COALESCE(v.cliente_nombre, 'Consumidor Final')              AS cliente,

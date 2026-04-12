@@ -109,7 +109,7 @@ def ventas_pendientes(fecha: str = Query(default=None)):
             v.fecha::text                                   AS fecha,
             COALESCE(
                 v.hora::text,
-                TO_CHAR(v.created_at AT TIME ZONE 'America/Bogota', 'HH24:MI')
+                TO_CHAR(v.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota', 'HH24:MI')
             )                                               AS hora,
             COALESCE(v.vendedor, '')                        AS vendedor
         FROM ventas v
