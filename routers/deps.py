@@ -38,11 +38,9 @@ def get_current_user(authorization: str = Header(None)):
 
 def get_filtro_usuario(current_user=Depends(get_current_user)):
     """
-    Retorna usuario_id si rol es vendedor, None si rol es admin.
-    Se usa para filtrar datos en WHERE clauses.
+    Siempre retorna None — todos los usuarios ven datos de todos los vendedores.
+    Se mantiene para compatibilidad con los routers que lo usan.
     """
-    if current_user["rol"] == "vendedor":
-        return current_user["usuario_id"]
     return None
 
 
@@ -53,10 +51,8 @@ def get_filtro_efectivo(
     """
     Admin con vendor_id seleccionado → filtra por ese vendedor
     Admin sin vendor_id → sin filtro (ve todos los vendedores)
-    Vendedor → siempre filtra por su propio id
+    Vendedor → sin filtro (ve datos de todos los vendedores)
     """
-    if current_user["rol"] == "vendedor":
-        return current_user["usuario_id"]
-    if current_user["rol"] == "admin" and vendor_id:
+    if vendor_id:
         return vendor_id
-    return None  # admin viendo todos
+    return None  # todos ven todo
