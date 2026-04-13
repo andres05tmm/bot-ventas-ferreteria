@@ -97,9 +97,10 @@ async def comando_ventas(update: Update, context: ContextTypes.DEFAULT_TYPE):
                v.metodo_pago          AS metodo
         FROM   ventas_detalle vd
         JOIN   ventas v ON v.id = vd.venta_id
-        WHERE  v.fecha::date = CURRENT_DATE
+        WHERE  v.fecha::date = %s
         ORDER  BY v.consecutivo, vd.id
         """,
+        [datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")],
     )
 
     if not rows:
@@ -174,9 +175,9 @@ async def comando_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         FROM   ventas_detalle vd
         JOIN   ventas v ON v.id = vd.venta_id
         WHERE  v.consecutivo = %s
-          AND  v.fecha::date  = CURRENT_DATE
+          AND  v.fecha::date  = %s
         """,
-        [numero],
+        [numero, datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")],
     )
     filas = [dict(r) for r in rows]
 
@@ -288,7 +289,10 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("⚠️ Base de datos no disponible.")
         return
 
-    # Leer ventas del día desde PG
+    hoy       = datetime.now(config.COLOMBIA_TZ)
+    fecha_str = hoy.strftime("%Y-%m-%d")
+
+    # Leer ventas del día desde PG (fecha Colombia, no UTC)
     ventas_hoy = await asyncio.to_thread(
         _db.query_all,
         """
@@ -305,13 +309,11 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
                vd.total          AS total_item
         FROM   ventas v
         LEFT JOIN ventas_detalle vd ON vd.venta_id = v.id
-        WHERE  v.fecha::date = CURRENT_DATE
+        WHERE  v.fecha::date = %s
         ORDER  BY v.consecutivo, vd.id
         """,
+        [fecha_str],
     )
-
-    hoy       = datetime.now(config.COLOMBIA_TZ)
-    fecha_str = hoy.strftime("%Y-%m-%d")
 
     if not ventas_hoy:
         # Sin ventas: cerrar caja igualmente

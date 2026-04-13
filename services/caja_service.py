@@ -140,11 +140,11 @@ def obtener_resumen_caja() -> str:
         return "La caja no está abierta hoy."
     if not _db.DB_DISPONIBLE:
         return "⚠️ Base de datos no disponible. No se puede obtener el resumen de caja ahora."
-    from datetime import date as _date
+    hoy_colombia = datetime.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
     row = _db.query_one(
         "SELECT COALESCE(SUM(total), 0) AS total, COUNT(*) AS num_ventas"
-        " FROM ventas WHERE fecha = %s",
-        (_date.today(),),
+        " FROM ventas WHERE fecha::date = %s",
+        (hoy_colombia,),
     )
     total_ventas_hoy = int(row["total"]) if row else 0
     num_ventas_hoy   = int(row["num_ventas"]) if row else 0
