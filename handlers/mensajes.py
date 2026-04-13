@@ -267,16 +267,26 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     try:
         limpiar_pendientes_expirados()
         # ── Reinyectar contexto pendiente si Claude solo hizo una pregunta antes ──
-        _ctx_previo = None
+        _ctx_previo   = None
+        _pregunta_bot = None
         with _estado_lock:
-            _ctx_previo = mensaje_contexto_pendiente.pop(chat_id, None)
+            _ctx_data = mensaje_contexto_pendiente.pop(chat_id, None)
+            if _ctx_data:
+                _ctx_previo   = _ctx_data.get("mensaje", "")
+                _pregunta_bot = _ctx_data.get("pregunta", "")
 
         _mensaje_para_claude = mensaje
         if _ctx_previo and _ctx_previo != mensaje:
-            # Combinar: contexto original + respuesta actual
-            _mensaje_para_claude = f"{_ctx_previo} — {mensaje}"
+            # Armar contexto estructurado: pedido original + pregunta del bot + respuesta del cliente.
+            # Así Claude puede resolver la ambigüedad sin perder el pedido completo.
+            _mensaje_para_claude = (
+                f"[PEDIDO ORIGINAL: {_ctx_previo}]\n"
+                f"[PREGUNTA DEL BOT: {_pregunta_bot}]\n"
+                f"[RESPUESTA DEL CLIENTE: {mensaje}]\n"
+                f"Retoma el pedido original aplicando la respuesta del cliente a la pregunta del bot."
+            )
             logging.getLogger("ferrebot.mensajes").info(
-                f"[CONTEXTO] Reinyectando contexto previo: '{_ctx_previo}' + '{mensaje}'"
+                f"[CONTEXTO] Reinyectando — pregunta='{(_pregunta_bot or '')[:60]}' + resp='{mensaje}'"
             )
 
         historial     = get_historial(chat_id)
@@ -300,9 +310,13 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                            or any(a.startswith("[VENTA]") or a.startswith("PRECIO_ACTUALIZADO") for a in acciones))
         if texto_respuesta and not _acciones_venta and "?" in texto_respuesta:
             with _estado_lock:
-                mensaje_contexto_pendiente[chat_id] = _mensaje_para_claude
+                mensaje_contexto_pendiente[chat_id] = {
+                    "mensaje":  _mensaje_para_claude,
+                    "pregunta": texto_respuesta,
+                }
             logging.getLogger("ferrebot.mensajes").info(
-                f"[CONTEXTO] Guardando contexto pendiente para chat {chat_id}: '{_mensaje_para_claude[:60]}...'"
+                f"[CONTEXTO] Guardando — msg='{_mensaje_para_claude[:60]}' | "
+                f"pregunta='{texto_respuesta[:60]}'"
             )
 
         _acciones_internas = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO")
@@ -881,6 +895,17 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
         # ── [1] Prompt de vocabulario del catálogo para Whisper ───────────────
         _whisper_prompt = await asyncio.to_thread(_build_whisper_prompt)
 
+        # Si hay una pregunta aclaratoria pendiente, añadirla AL INICIO del prompt
+        # de Whisper. Esto mejora drásticamente la transcripción de respuestas cortas
+        # (ej: "segmentado de 4" se escucha igual que "metro de 4" sin contexto).
+        # Usamos get() sin pop() para no consumir el estado antes de que Claude lo use.
+        with _estado_lock:
+            _ctx_audio = mensaje_contexto_pendiente.get(chat_id)
+        if _ctx_audio and _ctx_audio.get("pregunta"):
+            _hint = _ctx_audio["pregunta"][:200].replace("\n", " ")
+            _whisper_prompt = f"{_hint} {_whisper_prompt}"
+            logger.info(f"[audio] Whisper enriquecido con pregunta pendiente: '{_hint[:60]}'")
+
         def _transcribir():
             with open(ruta_audio, "rb") as audio_file:
                 return config.openai_client.audio.transcriptions.create(
@@ -993,9 +1018,31 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
             await _enviar_botones_pago(update.message, chat_id, _ventas_pend)
             return
 
+        # ── Reinyectar contexto pendiente (misma lógica que en mensajes de texto) ──
+        _ctx_previo_audio   = None
+        _pregunta_bot_audio = None
+        with _estado_lock:
+            _ctx_data_audio = mensaje_contexto_pendiente.pop(chat_id, None)
+            if _ctx_data_audio:
+                _ctx_previo_audio   = _ctx_data_audio.get("mensaje", "")
+                _pregunta_bot_audio = _ctx_data_audio.get("pregunta", "")
+
+        _texto_para_claude = texto
+        if _ctx_previo_audio and _ctx_previo_audio != texto:
+            _texto_para_claude = (
+                f"[PEDIDO ORIGINAL: {_ctx_previo_audio}]\n"
+                f"[PREGUNTA DEL BOT: {_pregunta_bot_audio}]\n"
+                f"[RESPUESTA DEL CLIENTE (audio): {texto}]\n"
+                f"Retoma el pedido original aplicando la respuesta del cliente a la pregunta del bot."
+            )
+            logger.info(
+                f"[audio] Reinyectando contexto — pregunta='{(_pregunta_bot_audio or '')[:60]}' "
+                f"+ resp='{texto}'"
+            )
+
         historial     = get_historial(chat_id)
         agregar_al_historial(chat_id, "user", f"{vendedor}: {texto}")
-        respuesta_raw = await procesar_con_claude(f"{vendedor}: {texto}", vendedor, historial)
+        respuesta_raw = await procesar_con_claude(f"{vendedor}: {_texto_para_claude}", vendedor, historial)
         texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
         agregar_al_historial(chat_id, "assistant", texto_respuesta)
 
@@ -1004,6 +1051,19 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
         cliente_desconocido = next((a for a in acciones if a.startswith("CLIENTE_DESCONOCIDO:")), None)
         pago_pend_aviso     = "PAGO_PENDIENTE_AVISO" in acciones
         _acciones_internas  = ("PEDIR_METODO_PAGO", "INICIAR_FLUJO_CLIENTE", "PAGO_PENDIENTE_AVISO")
+
+        # Si Claude volvió a hacer una pregunta (sin registrar venta), guardar contexto
+        _acciones_venta_audio = (pedir_metodo or confirmacion_accion or cliente_desconocido
+                                 or pago_pend_aviso
+                                 or any(a.startswith("[VENTA]") or a.startswith("PRECIO_ACTUALIZADO")
+                                        for a in acciones))
+        if texto_respuesta and not _acciones_venta_audio and "?" in texto_respuesta:
+            with _estado_lock:
+                mensaje_contexto_pendiente[chat_id] = {
+                    "mensaje":  _texto_para_claude,
+                    "pregunta": texto_respuesta,
+                }
+            logger.info(f"[audio] Guardando contexto pendiente para chat {chat_id}")
 
         # En audio: mostrar texto de Claude solo si NO hay botones de venta (es una pregunta o error)
         hay_botones_venta = confirmacion_accion or pedir_metodo

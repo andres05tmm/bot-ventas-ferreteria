@@ -50,9 +50,12 @@ clientes_en_proceso: dict[int, dict] = {}
 # {chat_id: {"ventas": [...], "metodo": "efectivo"|None}}
 ventas_esperando_cliente: dict[int, dict] = {}
 
-# {chat_id: str} — guarda el mensaje original cuando Claude solo hizo una pregunta
-# (sin registrar venta). El siguiente mensaje del usuario se combina con este contexto.
-mensaje_contexto_pendiente: dict[int, str] = {}
+# {chat_id: dict} — guarda contexto cuando Claude hizo una pregunta aclaratoria sin
+# registrar venta. Estructura: {"mensaje": str, "pregunta": str}
+#   "mensaje" → lo que envió el usuario originalmente (lista de productos, etc.)
+#   "pregunta" → la pregunta que hizo el bot (para enriquecer el prompt de Whisper
+#                y el contexto de Claude en el siguiente turno)
+mensaje_contexto_pendiente: dict[int, dict] = {}
 
 # {chat_id: True} — el usuario está en modo actualización de precios via /actualizar_precio
 actualizando_precios: dict[int, bool] = {}
