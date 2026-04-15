@@ -352,7 +352,7 @@ def _validar_bases_antes_envio(payload: dict) -> None:
         logger.error(error_msg)
         raise ValueError(f"FAU04: Base total {base_total} != Suma líneas {suma_lineas} (dif: {diferencia})")
     
-    logger.debug("✅ Validación FAU04 OK: bases coinciden (diferencia: %.4f)", diferencia)
+    logger.info("✅ Validación FAU04 OK: bases coinciden (diferencia: %.4f)", diferencia)
 
 
 # ── Armado del payload ────────────────────────────────────────────────────────
