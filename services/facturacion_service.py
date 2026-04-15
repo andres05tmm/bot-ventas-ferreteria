@@ -522,12 +522,28 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         })
 
     # ── Tax totals documento ──────────────────────────────────────────────────
-    doc_tax_totals = [{
-        "tax_id":         "1" if total_iva > 0 else "4",
-        "tax_amount":     _fmt(total_iva),
-        "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else 0.0,
-        "percent":        19.0 if total_iva > 0 else 0.0,
-    }]
+    # FIX FAU04: CRÍTICO - Incluir TODAS las bases (gravables Y exentas)
+    # La DIAN valida: sum(taxable_amount) == tax_exclusive_amount
+    # Si solo incluimos base gravable, falta la base exenta → FAU04
+    doc_tax_totals = []
+    
+    # Agregar IVA 19% si hay productos gravables
+    if subtotal_gravable > 0:
+        doc_tax_totals.append({
+            "tax_id":         "1",
+            "tax_amount":     _fmt(total_iva),
+            "taxable_amount": _fmt(subtotal_gravable),
+            "percent":        19.0,
+        })
+    
+    # Agregar IVA 0% si hay productos exentos
+    if subtotal_exento > 0:
+        doc_tax_totals.append({
+            "tax_id":         "4",
+            "tax_amount":     0.0,
+            "taxable_amount": _fmt(subtotal_exento),
+            "percent":        0.0,
+        })
 
     # ── legal_monetary_totals ─────────────────────────────────────────────────
     legal_monetary_totals = {
@@ -639,10 +655,6 @@ async def emitir_factura(venta_id: int) -> dict:
     }
 
     logger.debug("📤 JSON enviado a MATIAS API para venta %s (tamaño payload: %d)", venta_id, len(str(payload)))
-    
-    # DEBUG FAU04: Log del payload completo para diagnosticar
-    import json
-    logger.info("📦 PAYLOAD COMPLETO enviado a MATIAS para venta %s:\n%s", venta_id, json.dumps(payload, indent=2, ensure_ascii=False))
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
