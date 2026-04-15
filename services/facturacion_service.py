@@ -304,6 +304,57 @@ async def _enviar_pdf_grupo_telegram(
         logger.error("Error enviando PDF %s al grupo Telegram: %s", numero, e)
 
 
+# ── Validación FAU04 ──────────────────────────────────────────────────────────
+
+def _validar_bases_antes_envio(payload: dict) -> None:
+    """
+    Valida que tax_exclusive_amount == suma de line_extension_amount.
+    
+    Previene el error FAU04 de la DIAN antes de enviar la factura.
+    Lanza ValueError si hay discrepancia mayor a 1 centavo.
+    
+    Args:
+        payload: dict completo que se enviará a MATIAS API
+        
+    Raises:
+        ValueError: Si las bases no coinciden (diferencia > 0.01)
+    """
+    lines = payload.get("lines", [])
+    legal_totals = payload.get("legal_monetary_totals", {})
+    
+    # Calcular suma de bases de todas las líneas
+    suma_lineas = sum(
+        float(line.get("line_extension_amount", 0.0)) 
+        for line in lines
+    )
+    
+    # Obtener base total del documento
+    base_total = float(legal_totals.get("tax_exclusive_amount", 0.0))
+    
+    # Calcular diferencia absoluta
+    diferencia = abs(suma_lineas - base_total)
+    
+    # Validar que la diferencia sea menor a 1 centavo
+    if diferencia > 0.01:
+        error_msg = (
+            f"❌ FAU04 PRE-CHECK FAILED:\n"
+            f"  Base total documento: ${base_total:,.2f}\n"
+            f"  Suma bases líneas:    ${suma_lineas:,.2f}\n"
+            f"  Diferencia:           ${diferencia:,.4f}\n"
+            f"  \n"
+            f"  Detalle por línea:\n"
+        )
+        for i, line in enumerate(lines, 1):
+            base_linea = line.get("line_extension_amount", 0.0)
+            desc = line.get("description", "?")
+            error_msg += f"    {i}. {desc}: ${base_linea:,.2f}\n"
+        
+        logger.error(error_msg)
+        raise ValueError(f"FAU04: Base total {base_total} != Suma líneas {suma_lineas} (dif: {diferencia})")
+    
+    logger.debug("✅ Validación FAU04 OK: bases coinciden (diferencia: %.4f)", diferencia)
+
+
 # ── Armado del payload ────────────────────────────────────────────────────────
 
 def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
@@ -325,6 +376,10 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     # ── Totales ───────────────────────────────────────────────────────────────
     # Los precios en BD tienen IVA incluido. Se extrae la base gravable dividiendo.
     # Ejemplo: $9.000 con IVA 19% → base = 9000/1.19 = $7.563,03 | IVA = $1.436,97
+    #
+    # FIX FAU04: La base total DEBE ser exactamente igual a la suma de las bases
+    # de cada línea. Para evitar errores de redondeo, primero calculamos las bases
+    # individuales redondeadas, luego sumamos esos valores ya redondeados.
     total_doc         = sum(_fmt(d.get("total") or 0) for d in detalle)  # total real (con IVA)
     subtotal_gravable = 0.0
     total_iva         = 0.0
@@ -335,13 +390,16 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         pct        = int(d.get("porcentaje_iva") or 0)
         if d.get("tiene_iva") and pct > 0:
             divisor            = 1 + pct / 100
+            # FIX FAU04: Redondear ANTES de sumar (igual que en líneas individuales)
             base               = round(total_item / divisor, 2)
+            iva                = round(total_item - base, 2)
             subtotal_gravable += base
-            total_iva         += round(total_item - base, 2)
+            total_iva         += iva
         else:
             subtotal_exento += total_item
 
-    subtotal  = round(subtotal_gravable + subtotal_exento, 2)
+    # FIX FAU04: NO redondear de nuevo - la suma de bases ya redondeadas ES el subtotal correcto
+    subtotal  = subtotal_gravable + subtotal_exento
     total_doc = round(total_doc, 2)
 
     # ── Comprador - ESTRUCTURA OFICIAL MATIAS API (3 casos) ─────────────────
@@ -411,6 +469,12 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             customer["city_id"] = _resolved_city_id
     else:
         customer["city_id"] = "149"  # Cartagena por defecto
+
+    # ── FIX FAK08: Agregar city_name explícito ────────────────────────────────────
+    # Según documentación MATIAS API, city_name es un campo válido que ayuda a
+    # completar la estructura UBL 2.1 para cumplir con FAK08 de la DIAN.
+    # Esto también resuelve el problema de "Ciudad" vacía en el PDF.
+    customer["city_name"] = "Cartagena"
 
     # ── Líneas de detalle ─────────────────────────────────────────────────────
     # quantity_units_id → int (no string)
@@ -501,6 +565,15 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         }],
         "lines": lines,
     }
+    
+    # ── Validación FAU04 ──────────────────────────────────────────────────────
+    # Verificar que las bases coincidan antes de enviar a MATIAS
+    try:
+        _validar_bases_antes_envio(payload)
+    except ValueError as e:
+        logger.error("Factura NO enviada - error de validación: %s", e)
+        raise RuntimeError(f"Error de validación interna: {e}")
+    
     return payload
 
 
