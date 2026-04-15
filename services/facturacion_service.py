@@ -352,7 +352,7 @@ def _validar_bases_antes_envio(payload: dict) -> None:
         logger.error(error_msg)
         raise ValueError(f"FAU04: Base total {base_total} != Suma líneas {suma_lineas} (dif: {diferencia})")
     
-    logger.info("✅ Validación FAU04 OK: bases coinciden (diferencia: %.4f)", diferencia)
+    logger.debug("✅ Validación FAU04 OK: bases coinciden (diferencia: %.4f)", diferencia)
 
 
 # ── Armado del payload ────────────────────────────────────────────────────────
@@ -639,6 +639,10 @@ async def emitir_factura(venta_id: int) -> dict:
     }
 
     logger.debug("📤 JSON enviado a MATIAS API para venta %s (tamaño payload: %d)", venta_id, len(str(payload)))
+    
+    # DEBUG FAU04: Log del payload completo para diagnosticar
+    import json
+    logger.info("📦 PAYLOAD COMPLETO enviado a MATIAS para venta %s:\n%s", venta_id, json.dumps(payload, indent=2, ensure_ascii=False))
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
