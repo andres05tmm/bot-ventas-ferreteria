@@ -764,7 +764,11 @@ async def emitir_factura(venta_id: int) -> dict:
 async def obtener_pdf(cufe: str) -> bytes:
     """
     Descarga el PDF desde MATIAS API v3.0.0.
-    Endpoint: GET /documents/pdf/{cufe}?regenerate=1  (según docs oficiales v3).
+
+    A pesar de que la documentación dice GET, la API real responde 405 al GET
+    y acepta POST con {"regenerate": 1} en el cuerpo.
+    Verificado en producción abril 2026 (HTTP 405 en GET → POST funciona).
+
     MATIAS puede responder con PDF directo O JSON con URL/data en base64.
     """
     import asyncio
@@ -779,7 +783,8 @@ async def obtener_pdf(cufe: str) -> bytes:
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         try:
-            resp = await client.get(url, params={"regenerate": 1}, headers=headers)
+            # POST con {"regenerate": 1} — la API real rechaza GET con 405
+            resp = await client.post(url, headers=headers, json={"regenerate": 1})
             content_type = resp.headers.get("content-type", "")
 
             if resp.status_code != 200:

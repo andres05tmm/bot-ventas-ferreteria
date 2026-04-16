@@ -171,31 +171,39 @@ class TestIdentityDocumentIdNoHardcodeado:
 # FIX 3: obtener_pdf usa GET, no POST
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestObtenerPdfUsaGet:
+class TestObtenerPdfUsaPost:
     """
-    Verifica que la función obtener_pdf esté implementada como GET
-    (no POST como estaba antes del fix).
-    Inspeccionamos el código fuente de la función para no depender
-    de mocks complejos de httpx.
+    Verifica que obtener_pdf use POST (no GET).
+
+    Los docs de MATIAS dicen GET pero la API real devuelve 405 en GET.
+    Verificado en producción (abril 2026): POST con {"regenerate": 1} funciona.
     """
 
-    def test_obtener_pdf_es_get_no_post(self, monkeypatch):
+    def test_obtener_pdf_usa_post_no_get(self, monkeypatch):
         import inspect
         mod = _importar_sin_env(monkeypatch)
         src = inspect.getsource(mod.obtener_pdf)
-        assert "client.get(" in src, (
-            "obtener_pdf debe usar client.get() según docs MATIAS v3"
+        # La línea de llamada HTTP debe ser POST
+        assert "client.post(" in src, (
+            "obtener_pdf debe usar client.post() — API real rechaza GET con 405"
         )
-        assert "client.post(" not in src, (
-            "obtener_pdf NO debe usar client.post() — ese era el bug original"
+        # No debe haber un client.get() llamando al endpoint de PDF
+        # (puede haber client.get para descargar desde URL externa, eso está bien)
+        # El POST al endpoint principal debe ser la primera llamada HTTP
+        lines = src.splitlines()
+        first_http_call = next(
+            (l.strip() for l in lines if "client.get(" in l or "client.post(" in l), ""
+        )
+        assert "client.post(" in first_http_call, (
+            f"La primera llamada HTTP en obtener_pdf debe ser POST, encontrado: {first_http_call}"
         )
 
-    def test_obtener_pdf_pasa_regenerate_como_param(self, monkeypatch):
+    def test_obtener_pdf_pasa_regenerate_en_body(self, monkeypatch):
         import inspect
         mod = _importar_sin_env(monkeypatch)
         src = inspect.getsource(mod.obtener_pdf)
         assert "regenerate" in src, (
-            "obtener_pdf debe pasar ?regenerate=1 como query param"
+            "obtener_pdf debe incluir 'regenerate' en el cuerpo del POST"
         )
 
 
