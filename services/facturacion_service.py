@@ -308,51 +308,57 @@ async def _enviar_pdf_grupo_telegram(
 
 def _validar_bases_antes_envio(payload: dict) -> None:
     """
-    Valida que tax_exclusive_amount == suma de line_extension_amount.
-    
-    Previene el error FAU04 de la DIAN antes de enviar la factura.
-    Lanza ValueError si hay discrepancia mayor a 1 centavo.
-    
+    Valida que la suma de taxable_amount en tax_totals del documento
+    sea igual a la suma de taxable_amount en tax_totals de cada línea.
+
+    Esta es la validación REAL que hace la DIAN (regla FAU04).
+    La versión anterior comparaba line_extension_amount vs tax_exclusive_amount,
+    que siempre coinciden y NO detectaba el error real.
+
     Args:
         payload: dict completo que se enviará a MATIAS API
-        
+
     Raises:
         ValueError: Si las bases no coinciden (diferencia > 0.01)
     """
-    lines = payload.get("lines", [])
-    legal_totals = payload.get("legal_monetary_totals", {})
-    
-    # Calcular suma de bases de todas las líneas
-    suma_lineas = sum(
-        float(line.get("line_extension_amount", 0.0)) 
-        for line in lines
+    lines          = payload.get("lines", [])
+    doc_tax_totals = payload.get("tax_totals", [])
+
+    # Lo que DIAN ve en cabecera: suma de taxable_amount de doc_tax_totals
+    suma_taxable_doc = sum(
+        float(tt.get("taxable_amount", 0.0))
+        for tt in doc_tax_totals
     )
-    
-    # Obtener base total del documento
-    base_total = float(legal_totals.get("tax_exclusive_amount", 0.0))
-    
-    # Calcular diferencia absoluta
-    diferencia = abs(suma_lineas - base_total)
-    
-    # Validar que la diferencia sea menor a 1 centavo
+
+    # Lo que DIAN ve en líneas: suma de taxable_amount de cada línea
+    suma_taxable_lineas = sum(
+        float(tt.get("taxable_amount", 0.0))
+        for line in lines
+        for tt in line.get("tax_totals", [])
+    )
+
+    diferencia = abs(suma_taxable_doc - suma_taxable_lineas)
+
     if diferencia > 0.01:
-        error_msg = (
-            f"❌ FAU04 PRE-CHECK FAILED:\n"
-            f"  Base total documento: ${base_total:,.2f}\n"
-            f"  Suma bases líneas:    ${suma_lineas:,.2f}\n"
-            f"  Diferencia:           ${diferencia:,.4f}\n"
-            f"  \n"
-            f"  Detalle por línea:\n"
+        detalle = "\n".join(
+            f"    {i}. {line.get('description','?')}: "
+            f"taxable={line.get('tax_totals',[{}])[0].get('taxable_amount',0)}"
+            for i, line in enumerate(lines, 1)
         )
-        for i, line in enumerate(lines, 1):
-            base_linea = line.get("line_extension_amount", 0.0)
-            desc = line.get("description", "?")
-            error_msg += f"    {i}. {desc}: ${base_linea:,.2f}\n"
-        
-        logger.error(error_msg)
-        raise ValueError(f"FAU04: Base total {base_total} != Suma líneas {suma_lineas} (dif: {diferencia})")
-    
-    logger.debug("✅ Validación FAU04 OK: bases coinciden (diferencia: %.4f)", diferencia)
+        logger.error(
+            "❌ FAU04 PRE-CHECK FAILED:\n"
+            "  taxable_amount cabecera: $%.2f\n"
+            "  taxable_amount líneas:   $%.2f\n"
+            "  Diferencia:              $%.4f\n"
+            "  Detalle líneas:\n%s",
+            suma_taxable_doc, suma_taxable_lineas, diferencia, detalle,
+        )
+        raise ValueError(
+            f"FAU04: taxable_amount cabecera {suma_taxable_doc} != "
+            f"suma líneas {suma_taxable_lineas} (dif: {diferencia})"
+        )
+
+    logger.debug("✅ Validación FAU04 OK: taxable_amount coincide (dif=%.4f)", diferencia)
 
 
 # ── Armado del payload ────────────────────────────────────────────────────────
@@ -513,21 +519,31 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             "reference_price_id":           "1",
             "price_amount":                 precio_u,       # precio unitario sin IVA
             "base_quantity":                cantidad,        # float
+            # FIX FAU04 + FAX14:
+            # - tax_id siempre "1" (IVA). Para exentos: IVA al 0%, no tax_id="4".
+            #   tax_id="4" es otro tributo (INC) → dispara FAX14 si la tasa no corresponde.
+            # - taxable_amount siempre = total_base (incluso para exentos).
+            #   DIAN exige: sum(línea.taxable_amount) == doc.taxable_amount → FAU04.
+            #   Antes los exentos reportaban 0.0 → mismatch con la cabecera → rechazo.
             "tax_totals": [{
-                "tax_id":         "1" if tiene_iva else "4",
+                "tax_id":         "1",
                 "tax_amount":     iva_val,
-                "taxable_amount": total_base if tiene_iva else 0.0,
+                "taxable_amount": total_base,
                 "percent":        _fmt(pct_iva),
             }],
         })
 
     # ── Tax totals documento ──────────────────────────────────────────────────
-    # FIX FAU04: CRÍTICO - Incluir TODAS las bases (gravables Y exentas)
-    # La DIAN valida: sum(taxable_amount) == tax_exclusive_amount
-    # Si solo incluimos base gravable, falta la base exenta → FAU04
+    # FIX FAU04 + FAX14:
+    # Antes se usaba tax_id="4" para exentos → disparaba FAX14 (tributo incorrecto).
+    # La DIAN espera tax_id="1" (IVA) con percent=0.0 para productos sin IVA.
+    #
+    # La regla FAU04 exige que la suma de taxable_amount aquí sea igual a la suma
+    # de taxable_amount en todas las líneas. Con el fix en líneas (taxable=total_base
+    # para todos), ahora ambos lados suman el mismo subtotal_total → cuadra.
     doc_tax_totals = []
-    
-    # Agregar IVA 19% si hay productos gravables
+
+    # IVA 19% (o la tasa que aplique) para productos gravados
     if subtotal_gravable > 0:
         doc_tax_totals.append({
             "tax_id":         "1",
@@ -535,11 +551,11 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             "taxable_amount": _fmt(subtotal_gravable),
             "percent":        19.0,
         })
-    
-    # Agregar IVA 0% si hay productos exentos
+
+    # IVA 0% para productos exentos/excluidos — siempre tax_id="1", nunca "4"
     if subtotal_exento > 0:
         doc_tax_totals.append({
-            "tax_id":         "4",
+            "tax_id":         "1",
             "tax_amount":     0.0,
             "taxable_amount": _fmt(subtotal_exento),
             "percent":        0.0,
@@ -1111,10 +1127,12 @@ def _armar_lineas_nota(lineas: list[dict]) -> tuple[list, float, float, float]:
             "reference_price_id":           "1",
             "price_amount":                 precio_u,
             "base_quantity":                cantidad,
+            # FIX FAU04 + FAX14 (mismo que en facturas):
+            # tax_id siempre "1" (IVA); taxable_amount siempre total_l
             "tax_totals": [{
-                "tax_id":         "1" if tiene_iva else "4",
+                "tax_id":         "1",
                 "tax_amount":     iva_val,
-                "taxable_amount": total_l if tiene_iva else 0.0,
+                "taxable_amount": total_l,
                 "percent":        _fmt(pct_iva),
             }],
         })
@@ -1150,10 +1168,12 @@ async def emitir_nota_credito(
             "uuid":   factura_cufe,
             "date":   factura_fecha,
         },
+        # FIX FAU04 + FAX14: siempre tax_id="1" (IVA). Para notas sin IVA:
+        # taxable_amount = subtotal completo con percent=0.0, nunca tax_id="4".
         "tax_totals": [{
-            "tax_id":         "1" if total_iva > 0 else "4",
+            "tax_id":         "1",
             "tax_amount":     _fmt(total_iva),
-            "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else 0.0,
+            "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else _fmt(subtotal),
             "percent":        19.0 if total_iva > 0 else 0.0,
         }],
         "legal_monetary_totals": {
@@ -1229,10 +1249,11 @@ async def emitir_nota_debito(
             "uuid":   factura_cufe,
             "date":   factura_fecha,
         },
+        # FIX FAU04 + FAX14: igual que nota crédito y facturas
         "tax_totals": [{
-            "tax_id":         "1" if total_iva > 0 else "4",
+            "tax_id":         "1",
             "tax_amount":     _fmt(total_iva),
-            "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else 0.0,
+            "taxable_amount": _fmt(subtotal_gravable) if total_iva > 0 else _fmt(subtotal),
             "percent":        19.0 if total_iva > 0 else 0.0,
         }],
         "legal_monetary_totals": {
