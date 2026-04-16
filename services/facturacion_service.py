@@ -84,6 +84,16 @@ _UNIDAD_DIAN: dict[str, int] = {
 # Fuente confirmada por soporte MATIAS API.
 
 # Para POST /invoice (creación de documentos)
+# IDs verificados con GET /identity-documents de la API real (abril 2026):
+# {"id":1,"code":"13","abbreviation":"CC"}, {"id":2,"code":"22","abbreviation":"CE"},
+# {"id":3,"code":"31","abbreviation":"NIT"}, {"id":6,"code":"11","abbreviation":"RC"},
+# {"id":7,"code":"12","abbreviation":"TI"}, {"id":8,"code":"21","abbreviation":"TE"},
+# {"id":9,"code":"41","abbreviation":"PA"}, {"id":10,"code":"42","abbreviation":"DE"},
+# {"id":11,"code":"50","abbreviation":""(NITE)}, {"id":12,"code":"91","abbreviation":"NUIP"},
+# {"id":13,"code":"48","abbreviation":"PP"(PPT)}, {"id":14,"code":"47","abbreviation":"PE"(PEP)},
+# {"id":15,"code":"SC","abbreviation":"SC"}, {"id":16,"code":"CN","abbreviation":"CN"},
+# {"id":17,"code":"AS","abbreviation":"AS"}, {"id":18,"code":"MS","abbreviation":"MS"},
+# {"id":19,"code":"SI","abbreviation":"SI"}, {"id":20,"code":"CD","abbreviation":"CD"}
 _TIPO_ID_MATIAS = {
     "CC":   "1",
     "CE":   "2",
@@ -92,13 +102,19 @@ _TIPO_ID_MATIAS = {
     "TI":   "7",
     "TE":   "8",
     "PA":   "9",
-    "PPN":  "9",
+    "PPN":  "9",   # Pasaporte de otro país → mismo ID que PA
     "DE":   "10",
-    "NITE": "11",
+    "NITE": "11",  # NIT de otro país
     "NUIP": "12",
     "PPT":  "13",
+    "PP":   "13",  # Alias corto de PPT
     "PEP":  "14",
+    "PE":   "14",  # Alias corto de PEP
     "SC":   "15",
+    "CN":   "16",  # Certificado de nacido vivo
+    "AS":   "17",  # Adulto sin identificar
+    "MS":   "18",  # Menor sin identificar
+    "SI":   "19",  # Sin identificación
     "CD":   "20",
 }
 
@@ -451,12 +467,17 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
             "address":              venta.get("direccion_cliente") or "Cartagena",  # FIX: nunca vacío
         }
 
-    # Caso 3: Cliente PERSONA (CC, CE, TI, Pasaporte, etc.)
+    # Caso 3: Cliente PERSONA (CC, CE, TI, Pasaporte, PPT, PEP, etc.)
     else:
         es_consumidor_final = False
+        # FIX: usar el ID correcto de MATIAS según el tipo de documento real.
+        # Antes estaba hardcodeado a "1" (CC), lo que causaba rechazo DIAN
+        # para clientes con CE, TI, PA, PPT, PEP, etc.
+        # Verificado con GET /identity-documents de la API real.
+        id_tipo_documento = _TIPO_ID_MATIAS.get(tipo_id_raw, "1")
         customer = {
             "country_id":           "45",
-            "identity_document_id": "1",    # CC (cédula ciudadanía)
+            "identity_document_id": id_tipo_documento,
             "type_organization_id": 2,      # Persona natural
             "tax_regime_id":        2,      # Régimen simplificado
             "tax_level_id":         5,      # No responsable de IVA
@@ -743,7 +764,7 @@ async def emitir_factura(venta_id: int) -> dict:
 async def obtener_pdf(cufe: str) -> bytes:
     """
     Descarga el PDF desde MATIAS API v3.0.0.
-    Endpoint: POST /documents/pdf/{cufe} con regenerate=1.
+    Endpoint: GET /documents/pdf/{cufe}?regenerate=1  (según docs oficiales v3).
     MATIAS puede responder con PDF directo O JSON con URL/data en base64.
     """
     import asyncio
@@ -752,14 +773,13 @@ async def obtener_pdf(cufe: str) -> bytes:
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/pdf, application/json",
-        "Content-Type": "application/json",
     }
 
     url = f"{MATIAS_API_URL}/documents/pdf/{cufe}"
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         try:
-            resp = await client.post(url, headers=headers, json={"regenerate": 1})
+            resp = await client.get(url, params={"regenerate": 1}, headers=headers)
             content_type = resp.headers.get("content-type", "")
 
             if resp.status_code != 200:
@@ -1097,11 +1117,22 @@ RAZONES_ND = {
 
 
 def _armar_lineas_nota(lineas: list[dict]) -> tuple[list, float, float, float]:
-    """Helper compartido para armar líneas de notas crédito/débito."""
-    subtotal          = sum(int(d.get("total") or 0) for d in lineas)
-    subtotal_gravable = sum(int(d.get("total") or 0) for d in lineas if d.get("tiene_iva"))
+    """
+    Helper compartido para armar líneas de notas crédito/débito.
+
+    IMPORTANTE: los valores de 'total' y 'precio_unitario' que recibe este
+    helper se asumen SIN IVA (base gravable), igual que en _armar_payload
+    donde los totales se dividen por (1 + pct/100) antes de llamar aquí.
+    Si el frontend envía totales CON IVA incluido, el caller debe dividir
+    antes de pasarlos.
+
+    FIX: se reemplazó int() por _fmt() en todos los cálculos para evitar
+    truncar centavos (ej: 50.50 → 50 con int(), correcto con _fmt()).
+    """
+    subtotal          = sum(_fmt(d.get("total") or 0) for d in lineas)
+    subtotal_gravable = sum(_fmt(d.get("total") or 0) for d in lineas if d.get("tiene_iva"))
     total_iva         = sum(
-        int(int(d.get("total") or 0) * int(d.get("porcentaje_iva") or 0) / 100)
+        round(_fmt(d.get("total") or 0) * int(d.get("porcentaje_iva") or 0) / 100, 2)
         for d in lineas if d.get("tiene_iva")
     )
 
@@ -1112,7 +1143,8 @@ def _armar_lineas_nota(lineas: list[dict]) -> tuple[list, float, float, float]:
         total_l   = _fmt(item.get("total") or 0)
         tiene_iva = bool(item.get("tiene_iva"))
         pct_iva   = int(item.get("porcentaje_iva") or 0)
-        iva_val   = _fmt(int(item.get("total") or 0) * pct_iva / 100) if tiene_iva else 0.0
+        # FIX: usar _fmt() para preservar decimales, no int() que trunca
+        iva_val   = round(total_l * pct_iva / 100, 2) if tiene_iva else 0.0
         unidad_raw   = (item.get("unidad_medida") or "Unidad").strip()
         qty_units_id = _UNIDAD_DIAN.get(unidad_raw, _UNIDAD_DIAN.get(unidad_raw.lower(), 70))
 

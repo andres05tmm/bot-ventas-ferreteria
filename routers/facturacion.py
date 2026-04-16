@@ -329,7 +329,7 @@ def listar_notas(
 
 # ── Webhook MATIAS API ────────────────────────────────────────────────────────
 
-def _verificar_firma_svix(
+def _verificar_firma_matias(
     raw_body:       bytes,
     sig_header:     str,
     webhook_id:     str,
@@ -337,43 +337,72 @@ def _verificar_firma_svix(
     webhook_secret: str,
 ) -> bool:
     """
-    Verifica la firma HMAC-SHA256 estilo Svix que usa MATIAS API.
+    Verifica la firma HMAC-SHA256 de los webhooks de MATIAS API v3.0.0.
 
-    Algoritmo Svix:
-        secret_bytes  = base64_decode(secret.removeprefix("whsec_"))
-        signed_content = f"{id}\\n{timestamp}\\n" + raw_body   (bytes)
-        signature     = base64(HMAC-SHA256(secret_bytes, signed_content))
-        header        = "v1,<signature>"   (puede ser múltiple: "v1,sig1 v1,sig2")
+    ── Algoritmo principal (documentación oficial MATIAS API v3.0.0) ──────────
+        key       = webhook_secret (string completo, incluyendo prefijo "whsec_")
+        content   = raw_body (bytes del body tal como llega, sin re-serializar)
+        hash      = HMAC-SHA256(key.encode(), content) → hexdigest
+        expected  = "sha256=<hexdigest>"
+        Header HTTP recibido: X-Webhook-Signature
 
-    También acepta el output en hex por si Matias cambia el encoding.
+    Referencia docs: https://docs.matias-api.com/docs/endpoints#verificar-firma-hmac
+
+    ── Fallback Svix (por si MATIAS cambia internamente) ─────────────────────
+        secret_bytes   = base64_decode(secret.removeprefix("whsec_"))
+        signed_content = f"{webhook_id}\\n{timestamp}\\n" + raw_body
+        mac            = HMAC-SHA256(secret_bytes, signed_content)
+        signature      = base64(mac) → "v1,<base64>"
+        También acepta hex sin prefijo.
     """
     import hashlib
     import hmac as _hmac
     import base64 as _b64
 
+    if not sig_header:
+        logger.warning("Webhook MATIAS: header X-Webhook-Signature vacío — no se puede verificar")
+        return False
+
+    # ── Algoritmo 1: formato oficial MATIAS API v3 ────────────────────────────
+    # La clave es el secret completo (incluido "whsec_") tal como lo muestra la doc.
+    # El contenido firmado es el raw_body (no JSON.stringify → mismo resultado si
+    # el body ya es el JSON canónico que envía MATIAS).
+    try:
+        mac_hex   = _hmac.new(
+            webhook_secret.encode("utf-8"),
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+        expected  = f"sha256={mac_hex}"
+        if _hmac.compare_digest(expected, sig_header.strip()):
+            return True
+    except Exception as e:
+        logger.warning("Webhook MATIAS: error en algoritmo v3: %s", e)
+
+    # ── Algoritmo 2: fallback Svix (legacy / por si MATIAS usa Svix internamente)
+    # Formato: secret decodificado en base64, contenido = id+ts+body, output base64
     try:
         secret_stripped = webhook_secret.removeprefix("whsec_")
         secret_bytes    = _b64.b64decode(secret_stripped)
+        signed_content  = f"{webhook_id}\n{timestamp}\n".encode() + raw_body
+        mac_svix        = _hmac.new(secret_bytes, signed_content, hashlib.sha256).digest()
+        sig_b64         = _b64.b64encode(mac_svix).decode()
+        sig_hex_svix    = mac_svix.hex()
+
+        # Acepta "v1,<firma>" (múltiples: "v1,aaa v1,bbb") o hex directo
+        candidatos = [
+            s.removeprefix("v1,").strip()
+            for s in sig_header.replace(",", " ").split()
+            if s.strip()
+        ]
+        candidatos.append(sig_header.strip())
+
+        if sig_b64 in candidatos or sig_hex_svix in candidatos:
+            return True
     except Exception as e:
-        logger.error("HMAC: no se pudo decodificar MATIAS_WEBHOOK_SECRET: %s", e)
-        return False
+        logger.warning("Webhook MATIAS: error en fallback Svix: %s", e)
 
-    signed_content = f"{webhook_id}\n{timestamp}\n".encode() + raw_body
-    mac            = _hmac.new(secret_bytes, signed_content, hashlib.sha256).digest()
-    sig_b64        = _b64.b64encode(mac).decode()
-    sig_hex        = mac.hex()
-
-    # El header puede traer múltiples firmas: "v1,aaa v1,bbb"
-    # Svix recomienda aceptar si cualquiera coincide (rotación de secreto)
-    candidatos = [
-        s.removeprefix("v1,").strip()
-        for s in sig_header.replace(",", " ").split()
-        if s.strip()
-    ]
-    # También aceptamos el header crudo sin prefijo (por si Matias lo manda directo)
-    candidatos.append(sig_header.strip())
-
-    return sig_b64 in candidatos or sig_hex in candidatos
+    return False
 
 
 @router.post("/facturacion/webhook")
@@ -406,7 +435,7 @@ async def webhook_matias(request: Request):
         webhook_id  = request.headers.get("x-webhook-id", "")
         timestamp   = request.headers.get("x-webhook-timestamp", "")
 
-        firma_ok = _verificar_firma_svix(
+        firma_ok = _verificar_firma_matias(
             raw_body, sig_header, webhook_id, timestamp, webhook_secret
         )
 
