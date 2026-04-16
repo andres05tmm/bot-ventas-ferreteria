@@ -363,7 +363,7 @@ def _verificar_firma_matias(
         logger.warning("Webhook MATIAS: header X-Webhook-Signature vacío — no se puede verificar")
         return False
 
-    # ── Algoritmo 1: formato oficial MATIAS API v3 ────────────────────────────
+    # ── Algoritmo 1: formato oficial MATIAS API v3 con prefijo "sha256=" ────────
     # La clave es el secret completo (incluido "whsec_") tal como lo muestra la doc.
     # El contenido firmado es el raw_body (no JSON.stringify → mismo resultado si
     # el body ya es el JSON canónico que envía MATIAS).
@@ -378,6 +378,20 @@ def _verificar_firma_matias(
             return True
     except Exception as e:
         logger.warning("Webhook MATIAS: error en algoritmo v3: %s", e)
+
+    # ── Algoritmo 3: hex puro sin prefijo (observado en producción abril 2026) ──
+    # MATIAS envía el hexdigest directamente sin "sha256=" — verificado en logs reales.
+    # Misma clave y contenido que Algoritmo 1, solo cambia el formato del header.
+    try:
+        mac_hex3 = _hmac.new(
+            webhook_secret.encode("utf-8"),
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+        if _hmac.compare_digest(mac_hex3, sig_header.strip()):
+            return True
+    except Exception as e:
+        logger.warning("Webhook MATIAS: error en algoritmo hex-puro: %s", e)
 
     # ── Algoritmo 2: fallback Svix (legacy / por si MATIAS usa Svix internamente)
     # Formato: secret decodificado en base64, contenido = id+ts+body, output base64
@@ -595,18 +609,28 @@ def _despachar_post_aceptacion(cufe: str, numero: str, email_ok) -> None:
 
     def _run():
         try:
-            row = _db.query_one(
-                """
-                SELECT v.cliente_nombre, v.total, c.correo
-                FROM facturas_electronicas fe
-                JOIN ventas v ON fe.venta_id = v.id
-                LEFT JOIN clientes c ON v.cliente_id::text = c.id::text
-                WHERE fe.cufe = %s
-                """,
-                [cufe],
-            )
+            # ── Retry con backoff: el webhook puede llegar mientras emitir_factura
+            # aún está escribiendo el CUFE en BD (race condition entre MATIAS webhook
+            # y nuestra respuesta al POST /invoice). Esperamos hasta 6 s en total.
+            import time as _time
+            row = None
+            for _intento in range(4):  # 0s, 1.5s, 3s, 4.5s → 6s máximo
+                if _intento:
+                    _time.sleep(1.5)
+                row = _db.query_one(
+                    """
+                    SELECT v.cliente_nombre, v.total, c.correo
+                    FROM facturas_electronicas fe
+                    JOIN ventas v ON fe.venta_id = v.id
+                    LEFT JOIN clientes c ON v.cliente_id::text = c.id::text
+                    WHERE fe.cufe = %s
+                    """,
+                    [cufe],
+                )
+                if row:
+                    break
             if not row:
-                logger.warning("Post-aceptación: no se encontró venta para CUFE %s", cufe[:16])
+                logger.warning("Post-aceptación: no se encontró venta para CUFE %s (4 intentos)", cufe[:16])
                 return
 
             from services.facturacion_service import _sin_correo_real
