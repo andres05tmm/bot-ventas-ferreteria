@@ -850,17 +850,20 @@ function ModalEditarProducto({ prod, onClose, onGuardado, authFetch }) {
 
 function ModalEliminarProducto({ prod, onClose, onEliminado, authFetch }) {
   const t = useTheme()
-  const [estado, setEstado] = useState('idle')
-  const [err,    setErr]    = useState('')
+  const [estado,    setEstado]    = useState('idle')
+  const [err,       setErr]       = useState('')
+  const [archivado, setArchivado] = useState(false)
 
   const eliminar = async () => {
     setEstado('saving')
+    setErr('')
     try {
       const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prod.key)}`, { method:'DELETE' })
       const d = await r.json()
-      if (!r.ok) throw new Error(d.detail||'Error')
+      if (!r.ok) throw new Error(d.detail || 'Error al eliminar')
+      setArchivado(!!d.archivado)
       setEstado('ok')
-      setTimeout(() => { onEliminado(); onClose() }, 600)
+      setTimeout(() => { onEliminado(); onClose() }, 1200)
     } catch(e) { setErr(e.message); setEstado('err') }
   }
 
@@ -869,24 +872,44 @@ function ModalEliminarProducto({ prod, onClose, onEliminado, authFetch }) {
       position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,.6)',
       display:'flex',alignItems:'center',justifyContent:'center',padding:16,
     }}>
-      <div style={{background:t.bg,border:`1px solid ${t.border}`,borderRadius:14,width:'100%',maxWidth:360,padding:24,boxShadow:'0 24px 64px rgba(0,0,0,.4)'}}>
+      <div style={{background:t.bg,border:`1px solid ${t.border}`,borderRadius:14,width:'100%',maxWidth:380,padding:24,boxShadow:'0 24px 64px rgba(0,0,0,.4)'}}>
         <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:6}}>🗑 Eliminar producto</div>
         <div style={{fontSize:13,color:t.text,fontWeight:500,marginBottom:4}}>{prod.nombre}</div>
         <div style={{fontSize:11,color:t.textMuted,marginBottom:14}}>{prod.categoria}</div>
-        <div style={{padding:'10px 12px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,fontSize:11,color:'#dc2626',marginBottom:16}}>
-          ⚠ Se elimina del catálogo y del inventario. No se puede deshacer.
-        </div>
+
+        {/* Aviso según estado */}
+        {estado !== 'ok' && (
+          <div style={{padding:'10px 12px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,fontSize:11,color:'#dc2626',marginBottom:16}}>
+            ⚠ Se elimina del catálogo y del inventario. Si el producto tiene historial de ventas, se desactivará en su lugar (no aparecerá en el catálogo pero las ventas previas quedan intactas).
+          </div>
+        )}
+
+        {/* Resultado exitoso */}
+        {estado === 'ok' && (
+          <div style={{padding:'10px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:8,fontSize:11,color:'#166534',marginBottom:16}}>
+            {archivado
+              ? '📦 Producto desactivado — tiene ventas previas y se conserva en el historial.'
+              : '✅ Producto eliminado del catálogo correctamente.'}
+          </div>
+        )}
+
+        {/* Error */}
         {err && <div style={{padding:'6px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626',marginBottom:10}}>✗ {err}</div>}
+
         <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>Cancelar</button>
-          <button onClick={eliminar} disabled={estado==='saving'} style={{
-            background:estado==='ok'?t.green:'#dc2626',
-            border:'none',borderRadius:8,color:'#fff',padding:'8px 18px',
-            cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
-            opacity:estado==='saving'?.7:1,
-          }}>
-            {estado==='saving'?'Eliminando…':estado==='ok'?'✓ Eliminado':'Sí, eliminar'}
+          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>
+            {estado === 'ok' ? 'Cerrar' : 'Cancelar'}
           </button>
+          {estado !== 'ok' && (
+            <button onClick={eliminar} disabled={estado==='saving'} style={{
+              background:'#dc2626',
+              border:'none',borderRadius:8,color:'#fff',padding:'8px 18px',
+              cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
+              opacity:estado==='saving'?.7:1,
+            }}>
+              {estado === 'saving' ? 'Eliminando…' : 'Sí, eliminar'}
+            </button>
+          )}
         </div>
       </div>
     </div>,

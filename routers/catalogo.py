@@ -866,7 +866,11 @@ async def editar_producto(key: str, body: EditarProductoBody):
 # =============================================================================
 @router.delete("/catalogo/{key:path}")
 async def eliminar_producto(key: str):
-    """Elimina un producto. CASCADE borra inventario, fracciones, alias."""
+    """
+    Elimina un producto. CASCADE borra inventario, fracciones, alias.
+    Si el producto tiene historial de ventas (FK constraint), lo archiva
+    en lugar de borrarlo (activo = FALSE) para preservar la integridad histórica.
+    """
     try:
         from memoria import invalidar_cache_memoria
 
@@ -880,16 +884,39 @@ async def eliminar_producto(key: str):
             raise HTTPException(status_code=404, detail=f"Producto '{key}' no encontrado")
 
         nombre = row["nombre"]
-        db.execute("DELETE FROM productos WHERE clave = %s", [key])
+        archivado = False
+
+        try:
+            db.execute("DELETE FROM productos WHERE clave = %s", [key])
+        except Exception as e_inner:
+            # FK constraint 23503: el producto está referenciado en ventas_detalle.
+            # Archivar en lugar de borrar para preservar historial de ventas.
+            if "23503" in str(e_inner) or "foreign key" in str(e_inner).lower():
+                db.execute("UPDATE productos SET activo = FALSE WHERE clave = %s", [key])
+                archivado = True
+                logger.info(
+                    "Producto '%s' archivado (activo=FALSE) — tiene historial de ventas", nombre
+                )
+            else:
+                raise
+
         invalidar_cache_memoria()
+        await notify_all(
+            "inventario_actualizado",
+            {"accion": "producto_eliminado" if not archivado else "producto_archivado", "key": key},
+        )
 
         return {
             "ok":         True,
             "nombre":     nombre,
-            "mensaje":    f"'{nombre}' eliminado del catálogo",
-            "pg_borrado": True,
+            "archivado":  archivado,
+            "mensaje":    (
+                f"'{nombre}' tiene historial de ventas y fue desactivado del catálogo"
+                if archivado else
+                f"'{nombre}' eliminado del catálogo"
+            ),
+            "pg_borrado": not archivado,
         }
-        await notify_all("inventario_actualizado", {"accion": "producto_eliminado", "key": key})
     except HTTPException:
         raise
     except Exception as e:
