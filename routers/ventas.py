@@ -22,6 +22,12 @@ from routers.caja import VentaRapidaPayload, VentaRapidaItem
 from routers.deps import get_filtro_efectivo, get_current_user
 from routers.events import notify_all
 
+# Métricas Prometheus — fail-silent si el módulo no está disponible
+try:
+    import metrics as _metrics
+except Exception:  # noqa: BLE001
+    _metrics = None
+
 logger = logging.getLogger("ferrebot.api")
 
 router = APIRouter()
@@ -414,6 +420,16 @@ async def venta_rapida(payload: VentaRapidaPayload, current_user=Depends(get_cur
             "vendedor":    payload.vendedor,
         })
 
+        # Métricas Prometheus — contar la venta
+        if _metrics is not None:
+            try:
+                _metrics.ventas_registradas_total.labels(
+                    metodo_pago=(payload.metodo or "desconocido"),
+                    origen="api",
+                ).inc()
+            except Exception:
+                pass
+
         return {
             "ok":          True,
             "venta_id":    venta_id,
@@ -673,6 +689,15 @@ async def registrar_venta_varia(req: VentaVariaRequest):
             "metodo":  metodo,
             "vendedor": req.vendedor,
         })
+        # Métricas Prometheus — contar venta varia
+        if _metrics is not None:
+            try:
+                _metrics.ventas_registradas_total.labels(
+                    metodo_pago=(metodo or "desconocido"),
+                    origen="varia",
+                ).inc()
+            except Exception:
+                pass
         return {
             "ok": True,
             "mensaje": "Venta varia registrada",

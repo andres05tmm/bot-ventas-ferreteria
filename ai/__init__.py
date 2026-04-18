@@ -217,6 +217,8 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
         try:
             loop = asyncio.get_event_loop()
             _m = _model   # capturar en closure
+            import time as _time
+            _t0 = _time.perf_counter()
             respuesta = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
@@ -229,6 +231,28 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
                 ),
                 timeout=45.0,
             )
+            # Métricas Prometheus — fail-silent
+            if _metrics is not None:
+                try:
+                    _elapsed = _time.perf_counter() - _t0
+                    _metrics.claude_latency_seconds.labels(model=_m).observe(_elapsed)
+                    _metrics.claude_calls_total.labels(model=_m, outcome="ok").inc()
+                    _usage = getattr(respuesta, "usage", None)
+                    if _usage is not None:
+                        _input_tok = getattr(_usage, "input_tokens", 0) or 0
+                        _output_tok = getattr(_usage, "output_tokens", 0) or 0
+                        _cache_read = getattr(_usage, "cache_read_input_tokens", 0) or 0
+                        _cache_create = getattr(_usage, "cache_creation_input_tokens", 0) or 0
+                        if _input_tok:
+                            _metrics.claude_tokens_total.labels(model=_m, kind="input").inc(_input_tok)
+                        if _output_tok:
+                            _metrics.claude_tokens_total.labels(model=_m, kind="output").inc(_output_tok)
+                        if _cache_read:
+                            _metrics.claude_tokens_total.labels(model=_m, kind="cache_read").inc(_cache_read)
+                        if _cache_create:
+                            _metrics.claude_tokens_total.labels(model=_m, kind="cache_creation").inc(_cache_create)
+                except Exception:
+                    pass
             return respuesta
         except asyncio.TimeoutError:
             ultimo_error = asyncio.TimeoutError("La IA tardó demasiado en responder (>45s).")
@@ -269,6 +293,11 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
     logging.getLogger("ferrebot.ai").error(
         f"[CLAUDE] ❌ Sin respuesta tras {max_reintentos} intentos: {ultimo_error}"
     )
+    if _metrics is not None:
+        try:
+            _metrics.claude_calls_total.labels(model=_model, outcome="error").inc()
+        except Exception:
+            pass
     raise RuntimeError(_MSG_NO_DISPONIBLE)
 
 

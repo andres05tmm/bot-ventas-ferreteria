@@ -39,6 +39,12 @@ import jwt as _jwt
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+# Métricas Prometheus — fail-silent si el módulo no está disponible
+try:
+    import metrics as _metrics
+except Exception:  # noqa: BLE001
+    _metrics = None
+
 log = logging.getLogger("ferrebot.events")
 router = APIRouter()
 
@@ -80,6 +86,11 @@ def _do_broadcast(payload: str) -> None:
     for q in dead:
         try:
             _subscribers.remove(q)
+            if _metrics is not None:
+                try:
+                    _metrics.sse_clients_active.dec()
+                except Exception:
+                    pass
         except ValueError:
             pass
 
@@ -94,6 +105,11 @@ def broadcast(event_type: str, data: dict | None = None) -> None:
         las réplicas de Railway reciban el evento.
     """
     payload = json.dumps({"type": event_type, "data": data or {}})
+    if _metrics is not None:
+        try:
+            _metrics.sse_events_broadcast_total.labels(event_type=event_type).inc()
+        except Exception:
+            pass
     try:
         asyncio.get_running_loop()
         _do_broadcast(payload)
@@ -161,6 +177,11 @@ async def _event_generator(request: Request) -> AsyncGenerator[str, None]:
     """
     queue: asyncio.Queue = asyncio.Queue(maxsize=50)
     _subscribers.append(queue)
+    if _metrics is not None:
+        try:
+            _metrics.sse_clients_active.inc()
+        except Exception:
+            pass
     log.debug("SSE client conectado — total suscriptores: %d", len(_subscribers))
 
     try:
@@ -191,6 +212,11 @@ async def _event_generator(request: Request) -> AsyncGenerator[str, None]:
     finally:
         try:
             _subscribers.remove(queue)
+            if _metrics is not None:
+                try:
+                    _metrics.sse_clients_active.dec()
+                except Exception:
+                    pass
         except ValueError:
             pass
         log.debug(
