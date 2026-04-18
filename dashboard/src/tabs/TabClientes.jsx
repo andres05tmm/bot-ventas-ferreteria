@@ -10,7 +10,7 @@ import { useAuth } from '../hooks/useAuth.js'
 // ── Constantes ────────────────────────────────────────────────────────────────
 const TIPOS_ID      = ['CC', 'NIT', 'CE', 'PAS', 'TI', 'RC']
 const TIPOS_PERSONA = ['Natural', 'Jurídica']
-const LIMIT         = 25
+const LIMIT         = 50
 
 // ── Helpers visuales ──────────────────────────────────────────────────────────
 function tipoIdColor(tipo, t) {
@@ -316,34 +316,47 @@ function FilaCliente({ cliente, onEdit, onDelete, t, isMobile }) {
   if (isMobile) {
     return (
       <div style={{
-        padding: '12px 14px', borderBottom: `1px solid ${t.border}`,
-        background: hover ? t.accentSub : 'transparent',
-        transition: 'background .15s',
-      }}
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-      >
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-          <Avatar nombre={cliente['Nombre tercero']} t={t} />
+        padding: '13px 16px', borderBottom: `1px solid ${t.border}`,
+        background: 'transparent',
+      }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <Avatar nombre={cliente['Nombre tercero']} size={40} t={t} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 3 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: t.text, marginBottom: 4, lineHeight: 1.2 }}>
               {cliente['Nombre tercero']}
             </div>
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
               <Badge style={{ background: idColor.bg, color: idColor.color }}>
                 {cliente['Tipo ID']}
               </Badge>
               {cliente['Identificacion'] && (
                 <span style={{ fontSize: 11, color: t.textMuted }}>{cliente['Identificacion']}</span>
               )}
+              {cliente['Telefono'] && (
+                <span style={{ fontSize: 11, color: t.textMuted }}>· {cliente['Telefono']}</span>
+              )}
             </div>
-            {cliente['Telefono'] && (
-              <div style={{ fontSize: 11, color: t.textMuted }}>📞 {cliente['Telefono']}</div>
-            )}
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={onEdit} style={btnStyle(t, t.blue, t.blueSub)} title="Editar">✏️</button>
-            <button onClick={onDelete} style={btnStyle(t, '#dc2626', '#fef2f2')} title="Eliminar">🗑</button>
+          {/* Botones táctiles con área grande */}
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <button
+              onClick={onEdit}
+              style={{
+                width: 36, height: 36, borderRadius: 8, border: `1px solid ${t.blue}33`,
+                background: t.blueSub, color: t.blue, fontSize: 15,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              title="Editar"
+            >✏️</button>
+            <button
+              onClick={onDelete}
+              style={{
+                width: 36, height: 36, borderRadius: 8, border: '1px solid #dc262633',
+                background: '#fef2f2', color: '#dc2626', fontSize: 15,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              title="Eliminar"
+            >🗑</button>
           </div>
         </div>
       </div>
@@ -482,7 +495,7 @@ export default function TabClientes({ refreshKey }) {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: isMobile ? '12px' : '0 2px 24px' }}>
+    <div style={{ padding: isMobile ? '10px 10px 0' : '0 2px 24px' }}>
 
       {/* Header */}
       <div style={{
@@ -510,19 +523,24 @@ export default function TabClientes({ refreshKey }) {
       </div>
 
       {/* Buscador */}
-      <div style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: 12 }}>
         <StyledInput
           value={busqueda}
           onChange={e => handleBusqueda(e.target.value)}
-          placeholder="🔍  Buscar por nombre o número de identificación…"
-          style={{ width: '100%', maxWidth: 480 }}
+          placeholder="🔍  Buscar por nombre o identificación…"
+          style={{
+            width: '100%',
+            maxWidth: isMobile ? '100%' : 480,
+            fontSize: isMobile ? 16 : undefined, // evita zoom automático en iOS
+          }}
         />
       </div>
 
       {/* Contenido */}
-      <GlassCard style={{ padding: 0, overflow: 'hidden' }}>
+      <GlassCard style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+
         {loading && (
-          <div style={{ padding: 40, display: 'flex', justifyContent: 'center' }}>
+          <div style={{ padding: 48, display: 'flex', justifyContent: 'center' }}>
             <Spinner />
           </div>
         )}
@@ -540,8 +558,12 @@ export default function TabClientes({ refreshKey }) {
         {!loading && !error && clientes.length > 0 && (
           <>
             {isMobile ? (
-              /* Vista móvil — cards */
-              <div>
+              /* ── Vista móvil — lista scrollable ── */
+              <div style={{
+                overflowY: 'auto',
+                maxHeight: 'calc(100vh - 210px)',
+                WebkitOverflowScrolling: 'touch',
+              }}>
                 {clientes.map(c => (
                   <FilaCliente
                     key={c.id} cliente={c} t={t} isMobile
@@ -551,53 +573,66 @@ export default function TabClientes({ refreshKey }) {
                 ))}
               </div>
             ) : (
-              /* Vista escritorio — tabla */
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: t.tableAlt, borderBottom: `1px solid ${t.border}` }}>
-                    {['Cliente', 'Identificación', 'Tipo persona', 'Teléfono', 'Correo', ''].map(h => (
-                      <th key={h} style={{
-                        padding: '10px 14px', textAlign: 'left',
-                        fontSize: 11, fontWeight: 700, color: t.textMuted,
-                        textTransform: 'uppercase', letterSpacing: '.5px',
-                        borderBottom: `1px solid ${t.border}`,
-                      }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {clientes.map(c => (
-                    <FilaCliente
-                      key={c.id} cliente={c} t={t} isMobile={false}
-                      onEdit={() => setEditando(c)}
-                      onDelete={() => setEliminando(c)}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            {/* Paginación */}
-            {paginas > 1 && (
+              /* ── Vista escritorio — tabla con thead sticky ── */
               <div style={{
-                display: 'flex', justifyContent: 'center', alignItems: 'center',
-                gap: 8, padding: '12px 16px', borderTop: `1px solid ${t.border}`,
+                overflowY: 'auto',
+                maxHeight: 'calc(100vh - 290px)',
+                minHeight: 320,
               }}>
-                <button
-                  disabled={paginaActual === 1}
-                  onClick={() => irPagina(offset - LIMIT)}
-                  style={paginaBtn(t, paginaActual === 1)}
-                >← Anterior</button>
-                <span style={{ fontSize: 12, color: t.textMuted }}>
-                  Página {paginaActual} de {paginas}
-                </span>
-                <button
-                  disabled={paginaActual === paginas}
-                  onClick={() => irPagina(offset + LIMIT)}
-                  style={paginaBtn(t, paginaActual === paginas)}
-                >Siguiente →</button>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+                    <tr style={{ background: t.tableAlt, borderBottom: `1px solid ${t.border}` }}>
+                      {['Cliente', 'Identificación', 'Tipo persona', 'Teléfono', 'Correo', ''].map(h => (
+                        <th key={h} style={{
+                          padding: '10px 14px', textAlign: 'left',
+                          fontSize: 11, fontWeight: 700, color: t.textMuted,
+                          textTransform: 'uppercase', letterSpacing: '.5px',
+                          borderBottom: `1px solid ${t.border}`,
+                          background: t.tableAlt,
+                        }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientes.map(c => (
+                      <FilaCliente
+                        key={c.id} cliente={c} t={t} isMobile={false}
+                        onEdit={() => setEditando(c)}
+                        onDelete={() => setEliminando(c)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
+
+            {/* Footer: conteo + paginación si aplica */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '10px 16px', borderTop: `1px solid ${t.border}`,
+              background: t.tableAlt, flexShrink: 0, flexWrap: 'wrap', gap: 8,
+            }}>
+              <span style={{ fontSize: 11, color: t.textMuted }}>
+                Mostrando {clientes.length} de {total} clientes
+              </span>
+              {paginas > 1 && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <button
+                    disabled={paginaActual === 1}
+                    onClick={() => irPagina(offset - LIMIT)}
+                    style={paginaBtn(t, paginaActual === 1)}
+                  >← Anterior</button>
+                  <span style={{ fontSize: 11, color: t.textMuted }}>
+                    {paginaActual} / {paginas}
+                  </span>
+                  <button
+                    disabled={paginaActual === paginas}
+                    onClick={() => irPagina(offset + LIMIT)}
+                    style={paginaBtn(t, paginaActual === paginas)}
+                  >Siguiente →</button>
+                </div>
+              )}
+            </div>
           </>
         )}
       </GlassCard>
