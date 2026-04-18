@@ -85,9 +85,11 @@ function UnidadBadge({ unidad, t }) {
   )
 }
 
-function ExportDropdown({ disabled }) {
+function ExportDropdown({ disabled, authFetch }) {
   const t = useTheme()
-  const [open, setOpen] = useState(false)
+  const [open,       setOpen]       = useState(false)
+  const [descargando, setDescargando] = useState(null) // periodo en curso
+  const [errMsg,     setErrMsg]     = useState('')
   const ref = useRef(null)
 
   const opciones = [
@@ -97,15 +99,32 @@ function ExportDropdown({ disabled }) {
     { label: '📦 Todo',        periodo: 'todo'   },
   ]
 
-  const descargar = (periodo) => {
+  const descargar = async (periodo) => {
     setOpen(false)
-    const url = `${API_BASE}/export/ventas.xlsx?periodo=${periodo}`
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `ventas_${periodo}.xlsx`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    setErrMsg('')
+    setDescargando(periodo)
+    try {
+      // Usar authFetch para enviar el JWT — descarga autenticada
+      const r = await authFetch(`${API_BASE}/export/ventas.xlsx?periodo=${periodo}`)
+      if (!r.ok) {
+        const detail = await r.text()
+        throw new Error(detail || `Error ${r.status}`)
+      }
+      const blob = await r.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `ventas_${periodo}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setErrMsg(e.message || 'Error al descargar')
+      setTimeout(() => setErrMsg(''), 4000)
+    } finally {
+      setDescargando(null)
+    }
   }
 
   // Cerrar al hacer clic fuera
@@ -116,21 +135,34 @@ function ExportDropdown({ disabled }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
+  const ocupado = disabled || descargando !== null
+
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
-        disabled={disabled}
+        disabled={ocupado}
         onClick={() => setOpen(o => !o)}
         style={{
           background: t.accentSub, border: `1px solid ${t.accent}55`, color: t.accent,
           borderRadius: 7, padding: '7px 13px', fontSize: 11, fontWeight: 600,
-          fontFamily: 'inherit', whiteSpace: 'nowrap', cursor: disabled ? 'not-allowed' : 'pointer',
-          display: 'flex', alignItems: 'center', gap: 5, opacity: disabled ? 0.5 : 1,
+          fontFamily: 'inherit', whiteSpace: 'nowrap', cursor: ocupado ? 'not-allowed' : 'pointer',
+          display: 'flex', alignItems: 'center', gap: 5, opacity: ocupado ? 0.6 : 1,
         }}
       >
-        ↓ Exportar Excel <span style={{ fontSize: 9 }}>{open ? '▲' : '▼'}</span>
+        {descargando ? `⏳ Descargando…` : <>↓ Exportar Excel <span style={{ fontSize: 9 }}>{open ? '▲' : '▼'}</span></>}
       </button>
-      {open && (
+
+      {errMsg && (
+        <div style={{
+          position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 50,
+          background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 7,
+          padding: '7px 11px', fontSize: 11, color: '#dc2626', whiteSpace: 'nowrap',
+        }}>
+          ✗ {errMsg}
+        </div>
+      )}
+
+      {open && !errMsg && (
         <div style={{
           position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 50,
           background: t.card, border: `1px solid ${t.border}`, borderRadius: 8,
@@ -446,6 +478,7 @@ function KpiHistorial({ label, value, color }) {
 export default function TabHistorial({ refreshKey }) {
   const t = useTheme()
   const isMobile = useIsMobile()
+  const { authFetch } = useAuth()
   const [refresh,    setRefresh]    = useState(0)
   const { data, loading, error }    = useFetch('/ventas/hoy', [refreshKey, refresh])
   const [busqueda,   setBusqueda]   = useState('')
@@ -522,7 +555,7 @@ export default function TabHistorial({ refreshKey }) {
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <StyledInput value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar..." style={{width:200}}/>
-          <ExportDropdown disabled={false} />
+          <ExportDropdown disabled={false} authFetch={authFetch} />
         </div>
       </div>
 
