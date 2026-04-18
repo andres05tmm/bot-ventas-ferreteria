@@ -355,15 +355,25 @@ async def manejar_flujo_correccion(update, context, chat_id: int, mensaje: str, 
             "IMPORTANTE: emite [VENTA] para TODOS los productos que quedan en la venta (no solo el modificado). "
             + (f"IMPORTANTE: mantén metodo_pago={metodo_original} en todos los [VENTA]." if metodo_original else "")
         )
+        # Resolver vendedor_id para budget tracking + memoria de turno (fail-safe)
+        from auth.usuarios import get_usuario as _gu_pago
+        _u_pago = _gu_pago(update.effective_user.id)
+        _vid_pago = _u_pago["id"] if _u_pago else None
+
         historial = get_historial(chat_id)
-        agregar_al_historial(chat_id, "user", prompt_modificacion)
+        agregar_al_historial(chat_id, "user", prompt_modificacion,
+                             vendedor_id=_vid_pago)
 
         with _estado_lock:
             ventas_pendientes.pop(chat_id, None)
 
-        respuesta_raw                         = await procesar_con_claude(prompt_modificacion, vendedor, historial)
+        respuesta_raw = await procesar_con_claude(
+            prompt_modificacion, vendedor, historial,
+            vendedor_id=_vid_pago,
+        )
         texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
-        agregar_al_historial(chat_id, "assistant", texto_respuesta)
+        agregar_al_historial(chat_id, "assistant", texto_respuesta,
+                             vendedor_id=_vid_pago)
 
         confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
         with _estado_lock:
@@ -392,11 +402,22 @@ async def manejar_flujo_correccion(update, context, chat_id: int, mensaje: str, 
         from handlers.callbacks import _enviar_botones_pago as _botones_central, _enviar_confirmacion_con_metodo
         from ai import procesar_con_claude, procesar_acciones_async
 
+        # Resolver vendedor_id para budget tracking + memoria de turno (fail-safe)
+        from auth.usuarios import get_usuario as _gu_corr
+        _u_corr = _gu_corr(update.effective_user.id)
+        _vid_corr = _u_corr["id"] if _u_corr else None
+
         historial = get_historial(chat_id)
-        agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
-        respuesta_raw                         = await procesar_con_claude(f"{vendedor}: {mensaje}", vendedor, historial)
+        agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}",
+                             vendedor_id=_vid_corr)
+
+        respuesta_raw = await procesar_con_claude(
+            f"{vendedor}: {mensaje}", vendedor, historial,
+            vendedor_id=_vid_corr,
+        )
         texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
-        agregar_al_historial(chat_id, "assistant", texto_respuesta)
+        agregar_al_historial(chat_id, "assistant", texto_respuesta,
+                             vendedor_id=_vid_corr)
         if texto_respuesta:
             await update.message.reply_text(texto_respuesta)
         confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)

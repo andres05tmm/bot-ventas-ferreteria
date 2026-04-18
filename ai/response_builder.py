@@ -52,7 +52,8 @@ logger = logging.getLogger("ferrebot.ai.response_builder")
 
 def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
     from ventas_state import (ventas_pendientes, registrar_ventas_con_metodo,
-        _estado_lock, mensajes_standby, limpiar_pendientes_expirados, _guardar_pendiente)
+        _estado_lock, mensajes_standby, limpiar_pendientes_expirados,
+        _guardar_pendiente, append_a_pendiente, origen_carrito)
     from ai import _pg_buscar_cliente, _pg_guardar_cliente, _pg_borrar_cliente
 
     acciones:       list[str] = []
@@ -65,6 +66,23 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
 
     with _estado_lock:
         esperando_pago = bool(ventas_pendientes.get(chat_id))
+
+    # ── Carrito conversacional de audio ──────────────────────────────────
+    # Si el último turno que tocó el carrito vino de un audio, no tratamos
+    # el "esperando_pago" como un bloqueo: el vendedor está acumulando
+    # productos, no olvidó un botón de pago. Mismo motivo por el que las
+    # ventas nuevas se AÑADEN al carrito en vez de reemplazarlo.
+    origen_es_audio = origen_carrito(chat_id) == "audio"
+
+    def _guardar_o_append(ventas_nuevas: list):
+        """
+        Llamar SIEMPRE dentro de _estado_lock. APPEND cuando el carrito es
+        de audio, REPLACE en el resto de casos (texto, foto, etc.).
+        """
+        if origen_es_audio:
+            append_a_pendiente(chat_id, ventas_nuevas)
+        else:
+            _guardar_pendiente(chat_id, ventas_nuevas)
 
     # ── Helper: conversión para productos vendidos por mililitro (MLT) ──────
     def _convertir_venta_mlt(venta: dict) -> dict:
@@ -153,7 +171,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
 
     for venta_json in re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL):
         try:
-            if esperando_pago:
+            if esperando_pago and not origen_es_audio:
                 logger.debug("[VENTA] ignorado — esperando selección de pago para chat %s", chat_id)
             else:
                 venta = json.loads(venta_json.strip())
@@ -168,7 +186,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             logging.getLogger("ferrebot.ai").error(f"Error parseando venta: {e} | JSON raw: {repr(venta_json.strip())}")
         texto_limpio = texto_limpio.replace(f'[VENTA]{venta_json}[/VENTA]', '')
 
-    if esperando_pago and ventas_con_metodo:
+    if esperando_pago and ventas_con_metodo and not origen_es_audio:
         ventas_con_metodo.clear()
 
     def _tiene_cliente_desconocido(ventas: list) -> str | None:
@@ -198,9 +216,9 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     todas_las_ventas_nuevas = ventas_con_metodo + ventas_sin_metodo
     cliente_desconocido     = _tiene_cliente_desconocido(todas_las_ventas_nuevas) if todas_las_ventas_nuevas else None
 
-    if cliente_desconocido and not esperando_pago:
+    if cliente_desconocido and (not esperando_pago or origen_es_audio):
         with _estado_lock:
-            _guardar_pendiente(chat_id, todas_las_ventas_nuevas)
+            _guardar_o_append(todas_las_ventas_nuevas)
         acciones.append(f"CLIENTE_DESCONOCIDO:{cliente_desconocido}")
         ventas_con_metodo.clear()
         ventas_sin_metodo.clear()
@@ -208,18 +226,29 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
     if ventas_con_metodo:
         metodo_conocido = ventas_con_metodo[0].get("metodo_pago", "efectivo").lower()
         with _estado_lock:
-            _guardar_pendiente(chat_id, ventas_con_metodo)
+            _guardar_o_append(ventas_con_metodo)
         acciones.append(f"PEDIR_CONFIRMACION:{metodo_conocido}")
 
-    ventas_ignoradas = esperando_pago and bool(
-        re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL)
+    # Para carritos de audio NO disparamos el aviso "tenés un pago pendiente" —
+    # la acumulación es intencional y el cierre lo decide el vendedor (o el
+    # auto-cierre a los 90s).
+    ventas_ignoradas = (
+        esperando_pago and not origen_es_audio and bool(
+            re.findall(r'\[VENTA\](.*?)\[/VENTA\]', texto_respuesta, re.DOTALL)
+        )
     )
-    if ventas_ignoradas or (ventas_sin_metodo and esperando_pago):
+    if ventas_ignoradas or (ventas_sin_metodo and esperando_pago and not origen_es_audio):
         acciones.append("PAGO_PENDIENTE_AVISO")
     elif ventas_sin_metodo:
         with _estado_lock:
-            _guardar_pendiente(chat_id, ventas_sin_metodo)
-        acciones.append("PEDIR_METODO_PAGO")
+            _guardar_o_append(ventas_sin_metodo)
+        # En audio, si el vendedor aún no dijo el método y el carrito está
+        # abierto, no pedimos botones por cada item — el flujo de audio
+        # dispara el auto-cierre o espera cierre explícito.
+        if origen_es_audio:
+            acciones.append("CARRITO_AUDIO_ACUMULANDO")
+        else:
+            acciones.append("PEDIR_METODO_PAGO")
 
     # ── Cliente nuevo (datos completos) ──
     for cli_json in re.findall(r'\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]', texto_respuesta, re.DOTALL):
@@ -556,6 +585,106 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
         except Exception as e:
             logger.error("Error inventario: %s", e)
         texto_limpio = texto_limpio.replace(f'[INVENTARIO]{inv_json}[/INVENTARIO]', '')
+
+    # ── Búsqueda histórica (FTS + trigram) ──
+    # Claude emite el tag cuando el vendedor pregunta cosas como:
+    #   "¿qué le vendí ayer a pedro?"
+    #   "¿cuándo pidieron drywall?"
+    #   "¿de qué hablamos con juan sobre el fiado?"
+    # Formato:
+    #   [BUSCAR_HISTORICO]{"tipo":"ventas_producto","query":"drywall","dias":30,"limit":10,"vendedor":"andres"}[/BUSCAR_HISTORICO]
+    #   [BUSCAR_HISTORICO]{"tipo":"ventas_cliente","query":"pedro","dias":30}[/BUSCAR_HISTORICO]
+    #   [BUSCAR_HISTORICO]{"tipo":"conversaciones","query":"fiado","chat_id":123,"dias":30}[/BUSCAR_HISTORICO]
+    # El handler reemplaza el tag por los resultados formateados legibles —
+    # no re-llamamos a Claude (sería costoso y redundante para listados).
+    for bus_json in re.findall(
+        r'\[BUSCAR_HISTORICO\](.*?)\[/BUSCAR_HISTORICO\]',
+        texto_respuesta, re.DOTALL
+    ):
+        resultados_txt = ""
+        try:
+            datos  = json.loads(bus_json.strip())
+            tipo   = (datos.get("tipo") or "").strip().lower()
+            q      = (datos.get("query") or "").strip()
+            dias   = int(datos.get("dias") or 30)
+            limit  = int(datos.get("limit") or 10)
+            # Importación lazy — evita que un fallo en search_service tumbe
+            # todo response_builder si la DB está abajo.
+            from services.search_service import (
+                buscar_conversaciones,
+                buscar_ventas_por_producto,
+                buscar_ventas_por_cliente,
+                formatear_resultados_ventas,
+                formatear_resultados_conversaciones,
+            )
+            if tipo in ("ventas_producto", "ventas"):
+                filas = buscar_ventas_por_producto(
+                    q,
+                    dias=dias,
+                    limit=limit,
+                    vendedor=datos.get("vendedor"),
+                )
+                resultados_txt = formatear_resultados_ventas(filas)
+            elif tipo in ("ventas_cliente", "cliente"):
+                filas = buscar_ventas_por_cliente(q, dias=dias, limit=limit)
+                resultados_txt = formatear_resultados_ventas(filas)
+            elif tipo in ("conversaciones", "chat"):
+                filas = buscar_conversaciones(
+                    q,
+                    chat_id=datos.get("chat_id"),
+                    dias=dias,
+                    limit=limit,
+                )
+                resultados_txt = formatear_resultados_conversaciones(filas)
+            else:
+                resultados_txt = f"(tipo de búsqueda desconocido: {tipo!r})"
+            acciones.append(f"BUSQUEDA:{tipo}:{len(resultados_txt.splitlines())}")
+        except Exception as e:
+            logger.error("Error en [BUSCAR_HISTORICO]: %s", e)
+            resultados_txt = "(no pude buscar en el histórico ahora mismo)"
+        texto_limpio = texto_limpio.replace(
+            f'[BUSCAR_HISTORICO]{bus_json}[/BUSCAR_HISTORICO]',
+            resultados_txt,
+        )
+
+    # ── Búsqueda en memoria de entidad (Capa 4) ──
+    # Claude pide notas estables sobre una entidad específica. El handler
+    # reemplaza inline con las notas vigentes (ordenadas por fecha desc).
+    # Formato:
+    #   [BUSCAR_MEMORIA]{"tipo":"producto","entidad":"drywall","limit":3}[/BUSCAR_MEMORIA]
+    #   [BUSCAR_MEMORIA]{"tipo":"vendedor","entidad":"andres"}[/BUSCAR_MEMORIA]
+    #   [BUSCAR_MEMORIA]{"tipo":"alias","entidad":"tiner"}[/BUSCAR_MEMORIA]
+    for mem_json in re.findall(
+        r'\[BUSCAR_MEMORIA\](.*?)\[/BUSCAR_MEMORIA\]',
+        texto_respuesta, re.DOTALL
+    ):
+        resultado_mem = ""
+        try:
+            datos = json.loads(mem_json.strip())
+            tipo = (datos.get("tipo") or "").strip().lower()
+            entidad = (datos.get("entidad") or "").strip()
+            limit = int(datos.get("limit") or 3)
+            if not tipo or not entidad:
+                resultado_mem = "(tipo y entidad son obligatorios en [BUSCAR_MEMORIA])"
+            else:
+                from services.memoria_entidad_service import (
+                    obtener_notas,
+                    formatear_para_prompt,
+                )
+                notas = obtener_notas(tipo, entidad, limit=limit)
+                if notas:
+                    etiqueta = f"{tipo} {entidad}"
+                    resultado_mem = formatear_para_prompt(notas, etiqueta)
+                else:
+                    resultado_mem = f"(sin notas vigentes para {tipo}:{entidad})"
+            acciones.append(f"BUSCAR_MEMORIA:{tipo}:{len(resultado_mem.splitlines())}")
+        except Exception as e:
+            logger.error("Error en [BUSCAR_MEMORIA]: %s", e)
+            resultado_mem = "(no pude consultar la memoria ahora mismo)"
+        texto_limpio = texto_limpio.replace(
+            f'[BUSCAR_MEMORIA]{mem_json}[/BUSCAR_MEMORIA]',
+            resultado_mem,
+        )
 
     # ── Excel personalizado ──
     for excel_json in re.findall(r'\[EXCEL\](.*?)\[/EXCEL\]', texto_respuesta, re.DOTALL):

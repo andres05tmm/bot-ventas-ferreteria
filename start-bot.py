@@ -118,12 +118,22 @@ async def lifespan(app: FastAPI):
     """
     Inicia el Application de python-telegram-bot, registra el webhook con Telegram
     y arranca el keepalive. Al apagarse, detiene el bot limpiamente.
+
+    Además arranca un APScheduler con el job nocturno del compresor (3 AM Colombia)
+    que destila las conversaciones del día en notas de memoria de entidad.
     """
     tg_app = build_app()
     app.state.tg_app = tg_app
 
     await tg_app.initialize()
     await tg_app.start()
+
+    # ── Prometheus metrics: marcar este proceso como "bot" ───────────────────
+    try:
+        import metrics as _metrics
+        _metrics.set_service_label("bot", version=config.VERSION)
+    except Exception as _me:
+        log.warning(f"⚠️ No se pudo inicializar métricas: {_me}")
 
     # Registrar webhook: Telegram enviará los updates a WEBHOOK_URL/TOKEN
     webhook_url = f"{config.WEBHOOK_URL}{_WEBHOOK_PATH}"
@@ -136,9 +146,39 @@ async def lifespan(app: FastAPI):
     # Keepalive del prompt cache de Anthropic
     asyncio.create_task(loop_keepalive())
 
+    # ── Scheduler nocturno (compresor de memoria de entidad) ────────────────
+    scheduler = None
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from services.compresor_nocturno import compresor_nocturno_job
+
+        scheduler = AsyncIOScheduler(timezone=str(config.COLOMBIA_TZ))
+        scheduler.add_job(
+            compresor_nocturno_job,
+            trigger=CronTrigger(hour=3, minute=0, timezone=str(config.COLOMBIA_TZ)),
+            id="compresor_nocturno",
+            name="Compresor nocturno de memoria de entidad",
+            replace_existing=True,
+            misfire_grace_time=3600,  # si el bot estuvo caído, corre hasta 1h tarde
+            max_instances=1,
+        )
+        scheduler.start()
+        app.state.scheduler = scheduler
+        log.info("🌙 APScheduler iniciado — compresor nocturno a las 3:00 AM Colombia")
+    except Exception as e:
+        log.warning(f"⚠️ No se pudo iniciar el scheduler nocturno: {e}")
+
     yield
 
     # Apagado limpio
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=False)
+            log.info("🌙 APScheduler detenido")
+        except Exception as e:
+            log.warning(f"⚠️ Error apagando scheduler: {e}")
+
     await tg_app.stop()
     await tg_app.shutdown()
     log.info("🛑 Bot detenido")
@@ -160,6 +200,27 @@ async def telegram_webhook(request: Request) -> Response:
 @fastapi_app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "version": config.VERSION}
+
+
+@fastapi_app.get("/metrics")
+async def bot_metrics_endpoint(request: Request) -> Response:
+    """
+    Exposition format de Prometheus (text/plain; version=0.0.4).
+
+    Acceso:
+      - Por defecto: PÚBLICO.
+      - Si se setea METRICS_BEARER_TOKEN en env, se requiere
+        Authorization: Bearer <token> o devuelve 401.
+    """
+    from fastapi import HTTPException
+    import metrics as _metrics
+
+    auth = request.headers.get("Authorization")
+    if not _metrics.auth_check(auth):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    body, content_type = _metrics.render_metrics()
+    return Response(content=body, media_type=content_type)
 
 
 # ── Arrancar uvicorn ───────────────────────────────────────────────────────────

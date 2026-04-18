@@ -227,6 +227,81 @@ def construir_contexto_turno() -> str:
     return "\n\n".join(partes)
 
 
+def construir_seccion_memoria_entidades(mensaje_usuario: str, vendedor: str | None = None) -> str:
+    """
+    Inyecta notas vigentes de memoria de entidad (productos + vendedor) cuando
+    el mensaje del usuario menciona una entidad conocida.
+
+    Estrategia (cero tokens si no hay match):
+      1. Productos → fuzzy match contra el catálogo en RAM (cero costo, ya cargado).
+         Para cada producto detectado, traer máx 2 notas vigentes.
+      2. Vendedor activo → siempre traer máx 2 notas (el vendedor es conocido).
+      3. Cap total: máx 4 productos + vendedor → ~6 notas → ~600 chars en prompt.
+
+    Las notas las genera el compresor nocturno (Capa 4). Si la tabla está vacía
+    o la DB falla, retorna "" sin tocar el prompt.
+
+    Returns:
+        Bloque "NOTAS DE MEMORIA — ..." listo para insertar en el prompt,
+        o "" si no hay matches.
+    """
+    # Lazy imports — evita ciclo con services y cargar el módulo si no se usa
+    try:
+        from services.memoria_entidad_service import (
+            obtener_notas_producto,
+            obtener_notas_vendedor,
+            formatear_para_prompt,
+        )
+        from memoria import cargar_memoria
+    except Exception as e:
+        logger.debug("memoria_entidad no disponible: %s", e)
+        return ""
+
+    if not mensaje_usuario:
+        return ""
+
+    bloques: list[str] = []
+    msg_norm = _normalizar(mensaje_usuario)
+
+    # ── 1. Productos mencionados en el mensaje ──────────────────────────────
+    try:
+        mem = cargar_memoria() or {}
+        catalogo = mem.get("catalogo", {}) or {}
+        # Match barato: si alguna palabra del nombre del producto aparece en el msg
+        # (cap de 4 productos para no inflar el prompt)
+        productos_detectados: list[str] = []
+        for prod in catalogo.values():
+            nombre = (prod.get("nombre") or "").strip()
+            if not nombre:
+                continue
+            nombre_norm = _normalizar(nombre)
+            # palabras significativas del nombre (>3 chars) que aparecen en msg
+            palabras = [p for p in nombre_norm.split() if len(p) > 3]
+            if palabras and any(p in msg_norm for p in palabras):
+                productos_detectados.append(nombre)
+                if len(productos_detectados) >= 4:
+                    break
+        for nombre in productos_detectados:
+            notas = obtener_notas_producto(nombre, limit=2)
+            txt = formatear_para_prompt(notas, nombre)
+            if txt:
+                bloques.append(txt)
+    except Exception as e:
+        logger.debug("memoria_entidad productos falló: %s", e)
+
+    # ── 2. Notas del vendedor activo ────────────────────────────────────────
+    if vendedor:
+        try:
+            notas_v = obtener_notas_vendedor(vendedor, limit=2)
+            txt = formatear_para_prompt(notas_v, f"vendedor {vendedor}")
+            if txt:
+                bloques.append(txt)
+        except Exception as e:
+            logger.debug("memoria_entidad vendedor falló: %s", e)
+
+    return "\n\n".join(bloques)
+
+
 def construir_seccion_operaciones(mensaje_usuario: str) -> str:
     """
     Retorna texto con inventario bajo stock, caja del día, gastos y facturas pendientes.

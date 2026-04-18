@@ -32,6 +32,36 @@ ventas_pendientes: dict[int, list] = {}
 # {chat_id: timestamp} — cuándo se guardó cada pendiente
 _ventas_pendientes_ts: dict[int, float] = {}
 
+# ─────────────────────────────────────────────────────────────────────────
+# PASO 4 — Carrito conversacional de audio
+# ─────────────────────────────────────────────────────────────────────────
+# Cuando el vendedor manda varios audios seguidos (p.ej. "me trajo 3 clavos",
+# luego "y 2 martillos", luego "todo junto a Pedro"), no queremos pedirle el
+# método de pago en cada audio: acumulamos las ventas en un "carrito" y solo
+# cerramos cuando:
+#   (a) el vendedor lo cierra explícitamente ("cobra"/"cierra"/"efectivo al final"), o
+#   (b) pasan 90 segundos sin nuevos audios → auto-cierre con método=efectivo.
+#
+# Todo es efímero: si el proceso se reinicia el carrito se pierde (a propósito
+# — no queremos revivir ventas a medio cobrar tras un redeploy).
+
+# {chat_id: "audio" | "texto"} — origen del último turno que tocó el carrito.
+# Usado por response_builder para decidir si APPEND (audio) o REPLACE (texto).
+_carrito_origen: dict[int, str] = {}
+
+# {chat_id: asyncio.Task} — timer activo que cerrará el carrito por inactividad.
+# Cada audio nuevo cancela el timer anterior y arma uno fresco.
+_timers_carrito: dict[int, "asyncio.Task"] = {}
+
+# {chat_id: str} — método de pago elegido explícitamente por el vendedor dentro
+# del carrito ("efectivo" / "transferencia" / "datafono"). None/ausente = aún
+# no declarado.
+_carrito_metodo: dict[int, str] = {}
+
+# Timeout de inactividad del carrito (segundos). Configurable por env.
+import os as _os
+_TIMEOUT_CARRITO = float(_os.getenv("CARRITO_TIMEOUT_SEG", "90"))
+
 # {chat_id: [mensajes en standby esperando que se confirme el pago anterior]}
 mensajes_standby: dict[int, list[str]] = {}
 
@@ -74,6 +104,129 @@ def _guardar_pendiente(chat_id: int, ventas: list):
     _ventas_pendientes_ts[chat_id] = time.time()
 
 
+def append_a_pendiente(chat_id: int, ventas_nuevas: list):
+    """
+    Suma ventas al carrito en vez de reemplazarlas. Usar para audios sucesivos.
+    Refresca el timestamp (extiende la ventana de inactividad).
+    No toma el lock — el caller debe estar dentro de _estado_lock.
+    """
+    if not ventas_nuevas:
+        return
+    actual = ventas_pendientes.get(chat_id) or []
+    actual.extend(ventas_nuevas)
+    ventas_pendientes[chat_id]     = actual
+    _ventas_pendientes_ts[chat_id] = time.time()
+
+
+def marcar_origen_carrito(chat_id: int, origen: str):
+    """Marca el origen del carrito: 'audio' acumula, cualquier otro reemplaza."""
+    with _estado_lock:
+        if origen in ("audio", "texto"):
+            _carrito_origen[chat_id] = origen
+
+
+def origen_carrito(chat_id: int) -> str:
+    """Retorna el origen actual del carrito ('audio'/'texto'/'' si no hay)."""
+    with _estado_lock:
+        return _carrito_origen.get(chat_id, "")
+
+
+def fijar_metodo_carrito(chat_id: int, metodo: str):
+    """Guarda el método de pago declarado por el vendedor durante el carrito."""
+    metodo_norm = (metodo or "").lower().strip()
+    if metodo_norm not in ("efectivo", "transferencia", "datafono"):
+        return
+    with _estado_lock:
+        _carrito_metodo[chat_id] = metodo_norm
+
+
+def obtener_metodo_carrito(chat_id: int) -> str | None:
+    """Retorna el método declarado (si hubo) o None."""
+    with _estado_lock:
+        return _carrito_metodo.get(chat_id)
+
+
+def limpiar_carrito(chat_id: int):
+    """Limpia todo el estado del carrito para un chat (ventas, origen, método, timer)."""
+    with _estado_lock:
+        ventas_pendientes.pop(chat_id, None)
+        _ventas_pendientes_ts.pop(chat_id, None)
+        _carrito_origen.pop(chat_id, None)
+        _carrito_metodo.pop(chat_id, None)
+        timer = _timers_carrito.pop(chat_id, None)
+    if timer is not None and not timer.done():
+        try:
+            timer.cancel()
+        except Exception:
+            pass
+
+
+def cancelar_timer_carrito(chat_id: int):
+    """Cancela el timer activo del carrito (si lo hay). No toca las ventas."""
+    with _estado_lock:
+        timer = _timers_carrito.pop(chat_id, None)
+    if timer is not None and not timer.done():
+        try:
+            timer.cancel()
+        except Exception:
+            pass
+
+
+def armar_timer_carrito(
+    chat_id: int,
+    coroutine_factory,
+    segundos: float | None = None,
+):
+    """
+    Arma (o re-arma) el timer de auto-cierre del carrito.
+
+    `coroutine_factory` es un callable sin argumentos que retorna la corrutina
+    que se ejecutará al vencer el timeout (por ejemplo, el cierre forzado con
+    método=efectivo). Se pasa como factory para que no se cree la corrutina
+    hasta que realmente se necesite ejecutarla.
+
+    Requiere estar dentro de un event loop asyncio activo.
+    """
+    if segundos is None:
+        segundos = _TIMEOUT_CARRITO
+
+    # Cancelar timer previo si existía
+    cancelar_timer_carrito(chat_id)
+
+    async def _esperar_y_disparar():
+        try:
+            await asyncio.sleep(segundos)
+        except asyncio.CancelledError:
+            return
+        # Ejecutar callback; cualquier excepción queda contenida
+        try:
+            await coroutine_factory()
+        except asyncio.CancelledError:
+            return
+        except Exception as _e:
+            logging.getLogger("ferrebot.ventas_state").warning(
+                f"[carrito] timer callback falló chat={chat_id}: {_e}"
+            )
+
+    try:
+        task = asyncio.create_task(_esperar_y_disparar())
+    except RuntimeError:
+        # No hay event loop — caller se ejecutó desde thread sin loop
+        logging.getLogger("ferrebot.ventas_state").warning(
+            f"[carrito] armar_timer_carrito sin event loop chat={chat_id}"
+        )
+        return
+
+    with _estado_lock:
+        _timers_carrito[chat_id] = task
+
+
+def tiene_carrito_activo(chat_id: int) -> bool:
+    """True si el chat tiene ventas pendientes acumuladas (carrito abierto)."""
+    with _estado_lock:
+        return bool(ventas_pendientes.get(chat_id))
+
+
 def limpiar_pendientes_expirados():
     """
     Elimina ventas_pendientes que llevan más de _TIMEOUT_PENDIENTE sin confirmarse.
@@ -106,7 +259,23 @@ def get_chat_lock(chat_id: int) -> asyncio.Lock:
         return _chat_locks[chat_id]
 
 
-def agregar_al_historial(chat_id: int, role: str, content: str):
+def agregar_al_historial(
+    chat_id: int,
+    role: str,
+    content: str,
+    vendedor_id: int | None = None,
+    modelo: str | None = None,
+):
+    """
+    Agrega un turno al historial del chat.
+
+    En memoria: cap de 20 turnos por chat × 200 chats distintos (LRU).
+    En DB:      persiste best-effort en conversaciones_bot (Capa 1 de
+                memoria del bot — sobrevive a restarts de Railway).
+
+    `vendedor_id` y `modelo` son opcionales y solo se usan para enriquecer
+    el row persistido. La cache en memoria no los necesita.
+    """
     with _estado_lock:
         if chat_id not in historiales:
             # Límite de 200 chats distintos en memoria
@@ -118,10 +287,64 @@ def agregar_al_historial(chat_id: int, role: str, content: str):
         if len(historiales[chat_id]) > 20:
             historiales[chat_id] = historiales[chat_id][-20:]
 
+    # Persistencia best-effort fuera del lock — si la DB falla no afecta al chat.
+    # Import lazy para evitar ciclos: ai/memoria_turno → db, y este módulo carga
+    # antes que ai/* en algunos paths.
+    try:
+        from ai.memoria_turno import guardar_turno as _guardar_turno_db
+        _guardar_turno_db(
+            chat_id=chat_id,
+            role=role,
+            content=content,
+            vendedor_id=vendedor_id,
+            modelo=modelo,
+        )
+    except Exception as _e:
+        # JAMÁS romper al usuario por un fallo de persistencia.
+        logging.getLogger("ferrebot.ventas_state").debug(
+            f"[memoria_turno] guardar falló: {_e}"
+        )
+
 
 def get_historial(chat_id: int) -> list:
+    """
+    Retorna el historial del chat. Si la cache en memoria está vacía
+    (cold start tras un deploy de Railway), hidrata desde la tabla
+    conversaciones_bot — así el bot no "olvida" la conversación.
+
+    Solo se hidrata UNA VEZ por chat: tras la primera lectura la cache
+    queda poblada y subsecuentes get_historial() no tocan la DB.
+    """
     with _estado_lock:
-        return list(historiales.get(chat_id, []))
+        cache = historiales.get(chat_id)
+        if cache:
+            return list(cache)
+
+    # Cache vacía → intentar hidratar desde DB (sin lock para no bloquear
+    # otros chats mientras hablamos con PG).
+    hidratado: list = []
+    try:
+        from ai.memoria_turno import cargar_turnos_recientes as _cargar_turnos_db
+        hidratado = _cargar_turnos_db(chat_id, limite=8) or []
+    except Exception as _e:
+        logging.getLogger("ferrebot.ventas_state").debug(
+            f"[memoria_turno] hidratar falló: {_e}"
+        )
+        hidratado = []
+
+    if not hidratado:
+        return []
+
+    # Poblar la cache para evitar repetir el SELECT en el siguiente turno.
+    with _estado_lock:
+        # Doble-check por race: si otro hilo ya hidrató en paralelo, no
+        # pisamos su trabajo.
+        if not historiales.get(chat_id):
+            if len(historiales) >= 200:
+                oldest_chat = next(iter(historiales))
+                del historiales[oldest_chat]
+            historiales[chat_id] = list(hidratado)
+        return list(historiales[chat_id])
 
 
 def agregar_a_standby(chat_id: int, mensaje: str):
@@ -143,9 +366,20 @@ def agregar_a_standby(chat_id: int, mensaje: str):
 def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_id: int, usuario_id: int | None = None) -> list[str]:
     with _estado_lock:
         ventas_pendientes.pop(chat_id, None)
+        _ventas_pendientes_ts.pop(chat_id, None)
+        # Carrito queda cerrado: limpiamos origen/método. Timer lo cancelamos
+        # fuera del lock para no bloquear.
+        _carrito_origen.pop(chat_id, None)
+        _carrito_metodo.pop(chat_id, None)
+        timer = _timers_carrito.pop(chat_id, None)
         # CORRECCIÓN Bug 5: consecutivo se obtiene DENTRO del lock para evitar
         # que dos ventas simultáneas reciban el mismo número de consecutivo.
         consecutivo = obtener_siguiente_consecutivo()
+    if timer is not None and not timer.done():
+        try:
+            timer.cancel()
+        except Exception:
+            pass
 
     confirmaciones    = []
     total_transaccion = 0

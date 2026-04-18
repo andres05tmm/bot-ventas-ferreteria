@@ -43,6 +43,12 @@ from ventas_state import (
     esperando_correccion,
     agregar_a_standby,
     mensaje_contexto_pendiente,
+    # Carrito conversacional de audio (Paso 4)
+    marcar_origen_carrito, origen_carrito,
+    armar_timer_carrito, cancelar_timer_carrito,
+    fijar_metodo_carrito, obtener_metodo_carrito,
+    limpiar_carrito, tiene_carrito_activo,
+    registrar_ventas_con_metodo_async,
 )
 from handlers.comandos import manejar_flujo_agregar_producto
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, corregir_texto_audio
@@ -221,6 +227,16 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     # Usar siempre el nombre registrado en la BD, no el nombre de Telegram
     vendedor = usuario["nombre"]
 
+    # ── Carrito de audio: marcar origen='texto' para este turno ───────────────
+    # Si había un carrito de audio abierto con timer corriendo y el vendedor
+    # cambia a texto, cancelamos el timer y marcamos el origen como texto para
+    # que response_builder vuelva al comportamiento normal (REPLACE del pendiente).
+    try:
+        cancelar_timer_carrito(chat_id)
+        marcar_origen_carrito(chat_id, "texto")
+    except Exception:
+        pass
+
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     # ── Flujos con handlers propios (sin cambio) ──
@@ -290,11 +306,18 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
             )
 
         historial     = get_historial(chat_id)
-        agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}")
+        _vid_text     = usuario.get("id")
+        agregar_al_historial(chat_id, "user", f"{vendedor}: {mensaje}",
+                             vendedor_id=_vid_text)
         _modelo_pref = context.user_data.get("modelo_preferido", None)
-        respuesta_raw = await procesar_con_claude(f"{vendedor}: {_mensaje_para_claude}", vendedor, historial, modelo_preferido=_modelo_pref)
+        respuesta_raw = await procesar_con_claude(
+            f"{vendedor}: {_mensaje_para_claude}", vendedor, historial,
+            modelo_preferido=_modelo_pref,
+            vendedor_id=_vid_text,
+        )
         texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
-        agregar_al_historial(chat_id, "assistant", texto_respuesta)
+        agregar_al_historial(chat_id, "assistant", texto_respuesta,
+                             vendedor_id=_vid_text, modelo=_modelo_pref)
 
         pedir_metodo        = "PEDIR_METODO_PAGO"    in acciones
         iniciar_cliente     = "INICIAR_FLUJO_CLIENTE" in acciones
@@ -599,9 +622,16 @@ async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, ven
         caption = update.message.caption or ""
         mensaje_usuario = f"{vendedor}: {caption}" if caption else f"{vendedor}: foto de ventas"
 
+        # Resolver vendedor_id para tracking de budget + memoria de turno
+        # (fail-safe si el usuario no está registrado en la tabla usuarios).
+        from auth.usuarios import get_usuario as _get_usuario_foto
+        _u_foto = _get_usuario_foto(update.effective_user.id)
+        _vendedor_id_foto = _u_foto["id"] if _u_foto else None
+
         # Procesar con Claude (visión activa)
         historial = get_historial(chat_id)
-        agregar_al_historial(chat_id, "user", mensaje_usuario)
+        agregar_al_historial(chat_id, "user", mensaje_usuario,
+                             vendedor_id=_vendedor_id_foto)
 
         # Fix 1: Forzar Sonnet — Haiku no tiene buena vision de manuscritos
         respuesta_raw = await procesar_con_claude(
@@ -611,6 +641,7 @@ async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, ven
             imagen_b64=imagen_b64,
             imagen_media_type=media_type,
             modelo_preferido="sonnet",
+            vendedor_id=_vendedor_id_foto,
         )
 
         # Fix 4/5: Extraer resumen del texto de Claude y mostrar confirmacion
@@ -629,7 +660,8 @@ async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, ven
             # Nada registrable — solo mostrar lo que Claude dijo
             texto_limpio = _texto_preview or "No pude leer productos en la foto. Intenta con mejor iluminacion."
             await update.message.reply_text(texto_limpio)
-            agregar_al_historial(chat_id, "assistant", texto_limpio)
+            agregar_al_historial(chat_id, "assistant", texto_limpio,
+                                 vendedor_id=_vendedor_id_foto, modelo="sonnet")
             return
 
         # Guardar respuesta_raw en estado pendiente de confirmacion
@@ -637,7 +669,8 @@ async def _procesar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE, ven
         with _estado_lock:
             fotos_pendientes_confirmacion[chat_id] = respuesta_raw
 
-        agregar_al_historial(chat_id, "assistant", _texto_preview)
+        agregar_al_historial(chat_id, "assistant", _texto_preview,
+                             vendedor_id=_vendedor_id_foto, modelo="sonnet")
 
         # Mostrar resumen + botones de confirmar/cancelar
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -789,14 +822,35 @@ def _build_whisper_prompt() -> str:
 
 
 
-async def _normalizar_con_haiku(texto: str) -> str:
+async def _normalizar_con_haiku(texto: str, vendedor_id: int | None = None) -> str:
     """
     Normaliza la transcripción al vocabulario del catálogo usando Haiku.
     Corrige errores residuales que corregir_texto_audio() no alcanza.
     Solo se ejecuta si el texto tiene ≥5 palabras para evitar llamadas innecesarias.
+
+    `vendedor_id` (opcional) se usa para:
+      1. chequeo de budget antes de llamar (skip silencioso si bloqueado);
+      2. registro de uso en api_costo_diario tras una llamada exitosa.
     """
     if not texto or len(texto.split()) < 5:
         return texto
+
+    # Chequeo de budget. Si el vendedor superó el cupo de Haiku, devolvemos el
+    # texto original sin normalizar — preferible a bloquearle el audio.
+    modelo = "claude-haiku-4-5-20251001"
+    try:
+        from ai import budget as _budget
+        ok, _ = _budget.puede_llamar(vendedor_id, modelo)
+        if not ok:
+            logger.info(
+                "[audio] Haiku normalization saltada — budget agotado vendedor=%s",
+                vendedor_id,
+            )
+            return texto
+    except Exception:
+        # Si el check rompe, seguimos (fail-open como el propio budget).
+        pass
+
     try:
         from memoria import cargar_memoria as _cm
         catalogo = _cm().get("catalogo", {})
@@ -816,12 +870,24 @@ async def _normalizar_con_haiku(texto: str) -> str:
         )
         respuesta = await asyncio.to_thread(
             lambda: config.claude_client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=modelo,
                 max_tokens=300,
                 system=system,
                 messages=[{"role": "user", "content": texto}],
             )
         )
+
+        # Registrar uso para contabilidad de budget (best-effort). TTL 5m para
+        # coincidir con cualquier prompt-cache que se aplique en esta llamada.
+        try:
+            from ai import budget as _budget
+            _budget.registrar_uso(
+                vendedor_id, modelo, getattr(respuesta, "usage", None),
+                cache_ttl="5m",
+            )
+        except Exception as _be:
+            logger.debug(f"[audio] registrar_uso Haiku falló: {_be}")
+
         resultado = respuesta.content[0].text.strip()
         # Sanity check: Haiku no debería devolver algo mucho más largo
         if resultado and len(resultado) < len(texto) * 2:
@@ -846,6 +912,59 @@ def _log_audio(chat_id: int, vendedor: str, texto_original: str, texto_corregido
         logger.warning(f"[audio] No se pudo guardar en audio_logs: {_e}")
 
 
+async def _auto_cerrar_carrito(
+    bot,
+    chat_id: int,
+    vendedor: str,
+    usuario_id: int | None,
+):
+    """
+    Callback del timer de carrito de audio. Se ejecuta cuando pasaron
+    CARRITO_TIMEOUT_SEG (default 90s) sin nuevos audios.
+
+    Cierra el carrito con el método declarado por el vendedor o, si no dijo
+    ninguno, con 'efectivo'. Envía notificación al chat.
+    """
+    # Tomar snapshot del carrito
+    with _estado_lock:
+        ventas = list(ventas_pendientes.get(chat_id, []))
+
+    if not ventas:
+        # El carrito ya se cerró manualmente o se canceló; nada que hacer.
+        return
+
+    metodo = obtener_metodo_carrito(chat_id) or "efectivo"
+
+    try:
+        confirmaciones = await registrar_ventas_con_metodo_async(
+            ventas, metodo, vendedor, chat_id
+        )
+    except Exception as _e:
+        logger.error(f"[audio-carrito] auto-cierre falló chat={chat_id}: {_e}")
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ Intenté cerrar el carrito automáticamente y falló. Registra manualmente con los botones.",
+            )
+        except Exception:
+            pass
+        return
+
+    # registrar_ventas_con_metodo_async ya limpia ventas_pendientes y el timer
+    # — limpiar_carrito() queda no-op pero llamamos por seguridad.
+    limpiar_carrito(chat_id)
+
+    mensaje = (
+        f"⏱ Carrito cerrado automáticamente (sin actividad por "
+        f"{int(__import__('os').getenv('CARRITO_TIMEOUT_SEG', '90'))}s) con "
+        f"*{metodo}*.\n\n" + "\n".join(confirmaciones)
+    )
+    try:
+        await bot.send_message(chat_id=chat_id, text=mensaje, parse_mode="Markdown")
+    except Exception as _e:
+        logger.warning(f"[audio-carrito] no pudo notificar auto-cierre: {_e}")
+
+
 async def manejar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from auth.usuarios import get_usuario as _get_usuario
     _u = _get_usuario(update.effective_user.id)
@@ -861,6 +980,11 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
     # CORRECCIÓN: inicializar ruta_audio ANTES del try para que el finally
     # no tenga NameError si la descarga falla antes de asignar la variable
     ruta_audio = None
+
+    # Resolver vendedor_id para tracking de budget (fail-safe si no existe)
+    from auth.usuarios import get_usuario as _get_usuario_audio
+    _u_audio = _get_usuario_audio(update.effective_user.id)
+    _vendedor_id_audio = _u_audio["id"] if _u_audio else None
 
     try:
         # Reintentos ante timeout de red de Telegram (común en Railway con servidor frío)
@@ -945,7 +1069,7 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
 
         # ── [4] Normalización con Haiku (corre mientras Claude piensa) ───────
         # Claude recibe el texto ya mejorado; si Haiku falla, usa el texto regex
-        texto = await _normalizar_con_haiku(texto)
+        texto = await _normalizar_con_haiku(texto, vendedor_id=_vendedor_id_audio)
 
         # ── [5] Log a audio_logs (no bloquea el flujo principal) ─────────────
         _log_audio(chat_id, vendedor, texto_raw, texto)
@@ -977,14 +1101,19 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                 + (f"IMPORTANTE: mantén metodo_pago={metodo_original} en todos los [VENTA]." if metodo_original else "")
             )
             historial = get_historial(chat_id)
-            agregar_al_historial(chat_id, "user", prompt_modificacion)
+            agregar_al_historial(chat_id, "user", prompt_modificacion,
+                                 vendedor_id=_vendedor_id_audio)
 
             with _estado_lock:
                 ventas_pendientes.pop(chat_id, None)
 
-            respuesta_raw = await procesar_con_claude(prompt_modificacion, vendedor, historial)
+            respuesta_raw = await procesar_con_claude(
+                prompt_modificacion, vendedor, historial,
+                vendedor_id=_vendedor_id_audio,
+            )
             texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
-            agregar_al_historial(chat_id, "assistant", texto_respuesta)
+            agregar_al_historial(chat_id, "assistant", texto_respuesta,
+                                 vendedor_id=_vendedor_id_audio)
 
             confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
             with _estado_lock:
@@ -1008,15 +1137,75 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                 await update.message.reply_text(texto_respuesta)
             return
 
-        # ── Chequeo de pago pendiente: si hay venta esperando, el audio va al standby ──
+        # ── Intent bypass (cierre / cancelación / método / quitar último) ────
+        # Resolvemos estas intenciones sin llamar a Claude: son respuestas
+        # cortas y frecuentes, y además queremos que el carrito reaccione
+        # inmediatamente al cierre.
+        from handlers import audio_sales as _ausl
+        _carrito_abierto = tiene_carrito_activo(chat_id)
+
+        # --- CIERRE EXPLÍCITO --------------------------------------------------
+        if _carrito_abierto and _ausl.detectar_cierre(texto):
+            metodo_cierre = obtener_metodo_carrito(chat_id) \
+                or _ausl.detectar_metodo_pago(texto) \
+                or "efectivo"
+            with _estado_lock:
+                ventas_a_cerrar = list(ventas_pendientes.get(chat_id, []))
+            if ventas_a_cerrar:
+                cancelar_timer_carrito(chat_id)
+                confirmaciones = await registrar_ventas_con_metodo_async(
+                    ventas_a_cerrar, metodo_cierre, vendedor, chat_id
+                )
+                limpiar_carrito(chat_id)
+                await update.message.reply_text(
+                    f"✅ Carrito cerrado con *{metodo_cierre}*.\n\n"
+                    + "\n".join(confirmaciones),
+                    parse_mode="Markdown",
+                )
+                return
+
+        # --- CANCELACIÓN EXPLÍCITA --------------------------------------------
+        if _carrito_abierto and _ausl.detectar_cancelacion(texto):
+            limpiar_carrito(chat_id)
+            await update.message.reply_text("🗑 Carrito cancelado. Nada se registró.")
+            return
+
+        # --- MÉTODO DE PAGO SOLO (sin productos) ------------------------------
+        metodo_implicito = _ausl.detectar_metodo_pago(texto)
+        if _carrito_abierto and _ausl.es_solo_meta(texto) and metodo_implicito:
+            fijar_metodo_carrito(chat_id, metodo_implicito)
+            # Re-armar el timer — el vendedor sigue hablando
+            _bot_cb = context.bot
+            armar_timer_carrito(
+                chat_id,
+                lambda: _auto_cerrar_carrito(_bot_cb, chat_id, vendedor, _vendedor_id_audio),
+            )
+            await update.message.reply_text(
+                f"👍 Método *{metodo_implicito}* anotado. "
+                f"Seguí listando o decime 'cobra' para cerrar.",
+                parse_mode="Markdown",
+            )
+            return
+
+        # ── Chequeo de pago pendiente ─────────────────────────────────────────
+        # Comportamiento distinto según origen del carrito:
+        #   - origen='audio'  → aceptamos el audio como extensión del carrito,
+        #                       se arma/re-arma timer al final del flujo.
+        #   - cualquier otro  → mantenemos el standby original (el vendedor
+        #                       probablemente olvidó tocar el botón de pago).
         with _estado_lock:
             _ventas_pend = list(ventas_pendientes.get(chat_id, []))
+        origen_actual = origen_carrito(chat_id)
 
-        if _ventas_pend:
+        if _ventas_pend and origen_actual != "audio":
             agregar_a_standby(chat_id, texto)
             await update.message.reply_text("⚠️ Primero confirma el método de pago de la venta anterior:")
             await _enviar_botones_pago(update.message, chat_id, _ventas_pend)
             return
+
+        # Marcar origen='audio' ANTES de llamar a Claude: response_builder
+        # leerá esta marca y APENDEARÁ ventas nuevas en vez de REEMPLAZAR.
+        marcar_origen_carrito(chat_id, "audio")
 
         # ── Reinyectar contexto pendiente (misma lógica que en mensajes de texto) ──
         _ctx_previo_audio   = None
@@ -1041,10 +1230,15 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
             )
 
         historial     = get_historial(chat_id)
-        agregar_al_historial(chat_id, "user", f"{vendedor}: {texto}")
-        respuesta_raw = await procesar_con_claude(f"{vendedor}: {_texto_para_claude}", vendedor, historial)
+        agregar_al_historial(chat_id, "user", f"{vendedor}: {texto}",
+                             vendedor_id=_vendedor_id_audio)
+        respuesta_raw = await procesar_con_claude(
+            f"{vendedor}: {_texto_para_claude}", vendedor, historial,
+            vendedor_id=_vendedor_id_audio,
+        )
         texto_respuesta, acciones, archivos_excel = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
-        agregar_al_historial(chat_id, "assistant", texto_respuesta)
+        agregar_al_historial(chat_id, "assistant", texto_respuesta,
+                             vendedor_id=_vendedor_id_audio)
 
         pedir_metodo        = "PEDIR_METODO_PAGO" in acciones
         confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
@@ -1102,6 +1296,34 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                 with _estado_lock:
                     ventas = ventas_pendientes.get(chat_id, [])
                 await _enviar_botones_pago(update.message, chat_id, ventas)
+
+        # ── Arm/re-arm del timer de carrito de audio ─────────────────────────
+        # Si al terminar el turno el carrito sigue abierto (hay ventas
+        # pendientes acumuladas y no se mostraron botones de pago), armamos
+        # un timer fresco de 90s para cerrar automáticamente si el vendedor
+        # no dice nada más.
+        carrito_acumulando = "CARRITO_AUDIO_ACUMULANDO" in acciones
+        if (
+            origen_carrito(chat_id) == "audio"
+            and tiene_carrito_activo(chat_id)
+            and not (confirmacion_accion or pedir_metodo or cliente_desconocido)
+        ):
+            _bot_rearm = context.bot
+            armar_timer_carrito(
+                chat_id,
+                lambda: _auto_cerrar_carrito(_bot_rearm, chat_id, vendedor, _vendedor_id_audio),
+            )
+            # Mensajito discreto solo cuando el carrito sigue en modo acumulación
+            if carrito_acumulando:
+                try:
+                    items_count = len(ventas_pendientes.get(chat_id, []))
+                except Exception:
+                    items_count = 0
+                timeout_s = int(__import__('os').getenv('CARRITO_TIMEOUT_SEG', '90'))
+                await update.message.reply_text(
+                    f"🛒 {items_count} ítem(s) en carrito. "
+                    f"Decí 'cobra' para cerrar o esperá {timeout_s}s (se cierra con efectivo)."
+                )
 
         for archivo in archivos_excel:
             if os.path.exists(archivo):

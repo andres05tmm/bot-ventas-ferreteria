@@ -68,8 +68,16 @@ MESES = {
 # ─────────────────────────────────────────────
 # CLIENTES DE API (creados una sola vez)
 # ─────────────────────────────────────────────
+# Headers beta de Anthropic:
+#   - prompt-caching-2024-07-31      → habilita cache_control en los mensajes
+#   - extended-cache-ttl-2025-04-11  → permite TTL de 1h (en lugar de 5min default)
+#     El TTL 1h cuesta 2× el precio base de escritura, pero nuestro catálogo no
+#     cambia en todo el día — así que pagamos la escritura una vez y leemos barato
+#     durante 1h con cada mensaje del vendedor (vs. reescribir cada 5min).
 claude_client = anthropic.Anthropic(
     api_key=ANTHROPIC_API_KEY,
-    default_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+    default_headers={
+        "anthropic-beta": "prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11"
+    },
 )
 openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)

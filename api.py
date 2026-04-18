@@ -153,6 +153,13 @@ async def lifespan(app: FastAPI):
     else:
         _api_logger.warning("⚠️ PostgreSQL no disponible — API en modo degradado")
 
+    # ── Prometheus metrics: marcar este proceso como "api" ───────────────────
+    try:
+        import metrics as _metrics
+        _metrics.set_service_label("api", version=getattr(_cfg, "VERSION", "unknown"))
+    except Exception as _me:
+        _api_logger.warning("⚠️ No se pudo inicializar métricas: %s", _me)
+
     # Registrar el event loop de uvicorn en events.py ANTES de arrancar el
     # hilo pg_listener. El hilo llama broadcast() desde fuera del loop, y
     # broadcast() usa call_soon_threadsafe() con esta referencia para que
@@ -271,6 +278,29 @@ app.include_router(events.router)         # ← SSE tiempo real
 @app.get("/api/health")
 def health():
     return {"estado": "activo", "version": "1.0.0"}
+
+
+# ── Prometheus metrics ───────────────────────────────────────────────────────
+@app.get("/metrics")
+def metrics_endpoint(request: Request):
+    """
+    Exposition format de Prometheus (text/plain; version=0.0.4).
+
+    Acceso:
+      - Por defecto: PÚBLICO.
+      - Si se setea METRICS_BEARER_TOKEN en env, se requiere
+        Authorization: Bearer <token> o devuelve 401.
+    """
+    from fastapi import HTTPException
+    from fastapi.responses import Response as _R
+    import metrics as _metrics
+
+    auth = request.headers.get("Authorization")
+    if not _metrics.auth_check(auth):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    body, content_type = _metrics.render_metrics()
+    return _R(content=body, media_type=content_type)
 
 
 # ── Sentry webhook → alerta en Telegram ──────────────────────────────────────

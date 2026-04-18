@@ -20,6 +20,73 @@ from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, _nor
 logger = logging.getLogger("ferrebot.ai.prompts")
 
 # ─────────────────────────────────────────────
+# TAG [BUSCAR_HISTORICO] — capacidad de búsqueda de Capa 3
+# ─────────────────────────────────────────────
+# Doc breve para que Claude aprenda cuándo y cómo invocar la búsqueda
+# histórica. Se inyecta en la parte ESTÁTICA del prompt (cacheable).
+
+_DOC_BUSCAR_HISTORICO = """\
+BÚSQUEDA EN HISTÓRICO (FTS + fuzzy):
+Cuando el vendedor te pregunte sobre VENTAS PASADAS o conversaciones viejas
+("¿qué le vendí ayer a Pedro?", "¿cuándo pidieron drywall?", "¿qué hablamos
+con Juan del fiado?"), USA el tag [BUSCAR_HISTORICO] en lugar de adivinar:
+
+  [BUSCAR_HISTORICO]{"tipo":"ventas_producto","query":"drywall","dias":30,"limit":10}[/BUSCAR_HISTORICO]
+  [BUSCAR_HISTORICO]{"tipo":"ventas_cliente","query":"pedro","dias":7}[/BUSCAR_HISTORICO]
+  [BUSCAR_HISTORICO]{"tipo":"conversaciones","query":"fiado","dias":30}[/BUSCAR_HISTORICO]
+
+REGLAS:
+- "tipo" obligatorio: ventas_producto | ventas_cliente | conversaciones
+- "query" obligatorio (puede tener typos — el sistema tolera "drwayll")
+- "dias" opcional (default 30; usa 1-3 para "ayer/recién", 90+ para "hace meses")
+- "limit" opcional (default 10, máx 50)
+- Para ventas de un vendedor específico: agrega "vendedor":"andres"
+
+El sistema REEMPLAZA el tag por una lista formateada — vos NO inventes
+resultados, solo emití el tag con un texto introductorio breve. Ejemplo:
+  Vendedor: "qué le vendí ayer a pedro?"
+  Vos: "Mirá las ventas de Pedro de ayer:\\n[BUSCAR_HISTORICO]{...}[/BUSCAR_HISTORICO]"
+
+NO uses [BUSCAR_HISTORICO] para registrar ventas nuevas — para eso usa [VENTA].
+"""
+
+
+# ─────────────────────────────────────────────
+# TAG [BUSCAR_MEMORIA] — capacidad de memoria de entidad (Capa 4)
+# ─────────────────────────────────────────────
+# Claude pide notas estables sobre un producto/vendedor/alias cuando las
+# necesita y no están ya inyectadas en el prompt. Se inyecta en la parte
+# ESTÁTICA del prompt (cacheable).
+
+_DOC_BUSCAR_MEMORIA = """\
+MEMORIA DE ENTIDAD (notas generadas por el compresor nocturno):
+Cuando necesités notas estables sobre un PRODUCTO, un VENDEDOR o un ALIAS
+(ej. "qué sabemos de drywall?", "andres suele vender thinner?", "es tiner
+igual que thinner?"), USA el tag [BUSCAR_MEMORIA]:
+
+  [BUSCAR_MEMORIA]{"tipo":"producto","entidad":"drywall 6mm"}[/BUSCAR_MEMORIA]
+  [BUSCAR_MEMORIA]{"tipo":"vendedor","entidad":"andres"}[/BUSCAR_MEMORIA]
+  [BUSCAR_MEMORIA]{"tipo":"alias","entidad":"tiner"}[/BUSCAR_MEMORIA]
+
+REGLAS:
+- "tipo" obligatorio: producto | vendedor | alias
+- "entidad" obligatorio (nombre normalizado; se tolera case/tildes)
+- "limit" opcional (default 3, máx 10)
+
+El sistema REEMPLAZA el tag por la lista de notas vigentes. Si no hay notas,
+devuelve un placeholder y deberías responder con lo que sepas por contexto
+o decir que no tenés información adicional.
+
+PRIORIDAD:
+- Si el mensaje del vendedor MENCIONA un producto del catálogo, es probable
+  que las notas ya estén inyectadas arriba (bloque "NOTAS DE MEMORIA — ...").
+  Solo usá [BUSCAR_MEMORIA] para entidades NO inyectadas automáticamente.
+- NO uses [BUSCAR_MEMORIA] para buscar en el histórico de ventas —
+  para eso está [BUSCAR_HISTORICO].
+"""
+
+
+# ─────────────────────────────────────────────
 # ALIAS DE FERRETERÍA (pre-procesamiento)
 # ─────────────────────────────────────────────
 
@@ -164,7 +231,11 @@ def _construir_parte_estatica(memoria: dict) -> str:
 
 INFORMACION DEL NEGOCIO: {negocio_json}
 
-{catalogo_seccion}"""
+{catalogo_seccion}
+
+{_DOC_BUSCAR_HISTORICO}
+
+{_DOC_BUSCAR_MEMORIA}"""
 
 # ─────────────────────────────────────────────
 # CATÁLOGO COMPLETO PARA FOTOS (Fix 2)
@@ -222,6 +293,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
         construir_seccion_ventas,
         construir_seccion_clientes,
         construir_seccion_operaciones,
+        construir_seccion_memoria_entidades,
         construir_contexto_turno,
     )
     from ai.prompt_products import construir_seccion_match, construir_precalculos_especiales
@@ -234,6 +306,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     operaciones_texto = construir_seccion_operaciones(mensaje_usuario)
     skills_texto      = skill_loader.obtener_skills_dinamicos(mensaje_usuario)
     turno_texto       = construir_contexto_turno()
+    # Capa 4 — notas estables sobre productos/vendedor (compresor nocturno)
+    memoria_ent_texto = construir_seccion_memoria_entidades(mensaje_usuario, nombre_usuario)
 
     partes = [
         p for p in [
@@ -244,6 +318,7 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
             resumen_texto,
             datos_texto,
             operaciones_texto,
+            memoria_ent_texto,
             f"Vendedor:{nombre_usuario}",
             skills_texto,
         ] if p

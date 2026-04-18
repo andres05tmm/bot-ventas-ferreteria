@@ -9,8 +9,17 @@ memoria.json
 BASE_DE_DATOS_PRODUCTOS.xlsx
 -e "\n# Datos runtime - nunca al repo\n*.json\n*.xlsx" 
 
-# Obsidian vault — notas de gestión de proyecto
-_obsidian/.obsidian/workspace.json
-_obsidian/.obsidian/workspace-mobile.json
-_obsidian/.obsidian/cache
-_obsidian/.trash/
+# Obsidian vault — archivado a legacy/ (ya no vive en el repo)
+
+# Archivo local de material stale (Obsidian, GSD, Paul framework)
+# No se sube al repo. Conservar solo en máquina por si se necesita recuperar algo.
+legacy/
+
+# ── claude-mem ────────────────────────────────────────────────────────────────
+# Memoria persistente de sesiones de desarrollo (Claude Code plugin).
+# Vive en ~/.claude/ globalmente, pero por si claude-mem crea archivos locales:
+.claude-mem/
+.claude-mem.db
+.claude-mem.sqlite
+.claude/plugins/
+.claude/local/

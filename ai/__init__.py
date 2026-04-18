@@ -29,6 +29,12 @@ import config
 import bypass
 import skill_loader
 import alias_manager
+
+# Métricas Prometheus — fail-silent si el módulo no está disponible
+try:
+    import metrics as _metrics
+except Exception:  # noqa: BLE001
+    _metrics = None
 from ai.price_cache import registrar as _registrar_precio_reciente, get_activos as _get_precios_recientes_activos
 
 
@@ -50,6 +56,8 @@ from ai.prompts import (
     _construir_catalogo_imagen, _construir_parte_dinamica,
     _calcular_historial, MODELO_HAIKU, MODELO_SONNET, _elegir_modelo,
 )
+# Control de budget / costo real por vendedor/día
+from ai import budget as _budget
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS PG — reemplazan funciones de excel.py
@@ -272,10 +280,16 @@ async def procesar_con_claude(
     modelo_preferido: str = None,
     imagen_b64: str = None,
     imagen_media_type: str = None,
+    vendedor_id: int | None = None,
 ) -> str:
     """
     Procesa un mensaje con Claude.  Si se pasa imagen_b64, se incluye la imagen
     en el mensaje (visión) y se omite el bypass Python (que no puede procesar imágenes).
+
+    `vendedor_id` (opcional) habilita el control de budget diario por vendedor:
+    si el vendedor ya agotó su cupo de Sonnet/Haiku del día, retorna un mensaje
+    amistoso sin llamar a la API.  Si es None, no hay tracking por vendedor
+    (modo legacy, ej. chat del dashboard sin JWT).
     """
     # BYPASS PYTHON — ANTES de alias_ferreteria (que transforma fracciones y rompería el match)
     # Solo se aplican aliases DINÁMICOS (simples word-substitutions: tiner→thinner, etc.)
@@ -287,7 +301,19 @@ async def procesar_con_claude(
     memoria = cargar_memoria()
     # Las fotos con imagen no pueden pasar por el bypass Python (no hay texto estructurado).
     # Solo intentar bypass cuando NO hay imagen.
-    _bypass = None if _tiene_imagen else bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
+    if _tiene_imagen:
+        _bypass = None
+    else:
+        if _metrics is not None:
+            with _metrics.timer(_metrics.bypass_latency_seconds):
+                _bypass = bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
+        else:
+            _bypass = bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
+        if _bypass is not None and _metrics is not None:
+            try:
+                _metrics.bypass_hits_total.inc()
+            except Exception:  # noqa: BLE001
+                pass
     if _bypass:
         import json as _jbp
         _txt, _venta = _bypass
@@ -437,14 +463,20 @@ async def procesar_con_claude(
 
     # ── MEJORA B: Separar contexto en bloques cacheables ────────────────────
     # Bloque 1: parte estática del prompt (reglas, catálogo comprimido) — muy estable
-    # Bloque 2: parte dinámica (MATCH, candidatos del mensaje) — cambia por mensaje  
+    # Bloque 2: parte dinámica (MATCH, candidatos del mensaje) — cambia por mensaje
     # Bloque 3 (dashboard): catálogo completo — estable, cacheable
     # Bloque 4 (dashboard): datos del día — cambia cada hora
+    #
+    # TTL "1h": el beta `extended-cache-ttl-2025-04-11` permite guardar el cache
+    # por 1 hora en lugar de los 5 min default. Escribir con TTL 1h cuesta 2× el
+    # precio base (vs. 1.25× de 5min), pero amortiza mucho mejor porque el
+    # catálogo no cambia durante el día de trabajo del vendedor.
+    _cache_1h = {"type": "ephemeral", "ttl": "1h"}
     system = [
         {
             "type": "text",
             "text": parte_estatica,
-            "cache_control": {"type": "ephemeral"},
+            "cache_control": _cache_1h,
         },
         {
             "type": "text",
@@ -463,7 +495,7 @@ async def procesar_con_claude(
             system.append({
                 "type": "text",
                 "text": _ctx_estatico,
-                "cache_control": {"type": "ephemeral"},
+                "cache_control": _cache_1h,
             })
             # Bloque dinámico (datos del día): sin caché, cambia constantemente
             system.append({
@@ -474,7 +506,7 @@ async def procesar_con_claude(
             system.append({
                 "type": "text",
                 "text": contexto_extra,
-                "cache_control": {"type": "ephemeral"},
+                "cache_control": _cache_1h,
             })
 
     # ── MEJORA A: Extended Thinking para análisis complejos ──────────────────
@@ -498,6 +530,14 @@ async def procesar_con_claude(
         _modelo_no_stream = MODELO_HAIKU
     else:
         _modelo_no_stream = _elegir_modelo(mensaje_usuario)
+
+    # ── BUDGET CHECK ─────────────────────────────────────────────────────────
+    # Antes de gastar una llamada, verificar que el vendedor aún tenga cupo
+    # diario para el modelo elegido. Si agotó, devolver un mensaje amistoso
+    # sin llamar a la API (fail-open si DB está caída o no hay vendedor_id).
+    _ok, _mensaje_budget = _budget.puede_llamar(vendedor_id, _modelo_no_stream)
+    if not _ok:
+        return _mensaje_budget
 
     if _usar_thinking:
         # Extended Thinking: Claude razona antes de responder
@@ -536,27 +576,30 @@ async def procesar_con_claude(
             config.claude_client, max_tokens, system, messages, model=_modelo_no_stream
         )
 
-    # ── Log de uso de tokens y cache ──
-    uso = respuesta.usage
-    cache_read    = getattr(uso, "cache_read_input_tokens",    0) or 0
+    # ── Registro de uso + log de cache ─────────────────────────────────────────
+    # Todo el cálculo de costo lo hace ai.budget.registrar_uso con los precios
+    # actualizados (Sonnet 4.6 y Haiku 4.5) y los persiste en api_costo_diario.
+    # Retorna el costo USD de esta llamada específica para incluirlo en el log.
+    uso           = respuesta.usage
+    cache_read    = getattr(uso, "cache_read_input_tokens",     0) or 0
     cache_created = getattr(uso, "cache_creation_input_tokens", 0) or 0
-    input_normal  = getattr(uso, "input_tokens",               0) or 0
-    output_tokens = getattr(uso, "output_tokens",              0) or 0
+    input_normal  = getattr(uso, "input_tokens",                0) or 0
+    output_tokens = getattr(uso, "output_tokens",               0) or 0
+
+    _costo_llamada = _budget.registrar_uso(
+        vendedor_id, _modelo_no_stream, uso, cache_ttl="1h"
+    )
 
     if cache_read > 0 or cache_created > 0:
-        costo_input   = (input_normal  / 1_000_000) * 1.00
-        costo_cached  = (cache_read    / 1_000_000) * 0.10
-        costo_created = (cache_created / 1_000_000) * 1.25
-        costo_output  = (output_tokens / 1_000_000) * 5.00
-        costo_total   = costo_input + costo_cached + costo_created + costo_output
         logging.getLogger("ferrebot.cache").info(
             f"[CACHE] ✅ hit={cache_read} tok | created={cache_created} tok | "
             f"input={input_normal} tok | output={output_tokens} tok | "
-            f"costo≈${costo_total:.5f}"
+            f"costo≈${_costo_llamada:.5f}"
         )
     else:
         logging.getLogger("ferrebot.cache").warning(
-            f"[CACHE] ⚠️ SIN CACHE — input={input_normal} tok | output={output_tokens} tok"
+            f"[CACHE] ⚠️ SIN CACHE — input={input_normal} tok | "
+            f"output={output_tokens} tok | costo≈${_costo_llamada:.5f}"
         )
 
     return respuesta.content[0].text
@@ -565,6 +608,7 @@ async def _stream_claude_chunks(system: list, messages: list, max_tokens: int, m
     """
     Async generator que hace streaming de Claude usando un thread + asyncio.Queue.
     Yields: ("chunk", text_piece) durante el stream
+            ("usage", usage_obj)  justo antes de "done" (para tracking de costo)
             ("done",  full_text)  al finalizar
             ("error", error_str)  en caso de fallo
     """
@@ -584,6 +628,14 @@ async def _stream_claude_chunks(system: list, messages: list, max_tokens: int, m
                 for text in stream.text_stream:
                     full += text
                     loop.call_soon_threadsafe(q.put_nowait, ("chunk", text))
+                # Extraer usage del mensaje final para tracking de costo
+                _usage = None
+                try:
+                    _final = stream.get_final_message()
+                    _usage = getattr(_final, "usage", None)
+                except Exception:
+                    _usage = None
+                loop.call_soon_threadsafe(q.put_nowait, ("usage", _usage))
                 loop.call_soon_threadsafe(q.put_nowait, ("done", full))
         except Exception as exc:
             loop.call_soon_threadsafe(q.put_nowait, ("error", str(exc)))
@@ -603,6 +655,7 @@ async def procesar_con_claude_stream(
     historial_chat: list,
     contexto_extra: str = "",
     modelo_preferido: str = None,
+    vendedor_id: int | None = None,
 ):
     """
     Versión streaming de procesar_con_claude.
@@ -610,6 +663,10 @@ async def procesar_con_claude_stream(
             ("done",  text)   — texto completo final
             ("error", msg)    — error
     Si el bypass Python intercepta, devuelve ("done", respuesta) de inmediato.
+
+    `vendedor_id` (opcional) habilita el control de budget diario: si el vendedor
+    ya agotó su cupo del modelo elegido, se devuelve un mensaje amistoso sin
+    llamar a la API (fail-open si no hay DB o vendedor).
     """
     import re as _re_s
     import json as _json_s
@@ -694,9 +751,10 @@ async def procesar_con_claude_stream(
     else:
         max_tokens = min(3000, max(800, _nl * 220))
 
-    # ── System prompt con cache separado (Mejora B) ──────────────────────────
+    # ── System prompt con cache separado (Mejora B) + TTL 1h ────────────────
+    _cache_1h = {"type": "ephemeral", "ttl": "1h"}
     system = [
-        {"type": "text", "text": parte_estatica, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": parte_estatica, "cache_control": _cache_1h},
         {"type": "text", "text": parte_dinamica},
     ]
     if contexto_extra:
@@ -704,11 +762,11 @@ async def procesar_con_claude_stream(
         if _sep2 in contexto_extra:
             _p2 = contexto_extra.split(_sep2, 1)
             system.append({"type": "text", "text": _p2[0].strip(),
-                            "cache_control": {"type": "ephemeral"}})
+                            "cache_control": _cache_1h})
             system.append({"type": "text", "text": (_sep2 + _p2[1]).strip()})
         else:
             system.append({"type": "text", "text": contexto_extra,
-                            "cache_control": {"type": "ephemeral"}})
+                            "cache_control": _cache_1h})
 
     # ── Elegir modelo (híbrido o forzado por usuario) ───────────────────────
     if modelo_preferido == "sonnet":
@@ -720,10 +778,29 @@ async def procesar_con_claude_stream(
     _tag = "sonnet" if "sonnet" in _modelo else "haiku"
     _forced = " (forzado)" if modelo_preferido in ("sonnet", "haiku") else ""
     logging.getLogger("ferrebot.ai").info(f"[MODELO] {_tag.upper()}{_forced} para: {mensaje_usuario[:60]}...")
+
+    # ── BUDGET CHECK ─────────────────────────────────────────────────────────
+    # Si el vendedor ya agotó su cupo, emitir el mensaje como un único "done"
+    # y salir — el caller (ChatWidget, handler bot) lo muestra como respuesta.
+    _ok, _mensaje_budget = _budget.puede_llamar(vendedor_id, _modelo)
+    if not _ok:
+        yield ("done", _mensaje_budget)
+        return
+
     yield ("model", _modelo)
 
     # ── Stream ────────────────────────────────────────────────────────────────
     async for kind, data in _stream_claude_chunks(system, messages, max_tokens, model=_modelo):
+        # Interceptar el evento "usage" para registrar costo sin propagarlo
+        # al caller (que solo espera chunk/done/error/model).
+        if kind == "usage":
+            try:
+                _budget.registrar_uso(vendedor_id, _modelo, data, cache_ttl="1h")
+            except Exception as _e_bud:
+                logging.getLogger("ferrebot.ai").debug(
+                    f"[BUDGET] registro falló (stream): {_e_bud}"
+                )
+            continue
         yield kind, data
 
 

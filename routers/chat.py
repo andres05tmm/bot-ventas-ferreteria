@@ -24,7 +24,7 @@ from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango, _leer_excel_compras,
     _to_float, _cantidad_a_float, _stock_wayper,
 )
-from routers.deps import get_current_user
+from routers.deps import get_current_user, get_current_user_optional
 
 logger = logging.getLogger("ferrebot.api")
 
@@ -872,7 +872,11 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat_ia(req: ChatRequest, request: Request):
+async def chat_ia(
+    req: ChatRequest,
+    request: Request,
+    current_user=Depends(get_current_user_optional),
+):
     """
     Endpoint de chat IA para el dashboard.
 
@@ -940,12 +944,16 @@ async def chat_ia(req: ChatRequest, request: Request):
         # Inyectar flag ##DASHBOARD## para que ai.py active modo dashboard
         mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
 
+        # vendedor_id viene del JWT si el usuario está autenticado, None si no
+        _vid_chat = current_user.get("usuario_id") if current_user else None
+
         # 1. Claude con contexto enriquecido del dashboard
         respuesta_raw = await procesar_con_claude(
             mensaje_usuario=mensaje_con_flag,
             nombre_usuario=req.nombre,
             historial_chat=req.historial,
             contexto_extra=contexto_dash,
+            vendedor_id=_vid_chat,
         )
 
         # 2. Parsear acciones
@@ -1049,7 +1057,11 @@ async def chat_ia(req: ChatRequest, request: Request):
 
 
 @router.post("/chat/stream")
-async def chat_stream(req: ChatRequest, request: Request):
+async def chat_stream(
+    req: ChatRequest,
+    request: Request,
+    current_user=Depends(get_current_user_optional),
+):
     """
     Endpoint SSE para el dashboard con streaming token-a-token.
     Emite eventos:
@@ -1070,6 +1082,7 @@ async def chat_stream(req: ChatRequest, request: Request):
         return StreamingResponse(_err(), media_type="text/event-stream")
 
     _chat_id = _session_chat_id(req.session_id)
+    _vid_stream = current_user.get("usuario_id") if current_user else None
 
     async def generate():
         try:
@@ -1085,6 +1098,7 @@ async def chat_stream(req: ChatRequest, request: Request):
                 historial_chat=req.historial,
                 contexto_extra=contexto_dash,
                 modelo_preferido=req.modelo_preferido,
+                vendedor_id=_vid_stream,
             ):
                 if kind == "model":
                     modelo_usado = "sonnet" if "sonnet" in data else "haiku"
@@ -1281,6 +1295,7 @@ async def briefing_matutino(current_user=Depends(get_current_user)):
             historial_chat=[],
             contexto_extra=contexto,
             modelo_preferido="sonnet",
+            vendedor_id=current_user.get("usuario_id") if current_user else None,
         )
 
         # Limpiar tags de acción si Claude emitió alguno

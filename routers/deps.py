@@ -36,6 +36,27 @@ def get_current_user(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="Token inválido")
 
 
+def get_current_user_optional(authorization: str = Header(None)):
+    """
+    Versión NO bloqueante de get_current_user — retorna el payload del JWT
+    si viene válido, o None si falta o es inválido.
+
+    Útil para endpoints que NO requieren auth pero que se benefician de saber
+    quién hace la petición (ej: tracking de budget por vendedor en /chat).
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    try:
+        token = authorization.split(" ")[1]
+        return jwt.decode(
+            token,
+            os.environ.get("SECRET_KEY", ""),
+            algorithms=["HS256"],
+        )
+    except Exception:
+        return None
+
+
 def get_filtro_usuario(current_user=Depends(get_current_user)):
     """
     Siempre retorna None — todos los usuarios ven datos de todos los vendedores.

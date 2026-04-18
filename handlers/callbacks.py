@@ -62,11 +62,24 @@ async def _procesar_siguiente_standby(bot, message, chat_id: int, pendientes: li
         with _estado_lock:
             mensajes_standby[chat_id] = resto
 
+    # Resolver vendedor_id para budget tracking + memoria de turno. En chats
+    # privados telegram_id == chat_id; en grupos no aplica (fail-open: no hay
+    # tracking por vendedor).
+    from auth.usuarios import get_usuario as _gu_sb
+    _u_sb = _gu_sb(chat_id)
+    _vid_sb = _u_sb["id"] if _u_sb else None
+
     historial     = get_historial(chat_id)
-    agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
-    respuesta_raw            = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
+    agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}",
+                         vendedor_id=_vid_sb)
+
+    respuesta_raw = await procesar_con_claude(
+        f"{vendedor}: {msg_text}", vendedor, historial,
+        vendedor_id=_vid_sb,
+    )
     texto_resp, acciones2, _ = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
-    agregar_al_historial(chat_id, "assistant", texto_resp)
+    agregar_al_historial(chat_id, "assistant", texto_resp,
+                         vendedor_id=_vid_sb)
 
     confirmacion_accion = next((a for a in acciones2 if a.startswith("PEDIR_CONFIRMACION:")), None)
     pedir_metodo        = "PEDIR_METODO_PAGO" in acciones2
@@ -628,9 +641,15 @@ async def manejar_callback_foto(update: Update, context: ContextTypes.DEFAULT_TY
 
         await query.edit_message_text("⏳ Procesando ventas del cuaderno...")
 
+        # Resolver vendedor_id para memoria de turno (fail-safe)
+        from auth.usuarios import get_usuario as _gu_foto
+        _u_foto_cb = _gu_foto(update.effective_user.id)
+        _vid_foto_cb = _u_foto_cb["id"] if _u_foto_cb else None
+
         try:
             texto_resp, acciones, _ = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
-            agregar_al_historial(chat_id, "assistant", texto_resp or "")
+            agregar_al_historial(chat_id, "assistant", texto_resp or "",
+                                 vendedor_id=_vid_foto_cb, modelo="sonnet")
 
             confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
             pedir_metodo        = "PEDIR_METODO_PAGO" in acciones
