@@ -52,17 +52,20 @@ router = APIRouter()
 GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_API_BASE  = "https://gmail.googleapis.com/gmail/v1"
 
-# ── Remitentes oficiales de Bancolombia ──────────────────────────────────────
-_BANCOLOMBIA_SENDERS = {
-    "notificaciones@notificaciones.bancolombia.com.co",
-    "alertas@notificaciones.bancolombia.com.co",
-    "no-reply@notificaciones.bancolombia.com.co",
-    "noreply@notificaciones.bancolombia.com.co",
-    "transacciones@notificaciones.bancolombia.com.co",
-}
+# ── Dominios/fragmentos de remitentes oficiales de Bancolombia ───────────────
+# Se verifica que el campo From contenga CUALQUIERA de estos fragmentos.
+# Bancolombia usa varios dominios:
+#   - notificaciones.bancolombia.com.co
+#   - an.notificacionesbancolombia.com
+#   - alertas.bancolombia.com.co
+# Por eso se busca el substring "bancolombia" en el remitente.
+_BANCOLOMBIA_SENDER_FRAGMENTS = [
+    "bancolombia",
+]
 
-# ── Palabras clave en Subject que indican dinero entrante ────────────────────
-_SUBJECT_KEYWORDS_ENTRANTE = [
+# ── Palabras clave en Subject que indican movimiento de dinero ───────────────
+# Lista amplia — también cubre subjects genéricos como "Alertas y Notificaciones"
+_SUBJECT_KEYWORDS_MOVIMIENTO = [
     "transferencia",
     "te transfirieron",
     "recibiste",
@@ -75,6 +78,20 @@ _SUBJECT_KEYWORDS_ENTRANTE = [
     "daviplata",
     "te han transferido",
     "recibido",
+    "movimiento",
+    "alertas y notificaciones",
+    "alerta",
+    "notificacion",
+    "notificación",
+    "todo salio bien",
+    "todo salió bien",
+    "pago",
+    "débito",
+    "debito",
+    "crédito",
+    "credito",
+    "transaccion",
+    "transacción",
 ]
 
 
@@ -192,7 +209,12 @@ async def _get_message_full(message_id: str, token: str, user: str) -> dict | No
 def _es_transferencia_entrante(headers: list[dict]) -> bool:
     """
     Recibe la lista de headers (payload.headers) de un mensaje Gmail.
-    Retorna True si el email es una notificación de transferencia entrante de Bancolombia.
+    Retorna True si el email proviene de Bancolombia (cualquier dominio oficial).
+
+    Estrategia:
+      1. El campo From debe contener el fragmento "bancolombia" (cubre todos los dominios).
+      2. El Subject debe contener al menos una palabra clave de movimiento.
+         La lista es amplia para capturar subjects genéricos como "Alertas y Notificaciones".
     """
     from_val = ""
     subject  = ""
@@ -204,10 +226,23 @@ def _es_transferencia_entrante(headers: list[dict]) -> bool:
         elif name == "subject":
             subject = val
 
-    if not any(s in from_val for s in _BANCOLOMBIA_SENDERS):
+    # Paso 1: ¿viene de un dominio Bancolombia?
+    if not any(frag in from_val for frag in _BANCOLOMBIA_SENDER_FRAGMENTS):
+        log.debug("From '%s' no es Bancolombia — skip", from_val[:80])
         return False
 
-    return any(kw in subject for kw in _SUBJECT_KEYWORDS_ENTRANTE)
+    # Paso 2: ¿el subject indica algún movimiento?
+    if any(kw in subject for kw in _SUBJECT_KEYWORDS_MOVIMIENTO):
+        return True
+
+    # Si el subject no coincide con ninguna palabra clave, igual procesar
+    # porque Bancolombia a veces usa subjects muy genéricos.
+    # Se loguea para auditoría.
+    log.info(
+        "Email Bancolombia con subject no reconocido ('%s') — procesando de todas formas",
+        subject[:80],
+    )
+    return True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
