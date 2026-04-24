@@ -45,10 +45,12 @@ _PALABRAS_CLIENTE = {
     "debe", "saldo", "deuda",
 }
 
-# "para" se revisa por separado: solo bloquea si va seguido de mayúscula o nombre
-# "bandeja para rodillo" ✅  |  "2 tornillos para Juan" ❌
+# "para" solo bloquea el bypass si va seguido de un nombre propio (primera letra mayúscula).
+# Así "bandeja para rodillo" ✅ y "rieles para gaveta" ✅ no se bloquean,
+# pero "2 tornillos para Juan" ❌ sí se bloquea.
+# NOTA: el check se aplica sobre el mensaje ORIGINAL (con mayúsculas), no normalizado.
 import re as _re_para
-_PATRON_PARA_CLIENTE = _re_para.compile(r'\bpara\s+[a-záéíóúñ]{3,}', _re_para.IGNORECASE)
+_PATRON_PARA_CLIENTE = _re_para.compile(r'\bpara\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}', re.UNICODE)
 
 _PALABRAS_CONSULTA = {
     "cuanto", "cuánto", "vale", "precio", "cuesta",
@@ -209,8 +211,12 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
             if palabra == "caja" and "puntilla" in msg_norm:
                 continue  # "caja puntilla X" es venta, no consulta
             return None
-    # Nota: "para" se verifica más abajo, después de intentar encontrar el producto
-    # (para no bloquear "bandeja para rodillo", "rieles para gaveta", etc.)
+    # "para + NombrePropio" → venta asignada a un cliente → Claude
+    # Se verifica sobre el mensaje original (con mayúsculas) para distinguir
+    # "bandeja para rodillo" (minúscula → producto) de "2 tornillos para Juan" (mayúscula → cliente)
+    if _PATRON_PARA_CLIENTE.search(msg):
+        logger.debug(f"[BYPASS] 'para Nombre' detectado en '{msg}' → Claude")
+        return None
 
     # ════════════════════════════════════════════
     # CASO 0B: PUNTILLAS POR GRAMOS / PESOS / CAJA
@@ -445,9 +451,10 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
 
     prod = _buscar_producto_exacto(nombre_txt, catalogo)
     if not prod:
-        # Si no encontramos el producto Y el mensaje tiene "para nombre", es un cliente
-        if _PATRON_PARA_CLIENTE.search(msg_norm):
-            return None
+        # Verificar si parece una venta "para un cliente" (nombre propio con mayúscula)
+        # antes de devolver None. Sea como sea, el resultado es None → Claude lo maneja.
+        if _PATRON_PARA_CLIENTE.search(msg):
+            logger.debug(f"[BYPASS] 'para Nombre' detectado en '{msg}' → Claude")
         return None
 
     precio = _precio_segun_cantidad(prod, cantidad)
@@ -486,8 +493,12 @@ def _frac_a_decimal(clave: str) -> float:
     }
     return mapa.get(clave, 0.5)
 
-def _precio_segun_cantidad(prod: dict, cantidad: float) -> int:
-    """Retorna el precio unitario correcto según cantidad (mayorista, fracción o normal)."""
+def _precio_segun_cantidad(prod: dict, cantidad: float) -> int | None:
+    """
+    Retorna el precio unitario correcto según cantidad (mayorista, fracción o normal).
+    Retorna None si la cantidad es fraccionaria y no existe precio para esa fracción
+    en el catálogo — indica que el bypass no puede resolver esta venta.
+    """
     ppc = prod.get("precio_por_cantidad")
     if ppc:
         umbral = ppc.get("umbral", 50)
@@ -498,15 +509,17 @@ def _precio_segun_cantidad(prod: dict, cantidad: float) -> int:
     # Precio fraccionado: si la cantidad es una fracción conocida y el producto
     # tiene precios_fraccion, devolver el precio de esa fracción
     fracs = prod.get("precios_fraccion", {})
-    if fracs and 0 < cantidad < 1:
+    if 0 < cantidad < 1:
         _DEC_A_FRAC = {
             0.75: "3/4", 0.5: "1/2", 0.25: "1/4",
-            0.125: "1/8", 0.0625: "1/16", 0.1: "1/10",
+            0.125: "1/8", 0.0625: "1/16", 0.375: "3/8", 0.1: "1/10",
         }
         clave = _DEC_A_FRAC.get(round(cantidad, 4))
-        if clave and clave in fracs:
+        if clave and fracs and clave in fracs:
             fv = fracs[clave]
             return int(fv["precio"] if isinstance(fv, dict) else fv)
+        # Fracción no reconocida o no existe en catálogo → no bypasseable
+        return None
     return int(prod.get("precio_unidad", 0))
 
 
@@ -646,7 +659,8 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
             return None  # no encontrado ni exacto ni fuzzy → Claude
 
         precio = _precio_segun_cantidad(prod, cantidad)
-        if not precio or precio <= 0:
+        if precio is None or precio <= 0:
+            # Fracción no soportada en catálogo (ej: 1/3) → Claude lo maneja
             return None
 
         # Para GRM por cajas: usar total precalculado para evitar precio_unidad × gramos
@@ -654,15 +668,9 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
             total = _total_grm_override
             precio = int(_total_grm_override / cantidad) if cantidad > 0 else precio  # precio por gramo
         elif 0 < cantidad < 1:
-            # Fracción: precio ya es el precio DE esa fracción (no multiplicar)
-            fracs = prod.get("precios_fraccion", {})
-            _DEC_A_FRAC = {0.75:"3/4", 0.5:"1/2", 0.25:"1/4", 0.125:"1/8", 0.0625:"1/16"}
-            clave = _DEC_A_FRAC.get(round(cantidad, 4))
-            if clave and clave in fracs:
-                fv = fracs[clave]
-                total = int(fv["precio"] if isinstance(fv, dict) else fv)
-            else:
-                total = round(cantidad * prod.get("precio_unidad", 0))
+            # Fracción: precio ya ES el precio de esa fracción — no multiplicar
+            # (_precio_segun_cantidad ya lo resolvió correctamente arriba)
+            total = precio
         else:
             total = cantidad * precio
         es_mayorista = (

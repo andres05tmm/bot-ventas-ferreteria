@@ -44,10 +44,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from routers import (
     ventas, catalogo, caja, clientes, reportes, historico,
     chat, proveedores, auth, usuarios, facturacion, libro_iva,
-    events,         # ← SSE tiempo real
-    gmail_webhook,  # ← Facturas electrónicas desde Gmail (Pub/Sub)
-    bold_webhook,   # ← Pagos Bold (QR, datáfono) → Telegram
-    wompi_webhook,  # ← Pagos Wompi → Telegram (notificaciones inmediatas)
+    events,                  # ← SSE tiempo real
+    gmail_webhook,           # ← Facturas electrónicas desde Gmail (Pub/Sub)
+    bold_webhook,            # ← Pagos Bold (QR, datáfono) → Telegram
+    wompi_webhook,           # ← Pagos Wompi → Telegram (notificaciones inmediatas)
+    bancolombia_notifier,    # ← Transferencias Bancolombia → Telegram (vía Gmail)
 )
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -273,9 +274,10 @@ app.include_router(chat.router)
 app.include_router(proveedores.router)
 app.include_router(facturacion.router)
 app.include_router(libro_iva.router)
-app.include_router(gmail_webhook.router)  # ← Gmail → compras_fiscal
-app.include_router(bold_webhook.router)   # ← Pagos Bold (QR) → Telegram
-app.include_router(wompi_webhook.router)  # ← Pagos Wompi → Telegram
+app.include_router(gmail_webhook.router)        # ← Gmail → compras_fiscal
+app.include_router(bold_webhook.router)         # ← Pagos Bold (QR) → Telegram
+app.include_router(wompi_webhook.router)        # ← Pagos Wompi → Telegram
+app.include_router(bancolombia_notifier.router) # ← Endpoints de estado Bancolombia
 app.include_router(events.router)         # ← SSE tiempo real
 
 # ── Health check ─────────────────────────────────────────────────────────────
