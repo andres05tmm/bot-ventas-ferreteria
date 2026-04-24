@@ -137,6 +137,8 @@ async def _get_message_ids_from_history(history_id: str, token: str, user: str) 
 async def _get_message_headers(message_id: str, token: str, user: str) -> list[dict]:
     """
     Descarga solo los headers From y Subject (formato metadata, ~10ms).
+    NOTA: metadataHeaders debe pasarse como parámetros separados, no como
+    un solo string "From,Subject" — Gmail API no acepta la forma combinada.
     Retorna lista vacía si falla.
     """
     url = f"{GMAIL_API_BASE}/users/{user}/messages/{message_id}"
@@ -145,10 +147,22 @@ async def _get_message_headers(message_id: str, token: str, user: str) -> list[d
             resp = await client.get(
                 url,
                 headers={"Authorization": f"Bearer {token}"},
-                params={"format": "metadata", "metadataHeaders": "From,Subject"},
+                # Lista de tuples para enviar metadataHeaders dos veces:
+                # ?format=metadata&metadataHeaders=From&metadataHeaders=Subject
+                params=[
+                    ("format",          "metadata"),
+                    ("metadataHeaders", "From"),
+                    ("metadataHeaders", "Subject"),
+                ],
             )
             resp.raise_for_status()
-            return resp.json().get("payload", {}).get("headers", [])
+            data    = resp.json()
+            headers = data.get("payload", {}).get("headers", [])
+            log.debug(
+                "Headers mensaje %s → payload keys=%s headers_count=%d",
+                message_id, list(data.get("payload", {}).keys()), len(headers),
+            )
+            return headers
     except Exception as e:
         log.warning("Error obteniendo headers del mensaje %s: %s", message_id, e)
         return []
