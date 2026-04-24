@@ -307,50 +307,99 @@ def parsear_email_bancolombia(body_raw: str) -> dict:
     """
     Extrae los campos relevantes de un email de Bancolombia (HTML o texto plano).
 
+    Formato conocido del texto del email:
+      "Bancolombia: F punto rojo, recibiste un pago de NOMBRE por $2,000.00
+       en tu cuenta *3891 conectado a la llave 0046052593 el 24/04/2026 a las 14:02.
+       Con codigo QR es facil y de una."
+
     Retorna:
       monto         — int (pesos, sin decimales)
-      monto_str     — str formateada "$1.500.000"
+      monto_str     — str formateada "$2.000"
       remitente     — str nombre de quien transfirió
+      cuenta        — str últimos 4 dígitos de la cuenta destino ("*3891")
+      llave         — str llave Bancolombia del remitente
       descripcion   — str referencia/concepto
-      tipo          — str tipo de canal (Transferencia, PSE, Nequi, etc.)
-      hora          — str hora HH:MM
+      tipo          — str canal (Transferencia, QR, PSE, Nequi, etc.)
+      hora          — str HH:MM
       fecha_str     — str DD/MM/YYYY
     """
     texto = _limpiar_html(body_raw)
     texto = re.sub(r"\s+", " ", texto)
 
+    # ── Remitente ─────────────────────────────────────────────────────────────
+    # "recibiste un pago de FARID DAVID MALO HERNANDEZ por $2,000.00"
+    remitente = _extraer_valor(texto, [
+        r"recibiste un pago de\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑA-Za-záéíóúñ\s]{2,80}?)\s+por\s+\$",
+        r"pago de\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑA-Za-záéíóúñ\s]{2,80}?)\s+por\s+\$",
+        r"de[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{2,60}?)(?:\s+por\s+\$|\s{2,}|\||\n|cuenta|ref)",
+        r"remitente[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{2,60}?)(?:\s{2,}|\||$)",
+        r"transferido por[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{2,60}?)(?:\s{2,}|\||$)",
+    ])
+
     # ── Monto ─────────────────────────────────────────────────────────────────
+    # "$2,000.00" o "$1.500.000"
     monto_str_raw = _extraer_valor(texto, [
+        r"por\s+\$\s*([\d][0-9.,]+)",
         r"\$\s*([\d][0-9.,]+)",
         r"por valor de\s+\$?\s*([\d][0-9.,]+)",
         r"valor[:\s]+\$?\s*([\d][0-9.,]+)",
         r"monto[:\s]+\$?\s*([\d][0-9.,]+)",
-        r"transferencia de\s+\$?\s*([\d][0-9.,]+)",
-        r"recibiste\s+\$?\s*([\d][0-9.,]+)",
-        r"te transfirieron\s+\$?\s*([\d][0-9.,]+)",
     ])
 
     monto     = 0
     monto_fmt = ""
     if monto_str_raw:
-        # Quitar separadores de miles y decimales: "1.500.000,00" → 1500000
-        limpio = re.sub(r"[.,](\d{2})$", "", monto_str_raw)
-        limpio = limpio.replace(".", "").replace(",", "")
+        limpio = monto_str_raw.strip()
+        # Formato colombiano: "1.500.000" o americano con decimales "2,000.00"
+        if re.search(r",\d{2}$", limpio):
+            # "2,000.00" → quitar decimales y coma de miles
+            limpio = re.sub(r",\d{2}$", "", limpio).replace(",", "")
+        elif re.search(r"\.\d{2}$", limpio):
+            # "2.000,00" o "2000.00" → quitar decimales
+            limpio = re.sub(r"\.\d{2}$", "", limpio).replace(".", "").replace(",", "")
+        else:
+            limpio = limpio.replace(".", "").replace(",", "")
         try:
             monto = int(limpio)
         except ValueError:
             monto = 0
         monto_fmt = f"${monto:,}".replace(",", ".") if monto > 0 else f"${monto_str_raw}"
 
-    # ── Remitente ─────────────────────────────────────────────────────────────
-    remitente = _extraer_valor(texto, [
-        r"de[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{2,60}?)(?:\s{2,}|\||\n|cuenta|ref|desc|documento)",
-        r"remitente[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{2,60}?)(?:\s{2,}|\||$)",
-        r"nombre[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{2,60}?)(?:\s{2,}|\||$)",
-        r"origen[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{2,60}?)(?:\s{2,}|\||$)",
-        r"quien env[íi]a[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{2,60}?)(?:\s{2,}|\||$)",
-        r"transferido por[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{2,60}?)(?:\s{2,}|\||$)",
+    # ── Cuenta destino ────────────────────────────────────────────────────────
+    # "en tu cuenta *3891"
+    cuenta = _extraer_valor(texto, [
+        r"en tu cuenta\s+\*?(\d{3,6})",
+        r"cuenta\s+\*(\d{3,6})",
+        r"cuenta destino[:\s]+\*?(\d{3,6})",
     ])
+    if cuenta:
+        cuenta = f"*{cuenta}"
+
+    # ── Llave Bancolombia ─────────────────────────────────────────────────────
+    # "conectado a la llave 0046052593"
+    llave = _extraer_valor(texto, [
+        r"a la llave\s+(\d{7,15})",
+        r"llave[:\s]+(\d{7,15})",
+    ])
+
+    # ── Tipo / canal ──────────────────────────────────────────────────────────
+    tipo = ""
+    texto_lower = texto.lower()
+    if "codigo qr" in texto_lower or "código qr" in texto_lower or "con qr" in texto_lower:
+        tipo = "Código QR"
+    elif "nequi" in texto_lower:
+        tipo = "Nequi"
+    elif "daviplata" in texto_lower:
+        tipo = "Daviplata"
+    elif "pse" in texto_lower:
+        tipo = "PSE"
+    elif "consign" in texto_lower:
+        tipo = "Consignación"
+    else:
+        tipo = _extraer_valor(texto, [
+            r"canal[:\s]+([^\n|]{3,40}?)(?:\s{2,}|\||$)",
+            r"tipo[:\s]+([^\n|]{3,40}?)(?:\s{2,}|\||$)",
+        ]) or "Transferencia"
 
     # ── Descripción / referencia ──────────────────────────────────────────────
     descripcion = _extraer_valor(texto, [
@@ -358,28 +407,18 @@ def parsear_email_bancolombia(body_raw: str) -> dict:
         r"referencia[:\s]+([^\n|]{3,100}?)(?:\s{2,}|\||$)",
         r"concepto[:\s]+([^\n|]{3,100}?)(?:\s{2,}|\||$)",
         r"motivo[:\s]+([^\n|]{3,100}?)(?:\s{2,}|\||$)",
-        r"mensaje[:\s]+([^\n|]{3,100}?)(?:\s{2,}|\||$)",
     ])
-
-    # ── Tipo de canal ─────────────────────────────────────────────────────────
-    tipo = _extraer_valor(texto, [
-        r"tipo[:\s]+(transferencia|pse|nequi|daviplata|consignaci[oó]n|[^\n|]{3,40}?)(?:\s{2,}|\||$)",
-        r"canal[:\s]+([^\n|]{3,40}?)(?:\s{2,}|\||$)",
-    ])
-    if not tipo:
-        for kw in ["PSE", "Nequi", "Daviplata", "Consignación", "Transferencia"]:
-            if kw.lower() in texto.lower():
-                tipo = kw
-                break
 
     # ── Hora ─────────────────────────────────────────────────────────────────
     hora = _extraer_valor(texto, [
+        r"a las\s+(\d{1,2}:\d{2}(?::\d{2})?)",
         r"(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM|am|pm)?)",
         r"hora[:\s]+(\d{1,2}:\d{2}(?::\d{2})?)",
     ])
 
     # ── Fecha ─────────────────────────────────────────────────────────────────
     fecha_str = _extraer_valor(texto, [
+        r"el\s+(\d{2}/\d{2}/\d{4})",
         r"(\d{2}/\d{2}/\d{4})",
         r"(\d{4}-\d{2}-\d{2})",
         r"fecha[:\s]+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})",
@@ -388,9 +427,11 @@ def parsear_email_bancolombia(body_raw: str) -> dict:
     return {
         "monto":       monto,
         "monto_str":   monto_fmt or monto_str_raw or "—",
-        "remitente":   remitente[:100] if remitente else "",
+        "remitente":   remitente[:100].strip() if remitente else "",
+        "cuenta":      cuenta[:10] if cuenta else "",
+        "llave":       llave[:15] if llave else "",
         "descripcion": descripcion[:200] if descripcion else "",
-        "tipo":        tipo[:60] if tipo else "Transferencia",
+        "tipo":        tipo[:60],
         "hora":        hora[:20] if hora else "",
         "fecha_str":   fecha_str[:20] if fecha_str else "",
     }
@@ -400,30 +441,70 @@ def parsear_email_bancolombia(body_raw: str) -> dict:
 # 5. Telegram — mensaje formateado
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _construir_mensaje(datos: dict, subject: str) -> str:
-    """Construye el mensaje Markdown para Telegram."""
+def _construir_mensaje(datos: dict, subject: str, from_val: str = "") -> str:
+    """
+    Construye el mensaje Markdown para Telegram con formato rico.
+
+    Ejemplo de salida:
+      🏦 *Transferencia recibida — Bancolombia*
+      💰 Monto: *$2.000*
+      👤 De: FARID DAVID MALO HERNANDEZ
+      🏦 Cuenta: *3891
+      🔑 Llave: 0046052593
+      📲 Canal: Código QR
+      📅 24/04/2026  🕐 14:02
+    """
     ahora = datetime.now(COLOMBIA_TZ).strftime("%H:%M")
 
-    lineas = ["🏦 *Transferencia recibida — Bancolombia*"]
+    tipo_lower = (datos.get("tipo") or "").lower()
 
-    if datos["monto"] > 0:
-        lineas.append(f"💰 *{datos['monto_str']}*")
+    # Encabezado según canal
+    if "nequi" in tipo_lower:
+        encabezado = "🟣 *Transferencia recibida — Nequi*"
+    elif "pse" in tipo_lower:
+        encabezado = "🔵 *Transferencia recibida — PSE*"
+    elif "daviplata" in tipo_lower:
+        encabezado = "🔴 *Transferencia recibida — Daviplata*"
+    elif "consign" in tipo_lower:
+        encabezado = "🏧 *Consignación recibida — Bancolombia*"
     else:
-        # Fallback: usar el subject del email
+        encabezado = "🏦 *Transferencia recibida — Bancolombia*"
+
+    lineas = [encabezado]
+
+    # Monto
+    if datos.get("monto", 0) > 0:
+        lineas.append(f"💰 Monto: *{datos['monto_str']}*")
+    else:
         lineas.append(f"📩 {subject[:80]}")
 
-    if datos["remitente"]:
+    # Remitente
+    if datos.get("remitente"):
         lineas.append(f"👤 De: {datos['remitente']}")
 
-    if datos["descripcion"]:
-        lineas.append(f"📝 {datos['descripcion']}")
+    # Cuenta destino
+    if datos.get("cuenta"):
+        lineas.append(f"🏦 Cuenta: `{datos['cuenta']}`")
 
-    tipo_lower = datos["tipo"].lower()
-    if datos["tipo"] and tipo_lower not in ("transferencia", ""):
+    # Llave Bancolombia del remitente
+    if datos.get("llave"):
+        lineas.append(f"🔑 Llave: `{datos['llave']}`")
+
+    # Canal (si no es "Transferencia" genérico)
+    if datos.get("tipo") and tipo_lower not in ("transferencia", ""):
         lineas.append(f"📲 Canal: {datos['tipo']}")
 
-    hora_display = datos["hora"] or ahora
-    lineas.append(f"🕐 {hora_display.strip()}")
+    # Descripción / referencia
+    if datos.get("descripcion"):
+        lineas.append(f"📝 {datos['descripcion'][:120]}")
+
+    # Fecha y hora
+    hora_display  = (datos.get("hora") or ahora).strip()
+    fecha_display = datos.get("fecha_str", "")
+    if fecha_display:
+        lineas.append(f"📅 {fecha_display}  🕐 {hora_display}")
+    else:
+        lineas.append(f"🕐 {hora_display}")
 
     return "\n".join(lineas)
 
@@ -474,12 +555,13 @@ def _registrar_transferencia(gmail_message_id: str, datos: dict) -> None:
     """Persiste la transferencia para deduplicación y auditoría."""
     try:
         hoy = datetime.now(COLOMBIA_TZ).strftime("%Y-%m-%d")
+        referencia = datos.get("llave") or datos.get("cuenta") or ""
         _db.execute(
             """
             INSERT INTO bancolombia_transferencias (
                 gmail_message_id, fecha, hora, monto,
-                remitente, descripcion, tipo_transaccion, notificado
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)
+                remitente, descripcion, tipo_transaccion, referencia, notificado
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE)
             ON CONFLICT (gmail_message_id) DO NOTHING
             """,
             (
@@ -490,6 +572,7 @@ def _registrar_transferencia(gmail_message_id: str, datos: dict) -> None:
                 datos.get("remitente", ""),
                 datos.get("descripcion", ""),
                 datos.get("tipo", ""),
+                referencia,
             ),
         )
         log.info(
@@ -598,12 +681,15 @@ async def _procesar_mensaje(message_id: str, token: str, user: str) -> None:
         log.debug("Mensaje %s no es transferencia entrante Bancolombia — skip", message_id)
         return
 
-    # Extraer subject para fallback del mensaje Telegram
-    subject = ""
+    # Extraer subject y from para contexto
+    subject  = ""
+    from_val = ""
     for h in headers:
-        if (h.get("name") or "").lower() == "subject":
+        name = (h.get("name") or "").lower()
+        if name == "subject":
             subject = h.get("value", "")
-            break
+        elif name == "from":
+            from_val = h.get("value", "")
 
     log.info("📱 Transferencia Bancolombia detectada — mensaje %s | subject: %s", message_id, subject)
 
@@ -614,11 +700,15 @@ async def _procesar_mensaje(message_id: str, token: str, user: str) -> None:
         datos = {"monto": 0, "monto_str": "—", "remitente": "", "descripcion": "", "tipo": "", "hora": "", "fecha_str": ""}
     else:
         body_text = _extraer_body(msg.get("payload", {}))
-        datos     = parsear_email_bancolombia(body_text) if body_text else {
-            "monto": 0, "monto_str": "—", "remitente": "", "descripcion": "", "tipo": "", "hora": "", "fecha_str": "",
-        }
+        if body_text:
+            # Log del texto limpio para debug de parseo (primeros 800 chars)
+            texto_debug = re.sub(r"\s+", " ", _limpiar_html(body_text))[:800]
+            log.info("📄 Body Bancolombia [%s]: %s", message_id, texto_debug)
+            datos = parsear_email_bancolombia(body_text)
+        else:
+            datos = {"monto": 0, "monto_str": "—", "remitente": "", "descripcion": "", "tipo": "", "hora": "", "fecha_str": ""}
 
-    mensaje_tg = _construir_mensaje(datos, subject)
+    mensaje_tg = _construir_mensaje(datos, subject, from_val)
     await _enviar_telegram(mensaje_tg)
     _registrar_transferencia(message_id, datos)
 
