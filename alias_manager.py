@@ -2,7 +2,7 @@
 alias_manager.py — Gestión dinámica de aliases de ferretería.
 
 Separa los aliases SIMPLES (palabra → palabra/frase) del código Python.
-Se guardan en aliases_dinamicos.json y se cargan en RAM al iniciar.
+Se guardan en la tabla `aliases` de PostgreSQL y se cachean en RAM.
 
 Los aliases COMPLEJOS (regex con lógica) siguen en _ALIAS_FERRETERIA de ai.py.
 
@@ -13,26 +13,98 @@ COMANDOS TELEGRAM:
   /alias test "2 esmaltes"            → prueba cómo queda el mensaje
 """
 
-import json
-import os
 import re
 import logging
 import threading
 
-logger = logging.getLogger("ferrebot.alias")
+import db
 
-# Archivo de persistencia (Railway persiste el volumen entre deploys)
-_RUTA_ALIASES = os.getenv("ALIASES_PATH", "aliases_dinamicos.json")
+logger = logging.getLogger("ferrebot.alias")
 
 # Aliases PREDETERMINADOS — siempre activos, no se pueden borrar con /alias
 # Solo términos coloquiales muy comunes que el bypass necesita resolver
 _ALIASES_DEFAULT: dict[str, str] = {
-    "tiner":       "thinner",
-    "tinner":      "thinner",
-    "barsol":      "varsol",
-    "sellador":    "sellante",
-    "pagaternit":  "pegaternit",
-    "pega ternit": "pegaternit",
+    # ── Solventes ─────────────────────────────────────────────
+    "tiner":        "thinner",
+    "tinner":       "thinner",
+    "barsol":       "varsol",
+    "barso":        "varsol",
+    # ── Sellantes / impermeabilizantes ────────────────────────
+    "sellador":     "sellante",
+    "pagaternit":   "pegaternit",
+    "pega ternit":  "pegaternit",
+    # ── Carbonato ─────────────────────────────────────────────
+    "cal":          "carbonato x kg",
+    # ── Enchufes ──────────────────────────────────────────────
+    "cofelca":         "enchufe cofelca",
+    "enchufe cofelca": "enchufe cofelca",
+    # ── Vinilo ICO ────────────────────────────────────────────
+    "vinilo ico":      "vinilo ico blanco",
+    "ico blanco":      "vinilo ico blanco",
+    "ico":             "vinilo ico blanco",
+    # ── Abreviaciones de puntillas ────────────────────────────
+    "cc":   "con cabeza",
+    "sc":   "sin cabeza",
+    # ── Tirafondo ─────────────────────────────────────────────
+    "tirafondo":       "tornillo tirafondo",
+    "tira fondo":      "tornillo tirafondo",
+    # ── Cemento ───────────────────────────────────────────────
+    "cemente gris": "cemento gris",
+    # "cemento" solo (sin color) → gris por defecto, pero NO si dice "blanco"
+    # Esto se maneja en el bot con el alias dinámico — NO poner alias genérico aquí
+    # para evitar que "cemento blanco" se convierta en "cemento gris"
+    # ── Cuñetes ───────────────────────────────────────────────
+    "cunete t1":                   "cuñete vinilo tipo 1 davinci",
+    "cuñete t1":                   "cuñete vinilo tipo 1 davinci",
+    "cunete t2":                   "cuñete vinilo t 2",
+    "cuñete t2":                   "cuñete vinilo t 2",
+    "cunete vinilo blanco t1":     "cuñete vinilo tipo 1 davinci",
+    "cuñete vinilo blanco t1":     "cuñete vinilo tipo 1 davinci",
+    "cunete vinilo t1":            "cuñete vinilo tipo 1 davinci",
+    "cuñete vinilo t1":            "cuñete vinilo tipo 1 davinci",
+    "cunete vinilo blanco t2":     "cuñete vinilo t 2",
+    "cuñete vinilo blanco t2":     "cuñete vinilo t 2",
+    "cunete vinilo t2":            "cuñete vinilo t 2",
+    "cuñete vinilo t2":            "cuñete vinilo t 2",
+    "cunete vinilo blanco t3":     "cuñete vinilo t 3",
+    "cuñete vinilo blanco t3":     "cuñete vinilo t 3",
+    "cunete vinilo t3":            "cuñete vinilo t 3",
+    "cuñete vinilo t3":            "cuñete vinilo t 3",
+    "medio cunete t2":             "1/2 cuñete vinilo t2 blanco",
+    "medio cuñete t2":             "1/2 cuñete vinilo t2 blanco",
+    "medio cunete t1":             "1/2 cuñete vinilo t1 blanco",
+    "medio cuñete t1":             "1/2 cuñete vinilo t1 blanco",
+    "medio cunete t3":             "1/2 cuñete vinilo t3 blanco",
+    "medio cuñete t3":             "1/2 cuñete vinilo t3 blanco",
+    "medio cunete vinilo t1":      "1/2 cuñete vinilo t1 blanco",
+    "medio cuñete vinilo t1":      "1/2 cuñete vinilo t1 blanco",
+    "medio cunete vinilo t2":      "1/2 cuñete vinilo t2 blanco",
+    "medio cuñete vinilo t2":      "1/2 cuñete vinilo t2 blanco",
+    # ── Wayper ────────────────────────────────────────────────
+    "waiper":       "wayper",
+    "weiper":       "wayper",
+    # ── Pele (tallas escritas de otro modo) ───────────────────
+    "pele pequeña": "cinta pele s",
+    "pele grande":  "cinta pele xl",
+    # ── Pinturas coloquiales ──────────────────────────────────
+    "vinilo davinci": "vinilo davinci t1",   # si no especifica tipo → T1
+    "color preparado": "vinilo davinci t1",
+
+    # ── Typos comunes de drywall ──────────────────────────────
+    "drwayll":      "drywall",
+    "drwayl":       "drywall",
+    "drwall":       "drywall",
+    "drawall":      "drywall",
+    "drywll":       "drywall",
+    "driwoll":      "drywall",
+    # ── Otros typos frecuentes ────────────────────────────────
+    "rodachines":   "rodachina",
+    "rodachin":     "rodachina",
+    "bisagra armillar": "bisagra armillar",  # ya correcto en catálogo
+    "armillar":     "bisagra armillar",
+    # ── Racores / plomería ────────────────────────────────────
+    "racor macho":  "racos p/p macho",
+    "racor pp":     "racos p/p macho",
 }
 
 # Cache en RAM — cargado una vez al iniciar, actualizado en cada /alias
@@ -45,31 +117,35 @@ _lock = threading.Lock()
 # ─────────────────────────────────────────────
 
 def cargar_aliases() -> dict:
-    """Carga aliases desde JSON. Llama al iniciar el bot."""
+    """Carga aliases desde PostgreSQL. Llama al iniciar el bot."""
     global _aliases
     try:
-        if os.path.exists(_RUTA_ALIASES):
-            with open(_RUTA_ALIASES, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            with _lock:
-                _aliases = {k.lower(): v for k, v in data.items()}
-            logger.info(f"[ALIAS] {len(_aliases)} aliases cargados desde {_RUTA_ALIASES}")
-        else:
-            logger.info("[ALIAS] No hay aliases_dinamicos.json — empezando vacío")
+        filas = db.query_all("SELECT termino, reemplazo FROM aliases")
+        with _lock:
+            _aliases = {row["termino"]: row["reemplazo"] for row in filas}
+        logger.info(f"[ALIAS] {len(_aliases)} aliases cargados desde PostgreSQL")
     except Exception as e:
-        logger.error(f"[ALIAS] Error cargando aliases: {e}")
+        logger.error(f"[ALIAS] Error cargando aliases desde PG: {e}")
     return dict(_aliases)
 
 
-def _guardar_aliases():
-    """Persiste el dict actual a JSON."""
-    try:
-        with _lock:
-            data = dict(_aliases)
-        with open(_RUTA_ALIASES, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"[ALIAS] Error guardando aliases: {e}")
+def _upsert_alias_pg(termino: str, reemplazo: str) -> None:
+    """Persiste un alias en PostgreSQL (INSERT … ON CONFLICT UPDATE)."""
+    db.execute(
+        """
+        INSERT INTO aliases (termino, reemplazo, updated_at)
+        VALUES (%s, %s, NOW())
+        ON CONFLICT (termino) DO UPDATE
+            SET reemplazo  = EXCLUDED.reemplazo,
+                updated_at = NOW()
+        """,
+        (termino, reemplazo),
+    )
+
+
+def _delete_alias_pg(termino: str) -> None:
+    """Elimina un alias de PostgreSQL."""
+    db.execute("DELETE FROM aliases WHERE termino = %s", (termino,))
 
 
 # ─────────────────────────────────────────────
@@ -97,7 +173,11 @@ def agregar_alias(termino: str, reemplazo: str) -> str:
         existia = termino_key in _aliases
         _aliases[termino_key] = reemplazo_val
 
-    _guardar_aliases()
+    try:
+        _upsert_alias_pg(termino_key, reemplazo_val)
+    except Exception as e:
+        logger.error(f"[ALIAS] Error guardando en PG: {e}")
+        return "❌ Error guardando el alias en la base de datos."
 
     if existia:
         return f"✅ Alias actualizado: '{termino_key}' → '{reemplazo_val}'"
@@ -113,7 +193,12 @@ def borrar_alias(termino: str) -> str:
             return f"❌ No existe el alias '{termino_key}'"
         del _aliases[termino_key]
 
-    _guardar_aliases()
+    try:
+        _delete_alias_pg(termino_key)
+    except Exception as e:
+        logger.error(f"[ALIAS] Error borrando en PG: {e}")
+        return "❌ Error eliminando el alias de la base de datos."
+
     return f"🗑️ Alias eliminado: '{termino_key}'"
 
 
@@ -136,6 +221,39 @@ def listar_aliases() -> str:
 # APLICAR ALIASES AL MENSAJE
 # ─────────────────────────────────────────────
 
+def _resolver_wayper(mensaje: str) -> str:
+    """
+    Resuelve la ambigüedad wayper kilo vs unidad ANTES de los aliases.
+
+    Regla del negocio:
+      - Sin indicador de peso  → UNIDAD  ("3 wayper de color" → WAYPER DE COLOR UNIDAD)
+      - Con kg/kilo/libra       → KG     ("2 kg wayper de color" → WAYPER DE COLOR)
+
+    Usa placeholders para evitar que el reemplazo genérico capture
+    lo que ya fue reemplazado por un patrón más específico.
+    """
+    import re as _re_w
+
+    _PESO = r'\b(kilo|kilos|kg|libra|libras|gramo|gramos)\b'
+    _tiene_peso = bool(_re_w.search(_PESO, mensaje, _re_w.IGNORECASE))
+
+    msg = mensaje
+    if _tiene_peso:
+        msg = _re_w.sub(r'\bwaypers?\s+de\s+colou?r\b', '__WPC_KG__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\s+colou?r\b',        '__WPC_KG__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\s+blancos?\b',       '__WPB_KG__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\b',                   '__WPB_KG__',  msg, flags=_re_w.IGNORECASE)
+        msg = msg.replace('__WPC_KG__', 'WAYPER DE COLOR').replace('__WPB_KG__', 'WAYPER BLANCO')
+    else:
+        msg = _re_w.sub(r'\bwaypers?\s+de\s+colou?r\b', '__WPC_U__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\s+colou?r\b',        '__WPC_U__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\s+blancos?\b',       '__WPB_U__',  msg, flags=_re_w.IGNORECASE)
+        msg = _re_w.sub(r'\bwaypers?\b',                   '__WPB_U__',  msg, flags=_re_w.IGNORECASE)
+        msg = msg.replace('__WPC_U__', 'WAYPER DE COLOR UNIDAD').replace('__WPB_U__', 'WAYPER BLANCO UNIDAD')
+
+    return msg
+
+
 def aplicar_aliases_dinamicos(mensaje: str) -> str:
     """
     Reemplaza términos simples del mensaje usando aliases en RAM.
@@ -150,10 +268,8 @@ def aplicar_aliases_dinamicos(mensaje: str) -> str:
     # Combinar defaults + dinámicos (dinámicos tienen prioridad)
     todos = {**_ALIASES_DEFAULT, **aliases_activos}
 
-    if not todos:
-        return mensaje
-
-    resultado = mensaje
+    # Resolver wayper (kilo vs unidad) antes de los aliases generales
+    resultado = _resolver_wayper(mensaje)
     for termino, reemplazo in todos.items():
         # Word boundary para evitar falsos positivos
         patron = r'\b' + re.escape(termino) + r'\b'

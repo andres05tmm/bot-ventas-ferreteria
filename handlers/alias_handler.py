@@ -67,7 +67,7 @@ async def manejar_alias(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(texto, parse_mode="Markdown")
         return
 
-    # ── BORRAR: eliminar un alias ──
+    # ── BORRAR: eliminar un alias (soporta frases: /alias borrar disco de corte concreto de 4) ──
     if subcomando == "borrar":
         if not _es_admin(update):
             await update.message.reply_text("⛔ No tienes permiso para modificar aliases.")
@@ -75,7 +75,7 @@ async def manejar_alias(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(args) < 2:
             await update.message.reply_text("Uso: `/alias borrar [termino]`", parse_mode="Markdown")
             return
-        termino = args[1]
+        termino = " ".join(args[1:])  # todo lo que viene después de "borrar"
         msg = alias_manager.borrar_alias(termino)
         await update.message.reply_text(msg)
         return
@@ -90,20 +90,43 @@ async def manejar_alias(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
-    # ── AGREGAR: /alias [termino] [reemplazo] ──
+    # ── AGREGAR: /alias [termino] = [reemplazo]  o  /alias [termino] [reemplazo] ──
     if not _es_admin(update):
         await update.message.reply_text("⛔ No tienes permiso para agregar aliases.")
         return
 
     if len(args) < 2:
         await update.message.reply_text(
-            "Uso: `/alias [termino] [reemplazo]`\n"
-            "Ejemplo: `/alias pagaternit pegaternit`",
+            "Uso: `/alias [término] = [reemplazo]`\n"
+            "Ejemplos:\n"
+            "`/alias puntilla = clavo`\n"
+            "`/alias disco de corte concreto de 4 = disco segmentado 4\"`\n"
+            "`/alias ver` — ver todos\n"
+            "`/alias borrar puntilla`\n"
+            "`/alias test dame 2 puntillas` — probar",
             parse_mode="Markdown",
         )
         return
 
-    termino = args[0]
-    reemplazo = " ".join(args[1:])
+    texto_completo = " ".join(args)
+
+    # Soporte para separador "=" (ej: "disco de corte metal = disco metal 7")
+    if "=" in texto_completo:
+        partes = texto_completo.split("=", 1)
+        termino   = partes[0].strip()
+        reemplazo = partes[1].strip()
+    else:
+        # Formato legado: primera palabra como término, el resto como reemplazo
+        termino   = args[0]
+        reemplazo = " ".join(args[1:])
+
+    if not termino or not reemplazo:
+        await update.message.reply_text(
+            "❌ Falta el término o el reemplazo.\n"
+            "Usa: `/alias puntilla = clavo`",
+            parse_mode="Markdown",
+        )
+        return
+
     msg = alias_manager.agregar_alias(termino, reemplazo)
     await update.message.reply_text(msg)
