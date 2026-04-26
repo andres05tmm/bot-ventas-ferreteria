@@ -246,7 +246,63 @@ def _es_transferencia_entrante(headers: list[dict]) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Parseo del body HTML del email
+# 4. Filtro de dirección — ¿es dinero que ENTRA o que SALE?
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Frases que confirman que el dinero ENTRÓ a la cuenta
+_KEYWORDS_ENTRADA = [
+    "recibiste un pago de",
+    "recibiste un abono",
+    "te enviaron",
+    "te transfirieron",
+    "consignaron",
+    "te consignaron",
+    "recibiste una consignacion",
+    "recibiste una consignación",
+]
+
+# Frases que indican que el dinero SALIÓ de la cuenta — descartar
+_KEYWORDS_SALIDA = [
+    "transferiste",
+    "realizaste una transferencia",
+    "realizaste un pago",
+    "pagaste",
+    "enviaste",
+    "debitamos",
+    "desde tu cuenta",   # "Transferiste $X desde tu cuenta"
+]
+
+
+def _es_dinero_entrante(body_text: str) -> bool:
+    """
+    Analiza el texto limpio del body del email y determina si es
+    una notificación de dinero que ENTRA (True) o que SALE (False).
+
+    Lógica:
+      1. Si el texto contiene alguna frase de SALIDA → False (no notificar).
+      2. Si el texto contiene alguna frase de ENTRADA → True (notificar).
+      3. Si no hay coincidencia → True por defecto (para no perder pagos reales).
+    """
+    texto_lower = body_text.lower()
+
+    # Primero verificar salidas (más específico)
+    for kw in _KEYWORDS_SALIDA:
+        if kw in texto_lower:
+            log.info("💸 Email descartado — detectado como salida de dinero ('%s')", kw)
+            return False
+
+    # Luego verificar entradas
+    for kw in _KEYWORDS_ENTRADA:
+        if kw in texto_lower:
+            return True
+
+    # Sin coincidencia clara → asumir entrada para no perder pagos reales
+    log.info("⚠️ No se detectó dirección del pago — procesando como entrada por defecto")
+    return True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Parseo del body HTML del email
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _extraer_body(payload: dict) -> str:
@@ -701,12 +757,17 @@ async def _procesar_mensaje(message_id: str, token: str, user: str) -> None:
     else:
         body_text = _extraer_body(msg.get("payload", {}))
         if body_text:
-            # Log del texto limpio para debug de parseo (primeros 800 chars)
-            texto_debug = re.sub(r"\s+", " ", _limpiar_html(body_text))[:800]
-            log.info("📄 Body Bancolombia [%s]: %s", message_id, texto_debug)
+            texto_limpio = re.sub(r"\s+", " ", _limpiar_html(body_text))
+            log.info("📄 Body Bancolombia [%s]: %s", message_id, texto_limpio[:800])
+
+            # Filtrar: solo procesar si el dinero ENTRA
+            if not _es_dinero_entrante(texto_limpio):
+                log.info("💸 Mensaje %s ignorado — es una transferencia que hizo el usuario", message_id)
+                return
+
             datos = parsear_email_bancolombia(body_text)
         else:
-            datos = {"monto": 0, "monto_str": "—", "remitente": "", "descripcion": "", "tipo": "", "hora": "", "fecha_str": ""}
+            datos = {"monto": 0, "monto_str": "—", "remitente": "", "cuenta": "", "llave": "", "descripcion": "", "tipo": "", "hora": "", "fecha_str": ""}
 
     mensaje_tg = _construir_mensaje(datos, subject, from_val)
     await _enviar_telegram(mensaje_tg)
