@@ -837,4 +837,7 @@ async def procesar_con_claude_stream(
 
 # ─────────────────────────────────────────────
 # Re-exports de compatibilidad — los callers que importen desde ai siguen funcionando
-# ────────────────────────────
+# ─────────────────────────────────────────────
+from ai.response_builder import procesar_acciones, procesar_acciones_async  # noqa: E402
+
+from ai.response_builder import procesar_acciones, procesar_acciones_async  # noqa: E402
