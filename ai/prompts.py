@@ -92,6 +92,10 @@ PRIORIDAD:
 
 _ALIAS_FERRETERIA = [
     # (patrón regex, reemplazo)
+    # LIJA: el vendedor a veces escribe "$N" para el grado en lugar de "#N"
+    # "lija $60" → "lija #60" ($60 nunca es un precio válido de lija — el mínimo es $2.000)
+    # Aplica solo cuando el número va inmediatamente después de "lija $"
+    (r'\blija[s]?\s+\$(\d+)\b', r'lija #\1'),
     # PUNTILLAS: normalizar abreviaturas y quitar "caja de" → "puntilla X"
     (r'\bcaja[s]?\s+de\s+puntilla[s]?\b', r'puntilla'),   # "caja de puntilla" → "puntilla"
     (r'\bpuntilla[s]?\s+(.*?)\bs\.c\.?\b', r'puntilla \g<1> sin cabeza'),  # s.c → sin cabeza
@@ -114,6 +118,11 @@ _ALIAS_FERRETERIA = [
     # Solo aplica cuando NO va seguido de un color
     (r'\b(\d+)\s+(?:metros?\s+(?:de\s+)?)?pitas?\b(?!\s*(?:para\s+)?(?:carpa\s+)?(?:azul|rojo|negro|blanco|amarillo))',
         lambda m: f"{m.group(1)} pita para carpa azul"),
+    # Selladores: alias_manager convierte "sellador"→"sellante", lo normalizamos de vuelta
+    # al nombre oficial del catálogo para que el MATCH lo encuentre
+    (r'\b(?:sellante|sellador)\s+lijable\b',    r'sellador corriente'),   # lijable = corriente
+    (r'\b(?:sellante|sellador)\s+corriente\b',  r'sellador corriente'),   # normalizar sellante→sellador
+    (r'\b(?:sellante|sellador)\s+catalizado\b', r'sellador catalizado'),  # normalizar sellante→sellador
     # Pegaternit: normalizar variantes de escritura
     (r'\bpagaternit\b', r'pegaternit'),
     (r'\bpega\s*ternit\b', r'pegaternit'),
