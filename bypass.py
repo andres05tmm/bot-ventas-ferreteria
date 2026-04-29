@@ -124,6 +124,8 @@ def _get_precio_fraccion(prod: dict, clave: str) -> int | None:
 def _slug(s: str) -> str:
     """Normaliza para comparación: quita especiales, normaliza plurales y fracciones."""
     s = _norm(s)
+    # Normalizar notación de lija: #120 → n120 (igual que nombre_lower del catálogo)
+    s = re.sub(r'#(\d+)', r'n\1', s)
     # Preservar fracciones ANTES de limpiar especiales: "1/4"→"1_4", "3/8"→"3_8"
     # Sin esto, _slug("chazos 1/4") → "chazo 14" que no matchea "chazo plastico 14"
     s = re.sub(r'\b(\d+)/(\d+)\b', r'\1_\2', s)

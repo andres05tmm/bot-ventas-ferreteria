@@ -105,6 +105,14 @@ _ALIASES_DEFAULT: dict[str, str] = {
     # ── Racores / plomería ────────────────────────────────────
     "racor macho":  "racos p/p macho",
     "racor pp":     "racos p/p macho",
+    # ── Silicona en taco (jerga colombiana = cartucho/tubo de silicona) ──
+    "silicona blanca en taco": "Silicona Transparente X Tubo",
+    "silicona en taco":        "Silicona Transparente X Tubo",
+    "silicona blanca taco":    "Silicona Transparente X Tubo",
+    "silicona taco":           "Silicona Transparente X Tubo",
+    # ── Marcas de pegantes ────────────────────────────────────────────────
+    "peganfer":     "pegante ceramico",
+    "pega fer":     "pegante ceramico",
 }
 
 # Cache en RAM — cargado una vez al iniciar, actualizado en cada /alias
@@ -268,8 +276,22 @@ def aplicar_aliases_dinamicos(mensaje: str) -> str:
     # Combinar defaults + dinámicos (dinámicos tienen prioridad)
     todos = {**_ALIASES_DEFAULT, **aliases_activos}
 
+    # ── Normalizar notación de lija: #120 → N°120 ──────────────────────────
+    # Para que "lija #120" encuentre "Lija N°120" en el catálogo.
+    resultado = re.sub(r'#(\d+)', r'N°\1', mensaje)
+
+    # ── Normalizar abreviaciones de puntilla con puntos ──────────────────
+    # "s.c." / "s.c" → "sin cabeza" | "c.c." / "c.c" → "con cabeza"
+    resultado = re.sub(r'\bs\.c\.?\b', 'sin cabeza', resultado, flags=re.IGNORECASE)
+    resultado = re.sub(r'\bc\.c\.?\b', 'con cabeza', resultado, flags=re.IGNORECASE)
+
+    # ── Normalizar "t-N" → "tN" para vinil/cuñete ─────────────────────────
+    # El catálogo usa "T1", "T2", "T3" pero el vendedor a veces escribe "t-1", "t-2"
+    # Ejemplo: "1/2 cuñete vinilo t-1" → "1/2 cuñete vinilo t1"
+    resultado = re.sub(r'\b(t)-(\d)\b', r'\1\2', resultado, flags=re.IGNORECASE)
+
     # Resolver wayper (kilo vs unidad) antes de los aliases generales
-    resultado = _resolver_wayper(mensaje)
+    resultado = _resolver_wayper(resultado)
     for termino, reemplazo in todos.items():
         # Word boundary para evitar falsos positivos
         patron = r'\b' + re.escape(termino) + r'\b'
