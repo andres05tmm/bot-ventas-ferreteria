@@ -241,9 +241,9 @@ def construir_seccion_match(
                 "TOTALES PRECALCULADOS (USA EXACTAMENTE, NO recalcules):\n"
                 + "\n".join(lineas)
             )
-            print(f"[PRECALCULADO DEBUG]\n{info_fracciones_extra}")
+            logger.debug("[PRECALCULADO] %s", info_fracciones_extra)
         else:
-            print("[PRECALCULADO DEBUG] No se generó precalculado para este mensaje")
+            logger.debug("[PRECALCULADO] No se generó precalculado para este mensaje")
 
     # ── Precalcular tornillos mayorista ──────────────────────────────────────
     _lineas_pre_extra = []
@@ -321,7 +321,7 @@ def construir_seccion_match(
             info_fracciones_extra += "\n" + _bloque_pre
         else:
             info_fracciones_extra = _bloque_pre
-        print(f"[PRECALCULADO EXTRA]\n{_bloque_pre}")
+        logger.debug("[PRECALCULADO EXTRA] %s", _bloque_pre)
 
     # ── Precalcular puntillas por gramos / por pesos ────────────────────────
     _PESO_CAJA_GR = 500
@@ -409,7 +409,7 @@ def construir_seccion_match(
             info_fracciones_extra += "\n" + _bloque_grm
         else:
             info_fracciones_extra = _bloque_grm
-        print(f"[PRECALCULADO PUNTILLAS GRM]\n{_bloque_grm}")
+        logger.debug("[PRECALCULADO PUNTILLAS GRM] %s", _bloque_grm)
 
     # ── Candidatos del catálogo para este mensaje específico ──
     info_candidatos_extra = ""
@@ -614,7 +614,7 @@ def construir_seccion_match(
                         if primer:
                             _candidatos_garantizados[nl] = prod
                             primer = False
-                            print(f"[SEG DEBUG] seg='{seg[:30]}' frag='{fragmento}' garantizado='{prod['nombre']}'")
+                            logger.debug("[SEG] seg='%s' frag='%s' → '%s'", seg[:30], fragmento, prod['nombre'])
                         encontrado_seg = True
                     if encontrado_seg:
                         break
@@ -690,7 +690,7 @@ def construir_seccion_match(
         if candidatos:
             lineas = [_linea_candidato(p) for p in candidatos]
             info_candidatos_extra = "MATCH:\n" + "\n".join(lineas)
-            print(f"[CANDIDATOS DEBUG]\n{info_candidatos_extra}")
+            logger.debug("[CANDIDATOS] %s", info_candidatos_extra)
         else:
             _frag_fuzzy = " ".join(palabras_clave[:4]) if palabras_clave else ""
             _sugs = fuzzy_match.buscar_fuzzy(_frag_fuzzy) if _frag_fuzzy else []
@@ -703,7 +703,7 @@ def construir_seccion_match(
                 )
             else:
                 info_candidatos_extra = "MATCH: (sin resultados — producto no encontrado en catalogo)"
-                print("[CANDIDATOS DEBUG] MATCH vacío — producto no en catálogo")
+                logger.debug("[CANDIDATOS] MATCH vacío — producto no en catálogo")
 
     partes = [p for p in [info_fracciones_extra, info_candidatos_extra] if p]
     return "\n\n".join(partes)
