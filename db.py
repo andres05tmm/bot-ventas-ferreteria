@@ -100,19 +100,41 @@ def _reconectar() -> None:
     logger.info("[DB] Pool reconectado exitosamente")
 
 
+_RETRY_POOL_INTENTOS = 3    # reintentos cuando el pool está exhausto
+_RETRY_POOL_ESPERA   = 0.3  # segundos entre reintentos
+
+
 @contextmanager
 def _get_conn():
     """
     Obtiene conexión del pool. Thread-safe.
     Si la conexión está rota (OperationalError / InterfaceError),
     reconecta el pool y reintenta una vez.
+    Si el pool está exhausto (PoolError), reintenta hasta _RETRY_POOL_INTENTOS
+    veces con _RETRY_POOL_ESPERA segundos entre intentos antes de relanzar.
     """
+    import time as _time
     import psycopg2
+    from psycopg2.pool import PoolError as _PoolError
 
     _BROKEN = (psycopg2.OperationalError, psycopg2.InterfaceError)
 
-    with _pool_lock:
-        conn = _pool.getconn()
+    conn = None
+    for _intento in range(_RETRY_POOL_INTENTOS):
+        try:
+            with _pool_lock:
+                conn = _pool.getconn()
+            break
+        except _PoolError:
+            if _intento < _RETRY_POOL_INTENTOS - 1:
+                logger.warning(
+                    "[DB] Pool exhausto — reintento %d/%d en %.1fs",
+                    _intento + 1, _RETRY_POOL_INTENTOS, _RETRY_POOL_ESPERA,
+                )
+                _time.sleep(_RETRY_POOL_ESPERA)
+            else:
+                logger.error("[DB] Pool exhausto tras %d reintentos — abortando", _RETRY_POOL_INTENTOS)
+                raise
     try:
         yield conn
         conn.commit()

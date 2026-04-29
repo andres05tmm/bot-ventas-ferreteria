@@ -58,6 +58,7 @@ _cache_ts: float | None = None          # epoch del último load completo desde 
 _CACHE_TTL: int = 600                   # segundos — recarga automática si el cache es más viejo
 _bloquear_subida_drive: bool = False  # True durante la sincronización inicial
 _cache_lock = threading.Lock()        # Protege _cache en entornos multi-hilo
+_reload_lock = threading.Lock()       # Garantiza un solo reload background a la vez
 
 
 def bloquear_subida_drive(bloquear: bool):
@@ -162,12 +163,20 @@ def _reload_cache_background() -> None:
     Recarga el cache desde PostgreSQL en un hilo daemon.
     Patrón stale-while-revalidate: el request ya fue servido con el dato viejo;
     este hilo actualiza el cache para el siguiente request.
+
+    _reload_lock garantiza que solo UN hilo de recarga corra a la vez.
+    Si el TTL expira con N requests simultáneos, el primer hilo adquiere el lock
+    y los demás salen inmediatamente (el primero ya se encarga de actualizar).
     """
     global _cache, _cache_ts
-    import db as _db
-    if not _db.DB_DISPONIBLE:
+    # Intentar adquirir el lock sin bloquear — si ya hay un reload en curso, salir
+    if not _reload_lock.acquire(blocking=False):
+        logger.debug("[CACHE] Reload ya en progreso en otro hilo — skip")
         return
     try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            return
         nuevo = _cargar_desde_postgres()
         with _cache_lock:
             _cache = nuevo
@@ -175,6 +184,8 @@ def _reload_cache_background() -> None:
         logger.debug("[CACHE] Recargado en background (stale-while-revalidate)")
     except Exception as e:
         logger.warning(f"[CACHE] Error en recarga background: {e}")
+    finally:
+        _reload_lock.release()
 
 
 def cargar_memoria() -> dict:
