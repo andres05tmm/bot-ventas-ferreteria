@@ -572,8 +572,9 @@ async def procesar_con_claude(
         # Extended Thinking: Claude razona antes de responder
         # budget_tokens = tokens de pensamiento (no visibles al usuario)
         # max_tokens debe ser > budget_tokens
-        _budget = 8000
-        _max_thinking = max(max_tokens, _budget + 2000)
+        # NOTA: usar _thinking_budget_tokens (NO _budget) para no tapar el módulo ai.budget
+        _thinking_budget_tokens = 8000
+        _max_thinking = max(max_tokens, _thinking_budget_tokens + 2000)
         try:
             loop = asyncio.get_event_loop()
             respuesta = await asyncio.wait_for(
@@ -582,7 +583,7 @@ async def procesar_con_claude(
                     lambda: config.claude_client.messages.create(
                         model=MODELO_SONNET,
                         max_tokens=_max_thinking,
-                        thinking={"type": "enabled", "budget_tokens": _budget},
+                        thinking={"type": "enabled", "budget_tokens": _thinking_budget_tokens},
                         system=system,
                         messages=messages,
                     )
@@ -836,5 +837,4 @@ async def procesar_con_claude_stream(
 
 # ─────────────────────────────────────────────
 # Re-exports de compatibilidad — los callers que importen desde ai siguen funcionando
-# ─────────────────────────────────────────────
-from ai.response_builder import procesar_acciones, procesar_acciones_async  # noqa: E402
+# ────────────────────────────
