@@ -5,7 +5,7 @@ Configuracion central: variables de entorno, constantes y clientes de API.
 
 import os
 import logging
-from datetime import timezone, timedelta
+from zoneinfo import ZoneInfo
 
 import anthropic
 import openai
@@ -18,7 +18,11 @@ logger = logging.getLogger("ferrebot")
 # ─────────────────────────────────────────────
 # ZONA HORARIA
 # ─────────────────────────────────────────────
-COLOMBIA_TZ = timezone(timedelta(hours=-5))
+# ZoneInfo("America/Bogota") es preferible a timezone(timedelta(hours=-5)) porque:
+#   - str(COLOMBIA_TZ) produce "America/Bogota" (nombre IANA válido para APScheduler)
+#   - Maneja DST correctamente si Colombia alguna vez lo adoptara
+#   - Disponible en stdlib desde Python 3.9
+COLOMBIA_TZ = ZoneInfo("America/Bogota")
 
 # ─────────────────────────────────────────────
 # VARIABLES DE ENTORNO
