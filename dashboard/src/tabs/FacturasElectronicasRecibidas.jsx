@@ -10,6 +10,7 @@
 import { useState } from 'react'
 import { useTheme, useFetch, cop, API_BASE, Spinner } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
+import { useRealtime } from '../hooks/useRealtime.js'
 
 function BadgeEvento({ fecha, label }) {
   const activo = Boolean(fecha)
@@ -111,6 +112,13 @@ export default function FacturasElectronicasRecibidas() {
     [filtro, refresh]
   )
   const facturas = data || []
+
+  // ── Tiempo real: recargar cuando llega una factura nueva por Gmail o al reconectar ──
+  useRealtime((type, _data) => {
+    if (type === 'compra_fiscal_importada' || type === 'reconnected') {
+      setRefresh(x => x + 1)
+    }
+  })
 
   const mostrarToast = (msg, ok = true) => {
     setToast({ msg, ok })
