@@ -145,12 +145,24 @@ async def _get_message_ids_from_history(
         data = resp.json()
         logger.info("🔍 history.list raw: %s", data)
 
+    # Labels que indican correo promocional / social / spam — nunca serán facturas DIAN
+    _LABELS_EXCLUIR = frozenset({
+        "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM", "TRASH",
+    })
+
     message_ids = []
     for entry in data.get("history", []):
         for msg in entry.get("messagesAdded", []):
-            mid = msg.get("message", {}).get("id")
-            if mid and mid not in message_ids:
-                message_ids.append(mid)
+            m      = msg.get("message", {})
+            mid    = m.get("id")
+            labels = set(m.get("labelIds", []))
+            if not mid or mid in message_ids:
+                continue
+            # Descartar correos que por sus labels jamás serán facturas electrónicas
+            if labels & _LABELS_EXCLUIR:
+                logger.debug("Mensaje %s ignorado por labels %s", mid, labels & _LABELS_EXCLUIR)
+                continue
+            message_ids.append(mid)
     return message_ids
 
 
@@ -174,6 +186,10 @@ async def _get_xml_attachments(
             headers={"Authorization": f"Bearer {token}"},
             params={"format": "full"},
         )
+        if resp.status_code == 404:
+            # Mensaje eliminado de Gmail antes de que pudiéramos descargarlo — skip limpio
+            logger.info("Mensaje %s no encontrado en Gmail (eliminado) — skip", message_id)
+            return []
         resp.raise_for_status()
         msg = resp.json()
 
