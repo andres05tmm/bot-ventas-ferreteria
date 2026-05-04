@@ -278,7 +278,7 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
                 nombre_oficial = prod["nombre"]
                 venta = {"producto": nombre_oficial, "cantidad": gramos, "total": pesos, "metodo_pago": ""}
                 texto = f"{gramos:g} gr {nombre_oficial} — ${pesos:,.0f}"
-                logger.info(f"[BYPASS PUNTILLA $] '{msg}' → {gramos}gr = ${pesos:,}")
+                logger.debug(f"[BYPASS PUNTILLA $] '{msg}' → {gramos}gr = ${pesos:,}")
                 return texto, venta
 
         # ── Caso B: por gramos "300 gramos puntilla X" / "300gr puntilla X" ──
@@ -294,7 +294,7 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
                 nombre_oficial = prod["nombre"]
                 venta = {"producto": nombre_oficial, "cantidad": gramos, "total": total, "metodo_pago": ""}
                 texto = f"{gramos:g} gr {nombre_oficial} — ${total:,.0f}"
-                logger.info(f"[BYPASS PUNTILLA GR] '{msg}' → {gramos}gr = ${total:,}")
+                logger.debug(f"[BYPASS PUNTILLA GR] '{msg}' → {gramos}gr = ${total:,}")
                 return texto, venta
 
         # ── Caso C: N cajas "caja puntilla X" / "2 cajas puntilla X" / "1 caja de puntillas X" ──
@@ -315,7 +315,7 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
                 label          = f"{n_cajas} caja{'s' if n_cajas > 1 else ''}" if n_cajas > 1 else "Caja"
                 venta = {"producto": nombre_oficial, "cantidad": gramos_total, "total": total, "metodo_pago": ""}
                 texto = f"{label} {nombre_oficial} ({int(gramos_total)} gr) — ${total:,.0f}"
-                logger.info(f"[BYPASS PUNTILLA CAJA] '{msg}' → {n_cajas} cajas={gramos_total}gr = ${total:,}")
+                logger.debug(f"[BYPASS PUNTILLA CAJA] '{msg}' → {n_cajas} cajas={gramos_total}gr = ${total:,}")
                 return texto, venta
 
         # ── Caso D: fracciones "media caja puntilla X" / "1/4 caja puntilla X" ──
@@ -338,7 +338,7 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
                     frac_label     = {0.5: "Media caja", 0.25: "1/4 caja", 0.75: "3/4 caja"}.get(fraccion, f"{fraccion} caja")
                     venta = {"producto": nombre_oficial, "cantidad": gramos, "total": total, "metodo_pago": ""}
                     texto = f"{frac_label} {nombre_oficial} ({gramos:g} gr) — ${total:,.0f}"
-                    logger.info(f"[BYPASS PUNTILLA FRAC] '{msg}' → {gramos}gr = ${total:,}")
+                    logger.debug(f"[BYPASS PUNTILLA FRAC] '{msg}' → {gramos}gr = ${total:,}")
                     return texto, venta
 
     # ════════════════════════════════════════════
@@ -386,7 +386,7 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
             f"{cant_legible} {nombre_oficial} — ${total:,.0f} "
             f"({enteros}×${precio_galon:,.0f} + {frac_clave}=${precio_frac:,.0f})"
         )
-        logger.info(f"[BYPASS MIXTO] ✅ '{msg}' → {nombre_oficial} = ${total:,}")
+        logger.debug(f"[BYPASS MIXTO] ✅ '{msg}' → {nombre_oficial} = ${total:,}")
         return texto, venta
 
     # ════════════════════════════════════════════
@@ -421,7 +421,7 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
             "metodo_pago":    "",
         }
         texto = f"{frac_clave} {nombre_oficial} — ${precio_frac:,.0f}"
-        logger.info(f"[BYPASS FRAC] ✅ '{msg}' → {nombre_oficial} {frac_clave} = ${precio_frac:,}")
+        logger.debug(f"[BYPASS FRAC] ✅ '{msg}' → {nombre_oficial} {frac_clave} = ${precio_frac:,}")
         return texto, venta
 
     # ════════════════════════════════════════════
@@ -483,7 +483,7 @@ def intentar_bypass_python(mensaje: str, catalogo: dict) -> tuple | None:
         texto = f"{cantidad} {nombre_oficial} — ${total:,.0f} (${precio:,.0f} c/u 🏭)"
     else:
         texto = f"{cantidad} {nombre_oficial} — ${total:,.0f} (${precio:,.0f} c/u)"
-    logger.info(f"[BYPASS ENTERO] ✅ '{msg}' → {nombre_oficial} x{cantidad} = ${total:,}" + (" [mayorista]" if es_mayorista else ""))
+    logger.debug(f"[BYPASS ENTERO] ✅ '{msg}' → {nombre_oficial} x{cantidad} = ${total:,}" + (" [mayorista]" if es_mayorista else ""))
     return texto, venta
 
 
@@ -717,7 +717,7 @@ def _intentar_bypass_multilinea(mensaje: str, catalogo: dict) -> tuple | None:
         "metodo_pago": "",
     }
 
-    logger.info(
+    logger.debug(
         f"[BYPASS MULTI] ✅ {len(items_resueltos)} productos = ${total_general:,}"
     )
     return texto, venta

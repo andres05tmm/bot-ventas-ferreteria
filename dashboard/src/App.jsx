@@ -177,7 +177,6 @@ function HeaderVendorSelector() {
         value={selectedVendor || ''}
         onChange={(e) => {
           const val = parseInt(e.target.value) || null
-          console.log('[VendorSelector] selectedVendor:', val)
           setSelectedVendor(val)
         }}
         style={{

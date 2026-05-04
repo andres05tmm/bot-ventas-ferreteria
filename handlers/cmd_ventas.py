@@ -269,7 +269,7 @@ async def manejar_callback_grafica(update: Update, context: ContextTypes.DEFAULT
         with open(ruta, "rb") as f:
             await context.bot.send_photo(chat_id=chat_id, photo=f, filename=titulo)
     except Exception:
-        print(f"Error generando grafica: {traceback.format_exc()}")
+        logger.error("Error generando grafica: %s", traceback.format_exc())
         await context.bot.send_message(chat_id=chat_id, text="Tuve un problema generando la gráfica. Intenta de nuevo.")
     finally:
         if ruta and os.path.exists(ruta):
@@ -345,7 +345,7 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
         _guardar_historico(historico)
         await update.message.reply_text(f"📊 Histórico actualizado: {fecha_str} → ${total_general:,.0f}")
     except Exception as e_hist:
-        print(f"⚠️ Error guardando histórico: {e_hist}")
+        logger.warning("Error guardando histórico: %s", e_hist)
 
     # Sincronizar gastos al histórico
     try:
@@ -355,7 +355,7 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if gastos_dia > 0:
             await update.message.reply_text(f"💸 Gastos del día guardados: ${gastos_dia:,.0f}")
     except Exception as e_sync:
-        print(f"⚠️ Error sincronizando gastos al histórico: {e_sync}")
+        logger.warning("Error sincronizando gastos al histórico: %s", e_sync)
 
     # Cerrar caja
     from memoria import cargar_caja, guardar_caja
@@ -437,7 +437,7 @@ async def comando_cerrar_dia(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 if _ca_intento < 2:
                     await asyncio.sleep(2)
                 else:
-                    print(f"[cerrar] Claude sin respuesta tras 3 intentos: {_ca_e}")
+                    logger.warning("[cerrar] Claude sin respuesta tras 3 intentos: %s", _ca_e)
                     respuesta_analisis = None
 
         if respuesta_analisis:
@@ -519,7 +519,7 @@ async def comando_reset_ventas(update: Update, context: ContextTypes.DEFAULT_TYP
             clientes_en_proceso.clear()
             ventas_esperando_cliente.clear()
     except Exception as e:
-        print(f"Error limpiando memoria interna: {e}")
+        logger.warning("Error limpiando memoria interna: %s", e)
 
     # Borrar ventas de hoy en PG
     if _db.DB_DISPONIBLE:

@@ -60,6 +60,12 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+# Silenciar loggers de terceros que no aportan valor operativo
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logging.getLogger("multipart").setLevel(logging.WARNING)
+
 _api_logger = logging.getLogger("ferrebot.api")
 
 # ── Sentry — captura de errores en producción ─────────────────────────────────

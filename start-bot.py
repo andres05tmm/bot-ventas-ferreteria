@@ -40,9 +40,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext.Updater").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 log = logging.getLogger("start-bot")
-# Activar DEBUG solo para el módulo de facturación
-logging.getLogger("ferrebot.facturacion").setLevel(logging.DEBUG)
 
 # -- propios --
 import config  # noqa: E402

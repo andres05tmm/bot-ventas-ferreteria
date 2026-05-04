@@ -301,7 +301,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                 f"[RESPUESTA DEL CLIENTE: {mensaje}]\n"
                 f"Retoma el pedido original aplicando la respuesta del cliente a la pregunta del bot."
             )
-            logging.getLogger("ferrebot.mensajes").info(
+            logging.getLogger("ferrebot.mensajes").debug(
                 f"[CONTEXTO] Reinyectando — pregunta='{(_pregunta_bot or '')[:60]}' + resp='{mensaje}'"
             )
 
@@ -337,7 +337,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
                     "mensaje":  _mensaje_para_claude,
                     "pregunta": texto_respuesta,
                 }
-            logging.getLogger("ferrebot.mensajes").info(
+            logging.getLogger("ferrebot.mensajes").debug(
                 f"[CONTEXTO] Guardando — msg='{_mensaje_para_claude[:60]}' | "
                 f"pregunta='{texto_respuesta[:60]}'"
             )
@@ -440,7 +440,6 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     except Exception:
         _tb = traceback.format_exc()
         logger.error("Error en mensaje: %s", _tb)
-        print(f"[ERROR _procesar_mensaje]\n{_tb}")  # visible en Railway
         await update.message.reply_text(
             "⚠️ El asistente IA no está disponible ahora. "
             "Puedes registrar la venta manualmente con /ventas."
@@ -1028,7 +1027,7 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
         if _ctx_audio and _ctx_audio.get("pregunta"):
             _hint = _ctx_audio["pregunta"][:200].replace("\n", " ")
             _whisper_prompt = f"{_hint} {_whisper_prompt}"
-            logger.info(f"[audio] Whisper enriquecido con pregunta pendiente: '{_hint[:60]}'")
+            logger.debug(f"[audio] Whisper enriquecido con pregunta pendiente: '{_hint[:60]}'")
 
         def _transcribir():
             with open(ruta_audio, "rb") as audio_file:
@@ -1224,7 +1223,7 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                 f"[RESPUESTA DEL CLIENTE (audio): {texto}]\n"
                 f"Retoma el pedido original aplicando la respuesta del cliente a la pregunta del bot."
             )
-            logger.info(
+            logger.debug(
                 f"[audio] Reinyectando contexto — pregunta='{(_pregunta_bot_audio or '')[:60]}' "
                 f"+ resp='{texto}'"
             )
@@ -1257,7 +1256,7 @@ async def _procesar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, ve
                     "mensaje":  _texto_para_claude,
                     "pregunta": texto_respuesta,
                 }
-            logger.info(f"[audio] Guardando contexto pendiente para chat {chat_id}")
+            logger.debug(f"[audio] Guardando contexto pendiente para chat {chat_id}")
 
         # En audio: mostrar texto de Claude solo si NO hay botones de venta (es una pregunta o error)
         hay_botones_venta = confirmacion_accion or pedir_metodo

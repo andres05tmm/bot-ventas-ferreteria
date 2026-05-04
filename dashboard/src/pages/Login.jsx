@@ -12,7 +12,6 @@ export default function Login() {
   useEffect(() => {
     // Definir el callback ANTES de que el script cargue
     window.onTelegramAuth = async (user) => {
-      console.log('[TelegramAuth] datos recibidos del widget:', user)
       setLoading(true)
       setError('')
 

@@ -6,6 +6,8 @@ Inicializa los servicios y arranca el bot en modo webhook (Railway) o polling (l
 import asyncio
 import logging as _logging
 
+_log = _logging.getLogger("ferrebot.main")
+
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -27,7 +29,7 @@ if config.SENTRY_DSN:
         environment="production",
         release=getattr(config, "VERSION", "unknown"),
     )
-    print("✅ Sentry inicializado (bot)")
+    _log.info("✅ Sentry inicializado (bot)")
 
 from handlers.comandos import (
     comando_inicio, comando_ventas, comando_buscar,
@@ -163,7 +165,7 @@ def build_app() -> Application:
 
 
 def main():
-    print(f"🚀 Iniciando FerreBot {config.VERSION}")
+    _log.info(f"🚀 Iniciando FerreBot {config.VERSION}")
 
     # Construir índice fuzzy al arrancar para que las búsquedas funcionen
     try:
@@ -171,14 +173,14 @@ def main():
         from memoria import cargar_memoria as _cm_init
         _mem_init = _cm_init()
         construir_indice(_mem_init.get("catalogo", {}))
-        print(f"🔍 Índice fuzzy construido: {len(_mem_init.get('catalogo', {}))} productos")
+        _log.info(f"🔍 Índice fuzzy construido: {len(_mem_init.get('catalogo', {}))} productos")
     except Exception as e:
-        print(f"⚠️ No se pudo construir índice fuzzy: {e}")
+        _log.warning(f"⚠️ No se pudo construir índice fuzzy: {e}")
 
     app = build_app()
 
     if config.WEBHOOK_URL:
-        print(f"🌐 Iniciando en modo WEBHOOK: {config.WEBHOOK_URL}")
+        _log.info(f"🌐 Iniciando en modo WEBHOOK: {config.WEBHOOK_URL}")
 
         async def _iniciar_keepalive(app):
             """Inicia el loop de keepalive dentro del event loop correcto (post_init)."""
@@ -192,7 +194,7 @@ def main():
             webhook_url=f"{config.WEBHOOK_URL}/{config.TELEGRAM_TOKEN}",
         )
     else:
-        print("⚙️ WEBHOOK_URL no configurada. Iniciando en modo polling (desarrollo local).")
+        _log.info("⚙️ WEBHOOK_URL no configurada. Iniciando en modo polling (desarrollo local).")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

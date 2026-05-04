@@ -110,7 +110,7 @@ def construir_seccion_clientes(mensaje_usuario: str) -> str:
                     "ULTIMOS 5 CLIENTES REGISTRADOS EN EL SISTEMA:\n" + "\n".join(lineas)
                 )
         except Exception as e:
-            print(f"Error clientes recientes: {e}")
+            logger.warning("Error clientes recientes: %s", e)
 
     # ── Búsqueda de cliente si el mensaje lo indica ──
     _indicadores_cliente = [
