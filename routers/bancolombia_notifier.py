@@ -803,12 +803,12 @@ async def bancolombia_pubsub_webhook(
 
     try:
         data_json  = json.loads(base64.urlsafe_b64decode(data_b64 + "==").decode())
-        history_id = str(int(data_json.get("historyId", 0)) - 1)
+        history_id = str(data_json.get("historyId", ""))
     except Exception as e:
         log.warning("Error decodificando data Pub/Sub Bancolombia: %s", e)
         return {"ok": True, "skip": "data_invalida"}
 
-    if not history_id or history_id == "-1":
+    if not history_id or history_id == "0":
         return {"ok": True, "skip": "sin_historyId"}
 
     log.info("📬 Pub/Sub Bancolombia recibido — historyId=%s", history_id)

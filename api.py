@@ -215,6 +215,36 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_gmail_watch_renewal_loop())
     _api_logger.info("📬 Gmail watch renewal task iniciada (intervalo: 6 días)")
 
+    # ── Renovación automática del Gmail watch de Bancolombia (expira cada 7 días) ─
+    async def _bancolombia_watch_renewal_loop():
+        """Renueva el Gmail watch del correo Bancolombia cada 6 días."""
+        import os as _os
+        _SEIS_DIAS = 6 * 24 * 3600
+        _b_log = logging.getLogger("ferrebot.bancolombia_watch")
+        await asyncio.sleep(60)  # esperar 60s para no solapar con el watch de compras
+        while True:
+            try:
+                if all(_os.getenv(v) for v in (
+                    "BANCOLOMBIA_GMAIL_CLIENT_ID",
+                    "BANCOLOMBIA_GMAIL_CLIENT_SECRET",
+                    "BANCOLOMBIA_GMAIL_REFRESH_TOKEN",
+                    "BANCOLOMBIA_PUBSUB_TOPIC",
+                )):
+                    from routers.bancolombia_notifier import bancolombia_watch_setup
+                    result = await bancolombia_watch_setup()
+                    _b_log.info(
+                        "✅ Bancolombia Gmail watch renovado — historyId=%s, expira=%s",
+                        result.get("historyId"), result.get("expira"),
+                    )
+                else:
+                    _b_log.debug("Bancolombia watch: variables no configuradas — omitiendo renovación")
+            except Exception as _e:
+                _b_log.warning("⚠️ Error renovando Bancolombia Gmail watch: %s", _e)
+            await asyncio.sleep(_SEIS_DIAS)
+
+    asyncio.create_task(_bancolombia_watch_renewal_loop())
+    _api_logger.info("🏦 Bancolombia Gmail watch renewal task iniciada (intervalo: 6 días)")
+
     yield
 
 # ── App ───────────────────────────────────────────────────────────────────────
