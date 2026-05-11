@@ -162,9 +162,34 @@ async def lifespan(app: FastAPI):
             misfire_grace_time=3600,  # si el bot estuvo caído, corre hasta 1h tarde
             max_instances=1,
         )
+
+        # ── Job mensual: Cuenta de Cobro día 23 a las 9:00 AM Colombia ──────────────
+        async def _job_honorarios():
+            """Genera y envía la Cuenta de Cobro mensual el día 23."""
+            try:
+                from services.honorarios_service import generar_cuenta_cobro
+                bot = tg_app.bot
+                resultado = await generar_cuenta_cobro(bot=bot)
+                log.info(
+                    f"[honorarios-job] CC-{resultado['numero_display']} generada "
+                    f"— ${resultado['valor']:,.0f} — {resultado['periodo']}"
+                )
+            except Exception as e:
+                log.error(f"[honorarios-job] Error: {e}")
+
+        scheduler.add_job(
+            _job_honorarios,
+            trigger=CronTrigger(day=23, hour=9, minute=0, timezone=str(config.COLOMBIA_TZ)),
+            id="honorarios_mensual",
+            name="Cuenta de Cobro mensual día 23",
+            replace_existing=True,
+            misfire_grace_time=3600,
+            max_instances=1,
+        )
+
         scheduler.start()
         app.state.scheduler = scheduler
-        log.info("🌙 APScheduler iniciado — compresor nocturno a las 3:00 AM Colombia")
+        log.info("APScheduler iniciado — compresor nocturno 3:00 AM, honorarios día 23 9:00 AM Colombia")
     except Exception as e:
         log.warning(f"⚠️ No se pudo iniciar el scheduler nocturno: {e}")
 

@@ -78,6 +78,12 @@ MESES = {
 #     El TTL 1h cuesta 2× el precio base de escritura, pero nuestro catálogo no
 #     cambia en todo el día — así que pagamos la escritura una vez y leemos barato
 #     durante 1h con cada mensaje del vendedor (vs. reescribir cada 5min).
+# ─────────────────────────────────────────────
+# MÓDULO HONORARIOS
+# ─────────────────────────────────────────────
+HONORARIOS_VALOR   = int(os.getenv("HONORARIOS_VALOR", "2000000"))
+HONORARIOS_CHAT_ID = os.getenv("HONORARIOS_CHAT_ID", "")
+
 claude_client = anthropic.Anthropic(
     api_key=ANTHROPIC_API_KEY,
     default_headers={

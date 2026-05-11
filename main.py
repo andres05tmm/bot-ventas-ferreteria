@@ -57,6 +57,7 @@ from handlers.cmd_facturacion import (
     comando_nota_credito,
     comando_estado_factura,
 )
+from handlers.cmd_honorarios import comando_honorarios
 
 _logger = _logging.getLogger("ferrebot.main")
 
@@ -140,6 +141,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("registrar_vendedor",  comando_registrar_vendedor))
     app.add_handler(CommandHandler("alias",            manejar_alias))
     app.add_handler(CommandHandler("aliases",          manejar_alias))
+    app.add_handler(CommandHandler("honorarios",       comando_honorarios))
 
     # Mensajes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje))

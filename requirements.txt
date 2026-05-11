@@ -17,3 +17,4 @@ apscheduler>=3.10.0
 
 sentry-sdk[fastapi]>=2.0.0
 prometheus-client>=0.20.0
+fpdf2>=2.7.9
