@@ -29,11 +29,12 @@ log = logging.getLogger("ferrebot.honorarios")
 # ─────────────────────────────────────────────────────────────────────────────
 
 EMISOR = {
-    "nombre":  "Andrés Felipe Malo Hernández",
-    "cc":      "1.043.295.412",
-    "nit":     "1043295412-4",
-    "ciudad":  "Cartagena, Bolívar",
-    "regimen": "No responsable de IVA — Artículo 437 E.T.",
+    "nombre":   "Andrés Felipe Malo Hernández",
+    "cc":       "1.043.295.412",
+    "nit":      "1043295412-4",
+    "direccion": "CON el Refugio BL 12 AP 2A",
+    "ciudad":   "Cartagena, Bolívar",
+    "regimen":  "No responsable de IVA — Artículo 437 E.T.",
 }
 
 RECEPTOR = {
@@ -204,10 +205,10 @@ def _generar_pdf(
     pdf.set_font("Helvetica", "B", 10)
     pdf.cell(ancho, 6, "DATOS DEL PRESTADOR DEL SERVICIO", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
-    pdf.cell(ancho, 5, f"Nombre:  {EMISOR['nombre']}", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(ancho, 5, f"C.C.:    {EMISOR['cc']}", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(ancho, 5, f"NIT:     {EMISOR['nit']}", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(ancho, 5, f"Ciudad:  {EMISOR['ciudad']}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(ancho, 5, f"Nombre:    {EMISOR['nombre']}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(ancho, 5, f"C.C.:      {EMISOR['cc']}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(ancho, 5, f"NIT:       {EMISOR['nit']}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(ancho, 5, f"Dirección: {EMISOR['direccion']}, {EMISOR['ciudad']}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
     # ── Datos del receptor ──────────────────────────────────────────────────
@@ -236,7 +237,7 @@ def _generar_pdf(
     pdf.set_font("Helvetica", "", 9)
     col_concepto_x = pdf.get_x()
     col_concepto_y = pdf.get_y()
-    pdf.multi_cell(120, 5, f"Período: {periodo}\n{concepto}", border=1)
+    pdf.multi_cell(120, 5, f"Período: {periodo}\nContrato: PSV-001-2026\n{concepto}", border=1)
     y_after = pdf.get_y()
 
     pdf.set_xy(col_concepto_x + 120, col_concepto_y)
