@@ -163,19 +163,78 @@ async def lifespan(app: FastAPI):
             max_instances=1,
         )
 
-        # ── Job mensual: Cuenta de Cobro día 23 a las 9:00 AM Colombia ──────────────
+        # ── Job mensual: CC + DSNO día 23 a las 9:00 AM Colombia ────────────────
         async def _job_honorarios():
-            """Genera y envía la Cuenta de Cobro mensual el día 23."""
+            """Genera Cuenta de Cobro y Documento Soporte el día 23, notifica por Telegram."""
+            import io
+            import os as _os
             try:
-                from services.honorarios_service import generar_cuenta_cobro
+                from services.honorarios_service import generar_cuenta_cobro, PeriodoYaExisteError
+                from services.documento_soporte_service import generar_documento_soporte
+
                 bot = tg_app.bot
-                resultado = await generar_cuenta_cobro(bot=bot)
+
+                # Paso 1: Cuenta de Cobro (sin enviar Telegram aún)
+                resultado_cc = await generar_cuenta_cobro(bot=None)
                 log.info(
-                    f"[honorarios-job] CC-{resultado['numero_display']} generada "
-                    f"— ${resultado['valor']:,.0f} — {resultado['periodo']}"
+                    "[honorarios-job] CC-%s generada — $%s — %s",
+                    resultado_cc["numero_display"], resultado_cc["valor"], resultado_cc["periodo"],
                 )
+
+                # Paso 2: Documento Soporte DIAN
+                resultado_ds = await generar_documento_soporte(
+                    valor=resultado_cc["valor"],
+                    cuenta_cobro_id=resultado_cc["consecutivo"],
+                )
+
+                # Paso 3: Notificar por Telegram con PDF + resultado combinado
+                valor_fmt = f"${resultado_cc['valor']:,.0f}".replace(",", ".")
+                if resultado_ds["ok"]:
+                    cude = resultado_ds.get("cude", "")
+                    cude_short = (cude[:40] + "...") if len(cude) > 40 else cude
+                    caption = (
+                        f"✅ Cuenta de cobro *CC-{resultado_cc['numero_display']}* generada\n"
+                        f"✅ Documento Soporte transmitido a DIAN\n"
+                        f"📋 CUDE: `{cude_short}`\n"
+                        f"💰 Valor: *{valor_fmt}*"
+                    )
+                    log.info("[honorarios-job] DSNO transmitido — CUDE: %s…", cude[:20])
+                else:
+                    caption = (
+                        f"✅ Cuenta de cobro *CC-{resultado_cc['numero_display']}* generada\n"
+                        f"⚠️ Documento Soporte falló: {resultado_ds.get('error', 'error desconocido')}\n"
+                        f"💰 Valor: *{valor_fmt}*"
+                    )
+                    log.error("[honorarios-job] DSNO falló: %s", resultado_ds.get("error"))
+
+                chat_id = config.HONORARIOS_CHAT_ID or None
+                if not chat_id:
+                    raw = _os.getenv("AUTHORIZED_CHAT_IDS", "")
+                    ids = [x.strip() for x in raw.split(",") if x.strip()]
+                    chat_id = ids[0] if ids else None
+
+                if chat_id:
+                    await bot.send_document(
+                        chat_id=chat_id,
+                        document=io.BytesIO(resultado_cc["pdf_bytes"]),
+                        filename=(
+                            f"CuentaCobro_CC-{resultado_cc['numero_display']}"
+                            f"_{resultado_cc['periodo'].replace(' ', '_')}.pdf"
+                        ),
+                        caption=caption,
+                        parse_mode="Markdown",
+                    )
+                    _db.execute(
+                        "UPDATE cuentas_cobro SET enviado_telegram = TRUE WHERE consecutivo = %s",
+                        [resultado_cc["consecutivo"]],
+                    )
+                else:
+                    log.warning("[honorarios-job] Chat no configurado — PDF no enviado por Telegram")
+
+            except PeriodoYaExisteError as e:
+                log.info("[honorarios-job] Ya existe CC para %s — omitido", e.periodo)
             except Exception as e:
-                log.error(f"[honorarios-job] Error: {e}")
+                log.error("[honorarios-job] Error: %s", e)
 
         scheduler.add_job(
             _job_honorarios,
