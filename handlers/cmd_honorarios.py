@@ -5,6 +5,7 @@ Comandos:
   /honorarios          — genera la Cuenta de Cobro del mes actual
   /honorarios 2026-04  — genera para un mes específico (YYYY-MM)
   /honorarios lista    — muestra las últimas 5 generadas
+  /honorarios forzar   — genera aunque ya exista una CC para el mes actual
 """
 
 # -- stdlib --
@@ -29,12 +30,13 @@ async def comando_honorarios(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     /honorarios YYYY-MM   → genera para mes específico
     /honorarios lista     → muestra historial
     """
+    from services.honorarios_service import generar_cuenta_cobro, PeriodoYaExisteError, listar_cuentas
+
     args  = ctx.args or []
     subco = args[0].lower() if args else ""
 
     # ── /honorarios lista ────────────────────────────────────────────────
     if subco == "lista":
-        from services.honorarios_service import listar_cuentas
         cuentas = listar_cuentas(limit=5)
         if not cuentas:
             await update.message.reply_text("No hay Cuentas de Cobro generadas aún.")
@@ -49,9 +51,12 @@ async def comando_honorarios(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
         return
 
+    # ── /honorarios forzar ───────────────────────────────────────────────
+    forzar = subco == "forzar"
+
     # ── /honorarios [YYYY-MM] ────────────────────────────────────────────
     fecha_override = None
-    if subco and subco != "lista":
+    if subco and subco not in ("lista", "forzar"):
         try:
             fecha_override = datetime.strptime(subco + "-23", "%Y-%m-%d").replace(
                 tzinfo=COLOMBIA_TZ
@@ -70,10 +75,10 @@ async def comando_honorarios(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        from services.honorarios_service import generar_cuenta_cobro
         resultado = await generar_cuenta_cobro(
             bot=ctx.bot,
             fecha_override=ahora,
+            forzar=forzar,
         )
         enviado_txt = (
             "PDF enviado al chat configurado."
@@ -86,6 +91,12 @@ async def comando_honorarios(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"Período: {resultado['periodo']}\n"
             f"Valor: *${resultado['valor']:,.0f} COP*\n\n"
             f"{enviado_txt}",
+            parse_mode="Markdown",
+        )
+    except PeriodoYaExisteError as e:
+        await update.message.reply_text(
+            f"Ya existe *CC-{e.numero_display}* para *{e.periodo}*.\n\n"
+            f"Si necesitas generar una adicional usa `/honorarios forzar`.",
             parse_mode="Markdown",
         )
     except Exception as e:

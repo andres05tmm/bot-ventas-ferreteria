@@ -60,11 +60,20 @@ MESES_ES = {
 # API PÚBLICA
 # ─────────────────────────────────────────────────────────────────────────────
 
+class PeriodoYaExisteError(Exception):
+    """Se lanza cuando ya existe una CC para el período solicitado."""
+    def __init__(self, numero_display: str, periodo: str):
+        self.numero_display = numero_display
+        self.periodo = periodo
+        super().__init__(f"CC-{numero_display} ya existe para {periodo}")
+
+
 async def generar_cuenta_cobro(
     bot=None,
     valor: int | None = None,
     concepto: str | None = None,
     fecha_override: datetime | None = None,
+    forzar: bool = False,
 ) -> dict:
     """
     Genera una Cuenta de Cobro, la persiste en BD y la envía por Telegram.
@@ -74,16 +83,27 @@ async def generar_cuenta_cobro(
         valor           — monto a cobrar; si None usa HONORARIOS_VALOR de config
         concepto        — descripción del servicio; si None usa CONCEPTO_DEFAULT
         fecha_override  — fecha para el documento; si None usa datetime.now(COLOMBIA_TZ)
+        forzar          — si True, genera aunque ya exista una CC para el período
 
+    Lanza PeriodoYaExisteError si ya hay una CC para el período y forzar=False.
     Retorna dict con: consecutivo, numero_display, periodo, valor, pdf_bytes
     """
     ahora    = fecha_override or datetime.now(COLOMBIA_TZ)
     valor    = valor or HONORARIOS_VALOR
     concepto = concepto or CONCEPTO_DEFAULT
 
+    periodo = f"{MESES_ES[ahora.month].capitalize()} {ahora.year}"
+
+    if not forzar:
+        existente = _db.query_one(
+            "SELECT numero_display FROM cuentas_cobro WHERE periodo = %s ORDER BY consecutivo DESC LIMIT 1",
+            [periodo],
+        )
+        if existente:
+            raise PeriodoYaExisteError(existente["numero_display"], periodo)
+
     consecutivo    = _siguiente_consecutivo()
     numero_display = f"{consecutivo:03d}"
-    periodo        = f"{MESES_ES[ahora.month].capitalize()} {ahora.year}"
     fecha_str      = ahora.strftime("%d de %B de %Y").replace(
         ahora.strftime("%B"), MESES_ES[ahora.month]
     )
