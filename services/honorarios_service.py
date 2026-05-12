@@ -292,6 +292,27 @@ def _generar_pdf(
     # ── Firma ──────────────────────────────────────────────────────────────
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Helvetica", "", 10)
+
+    # Imágenes de firma: ~150 pt → 52 mm; 20 mm de espacio reservado
+    _SIG_W_MM = 52
+    _SIG_H_MM = 20
+    firmas_base = os.getenv("FIRMAS_PATH", "assets/firmas")
+    firma_y = pdf.get_y()
+
+    try:
+        ruta = os.path.join(firmas_base, "firma_andres.png")
+        pdf.image(ruta, x=20 + (80 - _SIG_W_MM) / 2, y=firma_y, w=_SIG_W_MM)
+    except Exception:
+        pass
+
+    try:
+        ruta = os.path.join(firmas_base, "firma_farid.png")
+        pdf.image(ruta, x=110 + (80 - _SIG_W_MM) / 2, y=firma_y, w=_SIG_W_MM)
+    except Exception:
+        pass
+
+    pdf.set_y(firma_y + _SIG_H_MM)
+
     pdf.cell(80, 5, "_" * 35)
     pdf.cell(10, 5, "")
     pdf.cell(80, 5, "_" * 35, new_x="LMARGIN", new_y="NEXT")
