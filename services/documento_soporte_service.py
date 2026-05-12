@@ -5,7 +5,7 @@ a No Obligados a Facturar (DS-NO) via MATIAS API.
 
 Proveedor: Andrés Felipe Malo Hernández (CC 1043295412)
 Adquirente: Ferretería Punto Rojo F.D. (NIT 1235046119-1)
-Endpoint MATIAS: POST /document-support
+Endpoint MATIAS: POST /ds/document
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ async def generar_documento_soporte(
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
-                    f"{MATIAS_API_URL}/document-support",
+                    f"{MATIAS_API_URL}/ds/document",
                     json=payload,
                     headers=headers,
                 )
@@ -202,6 +202,16 @@ def _guardar_en_db(
     estado_dian: str,
     cuenta_cobro_id: int | None,
 ) -> None:
+    # Verificar que la FK exista antes de usarla para evitar violación de constraint.
+    # Si la CC fue borrada y regenerada, el consecutivo pasado puede no existir.
+    fk_valida: int | None = None
+    if cuenta_cobro_id is not None:
+        row = _db.query_one(
+            "SELECT consecutivo FROM cuentas_cobro WHERE consecutivo = %s",
+            [cuenta_cobro_id],
+        )
+        fk_valida = row["consecutivo"] if row else None
+
     try:
         _db.execute(
             """
@@ -209,7 +219,7 @@ def _guardar_en_db(
                 (consecutivo, fecha, valor, cude, estado_dian, cuenta_cobro_id)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            [consecutivo, fecha, valor, cude, estado_dian, cuenta_cobro_id],
+            [consecutivo, fecha, valor, cude, estado_dian, fk_valida],
         )
     except Exception as e:
         log.warning("No se pudo guardar DSNO en DB: %s", e)
