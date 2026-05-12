@@ -43,7 +43,9 @@ _PROVEEDOR = {
     "dni":                  "1043295412",
     "address":              "CON EL REFUGIO BL 12 AP 2A",
     "city_id":              "149",            # Cartagena — ID interno MATIAS
-    "city_name":            "Cartagena",
+    "postal_code":          "130001",         # Código postal Cartagena
+    "mobile":               "3001234567",     # Requerido por DIAN (DSAJ08a)
+    "email":                "usoclaude1@gmail.com",
 }
 
 _DESCRIPCION_SERVICIO = (
@@ -154,55 +156,72 @@ async def generar_documento_soporte(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _armar_payload(valor: float, fecha_str: str, hora_str: str, resolucion: str) -> dict:
+    # Derivar mes/año del periodo de servicio desde fecha_str (YYYY-MM-DD)
+    año_mes = fecha_str[:7]       # "YYYY-MM"
+    inicio_periodo = f"{año_mes}-01"  # primer día del mes del documento
+
+    valor_str = f"{valor:.2f}"
+
     return {
         "resolution_number":      resolucion,
-        "prefix":                 "DS",
+        # "prefix" se omite — MATIAS lo toma de la resolución registrada en su portal.
+        # Enviarlo explícitamente causaba el error de resolución no encontrada.
         "date":                   fecha_str,
         "time":                   hora_str,
-        # El emisor ante DIAN es la ferretería (credenciales MATIAS); el supplier es Andrés.
-        "type_document_id":       5,      # 5 = Documento Soporte (DS-NO) en MATIAS
-        "type_environment_id":    _TIPO_AMB,  # 1=Producción  2=Pruebas/Habilitación
+        # type_document_id=11 → Documento Soporte residente colombiano (CC)
+        # (5 = no residente / extranjero — incorrecto para Andrés)
+        "type_document_id":       11,
+        # operation_type_id=9 → Documento Soporte en adquisiciones a no obligados a facturar
+        "operation_type_id":      9,
         "currency_id":            272,     # COP
-        "notes":                  "Contrato PSV-001-2026 — Honorarios mensuales",
+        "notes":                  (
+            f"Contrato PSV-001-2026 - Honorarios mensuales "
+            f"{fecha_str[5:7]}/{fecha_str[:4]}"
+        ),
         "graphic_representation": 1,
         "send_email":             0,
-        "supplier":               _PROVEEDOR,
+        # En DS el proveedor (no obligado a facturar) va en el campo "customer"
+        "customer":               _PROVEEDOR,
         "tax_totals": [{
             "tax_id":         "1",
-            "tax_amount":     0.0,
+            "tax_amount":     0,
             "taxable_amount": valor,
-            "percent":        0.0,    # No responsable de IVA
+            "percent":        0,    # Andrés no es responsable de IVA
         }],
         "legal_monetary_totals": {
-            "line_extension_amount":  valor,
-            "tax_exclusive_amount":   valor,
-            "tax_inclusive_amount":   valor,
-            "allowance_total_amount": 0.0,
-            "charge_total_amount":    0.0,
-            "pre_paid_amount":        0.0,
-            "payable_amount":         valor,
+            "line_extension_amount": valor_str,
+            "tax_exclusive_amount":  valor_str,
+            "tax_inclusive_amount":  valor_str,
+            "payable_amount":        valor_str,
         },
         "payments": [{
             "payment_method_id": 1,   # contado
             "means_payment_id":  42,  # transferencia bancaria
-            "value_paid":        valor,
+            "value_paid":        valor_str,
         }],
         "lines": [{
-            "invoiced_quantity":            1.0,
-            "quantity_units_id":            70,   # Unidad
-            "line_extension_amount":        valor,
+            "invoiced_quantity":            "1",
+            # quantity_units_id=1093 → unidad de medida correcta para DS
+            # (70 es para FE estándar y causa rechazo DSFC03 en DS)
+            "quantity_units_id":            "1093",
+            "line_extension_amount":        valor_str,
             "free_of_charge_indicator":     False,
             "description":                  _DESCRIPCION_SERVICIO,
             "code":                         "SERV-001",
             "type_item_identifications_id": "4",
             "reference_price_id":           "1",
-            "price_amount":                 valor,
-            "base_quantity":                1.0,
+            "price_amount":                 valor_str,
+            "base_quantity":                "1",
+            # invoice_period es obligatorio en DS (causa DSFC01 si se omite)
+            "invoice_period": {
+                "start_date":       inicio_periodo,
+                "description_code": 1,
+            },
             "tax_totals": [{
                 "tax_id":         "1",
-                "tax_amount":     0.0,
+                "tax_amount":     0,
                 "taxable_amount": valor,
-                "percent":        0.0,
+                "percent":        0,
             }],
         }],
     }
