@@ -22,7 +22,7 @@ import httpx
 # -- propios --
 import db as _db
 from config import COLOMBIA_TZ, HONORARIOS_VALOR
-from services.facturacion_service import MATIAS_API_URL, _get_token
+from services.facturacion_service import MATIAS_API_URL, MATIAS_RESOLUTION, _get_token
 
 log = logging.getLogger("ferrebot.documento_soporte")
 
@@ -34,6 +34,7 @@ log = logging.getLogger("ferrebot.documento_soporte")
 _PROVEEDOR = {
     "country_id":           "45",
     "identity_document_id": "1",              # CC → ID interno MATIAS
+    "type_document_id":     "13",             # 13 = Cédula de Ciudadanía (código DIAN)
     "type_organization_id": 2,                # Persona natural
     "tax_regime_id":        2,                # Régimen simplificado
     "tax_level_id":         5,                # No responsable de IVA
@@ -145,6 +146,7 @@ async def generar_documento_soporte(
 
 def _armar_payload(valor: float, fecha_str: str, hora_str: str) -> dict:
     return {
+        "resolution_number":      MATIAS_RESOLUTION,
         "date":                   fecha_str,
         "time":                   hora_str,
         "type_environment_id":    _TIPO_AMB,  # 1=Producción  2=Pruebas/Habilitación
