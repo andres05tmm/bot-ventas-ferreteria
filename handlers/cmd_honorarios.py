@@ -8,6 +8,7 @@ Comandos:
   /honorarios forzar       — genera aunque ya exista una CC para el mes actual
   /honorarios dsno         — flujo completo: CC + Documento Soporte DIAN
   /honorarios dsno 2500000 — flujo completo con valor personalizado
+  /honorarios borrar 001   — elimina CC-001 de la BD (solo admin)
 """
 
 # -- stdlib --
@@ -32,6 +33,7 @@ async def comando_honorarios(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     /honorarios YYYY-MM      → genera para mes específico
     /honorarios lista        → muestra historial
     /honorarios dsno [valor] → flujo completo CC + Documento Soporte DIAN
+    /honorarios borrar N     → elimina CC-N de la BD (solo admin)
     """
     from services.honorarios_service import generar_cuenta_cobro, PeriodoYaExisteError, listar_cuentas
 
@@ -102,6 +104,45 @@ async def comando_honorarios(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             caption=caption,
             parse_mode="Markdown",
         )
+        return
+
+    # ── /honorarios borrar <consecutivo> ────────────────────────────────
+    if subco == "borrar":
+        from auth.usuarios import get_usuario
+        from services.honorarios_service import borrar_cuenta_cobro
+
+        usuario = get_usuario(update.effective_user.id)
+        if not usuario or usuario.get("rol") != "admin":
+            await update.message.reply_text("⛔ Solo administradores pueden borrar Cuentas de Cobro.")
+            return
+
+        if not args[1:]:
+            await update.message.reply_text(
+                "Uso: `/honorarios borrar 001`",
+                parse_mode="Markdown",
+            )
+            return
+
+        raw = args[1].upper().replace("CC-", "").lstrip("0") or "0"
+        try:
+            consecutivo = int(raw)
+        except ValueError:
+            await update.message.reply_text(
+                "Consecutivo inválido. Ejemplo: `/honorarios borrar 001`",
+                parse_mode="Markdown",
+            )
+            return
+
+        borrado = borrar_cuenta_cobro(consecutivo)
+        num_fmt = args[1].upper().replace("CC-", "").zfill(3)
+        if borrado:
+            await update.message.reply_text(
+                f"✅ CC-{num_fmt} eliminada de la BD. Ya puedes regenerarla.",
+            )
+        else:
+            await update.message.reply_text(
+                f"No se encontró ninguna CC con consecutivo {consecutivo}.",
+            )
         return
 
     # ── /honorarios lista ────────────────────────────────────────────────
