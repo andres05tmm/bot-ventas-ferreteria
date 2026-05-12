@@ -123,25 +123,16 @@ async def comando_honorarios(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        raw = args[1].upper().replace("CC-", "").lstrip("0") or "0"
-        try:
-            consecutivo = int(raw)
-        except ValueError:
-            await update.message.reply_text(
-                "Consecutivo inválido. Ejemplo: `/honorarios borrar 001`",
-                parse_mode="Markdown",
-            )
-            return
-
-        borrado = borrar_cuenta_cobro(consecutivo)
-        num_fmt = args[1].upper().replace("CC-", "").zfill(3)
+        arg_cc = args[1]
+        borrado = borrar_cuenta_cobro(arg_cc)
+        num_fmt = arg_cc.upper().replace("CC-", "").zfill(3)
         if borrado:
             await update.message.reply_text(
                 f"✅ CC-{num_fmt} eliminada de la BD. Ya puedes regenerarla.",
             )
         else:
             await update.message.reply_text(
-                f"No se encontró ninguna CC con consecutivo {consecutivo}.",
+                f"No se encontró ninguna CC con consecutivo '{arg_cc}'.",
             )
         return
 

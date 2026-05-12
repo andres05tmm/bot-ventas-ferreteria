@@ -153,6 +153,28 @@ async def generar_cuenta_cobro(
     }
 
 
+def borrar_cuenta_cobro(consecutivo: str) -> bool:
+    """
+    Elimina una Cuenta de Cobro de la BD por consecutivo.
+    Acepta "001", "CC-001" o "1". Retorna True si se borró, False si no existía.
+    """
+    num_str = str(consecutivo).upper().replace("CC-", "").lstrip("0") or "0"
+    try:
+        num = int(num_str)
+    except ValueError:
+        return False
+
+    row = _db.query_one(
+        "SELECT consecutivo FROM cuentas_cobro WHERE consecutivo = %s",
+        [num],
+    )
+    if not row:
+        return False
+    _db.execute("DELETE FROM cuentas_cobro WHERE consecutivo = %s", [num])
+    log.info("Cuenta de Cobro consecutivo %d eliminada de la BD", num)
+    return True
+
+
 def listar_cuentas(limit: int = 20) -> list[dict]:
     """Retorna las últimas N cuentas de cobro generadas."""
     rows = _db.query_all(
