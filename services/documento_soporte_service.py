@@ -31,11 +31,11 @@ log = logging.getLogger("ferrebot.documento_soporte")
 # CONSTANTES
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Andrés como proveedor (no obligado a facturar)
+# Andrés como proveedor (no obligado a facturar).
+# identity_document_id="1" = CC en IDs internos MATIAS (REGLA DE ORO: POST usa IDs MATIAS, no códigos DIAN).
 _PROVEEDOR = {
     "country_id":           "45",
-    "identity_document_id": "1",              # CC → ID interno MATIAS
-    "type_document_id":     "13",             # 13 = Cédula de Ciudadanía (código DIAN)
+    "identity_document_id": "1",              # CC → ID interno MATIAS (código DIAN 13 no aplica en POST)
     "type_organization_id": 2,                # Persona natural
     "tax_regime_id":        2,                # Régimen simplificado
     "tax_level_id":         5,                # No responsable de IVA
@@ -80,6 +80,9 @@ async def generar_documento_soporte(
         {"ok": True,  "cude": "...", "numero": "..."}
         {"ok": False, "error": "mensaje legible"}
     """
+    if not MATIAS_RESOLUTION:
+        return {"ok": False, "error": "MATIAS_RESOLUTION no configurado en Railway"}
+
     valor_f = float(valor or HONORARIOS_VALOR)
     ahora   = fecha or datetime.now(COLOMBIA_TZ)
 
@@ -152,7 +155,8 @@ def _armar_payload(valor: float, fecha_str: str, hora_str: str) -> dict:
         "resolution_number":      MATIAS_RESOLUTION,
         "date":                   fecha_str,
         "time":                   hora_str,
-        "type_document_id":       13,      # 13 = Cédula de Ciudadanía del proveedor (DS-NO)
+        # El emisor ante DIAN es la ferretería (credenciales MATIAS); el supplier es Andrés.
+        "type_document_id":       5,      # 5 = Documento Soporte (DS-NO) en MATIAS
         "type_environment_id":    _TIPO_AMB,  # 1=Producción  2=Pruebas/Habilitación
         "currency_id":            272,     # COP
         "notes":                  "Contrato PSV-001-2026 — Honorarios mensuales",
