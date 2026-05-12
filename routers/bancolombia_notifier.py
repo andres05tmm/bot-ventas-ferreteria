@@ -936,25 +936,27 @@ async def bancolombia_pubsub_webhook(
     return {"ok": True, "historyId": history_id}
 
 
-@router.post("/bancolombia/gmail/watch")
-async def bancolombia_watch_setup():
+async def renovar_watch() -> dict:
     """
-    Configura (o renueva) el Gmail watch para el correo Bancolombia.
-    El watch expira cada 7 días — llamar este endpoint semanalmente.
+    Lógica interna de renovación del Gmail watch Bancolombia.
+
+    Puede llamarse tanto desde el endpoint HTTP como desde el scheduler
+    automático en start-bot.py (cada 6 días).
+
+    Retorna:
+        {"historyId": "...", "expira": "ISO string", "topic": "..."}
+    Lanza RuntimeError o httpx.HTTPStatusError si falla.
     """
     pubsub_topic = (os.getenv("BANCOLOMBIA_PUBSUB_TOPIC") or "").strip()
     gmail_user   = (os.getenv("BANCOLOMBIA_GMAIL_USER") or "me").strip()
 
     if not pubsub_topic:
-        raise HTTPException(
-            status_code=500,
-            detail="Falta variable BANCOLOMBIA_PUBSUB_TOPIC (ej: projects/mi-proyecto/topics/bancolombia-notif)",
+        raise RuntimeError(
+            "Falta variable BANCOLOMBIA_PUBSUB_TOPIC "
+            "(ej: projects/mi-proyecto/topics/bancolombia-notif)"
         )
 
-    try:
-        token = await _get_access_token()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error OAuth Bancolombia: {e}")
+    token = await _get_access_token()
 
     url = f"{GMAIL_API_BASE}/users/{gmail_user}/watch"
     async with httpx.AsyncClient(timeout=15) as client:
@@ -963,13 +965,7 @@ async def bancolombia_watch_setup():
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json={"labelIds": ["INBOX"], "topicName": pubsub_topic},
         )
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Gmail API error {e.response.status_code}: {e.response.text}",
-            )
+        resp.raise_for_status()
         data = resp.json()
 
     expire_dt = None
@@ -979,13 +975,38 @@ async def bancolombia_watch_setup():
         except Exception:
             pass
 
-    log.info("✅ Watch Bancolombia configurado — historyId=%s, expira=%s", data.get("historyId"), expire_dt)
+    log.info(
+        "✅ Watch Bancolombia renovado — historyId=%s, expira=%s",
+        data.get("historyId"), expire_dt,
+    )
     return {
-        "ok":        True,
         "historyId": data.get("historyId"),
         "expira":    expire_dt,
         "topic":     pubsub_topic,
-        "nota":      "El watch expira en ~7 días. Renuévalo con POST /bancolombia/gmail/watch",
+    }
+
+
+@router.post("/bancolombia/gmail/watch")
+async def bancolombia_watch_setup():
+    """
+    Configura (o renueva) el Gmail watch para el correo Bancolombia.
+    El watch expira cada 7 días — el scheduler lo renueva automáticamente
+    cada 6 días; este endpoint sirve para renovación manual de emergencia.
+    """
+    try:
+        result = await renovar_watch()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gmail API error {e.response.status_code}: {e.response.text}",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "ok":   True,
+        **result,
+        "nota": "El watch expira en ~7 días. Renuévalo con POST /bancolombia/gmail/watch",
     }
 
 

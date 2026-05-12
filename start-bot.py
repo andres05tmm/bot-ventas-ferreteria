@@ -20,6 +20,7 @@ Requiere en Railway:
 # -- stdlib --
 import asyncio
 import logging
+import os
 import sys
 import threading
 from contextlib import asynccontextmanager
@@ -246,9 +247,68 @@ async def lifespan(app: FastAPI):
             max_instances=1,
         )
 
+        # ── Job cada 6 días: renovar el Gmail watch de Bancolombia ──────────────
+        # Google fuerza expiración a los 7 días. Corremos a los 6 para tener
+        # 24h de margen. Si falla, se envía alerta a Telegram.
+        async def _job_watch_bancolombia():
+            """Renueva el Gmail watch Bancolombia cada 6 días (expira a los 7)."""
+            try:
+                from routers.bancolombia_notifier import renovar_watch
+                result = await renovar_watch()
+                log.info(
+                    "[watch-bancolombia] Renovado automáticamente — expira=%s",
+                    result.get("expira"),
+                )
+            except Exception as e:
+                log.error("[watch-bancolombia] ❌ Error renovando watch: %s", e)
+                try:
+                    import httpx as _httpx
+                    _token   = os.getenv("TELEGRAM_TOKEN")
+                    _chat_id = os.getenv("TELEGRAM_NOTIFY_CHAT_ID")
+                    if _token and _chat_id:
+                        async with _httpx.AsyncClient(timeout=10) as _cl:
+                            await _cl.post(
+                                f"https://api.telegram.org/bot{_token}/sendMessage",
+                                json={
+                                    "chat_id":    _chat_id,
+                                    "text": (
+                                        "⚠️ *Watch Gmail Bancolombia no se renovó*\n"
+                                        f"Error: `{e}`\n"
+                                        "Renueva manualmente:\n"
+                                        "`POST /bancolombia/gmail/watch`"
+                                    ),
+                                    "parse_mode": "Markdown",
+                                },
+                            )
+                except Exception as te:
+                    log.warning("[watch-bancolombia] No se pudo enviar alerta Telegram: %s", te)
+
+        from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+        scheduler.add_job(
+            _job_watch_bancolombia,
+            trigger=_IntervalTrigger(days=6),
+            id="watch_bancolombia",
+            name="Renovación automática watch Gmail Bancolombia (cada 6 días)",
+            replace_existing=True,
+            max_instances=1,
+        )
+
         scheduler.start()
         app.state.scheduler = scheduler
-        log.info("APScheduler iniciado — compresor nocturno 3:00 AM, honorarios día 23 9:00 AM Colombia")
+        log.info(
+            "APScheduler iniciado — compresor nocturno 3:00 AM | "
+            "honorarios día 23 9:00 AM | watch Bancolombia cada 6 días"
+        )
+
+        # ── Renovar watch al arranque (con 20s de delay para que el server esté listo) ─
+        # Esto garantiza que cada redeploy/reinicio resetea el contador de 7 días.
+        async def _startup_watch():
+            await asyncio.sleep(20)
+            log.info("[watch-bancolombia] Renovación de arranque iniciada…")
+            await _job_watch_bancolombia()
+
+        if os.getenv("BANCOLOMBIA_PUBSUB_TOPIC"):
+            asyncio.create_task(_startup_watch())
     except Exception as e:
         log.warning(f"⚠️ No se pudo iniciar el scheduler nocturno: {e}")
 
