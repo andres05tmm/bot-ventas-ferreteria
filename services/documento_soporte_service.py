@@ -23,7 +23,7 @@ import httpx
 # -- propios --
 import db as _db
 from config import COLOMBIA_TZ, HONORARIOS_VALOR
-from services.facturacion_service import MATIAS_API_URL, MATIAS_RESOLUTION, _get_token
+from services.facturacion_service import MATIAS_API_URL, _get_token
 
 log = logging.getLogger("ferrebot.documento_soporte")
 
@@ -80,8 +80,11 @@ async def generar_documento_soporte(
         {"ok": True,  "cude": "...", "numero": "..."}
         {"ok": False, "error": "mensaje legible"}
     """
-    if not MATIAS_RESOLUTION:
-        return {"ok": False, "error": "MATIAS_RESOLUTION no configurado en Railway"}
+    resolucion = os.environ.get("MATIAS_RESOLUTION_DSNO")
+    log.warning("DSNO resolución leída en tiempo de ejecución: MATIAS_RESOLUTION_DSNO=%r", resolucion)
+
+    if not resolucion:
+        return {"ok": False, "error": "MATIAS_RESOLUTION_DSNO no configurado en Railway"}
 
     valor_f = float(valor or HONORARIOS_VALOR)
     ahora   = fecha or datetime.now(COLOMBIA_TZ)
@@ -89,7 +92,7 @@ async def generar_documento_soporte(
     fecha_str = ahora.strftime("%Y-%m-%d")
     hora_str  = ahora.strftime("%H:%M:%S")
 
-    payload = _armar_payload(valor_f, fecha_str, hora_str)
+    payload = _armar_payload(valor_f, fecha_str, hora_str, resolucion)
 
     try:
         token = await asyncio.to_thread(_get_token)
@@ -150,9 +153,10 @@ async def generar_documento_soporte(
 # HELPERS INTERNOS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _armar_payload(valor: float, fecha_str: str, hora_str: str) -> dict:
+def _armar_payload(valor: float, fecha_str: str, hora_str: str, resolucion: str) -> dict:
     return {
-        "resolution_number":      MATIAS_RESOLUTION,
+        "resolution_number":      resolucion,
+        "prefix":                 "DS",
         "date":                   fecha_str,
         "time":                   hora_str,
         # El emisor ante DIAN es la ferretería (credenciales MATIAS); el supplier es Andrés.
