@@ -12,6 +12,7 @@ from __future__ import annotations
 
 # -- stdlib --
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime
@@ -99,6 +100,8 @@ async def generar_documento_soporte(
         "Accept":        "application/json",
     }
 
+    log.warning("DSNO payload → %s", json.dumps(payload, ensure_ascii=False, default=str))
+
     data, ultimo_error = {}, ""
     for intento in range(1, _MAX_REINTENTOS + 1):
         try:
@@ -109,7 +112,7 @@ async def generar_documento_soporte(
                     headers=headers,
                 )
             data = resp.json()
-            log.debug("MATIAS DSNO HTTP %s: %s", resp.status_code, str(data)[:300])
+            log.warning("MATIAS DSNO HTTP %s → %s", resp.status_code, json.dumps(data, ensure_ascii=False, default=str)[:1000])
             break
         except Exception as e:
             ultimo_error = str(e)
@@ -149,6 +152,7 @@ def _armar_payload(valor: float, fecha_str: str, hora_str: str) -> dict:
         "resolution_number":      MATIAS_RESOLUTION,
         "date":                   fecha_str,
         "time":                   hora_str,
+        "type_document_id":       13,      # 13 = Cédula de Ciudadanía del proveedor (DS-NO)
         "type_environment_id":    _TIPO_AMB,  # 1=Producción  2=Pruebas/Habilitación
         "currency_id":            272,     # COP
         "notes":                  "Contrato PSV-001-2026 — Honorarios mensuales",
