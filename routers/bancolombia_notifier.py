@@ -32,16 +32,18 @@ REMITENTES BANCOLOMBIA reconocidos:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import html as _html_module
 import json
 import logging
 import os
 import re
+import time
 from datetime import datetime
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Query, Request
 
 import db as _db
 from config import COLOMBIA_TZ
@@ -51,6 +53,18 @@ router = APIRouter()
 
 GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_API_BASE  = "https://gmail.googleapis.com/gmail/v1"
+
+# ── Caché en memoria del access_token (dura 1h, se renueva con 5 min de margen) ─
+_token_cache: dict[str, object] = {}
+_token_lock: asyncio.Lock | None = None
+
+
+def _get_token_lock() -> asyncio.Lock:
+    """Lazy-init del lock para no crearlo fuera de un event loop."""
+    global _token_lock
+    if _token_lock is None:
+        _token_lock = asyncio.Lock()
+    return _token_lock
 
 # ── Dominios/fragmentos de remitentes oficiales de Bancolombia ───────────────
 # Se verifica que el campo From contenga CUALQUIERA de estos fragmentos.
@@ -99,27 +113,98 @@ _SUBJECT_KEYWORDS_MOVIMIENTO = [
 # 1. OAuth2 — access_token para la cuenta Bancolombia
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _get_access_token() -> str:
-    """Obtiene access_token OAuth2 usando las credenciales del correo Bancolombia."""
-    client_id     = (os.getenv("BANCOLOMBIA_GMAIL_CLIENT_ID")     or "").strip()
-    client_secret = (os.getenv("BANCOLOMBIA_GMAIL_CLIENT_SECRET") or "").strip()
-    refresh_token = (os.getenv("BANCOLOMBIA_GMAIL_REFRESH_TOKEN") or "").strip()
+async def _alertar_token_invalido() -> None:
+    """Envía alerta urgente a Telegram cuando el refresh_token falla con 400."""
+    try:
+        msg = (
+            "🚨 *Error autenticación Gmail Bancolombia*\n"
+            "El refresh\\_token expiró o fue revocado por Google\\.\n\n"
+            "*Pasos para recuperar:*\n"
+            "1\\. Abre https://developers\\.google\\.com/oauthplayground\n"
+            "2\\. Autoriza el scope `gmail\\.readonly` con la cuenta Bancolombia\n"
+            "3\\. Copia el nuevo `refresh_token`\n"
+            "4\\. Llama `POST /bancolombia/gmail/token` con el nuevo token\n"
+            "   _(no necesitas redeploy)_"
+        )
+        await _enviar_telegram(msg)
+    except Exception as e:
+        log.warning("No se pudo enviar alerta de token inválido: %s", e)
 
-    if not all([client_id, client_secret, refresh_token]):
-        raise RuntimeError(
-            "Faltan variables de entorno: BANCOLOMBIA_GMAIL_CLIENT_ID, "
-            "BANCOLOMBIA_GMAIL_CLIENT_SECRET o BANCOLOMBIA_GMAIL_REFRESH_TOKEN"
+
+async def _get_access_token() -> str:
+    """
+    Obtiene access_token OAuth2 con las siguientes mejoras:
+
+    1. Caché en memoria: los access_tokens duran 1 hora. Se reutiliza el
+       mismo hasta 5 minutos antes de que expire, evitando un round-trip
+       a Google en cada webhook.
+
+    2. Refresh_token desde BD (precedencia sobre env var): permite
+       actualizar el token sin redeploy llamando POST /bancolombia/gmail/token.
+
+    3. Rotación automática: si Google devuelve un nuevo refresh_token junto
+       con el access_token (token rotation), se persiste en la BD al instante.
+
+    4. Alerta Telegram: si el refresh falla con 400 (token revocado o expirado)
+       notifica de inmediato al grupo en vez de fallar silenciosamente.
+    """
+    async with _get_token_lock():
+        # ── 1. Usar caché si sigue vigente ───────────────────────────────────
+        now     = time.monotonic()
+        cached  = _token_cache.get("access_token")
+        expires = float(_token_cache.get("expires_at", 0.0))
+        if cached and now < expires:
+            return str(cached)
+
+        # ── 2. Leer credenciales: BD tiene precedencia sobre env var ─────────
+        client_id     = (os.getenv("BANCOLOMBIA_GMAIL_CLIENT_ID")     or "").strip()
+        client_secret = (os.getenv("BANCOLOMBIA_GMAIL_CLIENT_SECRET") or "").strip()
+        refresh_token = (
+            _cargar_refresh_token_db()
+            or (os.getenv("BANCOLOMBIA_GMAIL_REFRESH_TOKEN") or "").strip()
         )
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(GMAIL_TOKEN_URL, data={
-            "grant_type":    "refresh_token",
-            "client_id":     client_id,
-            "client_secret": client_secret,
-            "refresh_token": refresh_token,
-        })
+        if not all([client_id, client_secret, refresh_token]):
+            raise RuntimeError(
+                "Faltan credenciales OAuth2 Bancolombia: "
+                "BANCOLOMBIA_GMAIL_CLIENT_ID, CLIENT_SECRET o REFRESH_TOKEN"
+            )
+
+        # ── 3. Pedir nuevo access_token a Google ─────────────────────────────
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(GMAIL_TOKEN_URL, data={
+                "grant_type":    "refresh_token",
+                "client_id":     client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+            })
+
+        if resp.status_code == 400:
+            log.error(
+                "refresh_token Bancolombia inválido/expirado — respuesta Google: %s",
+                resp.text[:400],
+            )
+            await _alertar_token_invalido()
+            resp.raise_for_status()
+
         resp.raise_for_status()
-        return resp.json()["access_token"]
+        data = resp.json()
+
+        new_access = data["access_token"]
+        expires_in = int(data.get("expires_in", 3600))
+
+        # ── 4. Guardar en caché con 5 min de margen de seguridad ─────────────
+        _token_cache["access_token"] = new_access
+        _token_cache["expires_at"]   = now + expires_in - 300
+        log.debug("access_token Bancolombia renovado, válido por %ds", expires_in - 300)
+
+        # ── 5. Rotar refresh_token si Google emitió uno nuevo ─────────────────
+        new_refresh = data.get("refresh_token", "")
+        if new_refresh and new_refresh != refresh_token:
+            log.info("🔄 Google rotó el refresh_token Bancolombia — guardando nuevo en BD")
+            _guardar_refresh_token_db(new_refresh)
+
+        return new_access
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -643,7 +728,42 @@ def _registrar_transferencia(gmail_message_id: str, datos: dict) -> None:
 # 7. Persistencia del historyId (igual que gmail_webhook.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_HISTORY_KEY = "bancolombia_gmail_last_history_id"
+_HISTORY_KEY      = "bancolombia_gmail_last_history_id"
+_REFRESH_TOKEN_KEY = "bancolombia_gmail_refresh_token"
+
+
+def _cargar_refresh_token_db() -> str | None:
+    """
+    Lee el refresh_token desde la BD (tabla config).
+    La BD tiene precedencia sobre la variable de entorno para permitir
+    rotación automática sin necesidad de redeploy.
+    """
+    try:
+        row = _db.query_one(
+            "SELECT valor FROM config WHERE clave = %s",
+            (_REFRESH_TOKEN_KEY,),
+        )
+        return row["valor"] if row else None
+    except Exception as e:
+        log.warning("Error leyendo refresh_token de config: %s", e)
+        return None
+
+
+def _guardar_refresh_token_db(token: str) -> None:
+    """Persiste un refresh_token nuevo o rotado en la BD."""
+    try:
+        _db.execute(
+            """
+            INSERT INTO config (clave, valor, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (clave) DO UPDATE
+                SET valor = EXCLUDED.valor, updated_at = NOW()
+            """,
+            (_REFRESH_TOKEN_KEY, token),
+        )
+        log.info("🔑 refresh_token Bancolombia guardado/rotado en BD")
+    except Exception as e:
+        log.warning("Error guardando refresh_token en BD: %s", e)
 
 
 def _cargar_last_history_id() -> str | None:
@@ -893,6 +1013,43 @@ async def bancolombia_status():
         "stats": dict(fila) if fila else {},
         "nota":  "Notificaciones enviadas al grupo configurado en TELEGRAM_NOTIFY_CHAT_ID",
     }
+
+
+@router.post("/bancolombia/gmail/token")
+async def actualizar_refresh_token(
+    token: str = Body(..., embed=True, description="Nuevo refresh_token de Google OAuth2"),
+    pubsub_token: str = Query(..., alias="auth", description="Mismo token que BANCOLOMBIA_PUBSUB_TOKEN"),
+):
+    """
+    Actualiza el refresh_token de Gmail Bancolombia en la BD sin necesidad de redeploy.
+
+    Usar cuando el token expira (error 400 en los logs):
+      curl -X POST "https://TU_API/bancolombia/gmail/token?auth=TU_PUBSUB_TOKEN" \\
+           -H "Content-Type: application/json" \\
+           -d '{"token": "1//0gXXX..."}'
+
+    Después de actualizar, el próximo webhook usará el token nuevo automáticamente.
+    """
+    expected = (os.getenv("BANCOLOMBIA_PUBSUB_TOKEN") or "").strip()
+    if not expected or pubsub_token != expected:
+        raise HTTPException(status_code=403, detail="Token de autorización inválido")
+
+    if not token or len(token) < 20:
+        raise HTTPException(status_code=422, detail="refresh_token demasiado corto o vacío")
+
+    _guardar_refresh_token_db(token.strip())
+
+    # Limpiar caché para forzar renovación con el nuevo refresh_token
+    _token_cache.clear()
+    log.info("✅ refresh_token Bancolombia actualizado vía endpoint — caché limpiado")
+
+    # Verificar que el nuevo token funciona
+    try:
+        await _get_access_token()
+        return {"ok": True, "mensaje": "Token actualizado y verificado correctamente"}
+    except Exception as e:
+        log.error("Nuevo refresh_token Bancolombia falló la verificación: %s", e)
+        raise HTTPException(status_code=502, detail=f"Token guardado pero falló la verificación: {e}")
 
 
 @router.get("/bancolombia/transferencias")

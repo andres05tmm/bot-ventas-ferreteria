@@ -26,19 +26,21 @@ VARIABLES DE ENTORNO REQUERIDAS:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
 import logging
 import os
 import re
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import date, datetime
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
+from fastapi import APIRouter, Body, HTTPException, Query, Request, BackgroundTasks
 
 import db as _db
 from routers.events import notify_all
@@ -60,31 +62,115 @@ _NS = {
 GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_API_BASE  = "https://gmail.googleapis.com/gmail/v1"
 
+# ── Caché en memoria del access_token (dura 1h, se renueva con 5 min de margen) ─
+_token_cache: dict[str, object] = {}
+_token_lock: asyncio.Lock | None = None
+
+_REFRESH_TOKEN_KEY = "gmail_compras_refresh_token"
+
+
+def _get_token_lock() -> asyncio.Lock:
+    """Lazy-init del lock para no crearlo fuera de un event loop."""
+    global _token_lock
+    if _token_lock is None:
+        _token_lock = asyncio.Lock()
+    return _token_lock
+
+
+def _cargar_refresh_token_db() -> str | None:
+    """Lee el refresh_token desde la BD (precedencia sobre env var)."""
+    try:
+        row = _db.query_one(
+            "SELECT valor FROM config WHERE clave = %s",
+            (_REFRESH_TOKEN_KEY,),
+        )
+        return row["valor"] if row else None
+    except Exception as e:
+        logger.warning("Error leyendo refresh_token Gmail de config: %s", e)
+        return None
+
+
+def _guardar_refresh_token_db(token: str) -> None:
+    """Persiste un refresh_token nuevo o rotado en la BD."""
+    try:
+        _db.execute(
+            """
+            INSERT INTO config (clave, valor, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (clave) DO UPDATE
+                SET valor = EXCLUDED.valor, updated_at = NOW()
+            """,
+            (_REFRESH_TOKEN_KEY, token),
+        )
+        logger.info("🔑 refresh_token Gmail compras guardado/rotado en BD")
+    except Exception as e:
+        logger.warning("Error guardando refresh_token Gmail en BD: %s", e)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. OAuth2 — obtener access_token desde refresh_token
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _get_access_token() -> str:
-    client_id     = (os.getenv("GMAIL_CLIENT_ID")     or "").strip()
-    client_secret = (os.getenv("GMAIL_CLIENT_SECRET") or "").strip()
-    refresh_token = (os.getenv("GMAIL_REFRESH_TOKEN") or "").strip()
+    """
+    Obtiene access_token con caché 55 min, refresh_token desde BD,
+    rotación automática y log de error detallado si falla con 400.
+    """
+    async with _get_token_lock():
+        # ── Usar caché si sigue vigente ──────────────────────────────────────
+        now     = time.monotonic()
+        cached  = _token_cache.get("access_token")
+        expires = float(_token_cache.get("expires_at", 0.0))
+        if cached and now < expires:
+            return str(cached)
 
-    if not all([client_id, client_secret, refresh_token]):
-        raise RuntimeError(
-            "Faltan variables de entorno: GMAIL_CLIENT_ID, "
-            "GMAIL_CLIENT_SECRET o GMAIL_REFRESH_TOKEN"
+        # ── Leer credenciales: BD tiene precedencia sobre env var ────────────
+        client_id     = (os.getenv("GMAIL_CLIENT_ID")     or "").strip()
+        client_secret = (os.getenv("GMAIL_CLIENT_SECRET") or "").strip()
+        refresh_token = (
+            _cargar_refresh_token_db()
+            or (os.getenv("GMAIL_REFRESH_TOKEN") or "").strip()
         )
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(GMAIL_TOKEN_URL, data={
-            "grant_type":    "refresh_token",
-            "client_id":     client_id,
-            "client_secret": client_secret,
-            "refresh_token": refresh_token,
-        })
+        if not all([client_id, client_secret, refresh_token]):
+            raise RuntimeError(
+                "Faltan credenciales OAuth2 Gmail: "
+                "GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET o GMAIL_REFRESH_TOKEN"
+            )
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(GMAIL_TOKEN_URL, data={
+                "grant_type":    "refresh_token",
+                "client_id":     client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+            })
+
+        if resp.status_code == 400:
+            logger.error(
+                "refresh_token Gmail compras inválido/expirado — "
+                "actualizar con POST /gmail/token — respuesta: %s",
+                resp.text[:400],
+            )
+            resp.raise_for_status()
+
         resp.raise_for_status()
-        return resp.json()["access_token"]
+        data = resp.json()
+
+        new_access = data["access_token"]
+        expires_in = int(data.get("expires_in", 3600))
+
+        _token_cache["access_token"] = new_access
+        _token_cache["expires_at"]   = now + expires_in - 300
+        logger.debug("access_token Gmail compras renovado, válido por %ds", expires_in - 300)
+
+        # Rotar refresh_token si Google emitió uno nuevo
+        new_refresh = data.get("refresh_token", "")
+        if new_refresh and new_refresh != refresh_token:
+            logger.info("🔄 Google rotó el refresh_token Gmail — guardando nuevo en BD")
+            _guardar_refresh_token_db(new_refresh)
+
+        return new_access
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -823,6 +909,38 @@ async def gmail_webhook_status():
         "importaciones": dict(fila) if fila else {},
         "watch_url":     "/gmail/webhook/watch",
     }
+
+
+@router.post("/gmail/token")
+async def actualizar_refresh_token_gmail(
+    token: str = Body(..., embed=True, description="Nuevo refresh_token de Google OAuth2"),
+    pubsub_token: str = Query(..., alias="auth", description="Mismo token que PUBSUB_TOKEN"),
+):
+    """
+    Actualiza el refresh_token de Gmail compras en la BD sin redeploy.
+
+    Usar cuando el token expira (error 400 en los logs):
+      curl -X POST "https://TU_API/gmail/token?auth=TU_PUBSUB_TOKEN" \\
+           -H "Content-Type: application/json" \\
+           -d '{"token": "1//0gXXX..."}'
+    """
+    expected = (os.getenv("PUBSUB_TOKEN") or "").strip()
+    if not expected or pubsub_token != expected:
+        raise HTTPException(status_code=403, detail="Token de autorización inválido")
+
+    if not token or len(token) < 20:
+        raise HTTPException(status_code=422, detail="refresh_token demasiado corto o vacío")
+
+    _guardar_refresh_token_db(token.strip())
+    _token_cache.clear()
+    logger.info("✅ refresh_token Gmail compras actualizado vía endpoint — caché limpiado")
+
+    try:
+        await _get_access_token()
+        return {"ok": True, "mensaje": "Token actualizado y verificado correctamente"}
+    except Exception as e:
+        logger.error("Nuevo refresh_token Gmail falló la verificación: %s", e)
+        raise HTTPException(status_code=502, detail=f"Token guardado pero falló la verificación: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
