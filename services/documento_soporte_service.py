@@ -13,6 +13,7 @@ from __future__ import annotations
 # -- stdlib --
 import asyncio
 import logging
+import os
 from datetime import datetime
 
 # -- terceros --
@@ -50,6 +51,10 @@ _DESCRIPCION_SERVICIO = (
 )
 
 _MAX_REINTENTOS = 3
+
+# TipoAmb DIAN: 1=Producción  2=Habilitación/Pruebas
+# Controlado por MATIAS_AMBIENTE=pruebas|produccion (default: produccion)
+_TIPO_AMB: int = 2 if os.getenv("MATIAS_AMBIENTE", "produccion").lower() == "pruebas" else 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -142,6 +147,7 @@ def _armar_payload(valor: float, fecha_str: str, hora_str: str) -> dict:
     return {
         "date":                   fecha_str,
         "time":                   hora_str,
+        "type_environment_id":    _TIPO_AMB,  # 1=Producción  2=Pruebas/Habilitación
         "currency_id":            272,     # COP
         "notes":                  "Contrato PSV-001-2026 — Honorarios mensuales",
         "graphic_representation": 1,
