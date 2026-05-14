@@ -104,6 +104,20 @@ async def comando_honorarios(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             caption=caption,
             parse_mode="Markdown",
         )
+
+        # Enviar PDF del Documento Soporte si se descargó correctamente
+        ds_pdf = resultado_ds.get("pdf_bytes")
+        if resultado_ds["ok"] and ds_pdf:
+            await ctx.bot.send_document(
+                chat_id=update.effective_chat.id,
+                document=io.BytesIO(ds_pdf),
+                filename=(
+                    f"DocumentoSoporte_DS{resultado_ds['numero']}"
+                    f"_{resultado_cc['periodo'].replace(' ', '_')}.pdf"
+                ),
+                caption=f"📄 Documento Soporte *DS{resultado_ds['numero']}* — firmado electrónicamente ante la DIAN",
+                parse_mode="Markdown",
+            )
         return
 
     # ── /honorarios borrar <consecutivo> ────────────────────────────────

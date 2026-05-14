@@ -215,7 +215,19 @@ async def generar_documento_soporte(
 
     _guardar_en_db(numero, fecha_str, valor_f, cude or None, "transmitido", cuenta_cobro_id)
     log.info("✅ DSNO DS%s transmitido — CUDE: %s…", numero, cude[:20] if cude else "?")
-    return {"ok": True, "cude": cude, "numero": numero}
+
+    # ── Descargar PDF del DS desde MATIAS API ────────────────────────────────
+    pdf_bytes: bytes | None = None
+    if cude:
+        try:
+            from services.facturacion_service import obtener_pdf
+            await asyncio.sleep(2)          # dar tiempo a MATIAS para generar el PDF
+            pdf_bytes = await obtener_pdf(cude)
+            log.info("✅ PDF del DS%s descargado: %s bytes", numero, len(pdf_bytes))
+        except Exception as e:
+            log.warning("No se pudo descargar PDF del DS%s: %s", numero, e)
+
+    return {"ok": True, "cude": cude, "numero": numero, "pdf_bytes": pdf_bytes}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -229,6 +229,22 @@ async def lifespan(app: FastAPI):
                         "UPDATE cuentas_cobro SET enviado_telegram = TRUE WHERE consecutivo = %s",
                         [resultado_cc["consecutivo"]],
                     )
+                    # Enviar también el PDF del Documento Soporte si se descargó
+                    ds_pdf = resultado_ds.get("pdf_bytes")
+                    if resultado_ds["ok"] and ds_pdf:
+                        await bot.send_document(
+                            chat_id=chat_id,
+                            document=io.BytesIO(ds_pdf),
+                            filename=(
+                                f"DocumentoSoporte_DS{resultado_ds['numero']}"
+                                f"_{resultado_cc['periodo'].replace(' ', '_')}.pdf"
+                            ),
+                            caption=(
+                                f"📄 Documento Soporte *DS{resultado_ds['numero']}* "
+                                f"— firmado electrónicamente ante la DIAN"
+                            ),
+                            parse_mode="Markdown",
+                        )
                 else:
                     log.warning("[honorarios-job] Chat no configurado — PDF no enviado por Telegram")
 
