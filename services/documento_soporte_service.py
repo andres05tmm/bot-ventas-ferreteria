@@ -327,10 +327,10 @@ def _guardar_en_db(
     fk_valida: int | None = None
     if cuenta_cobro_id is not None:
         row = _db.query_one(
-            "SELECT consecutivo FROM cuentas_cobro WHERE consecutivo = %s",
+            "SELECT id FROM cuentas_cobro WHERE consecutivo = %s",
             [cuenta_cobro_id],
         )
-        fk_valida = row["consecutivo"] if row else None
+        fk_valida = row["id"] if row else None
 
     try:
         _db.execute(
