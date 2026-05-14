@@ -355,6 +355,20 @@ _KEYWORDS_SALIDA = [
     "enviaste",
     "debitamos",
     "desde tu cuenta",   # "Transferiste $X desde tu cuenta"
+    # Compras / pagos con tarjeta o débito
+    "compraste",
+    "realizaste una compra",
+    "hiciste una compra",
+    "tu compra",
+    "pago realizado",
+    "tu pago fue",
+    "hemos debitado",
+    "se débito",
+    "se debito",
+    "fue debitado",
+    "retiraste",
+    "retiro de",
+    "avance de",
 ]
 
 
@@ -876,18 +890,19 @@ async def _procesar_mensaje(message_id: str, token: str, user: str) -> None:
         datos = {"monto": 0, "monto_str": "—", "remitente": "", "descripcion": "", "tipo": "", "hora": "", "fecha_str": ""}
     else:
         body_text = _extraer_body(msg.get("payload", {}))
-        if body_text:
-            texto_limpio = re.sub(r"\s+", " ", _limpiar_html(body_text))
-            log.info("📄 Body Bancolombia [%s]: %s", message_id, texto_limpio[:800])
+        if not body_text:
+            log.info("💸 Mensaje %s sin body — descartado para evitar falsos positivos", message_id)
+            return
 
-            # Filtrar: solo procesar si el dinero ENTRA
-            if not _es_dinero_entrante(texto_limpio):
-                log.info("💸 Mensaje %s ignorado — es una transferencia que hizo el usuario", message_id)
-                return
+        texto_limpio = re.sub(r"\s+", " ", _limpiar_html(body_text))
+        log.info("📄 Body Bancolombia [%s]: %s", message_id, texto_limpio[:800])
 
-            datos = parsear_email_bancolombia(body_text)
-        else:
-            datos = {"monto": 0, "monto_str": "—", "remitente": "", "cuenta": "", "llave": "", "descripcion": "", "tipo": "", "hora": "", "fecha_str": ""}
+        # Filtrar: solo procesar si el dinero ENTRA
+        if not _es_dinero_entrante(texto_limpio):
+            log.info("💸 Mensaje %s ignorado — es una transferencia que hizo el usuario", message_id)
+            return
+
+        datos = parsear_email_bancolombia(body_text)
 
     mensaje_tg = _construir_mensaje(datos, subject, from_val)
     await _enviar_telegram(mensaje_tg)

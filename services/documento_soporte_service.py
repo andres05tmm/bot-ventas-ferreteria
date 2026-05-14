@@ -25,6 +25,14 @@ import db as _db
 from config import COLOMBIA_TZ, HONORARIOS_VALOR
 from services.facturacion_service import MATIAS_API_URL, _get_token
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURACIÓN
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Número inicial del rango DS si la tabla está vacía.
+# Ajustar si ya existen documentos previos en el portal MATIAS (ej: DS1-DS4 creados manualmente).
+MATIAS_DS_NUM_DESDE = int(os.getenv("MATIAS_DS_NUM_DESDE", "1"))
+
 log = logging.getLogger("ferrebot.documento_soporte")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -35,7 +43,11 @@ log = logging.getLogger("ferrebot.documento_soporte")
 # identity_document_id="1" = CC en IDs internos MATIAS (REGLA DE ORO: POST usa IDs MATIAS, no códigos DIAN).
 _PROVEEDOR = {
     "country_id":           "45",
-    "identity_document_id": "1",              # CC → ID interno MATIAS (código DIAN 13 no aplica en POST)
+    # FIX DSAJ25a: En endpoint DS, identity_document_id="3" genera schemeName="31"
+    # en el XML UBL del AccountingSupplierParty, que es lo que exige la DIAN para DS.
+    # Aunque en /invoice "3" = NIT, en /ds/document "3" es el valor correcto para CC.
+    # Confirmado por ejemplo oficial MATIAS API y error DSAJ25a en producción.
+    "identity_document_id": "3",
     "type_organization_id": 2,                # Persona natural
     "tax_regime_id":        2,                # Régimen simplificado
     "tax_level_id":         5,                # No responsable de IVA
@@ -45,7 +57,7 @@ _PROVEEDOR = {
     "city_id":              "149",            # Cartagena — ID interno MATIAS
     "postal_code":          "130001",         # Código postal Cartagena
     "mobile":               "3001234567",     # Requerido por DIAN (DSAJ08a)
-    "email":                "usoclaude1@gmail.com",
+    "email":                "andresfmalo05@gmail.com",
 }
 
 _DESCRIPCION_SERVICIO = (
@@ -64,6 +76,30 @@ _TIPO_AMB: int = 2 if os.getenv("MATIAS_AMBIENTE", "produccion").lower() == "pru
 # ─────────────────────────────────────────────────────────────────────────────
 # API PÚBLICA
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _siguiente_num_ds() -> int:
+    """
+    Devuelve el siguiente número de documento DS, garantizando unicidad con lock de tabla.
+    Similar a _siguiente_num_dian() en facturacion_service.py.
+    Usa MATIAS_DS_NUM_DESDE como piso mínimo.
+    """
+    with _db._get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("LOCK TABLE documentos_soporte IN SHARE ROW EXCLUSIVE MODE")
+            cur.execute(
+                """
+                SELECT COALESCE(
+                    MAX(CAST(NULLIF(regexp_replace(consecutivo, '[^0-9]', '', 'g'), '') AS INTEGER)),
+                    %s - 1
+                ) + 1 AS siguiente
+                FROM documentos_soporte
+                """,
+                (MATIAS_DS_NUM_DESDE,),
+            )
+            siguiente = cur.fetchone()["siguiente"]
+        conn.commit()
+    return max(siguiente, MATIAS_DS_NUM_DESDE)
+
 
 async def generar_documento_soporte(
     valor: int | None = None,
@@ -94,7 +130,13 @@ async def generar_documento_soporte(
     fecha_str = ahora.strftime("%Y-%m-%d")
     hora_str  = ahora.strftime("%H:%M:%S")
 
-    payload = _armar_payload(valor_f, fecha_str, hora_str, resolucion)
+    try:
+        num_ds = await asyncio.to_thread(_siguiente_num_ds)
+    except Exception as e:
+        log.error("No se pudo obtener siguiente número DS: %s", e)
+        return {"ok": False, "error": f"Error calculando número DS: {e}"}
+
+    payload = _armar_payload(valor_f, fecha_str, hora_str, resolucion, num_ds)
 
     try:
         token = await asyncio.to_thread(_get_token)
@@ -131,23 +173,48 @@ async def generar_documento_soporte(
         _guardar_en_db(None, fecha_str, valor_f, None, "error_conexion", cuenta_cobro_id)
         return {"ok": False, "error": f"Error de conexión tras {_MAX_REINTENTOS} intentos: {ultimo_error}"}
 
-    valido = bool(data.get("success"))
+    # ── Detección de resultado ────────────────────────────────────────────────
+    # La respuesta de /ds/document tiene estructura diferente a /invoice:
+    #   - No tiene campo "success"
+    #   - Tiene "XmlDocumentKey" (CUDE) si llegó a DIAN
+    #   - Tiene "response.IsValid" con "true"/"false"
+    #   - Errores MATIAS (validación) → data["errors"] (dict)
+    #   - Errores DIAN → data["response"]["ErrorMessage"]["string"] (lista)
     cude   = (data.get("XmlDocumentKey") or data.get("document_key") or "").strip()
-    numero = str(data.get("document_number") or data.get("number") or "")
+    numero = str(num_ds)
 
-    if not valido:
-        msg    = data.get("message") or ""
-        errors = data.get("errors") or {}
-        if isinstance(errors, dict) and errors:
-            error_msg = f"{msg} | " + " | ".join(f"{k}: {v}" for k, v in errors.items())
-        else:
-            error_msg = msg or str(data)[:300]
-        log.error("MATIAS rechazó DSNO: %s", error_msg)
-        _guardar_en_db(numero or None, fecha_str, valor_f, None, "rechazado", cuenta_cobro_id)
+    # Error de validación MATIAS (no llegó a DIAN)
+    if data.get("errors"):
+        errors    = data["errors"]
+        msg       = data.get("message") or "Error de validación MATIAS"
+        error_msg = f"{msg} | " + " | ".join(f"{k}: {v}" for k, v in errors.items()) if isinstance(errors, dict) else str(errors)
+        log.error("MATIAS rechazó DSNO (validación): %s", error_msg)
+        _guardar_en_db(None, fecha_str, valor_f, None, "rechazado_matias", cuenta_cobro_id)
         return {"ok": False, "error": error_msg}
 
-    _guardar_en_db(numero or "DS-001", fecha_str, valor_f, cude or None, "transmitido", cuenta_cobro_id)
-    log.info("✅ DSNO transmitido — CUDE: %s…", cude[:20] if cude else "?")
+    # Llegó a DIAN: revisar IsValid
+    dian_resp  = data.get("response") or {}
+    is_valid   = str(dian_resp.get("IsValid") or "false").lower() == "true"
+    dian_msgs  = (dian_resp.get("ErrorMessage") or {}).get("string") or []
+    if isinstance(dian_msgs, str):
+        dian_msgs = [dian_msgs]
+
+    if not is_valid and dian_msgs:
+        # Hay rechazos DIAN — loguear pero guardar con CUDE para auditoría
+        rechazos = [m for m in dian_msgs if "Rechazo" in m]
+        notifs   = [m for m in dian_msgs if "Notificación" in m]
+        log.warning("DSNO rechazado por DIAN (%d rechazos, %d notif): %s",
+                    len(rechazos), len(notifs), "; ".join(dian_msgs))
+        _guardar_en_db(numero, fecha_str, valor_f, cude or None, "rechazado_dian", cuenta_cobro_id)
+        error_msg = " | ".join(rechazos) or " | ".join(dian_msgs)
+        return {"ok": False, "error": error_msg, "cude": cude, "numero": numero}
+
+    # Notificaciones sin rechazo = aceptado
+    if dian_msgs:
+        log.info("DSNO aceptado con notificaciones DIAN: %s", "; ".join(dian_msgs))
+
+    _guardar_en_db(numero, fecha_str, valor_f, cude or None, "transmitido", cuenta_cobro_id)
+    log.info("✅ DSNO DS%s transmitido — CUDE: %s…", numero, cude[:20] if cude else "?")
     return {"ok": True, "cude": cude, "numero": numero}
 
 
@@ -155,73 +222,93 @@ async def generar_documento_soporte(
 # HELPERS INTERNOS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _armar_payload(valor: float, fecha_str: str, hora_str: str, resolucion: str) -> dict:
-    # Derivar mes/año del periodo de servicio desde fecha_str (YYYY-MM-DD)
-    año_mes = fecha_str[:7]       # "YYYY-MM"
-    inicio_periodo = f"{año_mes}-01"  # primer día del mes del documento
+def _armar_payload(
+    valor: float, fecha_str: str, hora_str: str,
+    resolucion: str, num_ds: int,
+) -> dict:
+    """
+    Construye el JSON para POST /ds/document de MATIAS API.
 
-    valor_str = f"{valor:.2f}"
+    Cambios respecto a versión anterior:
+    - document_number: OBLIGATORIO (causaba 'Error de validación de datos' si se omitía)
+    - Tipos corregidos: invoiced_quantity, quantity_units_id, base_quantity → int/float, no strings
+    - legal_monetary_totals: campos completos (allowance, charge, pre_paid agregados)
+    - tax_totals: valores numéricos (0.0) — confirmado funcionando con prueba directa a API
+    """
+    año_mes        = fecha_str[:7]        # "YYYY-MM"
+    inicio_periodo = f"{año_mes}-01"      # primer día del mes → period de servicio
+
+    valor_f = round(float(valor), 2)
 
     return {
         "resolution_number":      resolucion,
-        # "prefix" se omite — MATIAS lo toma de la resolución registrada en su portal.
-        # Enviarlo explícitamente causaba el error de resolución no encontrada.
+        # document_number: requerido por MATIAS API — consecutivo del DS
+        "document_number":        str(num_ds),
+        # prefix: omitido — MATIAS lo toma de la resolución en su portal.
+        # Enviarlo causaba error de resolución no encontrada.
         "date":                   fecha_str,
         "time":                   hora_str,
-        # type_document_id=11 → Documento Soporte residente colombiano (CC)
-        # (5 = no residente / extranjero — incorrecto para Andrés)
+        # type_document_id=11 → Documento Soporte residente colombiano (CC/CE)
+        # type_document_id=5  → No residente / extranjero
         "type_document_id":       11,
-        # operation_type_id=9 → Documento Soporte en adquisiciones a no obligados a facturar
+        # operation_type_id=9 → DS en adquisiciones a no obligados a facturar
         "operation_type_id":      9,
-        "currency_id":            272,     # COP
+        "currency_id":            272,
         "notes":                  (
             f"Contrato PSV-001-2026 - Honorarios mensuales "
             f"{fecha_str[5:7]}/{fecha_str[:4]}"
         ),
         "graphic_representation": 1,
         "send_email":             0,
-        # En DS el proveedor (no obligado a facturar) va en el campo "customer"
+        # En /ds/document el proveedor no obligado va en "customer"
         "customer":               _PROVEEDOR,
+        # tax_totals: DS no lleva IVA → percent=0, tax_amount=0
+        # taxable_amount = valor total (DSAU04 exige que coincida con suma de líneas)
         "tax_totals": [{
             "tax_id":         "1",
-            "tax_amount":     0,
-            "taxable_amount": valor,
-            "percent":        0,    # Andrés no es responsable de IVA
+            "tax_amount":     0.0,
+            "taxable_amount": valor_f,
+            "percent":        0.0,
         }],
+        # legal_monetary_totals completo (campos faltantes causaban validación fallida)
         "legal_monetary_totals": {
-            "line_extension_amount": valor_str,
-            "tax_exclusive_amount":  valor_str,
-            "tax_inclusive_amount":  valor_str,
-            "payable_amount":        valor_str,
+            "line_extension_amount":  valor_f,
+            "tax_exclusive_amount":   valor_f,
+            "tax_inclusive_amount":   valor_f,
+            "allowance_total_amount": 0.0,
+            "charge_total_amount":    0.0,
+            "pre_paid_amount":        0.0,
+            "payable_amount":         valor_f,
         },
         "payments": [{
-            "payment_method_id": 1,   # contado
-            "means_payment_id":  42,  # transferencia bancaria
-            "value_paid":        valor_str,
+            "payment_method_id": 1,    # contado
+            "means_payment_id":  42,   # transferencia bancaria
+            "value_paid":        valor_f,
         }],
         "lines": [{
-            "invoiced_quantity":            "1",
-            # quantity_units_id=1093 → unidad de medida correcta para DS
-            # (70 es para FE estándar y causa rechazo DSFC03 en DS)
-            "quantity_units_id":            "1093",
-            "line_extension_amount":        valor_str,
+            # Tipos numéricos — confirmado con prueba directa (strings daban error)
+            "invoiced_quantity":            1,
+            # quantity_units_id=1093 correcto para DS
+            # (70 es para FE estándar y causaría DSFC03 en DS)
+            "quantity_units_id":            1093,
+            "line_extension_amount":        valor_f,
             "free_of_charge_indicator":     False,
             "description":                  _DESCRIPCION_SERVICIO,
             "code":                         "SERV-001",
             "type_item_identifications_id": "4",
             "reference_price_id":           "1",
-            "price_amount":                 valor_str,
-            "base_quantity":                "1",
-            # invoice_period es obligatorio en DS (causa DSFC01 si se omite)
+            "price_amount":                 valor_f,
+            "base_quantity":                1,
+            # invoice_period obligatorio en DS (DSFC01 si se omite)
             "invoice_period": {
                 "start_date":       inicio_periodo,
                 "description_code": 1,
             },
             "tax_totals": [{
                 "tax_id":         "1",
-                "tax_amount":     0,
-                "taxable_amount": valor,
-                "percent":        0,
+                "tax_amount":     0.0,
+                "taxable_amount": valor_f,
+                "percent":        0.0,
             }],
         }],
     }

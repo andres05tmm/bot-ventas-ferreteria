@@ -387,6 +387,8 @@ def registrar_venta(datos: dict) -> int:
 | `MATIAS_RESOLUTION` | API | Sí (resolución DIAN) |
 | `MATIAS_PREFIX` | API | Sí (prefijo factura, ej: `LZT`) |
 | `MATIAS_NUM_DESDE` | API | Sí (primer número rango DIAN) |
+| `MATIAS_RESOLUTION_DSNO` | Bot + API | Sí (resolución DS-NO — distinta a la de FE) |
+| `MATIAS_DS_NUM_DESDE` | Bot + API | No (piso mínimo consecutivo DS; default: 1. Poner 5 si DS1-DS4 ya existen en MATIAS) |
 | `MATIAS_API_URL` | API | No (default: `https://api-v2.matias-api.com/api/ubl2.1`) |
 | `AUTHORIZED_CHAT_IDS` | Bot | No (IDs separados por coma — fail-open si vacío) |
 | `RATE_LIMIT_SEGUNDOS` | Bot | No (default: 2) |
