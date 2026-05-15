@@ -1714,15 +1714,6 @@ function SelectorCliente({ t, clienteSeleccionado, onSeleccionar }) {
 // ── Modal Nuevo Cliente ───────────────────────────────────────────────────────
 function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
   const TIPOS_ID = ['CC','NIT','CE','PAS']
-  const CIUDADES = [
-    { label: '🏙️ Cartagena',    value: 13001 },
-    { label: '🏙️ Barranquilla', value: 8001  },
-    { label: '🏙️ Bogotá',       value: 11001 },
-    { label: '🏙️ Medellín',     value: 5001  },
-    { label: '🏙️ Cali',         value: 76001 },
-    { label: '🏙️ Bucaramanga',  value: 68001 },
-    { label: '📍 Otra ciudad',   value: 13001 },
-  ]
   const [form, setForm] = useState({
     nombre:         nombreInicial||'',
     tipo_id:        'CC',
@@ -1732,12 +1723,54 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
     telefono:       '',
     direccion:      '',
     municipio_dian: 13001,
+    pais_id:        45,
+    regimen_fiscal: 2,
+    ciudad_nombre:  'Cartagena',
   })
   const [estado, setEstado] = useState('idle')
   const [err,    setErr]    = useState('')
   const { authFetch } = useAuth()
   const set = (k,v)=>setForm(f=>({...f,[k]:v}))
   const esNIT = form.tipo_id === 'NIT'
+
+  const [paisesModal, setPaisesModal]           = useState([])
+  const [ciudadesModal, setCiudadesModal]       = useState([])
+  const [ciudadQueryModal, setCiudadQueryModal] = useState('')
+  const [ciudadOpenModal, setCiudadOpenModal]   = useState(false)
+  const [loadingCiudadesModal, setLoadingCiudadesModal] = useState(false)
+
+  // Cargar países al montar
+  useEffect(() => {
+    authFetch(`${API_BASE}/clientes/paises`)
+      .then(r => r.json())
+      .then(d => setPaisesModal(d.paises || []))
+      .catch(() => setPaisesModal([{ matias_id: 45, codigo_a2: 'CO', nombre: 'Colombia' }]))
+  }, [])
+
+  // Búsqueda de ciudades con debounce 300ms
+  const buscarCiudadesModal = useCallback(async (q, paisId) => {
+    if (q.length < 2) { setCiudadesModal([]); return }
+    setLoadingCiudadesModal(true)
+    try {
+      const r = await authFetch(`${API_BASE}/clientes/ciudades?pais_id=${paisId}&q=${encodeURIComponent(q)}`)
+      const d = await r.json()
+      setCiudadesModal(d.ciudades || [])
+    } catch { setCiudadesModal([]) }
+    finally { setLoadingCiudadesModal(false) }
+  }, [authFetch])
+
+  useEffect(() => {
+    const timer = setTimeout(() => buscarCiudadesModal(ciudadQueryModal, form.pais_id), 300)
+    return () => clearTimeout(timer)
+  }, [ciudadQueryModal, form.pais_id])
+
+  const seleccionarCiudadModal = (ciudad) => {
+    set('municipio_dian', ciudad.dane_code)
+    set('ciudad_nombre', ciudad.nombre)
+    setCiudadQueryModal(ciudad.nombre + (ciudad.departamento ? ` — ${ciudad.departamento}` : ''))
+    setCiudadesModal([])
+    setCiudadOpenModal(false)
+  }
 
   const guardar = async () => {
     if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); return }
@@ -1819,10 +1852,75 @@ function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
           <div><label style={lbl}>Correo electrónico (opcional)</label>
             <input style={inp} type="email" value={form.correo} onChange={e=>set('correo',e.target.value)} placeholder="correo@..."/></div>
 
-          <div><label style={lbl}>Ciudad</label>
-            <select style={inp} value={form.municipio_dian} onChange={e=>set('municipio_dian', Number(e.target.value))}>
-              {CIUDADES.map(c=><option key={c.value+c.label} value={c.value}>{c.label}</option>)}
-            </select></div>
+          {/* País */}
+          <div><label style={lbl}>País</label>
+            <select style={inp} value={form.pais_id}
+              onChange={e=>{
+                set('pais_id', Number(e.target.value))
+                setCiudadQueryModal('')
+                set('municipio_dian', null)
+                set('ciudad_nombre', '')
+              }}>
+              {paisesModal.length > 0
+                ? paisesModal.map(p=><option key={p.matias_id} value={p.matias_id}>{p.nombre}</option>)
+                : <option value={45}>Colombia</option>}
+            </select>
+          </div>
+
+          {/* Buscador de Ciudad */}
+          <div style={{position:'relative'}}>
+            <label style={lbl}>Ciudad</label>
+            <input
+              style={inp}
+              value={ciudadQueryModal}
+              placeholder="Buscar ciudad... (ej: Cartagena, Bogotá)"
+              onChange={e=>{ setCiudadQueryModal(e.target.value); setCiudadOpenModal(true) }}
+              onFocus={()=>ciudadQueryModal.length>=2&&setCiudadOpenModal(true)}
+              onBlur={()=>setTimeout(()=>setCiudadOpenModal(false),200)}
+            />
+            {ciudadOpenModal && (loadingCiudadesModal || ciudadesModal.length > 0) && (
+              <div style={{
+                position:'absolute',top:'100%',left:0,right:0,zIndex:100,
+                background:t.bg,border:`1px solid ${t.border}`,borderRadius:7,
+                maxHeight:200,overflowY:'auto',boxShadow:'0 8px 24px rgba(0,0,0,.2)',
+              }}>
+                {loadingCiudadesModal
+                  ? <div style={{padding:'8px 12px',color:t.textMuted,fontSize:12}}>Buscando...</div>
+                  : ciudadesModal.map(c=>(
+                    <div key={c.matias_id} onMouseDown={()=>seleccionarCiudadModal(c)}
+                      style={{padding:'8px 12px',cursor:'pointer',fontSize:12,
+                        borderBottom:`1px solid ${t.border}20`,
+                      }}
+                    >
+                      <span style={{fontWeight:600}}>{c.nombre}</span>
+                      {c.departamento&&<span style={{color:t.textMuted}}> — {c.departamento}</span>}
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+          </div>
+
+          {/* Régimen Fiscal — solo para NIT o Jurídica */}
+          {(form.tipo_id==='NIT'||form.tipo_persona==='Jurídica'||form.tipo_persona==='Juridica') && (
+            <div>
+              <label style={lbl}>Régimen Fiscal</label>
+              <div style={{display:'flex',gap:8}}>
+                {[
+                  {value:2,label:'No Responsable de IVA'},
+                  {value:1,label:'Responsable de IVA'},
+                ].map(({value,label})=>(
+                  <button key={value} onClick={()=>set('regimen_fiscal',value)} style={{
+                    flex:1,padding:'8px 0',borderRadius:7,fontSize:11,fontWeight:600,
+                    fontFamily:'inherit',cursor:'pointer',
+                    border:form.regimen_fiscal===value?`1.5px solid ${t.blue}`:`1px solid ${t.border}`,
+                    background:form.regimen_fiscal===value?t.blueSub:'transparent',
+                    color:form.regimen_fiscal===value?t.blue:t.textMuted,
+                  }}>{label}</button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Dirección: solo obligatoria para empresas (NIT), pero disponible para todos */}
           <div>

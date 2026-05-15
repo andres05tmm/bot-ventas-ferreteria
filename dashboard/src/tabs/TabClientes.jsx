@@ -63,18 +63,61 @@ function ModalCliente({ cliente, onClose, onGuardado, authFetch }) {
   const t      = useTheme()
   const esEdit = !!cliente
   const [form, setForm] = useState({
-    nombre:         cliente?.['Nombre tercero'] || '',
-    tipo_id:        cliente?.['Tipo ID']        || 'CC',
-    identificacion: cliente?.['Identificacion'] || '',
-    tipo_persona:   cliente?.['Tipo persona']   || 'Natural',
-    correo:         cliente?.['Correo']         || '',
-    telefono:       cliente?.['Telefono']       || '',
-    direccion:      cliente?.['Direccion']      || '',
+    nombre:         cliente?.['Nombre tercero']  || '',
+    tipo_id:        cliente?.['Tipo ID']         || 'CC',
+    identificacion: cliente?.['Identificacion']  || '',
+    tipo_persona:   cliente?.['Tipo persona']    || 'Natural',
+    correo:         cliente?.['Correo']          || '',
+    telefono:       cliente?.['Telefono']        || '',
+    direccion:      cliente?.['Direccion']       || '',
+    municipio_dian: cliente?.['municipio_dian']  || 13001,
+    pais_id:        cliente?.['pais_id']         || 45,
+    regimen_fiscal: cliente?.['regimen_fiscal']  || 2,
+    ciudad_nombre:  cliente?.['ciudad_nombre']   || 'Cartagena',
   })
   const [estado, setEstado] = useState('idle') // idle | saving | ok | err
   const [errMsg, setErrMsg] = useState('')
 
+  const [paises, setPaises]           = useState([])
+  const [ciudades, setCiudades]       = useState([])
+  const [ciudadQuery, setCiudadQuery] = useState(cliente?.['ciudad_nombre'] || '')
+  const [ciudadOpen, setCiudadOpen]   = useState(false)
+  const [loadingCiudades, setLoadingCiudades] = useState(false)
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // Cargar países al montar
+  useEffect(() => {
+    authFetch(`${API_BASE}/clientes/paises`)
+      .then(r => r.json())
+      .then(d => setPaises(d.paises || []))
+      .catch(() => setPaises([{ matias_id: 45, codigo_a2: 'CO', nombre: 'Colombia' }]))
+  }, [])
+
+  // Búsqueda de ciudades con debounce 300ms
+  const buscarCiudades = useCallback(async (q, paisId) => {
+    if (q.length < 2) { setCiudades([]); return }
+    setLoadingCiudades(true)
+    try {
+      const r = await authFetch(`${API_BASE}/clientes/ciudades?pais_id=${paisId}&q=${encodeURIComponent(q)}`)
+      const d = await r.json()
+      setCiudades(d.ciudades || [])
+    } catch { setCiudades([]) }
+    finally { setLoadingCiudades(false) }
+  }, [authFetch])
+
+  useEffect(() => {
+    const timer = setTimeout(() => buscarCiudades(ciudadQuery, form.pais_id), 300)
+    return () => clearTimeout(timer)
+  }, [ciudadQuery, form.pais_id])
+
+  const seleccionarCiudad = (ciudad) => {
+    set('municipio_dian', ciudad.dane_code)
+    set('ciudad_nombre', ciudad.nombre)
+    setCiudadQuery(ciudad.nombre + (ciudad.departamento ? ` — ${ciudad.departamento}` : ''))
+    setCiudades([])
+    setCiudadOpen(false)
+  }
 
   const guardar = async () => {
     if (!form.nombre.trim()) { setErrMsg('El nombre es obligatorio'); return }
@@ -199,6 +242,77 @@ function ModalCliente({ cliente, onClose, onGuardado, authFetch }) {
               onChange={e => set('direccion', e.target.value)}
             />
           </div>
+
+          {/* País */}
+          <div>
+            <label style={lbl}>País</label>
+            <select style={sel} value={form.pais_id}
+              onChange={e => {
+                set('pais_id', Number(e.target.value))
+                setCiudadQuery('')
+                set('municipio_dian', null)
+                set('ciudad_nombre', '')
+              }}>
+              {paises.length > 0
+                ? paises.map(p => <option key={p.matias_id} value={p.matias_id}>{p.nombre}</option>)
+                : <option value={45}>Colombia</option>}
+            </select>
+          </div>
+
+          {/* Buscador de Ciudad */}
+          <div style={{ position: 'relative' }}>
+            <label style={lbl}>Ciudad</label>
+            <input
+              style={inp}
+              value={ciudadQuery}
+              placeholder="Buscar ciudad... (ej: Cartagena, Bogotá)"
+              onChange={e => { setCiudadQuery(e.target.value); setCiudadOpen(true) }}
+              onFocus={() => ciudadQuery.length >= 2 && setCiudadOpen(true)}
+              onBlur={() => setTimeout(() => setCiudadOpen(false), 200)}
+            />
+            {ciudadOpen && (loadingCiudades || ciudades.length > 0) && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                background: t.bg, border: `1px solid ${t.border}`, borderRadius: 7,
+                maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.2)',
+              }}>
+                {loadingCiudades
+                  ? <div style={{ padding: '8px 12px', color: t.textMuted, fontSize: 12 }}>Buscando...</div>
+                  : ciudades.map(c => (
+                    <div key={c.matias_id} onMouseDown={() => seleccionarCiudad(c)}
+                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12,
+                        borderBottom: `1px solid ${t.border}20`,
+                      }}
+                    >
+                      <span style={{ fontWeight: 600 }}>{c.nombre}</span>
+                      {c.departamento && <span style={{ color: t.textMuted }}> — {c.departamento}</span>}
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+          </div>
+
+          {/* Régimen Fiscal — solo para NIT o Jurídica */}
+          {(form.tipo_id === 'NIT' || form.tipo_persona === 'Jurídica') && (
+            <div>
+              <label style={lbl}>Régimen Fiscal</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[
+                  { value: 2, label: 'No Responsable de IVA' },
+                  { value: 1, label: 'Responsable de IVA' },
+                ].map(({ value, label }) => (
+                  <button key={value} onClick={() => set('regimen_fiscal', value)} style={{
+                    flex: 1, padding: '8px 0', borderRadius: 7, fontSize: 11, fontWeight: 600,
+                    fontFamily: 'inherit', cursor: 'pointer',
+                    border: form.regimen_fiscal === value ? `1.5px solid ${t.blue}` : `1px solid ${t.border}`,
+                    background: form.regimen_fiscal === value ? t.blueSub : 'transparent',
+                    color: form.regimen_fiscal === value ? t.blue : t.textMuted,
+                  }}>{label}</button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Error */}
