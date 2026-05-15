@@ -551,7 +551,20 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         nit_sin_dv = nit_parts[0].strip()
         dv = nit_parts[1].strip() if len(nit_parts) > 1 else ""
 
-        _regimen   = int(venta.get("regimen_fiscal") or 1)  # 1=Responsable IVA, 2=No Responsable
+        # Normalizar regimen_fiscal: soporta tanto enteros (1/2) como strings legados
+        # ('no_responsable_iva' / 'responsable_iva') que quedaron de la migración 008.
+        _regimen_raw = venta.get("regimen_fiscal")
+        _STR_NO_RESP = {"no_responsable_iva", "no_responsable", "no responsable"}
+        _STR_SI_RESP = {"responsable_iva", "responsable"}
+        if not _regimen_raw or str(_regimen_raw).strip().lower() in _STR_NO_RESP:
+            _regimen = 2  # No Responsable de IVA
+        elif str(_regimen_raw).strip().lower() in _STR_SI_RESP:
+            _regimen = 1  # Responsable de IVA
+        else:
+            try:
+                _regimen = int(_regimen_raw)
+            except (ValueError, TypeError):
+                _regimen = 2  # default seguro: No Responsable
         _tax_regime = _regimen
         _tax_level  = 1 if _regimen == 1 else 5
 
