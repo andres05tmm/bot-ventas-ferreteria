@@ -39,6 +39,10 @@ def _row_to_cliente(r: dict) -> dict:
         "Telefono":       r.get("telefono", "") or "",
         "Direccion":      r.get("direccion", "") or "",
         "created_at":     str(r["created_at"]) if r.get("created_at") else "",
+        "municipio_dian":  r.get("municipio_dian") or 13001,
+        "pais_id":         r.get("pais_id") or 45,
+        "regimen_fiscal":  r.get("regimen_fiscal") or 2,
+        "ciudad_nombre":   r.get("ciudad_nombre") or "Cartagena",
     }
 
 
@@ -115,6 +119,9 @@ class NuevoCliente(BaseModel):
     telefono:        str = ""
     direccion:       str = ""
     municipio_dian:  int = 13001       # Cartagena por defecto
+    pais_id:         int = 45
+    regimen_fiscal:  int = 2           # 1=Responsable IVA, 2=No Responsable
+    ciudad_nombre:   str = "Cartagena"
 
 
 @router.post("/clientes")
@@ -179,8 +186,8 @@ def crear_cliente_endpoint(body: NuevoCliente):
             """
             INSERT INTO clientes
                 (nombre, tipo_id, identificacion, tipo_persona, correo, telefono,
-                 direccion, municipio_dian)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                 direccion, municipio_dian, pais_id, regimen_fiscal, ciudad_nombre)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
             (
@@ -192,6 +199,9 @@ def crear_cliente_endpoint(body: NuevoCliente):
                 body.telefono.strip(),
                 body.direccion.strip(),
                 body.municipio_dian,
+                body.pais_id,
+                body.regimen_fiscal,
+                body.ciudad_nombre.strip() or "Cartagena",
             ),
         )
 
@@ -265,6 +275,41 @@ def listar_clientes(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── GET /clientes/paises — lista de países MATIAS ────────────────────────────
+
+@router.get("/clientes/paises")
+def listar_paises_endpoint():
+    """Retorna lista de países desde MATIAS API para el selector de país."""
+    try:
+        from services.facturacion_service import get_paises_list
+        paises = get_paises_list()
+        return {"paises": paises}
+    except Exception as e:
+        logger.warning("listar_paises_endpoint: %s", e)
+        # Fallback mínimo si MATIAS no responde
+        return {"paises": [{"matias_id": 45, "codigo_a2": "CO", "nombre": "Colombia", "telefono_codigo": "57"}]}
+
+
+# ── GET /clientes/ciudades — búsqueda dinámica de ciudades ───────────────────
+
+@router.get("/clientes/ciudades")
+def listar_ciudades_endpoint(
+    pais_id: int = Query(default=45),
+    q:       str = Query(default=""),
+):
+    """
+    Búsqueda de ciudades para el selector dinámico del formulario de cliente.
+    Retorna máx. 50 resultados filtrados por nombre o departamento.
+    """
+    try:
+        from services.facturacion_service import get_ciudades_list
+        ciudades = get_ciudades_list(pais_id=pais_id, q=q.strip())
+        return {"ciudades": ciudades}
+    except Exception as e:
+        logger.warning("listar_ciudades_endpoint: %s", e)
+        return {"ciudades": []}
+
+
 # ── PATCH /clientes/{id} — editar datos de un cliente ────────────────────────
 
 class EditarCliente(BaseModel):
@@ -276,6 +321,9 @@ class EditarCliente(BaseModel):
     telefono:       str | None = None
     direccion:      str | None = None
     municipio_dian: int | None = None
+    pais_id:        int | None = None
+    regimen_fiscal: int | None = None
+    ciudad_nombre:  str | None = None
 
 
 @router.patch("/clientes/{cliente_id}")
@@ -299,6 +347,9 @@ def editar_cliente_endpoint(cliente_id: int, body: EditarCliente, current_user=D
         if body.telefono       is not None: campos["telefono"]       = body.telefono.strip()
         if body.direccion      is not None: campos["direccion"]      = body.direccion.strip()
         if body.municipio_dian is not None: campos["municipio_dian"] = body.municipio_dian
+        if body.pais_id        is not None: campos["pais_id"]        = body.pais_id
+        if body.regimen_fiscal is not None: campos["regimen_fiscal"] = body.regimen_fiscal
+        if body.ciudad_nombre  is not None: campos["ciudad_nombre"]  = body.ciudad_nombre.strip()
 
         if not campos:
             return {"ok": True, "cliente": _row_to_cliente(existente), "mensaje": "Sin cambios"}

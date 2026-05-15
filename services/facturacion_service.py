@@ -142,10 +142,12 @@ _TIPO_ID_DIAN = {
 _cities_cache:        dict = {}
 _cities_cache_loaded: bool = False
 _cities_lock_obj:     threading.Lock = threading.Lock()
+_cities_full_cache: list[dict] = []    # lista completa: {matias_id, dane_code, nombre, departamento, pais_id}
+_paises_cache: list[dict] = []          # lista de países de MATIAS
 
 
 def _cargar_ciudades_matias() -> None:
-    global _cities_cache, _cities_cache_loaded
+    global _cities_cache, _cities_cache_loaded, _cities_full_cache
     with _cities_lock_obj:
         if _cities_cache_loaded:
             return
@@ -162,7 +164,15 @@ def _cargar_ciudades_matias() -> None:
                     code = city.get("code") or city.get("dane_code") or city.get("municipality_code")
                     if code:
                         try:
-                            _cities_cache[int(str(code))] = str(city["id"])
+                            dane_int = int(str(code))
+                            _cities_cache[dane_int] = str(city["id"])
+                            _cities_full_cache.append({
+                                "matias_id":    str(city["id"]),
+                                "dane_code":    dane_int,
+                                "nombre":       city.get("name_city") or city.get("name") or "",
+                                "departamento": (city.get("department") or {}).get("name_department", ""),
+                                "pais_id":      45,
+                            })
                         except (ValueError, KeyError, TypeError):
                             pass
                 _cities_cache_loaded = True
@@ -181,6 +191,94 @@ def _matias_city_id(dane_code) -> Optional[str]:
         return _cities_cache.get(int(dane_code))
     except (ValueError, TypeError):
         return None
+
+
+def get_ciudades_list(pais_id: int = 45, q: str = "") -> list[dict]:
+    """
+    Retorna lista de ciudades para el país dado.
+    Filtra por nombre o departamento si se pasa q.
+    Para Colombia (45) usa el caché _cities_full_cache.
+    Para otros países hace fetch directo a MATIAS /cities?country_id=X.
+    """
+    q_lower = q.strip().lower()
+
+    if pais_id == 45:
+        _cargar_ciudades_matias()
+        resultado = _cities_full_cache
+    else:
+        # Para otros países: fetch directo a MATIAS (stateless, sin caché)
+        try:
+            resp = httpx.get(f"{MATIAS_API_URL}/cities", params={"country_id": pais_id}, timeout=15)
+            if resp.status_code == 200:
+                data   = resp.json()
+                cities = (
+                    data.get("dataRecords", {}).get("data", [])
+                    or data.get("data", [])
+                    or []
+                )
+                resultado = []
+                for city in cities:
+                    code = city.get("code") or city.get("dane_code") or city.get("municipality_code")
+                    try:
+                        dane_int = int(str(code)) if code else 0
+                    except (ValueError, TypeError):
+                        dane_int = 0
+                    resultado.append({
+                        "matias_id":    str(city["id"]),
+                        "dane_code":    dane_int,
+                        "nombre":       city.get("name_city") or city.get("name") or "",
+                        "departamento": (city.get("department") or {}).get("name_department", ""),
+                        "pais_id":      pais_id,
+                    })
+            else:
+                logger.warning("get_ciudades_list: MATIAS /cities pais_id=%s devolvió HTTP %s", pais_id, resp.status_code)
+                resultado = []
+        except Exception as e:
+            logger.warning("get_ciudades_list: error fetch pais_id=%s: %s", pais_id, e)
+            resultado = []
+
+    if q_lower:
+        resultado = [
+            c for c in resultado
+            if q_lower in c["nombre"].lower() or q_lower in c["departamento"].lower()
+        ]
+
+    return resultado[:50]
+
+
+def get_paises_list() -> list[dict]:
+    """
+    Retorna lista de países desde MATIAS API, cacheada en _paises_cache.
+    Formato: [{matias_id, codigo_a2, nombre, telefono_codigo}]
+    """
+    global _paises_cache
+    if _paises_cache:
+        return _paises_cache
+    try:
+        resp = httpx.get("https://api-v2.matias-api.com/api/ubl2.1/countries", timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            paises_raw = (
+                data.get("dataRecords", {}).get("data", [])
+                or data.get("data", [])
+                or (data if isinstance(data, list) else [])
+            )
+            _paises_cache = [
+                {
+                    "matias_id":      p.get("id"),
+                    "codigo_a2":      p.get("abbreviation_A2") or p.get("abbreviation_a2") or "",
+                    "nombre":         p.get("country_name") or p.get("name") or "",
+                    "telefono_codigo": p.get("phone_code") or "",
+                }
+                for p in paises_raw
+                if p.get("id")
+            ]
+            logger.info("Catálogo países MATIAS cargado: %d países", len(_paises_cache))
+        else:
+            logger.warning("get_paises_list: MATIAS /countries devolvió HTTP %s", resp.status_code)
+    except Exception as e:
+        logger.warning("get_paises_list: error fetch países: %s", e)
+    return _paises_cache
 
 
 # ── Cache de token JWT ────────────────────────────────────────────────────────
@@ -433,7 +531,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     if not id_cliente or id_cliente.strip() == "222222222222":
         es_consumidor_final = True
         customer = {
-            "country_id":           "45",
+            "country_id":           str(venta.get("pais_id") or 45),
             "identity_document_id": "6",   # Consumidor Final
             "type_organization_id": 2,     # Persona natural
             "tax_regime_id":        2,     # Régimen simplificado
@@ -452,13 +550,17 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         nit_parts = id_cliente.split("-")
         nit_sin_dv = nit_parts[0].strip()
         dv = nit_parts[1].strip() if len(nit_parts) > 1 else ""
-        
+
+        _regimen   = int(venta.get("regimen_fiscal") or 1)  # 1=Responsable IVA, 2=No Responsable
+        _tax_regime = _regimen
+        _tax_level  = 1 if _regimen == 1 else 5
+
         customer = {
-            "country_id":           "45",
+            "country_id":           str(venta.get("pais_id") or 45),
             "identity_document_id": "3",    # NIT
             "type_organization_id": 1,      # Empresa/persona jurídica
-            "tax_regime_id":        1,      # Responsable IVA (régimen común)
-            "tax_level_id":         1,      # Gran contribuyente/responsable
+            "tax_regime_id":        _tax_regime,
+            "tax_level_id":         _tax_level,
             "company_name":         (venta.get("cliente_nombre") or "EMPRESA SIN NOMBRE").upper(),  # FIX: nunca vacío
             "dni":                  nit_sin_dv,
             "dv":                   dv,     # Dígito verificación (obligatorio para NIT)
@@ -476,7 +578,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         # Verificado con GET /identity-documents de la API real.
         id_tipo_documento = _TIPO_ID_MATIAS.get(tipo_id_raw, "1")
         customer = {
-            "country_id":           "45",
+            "country_id":           str(venta.get("pais_id") or 45),
             "identity_document_id": id_tipo_documento,
             "type_organization_id": 2,      # Persona natural
             "tax_regime_id":        2,      # Régimen simplificado
@@ -501,7 +603,18 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
     # Según documentación MATIAS API, city_name es un campo válido que ayuda a
     # completar la estructura UBL 2.1 para cumplir con FAK08 de la DIAN.
     # Esto también resuelve el problema de "Ciudad" vacía en el PDF.
-    customer["city_name"] = "Cartagena"
+    # Usar nombre real de la ciudad del cliente
+    _ciudad_nombre = venta.get("ciudad_nombre") or ""
+    if not _ciudad_nombre:
+        # Fallback: buscar en cache por dane_code
+        _dane = venta.get("municipio_dian")
+        if _dane:
+            _cargar_ciudades_matias()
+            _ciudad_obj = next((c for c in _cities_full_cache if c["dane_code"] == int(_dane)), None)
+            _ciudad_nombre = _ciudad_obj["nombre"] if _ciudad_obj else "Cartagena"
+        else:
+            _ciudad_nombre = "Cartagena"
+    customer["city_name"] = _ciudad_nombre
 
     # ── Líneas de detalle ─────────────────────────────────────────────────────
     # quantity_units_id → int (no string)
@@ -652,7 +765,10 @@ async def emitir_factura(venta_id: int) -> dict:
                        c.correo          AS correo_cliente,
                        c.telefono        AS telefono_cliente,
                        c.direccion       AS direccion_cliente,
-                       c.municipio_dian
+                       c.municipio_dian,
+                       c.ciudad_nombre,
+                       c.pais_id,
+                       c.regimen_fiscal
                 FROM ventas v
                 LEFT JOIN clientes c ON v.cliente_id::text = c.id::text
                 WHERE v.id = %s
