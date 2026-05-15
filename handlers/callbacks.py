@@ -24,7 +24,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import config
-from excel import borrar_venta_excel, guardar_cliente_nuevo
+
 from utils import convertir_fraccion_a_decimal, decimal_a_fraccion_legible, parsear_precio
 from ventas_state import (
     ventas_pendientes, borrados_pendientes, _estado_lock,
@@ -62,11 +62,24 @@ async def _procesar_siguiente_standby(bot, message, chat_id: int, pendientes: li
         with _estado_lock:
             mensajes_standby[chat_id] = resto
 
+    # Resolver vendedor_id para budget tracking + memoria de turno. En chats
+    # privados telegram_id == chat_id; en grupos no aplica (fail-open: no hay
+    # tracking por vendedor).
+    from auth.usuarios import get_usuario as _gu_sb
+    _u_sb = _gu_sb(chat_id)
+    _vid_sb = _u_sb["id"] if _u_sb else None
+
     historial     = get_historial(chat_id)
-    agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}")
-    respuesta_raw            = await procesar_con_claude(f"{vendedor}: {msg_text}", vendedor, historial)
+    agregar_al_historial(chat_id, "user", f"{vendedor}: {msg_text}",
+                         vendedor_id=_vid_sb)
+
+    respuesta_raw = await procesar_con_claude(
+        f"{vendedor}: {msg_text}", vendedor, historial,
+        vendedor_id=_vid_sb,
+    )
     texto_resp, acciones2, _ = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
-    agregar_al_historial(chat_id, "assistant", texto_resp)
+    agregar_al_historial(chat_id, "assistant", texto_resp,
+                         vendedor_id=_vid_sb)
 
     confirmacion_accion = next((a for a in acciones2 if a.startswith("PEDIR_CONFIRMACION:")), None)
     pedir_metodo        = "PEDIR_METODO_PAGO" in acciones2
@@ -129,11 +142,7 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await query.edit_message_text(
             "Venta actual:\n" + items + "\n\n"
-            "Dime qué quieres cambiar, por ejemplo:\n"
-            "  - el precio del sellador era 25000\n"
-            "  - quita los aerosoles\n"
-            "  - los tornillos eran 3 docenas no 5\n"
-            "  - agrega 1 brocha 5000"
+            "Dime qué cambiar (o usa prefijos: añade:/quita:/reemplazar)"
         )
         return
 
@@ -181,7 +190,8 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("⏳ Registrando venta...")
 
         try:
-            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
+            usuario_id = context.user_data.get("usuario", {}).get("id")
+            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id, usuario_id)
             emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
             await query.edit_message_text(
                 f"✅ Venta confirmada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
@@ -273,7 +283,8 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("⏳ Registrando venta...")
 
         try:
-            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id)
+            usuario_id = context.user_data.get("usuario", {}).get("id")
+            conf  = await asyncio.to_thread(registrar_ventas_con_metodo, ventas, metodo, vendedor, chat_id, usuario_id)
             emoji = {"efectivo": "💵", "transferencia": "📱", "datafono": "💳"}.get(metodo, "✅")
             await query.edit_message_text(
                 f"✅ Venta registrada — {emoji} {metodo.capitalize()}\n\n" + "\n".join(conf)
@@ -301,22 +312,27 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             numero = borrados_pendientes.pop(chat_id, None)
 
         if confirm == "si" and numero:
-            # Borrar de Sheets primero (si está disponible)
-            sheets_borradas = 0
-            if config.SHEETS_ID and config.SHEETS_DISPONIBLE:
-                from sheets import sheets_borrar_consecutivo
-                sheets_borradas, _ = await asyncio.to_thread(sheets_borrar_consecutivo, numero)
-            
-            # También borrar del Excel local
-            exito, msg = await asyncio.to_thread(borrar_venta_excel, numero)
-            
-            # Mensaje de confirmación
-            if sheets_borradas > 0:
-                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado ({sheets_borradas} productos borrados de Sheets).")
-            elif exito:
-                await query.edit_message_text(msg)
-            else:
-                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
+            # Borrar de Postgres
+            pg_borradas = 0
+            try:
+                import db as _db
+                if _db.DB_DISPONIBLE:
+                    rows = await asyncio.to_thread(
+                        _db.execute,
+                        "DELETE FROM ventas_detalle WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s AND fecha::date = CURRENT_DATE)",
+                        [numero],
+                    )
+                    await asyncio.to_thread(
+                        _db.execute,
+                        "DELETE FROM ventas WHERE consecutivo = %s AND fecha::date = CURRENT_DATE",
+                        [numero],
+                    )
+                    pg_borradas = 1
+            except Exception as e_pg:
+                import logging as _log
+                _log.getLogger("ferrebot.callbacks").warning(f"Error borrando de Postgres: {e_pg}")
+
+            await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
         else:
             await query.edit_message_text("Borrado cancelado.")
 
@@ -343,7 +359,7 @@ async def _enviar_confirmacion_con_metodo(message, chat_id: int, ventas: list, m
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
         total        = parsear_precio(v.get("total", 0))
-        cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
+        cantidad_leg = _formato_cantidad(cantidad_dec, producto)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
         if not cliente and v.get("cliente"):
             cliente = v.get("cliente")
@@ -387,7 +403,7 @@ async def _enviar_botones_pago(message, chat_id: int, ventas: list):
         total        = parsear_precio(v.get("total", 0))
         p_unitario   = parsear_precio(v.get("precio_unitario", 0))
         valor_final  = total if total > 0 else round(p_unitario * cantidad_dec)
-        cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
+        cantidad_leg = _formato_cantidad(cantidad_dec, producto)
         lineas.append(f"• {cantidad_leg} {producto} ${valor_final:,.0f}")
 
     tiene_cliente = any(v.get("cliente") for v in ventas)
@@ -536,10 +552,125 @@ async def manejar_callback_cliente(update: Update, context: ContextTypes.DEFAULT
         )
         return
 
+    # ── Ciudad DIAN ──
+    if data.startswith("cli_ciudad_"):
+        sin_prefijo = data[len("cli_ciudad_"):]
+        ultimo      = sin_prefijo.rfind("_")
+        municipio   = int(sin_prefijo[:ultimo])
+
+        with _estado_lock:
+            datos = clientes_en_proceso.get(chat_id)
+        if not datos:
+            await query.edit_message_text("El proceso de creación de cliente expiró. Inicia de nuevo.")
+            return
+
+        datos["municipio_dian"] = municipio
+        es_nit = (datos.get("tipo_id") or "").upper() == "NIT"
+
+        if es_nit:
+            datos["paso"] = "direccion"
+            with _estado_lock:
+                clientes_en_proceso[chat_id] = datos
+            await query.edit_message_text(
+                f"¿Cuál es la dirección de la empresa {datos.get('nombre', '')}? "
+                "(escribe 'no tiene' si no aplica)"
+            )
+        else:
+            datos["direccion"] = ""
+            with _estado_lock:
+                clientes_en_proceso.pop(chat_id, None)
+            await query.edit_message_text("✅ Guardando cliente...")
+            from handlers.cliente_flujo import guardar_cliente_y_continuar
+            # Simular objeto con message para guardar_cliente_y_continuar
+            class _FakeUpdate:
+                message = query.message
+            await guardar_cliente_y_continuar(_FakeUpdate(), chat_id, datos.get("telefono", ""), datos)
+        return
+
 
 # ─────────────────────────────────────────────
 # HELPER: botones de pago sin objeto message (via bot directo)
 # ─────────────────────────────────────────────
+
+def _formato_cantidad(cantidad_dec: float, producto: str) -> str:
+    """Formatea la cantidad según el tipo de producto.
+    Puntillas (vendidas por gramos) → '133.3 gr'
+    Resto → fracción legible ('1 y 3/4', '1/2', etc.)
+    """
+    if "puntilla" in (producto or "").lower():
+        # Mostrar gramos con 1 decimal, sin ceros innecesarios
+        gr = round(cantidad_dec, 1)
+        return f"{gr:g} gr"
+    return decimal_a_fraccion_legible(cantidad_dec)
+
+
+# ─────────────────────────────────────────────
+# HANDLER: confirmación de foto de cuaderno
+# ─────────────────────────────────────────────
+
+async def manejar_callback_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Maneja los botones foto_confirmar_ y foto_cancelar_.
+    Cuando el vendedor confirma la lectura del cuaderno, ejecuta las ventas.
+    Cuando cancela, limpia el estado pendiente.
+    """
+    from ai import procesar_acciones_async
+    from ventas_state import fotos_pendientes_confirmacion, agregar_al_historial
+
+    query   = update.callback_query
+    data    = query.data
+    chat_id = query.message.chat_id
+    vendedor = update.effective_user.first_name or "Vendedor"
+    await query.answer()
+
+    # ── Cancelar ──
+    if data.startswith("foto_cancelar_"):
+        with _estado_lock:
+            fotos_pendientes_confirmacion.pop(chat_id, None)
+        await query.edit_message_text("❌ Lectura cancelada. Puedes reenviar la foto o dictar las ventas manualmente.")
+        return
+
+    # ── Confirmar ──
+    if data.startswith("foto_confirmar_"):
+        with _estado_lock:
+            respuesta_raw = fotos_pendientes_confirmacion.pop(chat_id, None)
+
+        if not respuesta_raw:
+            await query.edit_message_text("⚠️ Sesión expirada. Por favor reenvía la foto.")
+            return
+
+        await query.edit_message_text("⏳ Procesando ventas del cuaderno...")
+
+        # Resolver vendedor_id para memoria de turno (fail-safe)
+        from auth.usuarios import get_usuario as _gu_foto
+        _u_foto_cb = _gu_foto(update.effective_user.id)
+        _vid_foto_cb = _u_foto_cb["id"] if _u_foto_cb else None
+
+        try:
+            texto_resp, acciones, _ = await procesar_acciones_async(respuesta_raw, vendedor, chat_id)
+            agregar_al_historial(chat_id, "assistant", texto_resp or "",
+                                 vendedor_id=_vid_foto_cb, modelo="sonnet")
+
+            confirmacion_accion = next((a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None)
+            pedir_metodo        = "PEDIR_METODO_PAGO" in acciones
+
+            with _estado_lock:
+                ventas_nuevas = list(ventas_pendientes.get(chat_id, []))
+
+            if confirmacion_accion and ventas_nuevas:
+                metodo_conocido = confirmacion_accion.split(":", 1)[1]
+                await _enviar_confirmacion_con_metodo(query.message, chat_id, ventas_nuevas, metodo_conocido)
+            elif pedir_metodo and ventas_nuevas:
+                await _enviar_botones_pago(query.message, chat_id, ventas_nuevas)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=texto_resp or "✅ Ventas registradas.")
+
+        except Exception as e:
+            import logging
+            logging.getLogger("ferrebot.callbacks").error(f"[FOTO CONFIRMAR] Error: {e}", exc_info=True)
+            await context.bot.send_message(chat_id=chat_id, text=f"❌ Error procesando las ventas: {e}")
+        return
+
 
 async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
     """
@@ -551,7 +682,7 @@ async def _enviar_botones_pago_por_chat(bot, chat_id: int, ventas: list):
         cantidad_dec = convertir_fraccion_a_decimal(v.get("cantidad", 1))
         producto     = v.get("producto", "")
         total        = parsear_precio(v.get("total", 0))
-        cantidad_leg = decimal_a_fraccion_legible(cantidad_dec)
+        cantidad_leg = _formato_cantidad(cantidad_dec, producto)
         lineas.append(f"• {cantidad_leg} {producto} ${total:,.0f}")
 
     tiene_cliente = any(v.get("cliente") for v in ventas)

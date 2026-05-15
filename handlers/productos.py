@@ -5,10 +5,14 @@ Los precios se leen en TIEMPO REAL desde memoria.json; al actualizar el
 catálogo con /catalogo los cambios se reflejan automáticamente aquí.
 """
 
+import logging
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from memoria import cargar_memoria
+
+logger = logging.getLogger("ferrebot.handlers.productos")
 
 # ─────────────────────────────────────────────────────────────
 # Helpers para leer el catálogo
@@ -891,7 +895,7 @@ async def manejar_callback_productos(update: Update, context: ContextTypes.DEFAU
         except Exception as e:
             import traceback
             err = traceback.format_exc()
-            print(f"[productos] ERROR en {data}: {err}")
+            logger.error("[productos] ERROR en %s: %s", data, err)
             try:
                 await query.edit_message_text(
                     f"❌ Error al cargar categoría:\n<code>{e}</code>",

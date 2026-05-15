@@ -1,0 +1,316 @@
+14:43:37  ERROR     Base de datos no disponible. Verifica DATABASE_URL.
+14:45:05  ERROR     Base de datos no disponible. Verifica DATABASE_URL.
+14:45:44  ERROR     Base de datos no disponible. Verifica DATABASE_URL.
+14:46:31  ERROR     Base de datos no disponible. Verifica DATABASE_URL.
+14:48:15  INFO      PostgreSQL conectado — modo DB activo
+14:48:15  INFO      Schema PostgreSQL verificado/creado
+14:50:36  INFO      PostgreSQL conectado — modo DB activo
+14:50:37  INFO      Schema PostgreSQL verificado/creado
+14:50:37  INFO      ============================================================
+14:50:37  INFO        GENERADOR DE FACTURAS ELECTRÓNICAS — FERRETERÍA PUNTO ROJO
+14:50:37  INFO      ============================================================
+14:50:37  INFO        Catálogo          : 629 productos activos
+14:50:37  INFO        Objetivo          : $16,000,000
+14:50:37  INFO        Tickets           : $10,000 – $380,000
+14:50:37  INFO        Facturas aprox.   : ~82
+14:50:37  INFO        Fechas            : 2026-04-29 – 2026-04-30
+14:50:37  INFO        Método de pago    : efectivo
+14:50:37  INFO        Modo              : DRY-RUN (sin insertar)
+14:50:37  INFO      ============================================================
+14:50:37  INFO      --- SIMULACIÓN (primeras 10 ventas) ---
+14:50:37  INFO        $4,500  —  WAYPER DE COLOR UNIDAD x3, Tornillo Estufa 1/8 X 2 x20
+14:50:37  INFO        $4,000  —  TUERCAS HEX 5/8 GALBANIZADA x5
+14:50:37  INFO        $150,000  —  Vinilo Davinci T1 Trigo x3
+14:50:37  INFO        $60,000  —  Lija Esmeril N°80 x3
+14:50:37  INFO        $354,000  —  Vinilo Davinci T1 Verde Caribe x1, Cuña de 30 Amp x3, Vinilo Davinci T1 Verde ag
+14:50:37  INFO        $240,080  —  AMARREPLASTICO4.8X400 x1, Vinilo Davinci T2 Rojo Colonial x6
+14:50:37  INFO        $130,000  —  Esmalte Blanco x2
+14:50:37  INFO        $129,000  —  Masilla para Eternit x1, Vinilo Davinci T2 Curuba x3
+14:50:37  INFO        $522,000  —  Sellador Corriente x6, Vinilo Davinci T3 Rojo Colonial x6
+14:50:37  INFO        $308,000  —  Formon de 1/4 x6, LAPIZ PARA CARPINTERO x4, Cerradura de Alcoba x6, Manto Frío x
+14:50:37  INFO      --- Fin simulación ---
+14:52:12  INFO      PostgreSQL conectado — modo DB activo
+14:52:12  INFO      Schema PostgreSQL verificado/creado
+14:52:13  INFO      ============================================================
+14:52:13  INFO        GENERADOR DE FACTURAS ELECTRÓNICAS — FERRETERÍA PUNTO ROJO
+14:52:13  INFO      ============================================================
+14:52:13  INFO        Catálogo          : 629 productos activos
+14:52:13  INFO        Objetivo          : $16,000,000
+14:52:13  INFO        Tickets           : $10,000 – $380,000
+14:52:13  INFO        Facturas aprox.   : ~82
+14:52:13  INFO        Fechas            : 2026-04-29 – 2026-04-30
+14:52:13  INFO        Método de pago    : efectivo
+14:52:13  INFO        Modo              : PRODUCCIÓN
+14:52:13  INFO      ============================================================
+14:52:17  INFO        [  0.0%] Venta #107 → $1,900 | acum: $1,900
+14:52:18  INFO      Renovando token Matias API (login)…
+14:52:19  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/auth/login "HTTP/1.1 200 OK"
+14:52:19  INFO      Auth Matias API → HTTP 200 | body: {"access_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiODMxMWE4MjQyOWY0NmFmMzJkYWNiMTBjOGZkMDIzZDQ4OTE1MWMxYjA0NDdkNDQ2ODZkOGM0NzAzYjE2NWEyMWUxNWYzZGQ3NTczMDE3MzkiLCJpYXQiOjE3Nzc0OTIzMzguOTUzMzIxLCJuYmYiOjE3Nzc0OTIzMzguOTUzMzIyLCJleHAiOjE3ODUyNjgzMzguOTUxMjg2LCJzdWIiOiI2OTgiLCJzY29wZXMiOltdfQ.Dji-ubrUB2ve07SW_om8b85TIuf_Pvt0FQJE2BJ61rt6SuBSL93AOHX4pz6hl01dvjAu_5JfFgYOF-I2jSqsBZ24vIBh3PoamgzniLeY-_gvoSeBB-IiYCsBHKlcs2uf2-xpKB3Rp_ClfRQPgdbhNFvOx9Q2y3NI_2o_D9MIwo69D977ryKonIg
+14:52:19  INFO      Token Matias API renovado OK (expira en 129600 min)
+14:52:22  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:52:22  INFO      ✅ Factura FPR38 emitida — CUFE: 7eff88cb782bbe6452f6…
+14:52:22  INFO               📄 FPR38 emitida OK  (CUFE: 7eff88cb782bbe64…)
+14:52:24  INFO        [  1.6%] Venta #108 → $248,250 | acum: $250,150
+14:52:27  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:52:28  INFO      ✅ Factura FPR39 emitida — CUFE: 0f5abba1daaf1038db09…
+14:52:28  INFO               📄 FPR39 emitida OK  (CUFE: 0f5abba1daaf1038…)
+14:52:29  INFO        [  2.4%] Venta #109 → $132,000 | acum: $382,150
+14:52:32  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:52:33  INFO      ✅ Factura FPR40 emitida — CUFE: bac1ade4956744628054…
+14:52:33  INFO               📄 FPR40 emitida OK  (CUFE: bac1ade495674462…)
+14:52:34  INFO        [  3.6%] Venta #110 → $201,200 | acum: $583,350
+14:52:38  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:52:38  INFO      ✅ Factura FPR41 emitida — CUFE: ccdfbaa40b6725ac945b…
+14:52:38  INFO               📄 FPR41 emitida OK  (CUFE: ccdfbaa40b6725ac…)
+14:52:40  INFO        [  5.8%] Venta #111 → $350,000 | acum: $933,350
+14:52:43  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:52:44  INFO      ✅ Factura FPR42 emitida — CUFE: 4c64769112cb3653400a…
+14:52:44  INFO               📄 FPR42 emitida OK  (CUFE: 4c64769112cb3653…)
+14:52:45  INFO        [  7.7%] Venta #112 → $297,215 | acum: $1,230,565
+14:52:48  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:52:49  INFO      ✅ Factura FPR43 emitida — CUFE: 08ea74f8c96d478cd13c…
+14:52:49  INFO               📄 FPR43 emitida OK  (CUFE: 08ea74f8c96d478c…)
+14:52:50  INFO        [  8.7%] Venta #113 → $159,000 | acum: $1,389,565
+14:52:53  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:52:54  INFO      ✅ Factura FPR44 emitida — CUFE: 8f1f47f996e5bd796a0f…
+14:52:54  INFO               📄 FPR44 emitida OK  (CUFE: 8f1f47f996e5bd79…)
+14:52:55  INFO        [  8.7%] Venta #114 → $5,500 | acum: $1,395,065
+14:52:58  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:52:59  INFO      ✅ Factura FPR45 emitida — CUFE: ecb385eeb765e93c2138…
+14:52:59  INFO               📄 FPR45 emitida OK  (CUFE: ecb385eeb765e93c…)
+14:53:01  INFO        [  9.4%] Venta #115 → $106,748 | acum: $1,501,813
+14:53:02  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 500 Internal Server Error"
+14:53:02  ERROR     MATIAS API rechazó factura venta 296: Error interno del servidor. La fecha (2026-04-30) del documento debe estar entre
+                2026-04-24 y 2026-04-29.
+14:53:03  WARNING            ⚠️  Factura NO emitida venta_id=296: Error interno del servidor. La fecha (2026-04-30) del documento debe estar entre
+                2026-04-24 y 2026-04-29.
+14:53:04  INFO        [  9.5%] Venta #116 → $20,000 | acum: $1,521,813
+14:53:07  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:53:08  INFO      ✅ Factura FPR47 emitida — CUFE: 464ea69930e0af5866ff…
+14:53:08  INFO               📄 FPR47 emitida OK  (CUFE: 464ea69930e0af58…)
+14:53:09  INFO        [ 10.4%] Venta #117 → $148,000 | acum: $1,669,813
+14:53:12  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:53:13  INFO      ✅ Factura FPR48 emitida — CUFE: c787a592634cc756b337…
+14:53:13  INFO               📄 FPR48 emitida OK  (CUFE: c787a592634cc756…)
+14:53:14  INFO        [ 10.9%] Venta #118 → $81,000 | acum: $1,750,813
+14:53:17  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:53:18  INFO      ✅ Factura FPR49 emitida — CUFE: 4a89afd53c1efce5aa4c…
+14:53:18  INFO               📄 FPR49 emitida OK  (CUFE: 4a89afd53c1efce5…)
+14:53:19  INFO        [ 14.5%] Venta #119 → $577,000 | acum: $2,327,813
+14:53:23  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:53:24  INFO      ✅ Factura FPR50 emitida — CUFE: e0b9e1e656fa59c0ddcd…
+14:53:24  INFO               📄 FPR50 emitida OK  (CUFE: e0b9e1e656fa59c0…)
+14:53:25  INFO        [ 16.8%] Venta #120 → $353,600 | acum: $2,681,413
+14:53:27  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 500 Internal Server Error"
+14:53:27  ERROR     MATIAS API rechazó factura venta 301: Error interno del servidor. La fecha (2026-04-30) del documento debe estar entre
+                2026-04-24 y 2026-04-29.
+14:53:27  WARNING            ⚠️  Factura NO emitida venta_id=301: Error interno del servidor. La fecha (2026-04-30) del documento debe estar entre
+                2026-04-24 y 2026-04-29.
+14:53:28  INFO        [ 17.4%] Venta #121 → $95,400 | acum: $2,776,813
+14:53:32  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:53:32  INFO      ✅ Factura FPR52 emitida — CUFE: 3b75b2022ed48ab891eb…
+14:53:32  INFO               📄 FPR52 emitida OK  (CUFE: 3b75b2022ed48ab8…)
+14:53:33  INFO        [ 17.8%] Venta #122 → $65,000 | acum: $2,841,813
+14:53:35  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 500 Internal Server Error"
+14:53:35  ERROR     MATIAS API rechazó factura venta 303: Error interno del servidor. La fecha (2026-04-30) del documento debe estar entre
+                2026-04-24 y 2026-04-29.
+14:53:35  WARNING            ⚠️  Factura NO emitida venta_id=303: Error interno del servidor. La fecha (2026-04-30) del documento debe estar entre
+                2026-04-24 y 2026-04-29.
+14:53:36  INFO        [ 19.1%] Venta #123 → $220,300 | acum: $3,062,113
+14:53:38  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 500 Internal Server Error"
+14:53:38  ERROR     MATIAS API rechazó factura venta 304: Error interno del servidor. La fecha (2026-04-30) del documento debe estar entre
+                2026-04-24 y 2026-04-29.
+14:53:38  WARNING            ⚠️  Factura NO emitida venta_id=304: Error interno del servidor. La fecha (2026-04-30) del documento debe estar entre
+                2026-04-24 y 2026-04-29.
+14:53:40  INFO        [ 19.4%] Venta #124 → $39,000 | acum: $3,101,113
+14:53:41  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 500 Internal Server Error"
+14:53:41  ERROR     MATIAS API rechazó factura venta 305: Error interno del servidor. La fecha (2026-04-30) del documento debe estar entre
+                2026-04-24 y 2026-04-29.
+14:53:42  WARNING            ⚠️  Factura NO emitida venta_id=305: Error interno del servidor. La fecha (2026-04-30) del documento debe estar entre
+                2026-04-24 y 2026-04-29.
+14:53:43  INFO        [ 20.4%] Venta #125 → $161,500 | acum: $3,262,613
+14:53:46  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:53:47  INFO      ✅ Factura FPR56 emitida — CUFE: 28a7a1994eda84ad0963…
+14:53:47  INFO               📄 FPR56 emitida OK  (CUFE: 28a7a1994eda84ad…)
+14:53:48  INFO        [ 20.7%] Venta #126 → $50,850 | acum: $3,313,463
+14:56:47  INFO      PostgreSQL conectado — modo DB activo
+14:56:48  INFO      Schema PostgreSQL verificado/creado
+14:56:48  INFO      ============================================================
+14:56:48  INFO        GENERADOR DE FACTURAS ELECTRÓNICAS — FERRETERÍA PUNTO ROJO
+14:56:48  INFO      ============================================================
+14:56:48  INFO        Catálogo          : 629 productos activos
+14:56:48  INFO        Objetivo          : $12,686,537
+14:56:48  INFO        Tickets           : $10,000 – $380,000
+14:56:48  INFO        Facturas aprox.   : ~65
+14:56:48  INFO        Fechas            : 2026-04-29 – 2026-04-29
+14:56:48  INFO        Método de pago    : efectivo
+14:56:48  INFO        Modo              : PRODUCCIÓN
+14:56:48  INFO      ============================================================
+14:56:51  INFO        [  1.2%] Venta #127 → $152,000 | acum: $152,000
+14:56:52  INFO      Renovando token Matias API (login)…
+14:56:53  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/auth/login "HTTP/1.1 200 OK"
+14:56:53  INFO      Auth Matias API → HTTP 200 | body: {"access_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiNTQ5MjkwYmUzYjZmZTg5OWI2MTZiZGVmZmU3YzU5ZWJmOGY3M2Y5OGRjNGJkODFiMjNlMDExYTIxMGE5MTFlY2U5ZTcyMTc5YzljYWM1ZTIiLCJpYXQiOjE3Nzc0OTI2MTIuOTQ4Mjk4LCJuYmYiOjE3Nzc0OTI2MTIuOTQ4Mjk5LCJleHAiOjE3ODUyNjg2MTIuOTQ2NjAxLCJzdWIiOiI2OTgiLCJzY29wZXMiOltdfQ.dEAVErK8pQEB2KR5mrE9ijijfcr7apllwnpIdljHGDqltfGYY972UClahDAFkHHFHQDAi8Brk84SJYluUIvOtEFmadJfAdBhid2oU0VM7HXWNiNy8CH5Cf045PHVtIuDFpFrWxhYrdy1rgQO00glwJYAWqvEXwxRrfTx2DdWvTDyi1njHttZLfv
+14:56:53  INFO      Token Matias API renovado OK (expira en 129600 min)
+14:56:56  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:56:56  INFO      ✅ Factura FPR57 emitida — CUFE: 3bdcf1113036dbef17da…
+14:56:56  INFO               📄 FPR57 emitida OK  (CUFE: 3bdcf1113036dbef…)
+14:56:57  INFO        [  2.0%] Venta #128 → $103,000 | acum: $255,000
+14:57:01  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:02  INFO      ✅ Factura FPR58 emitida — CUFE: 123c582572e842e30a80…
+14:57:02  INFO               📄 FPR58 emitida OK  (CUFE: 123c582572e842e3…)
+14:57:03  INFO        [  3.3%] Venta #129 → $160,000 | acum: $415,000
+14:57:06  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:07  INFO      ✅ Factura FPR59 emitida — CUFE: e7a033641a65e873d992…
+14:57:07  INFO               📄 FPR59 emitida OK  (CUFE: e7a033641a65e873…)
+14:57:08  INFO        [  8.3%] Venta #130 → $632,000 | acum: $1,047,000
+14:57:12  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:13  INFO      ✅ Factura FPR60 emitida — CUFE: b07d783c9e742f07ab09…
+14:57:13  INFO               📄 FPR60 emitida OK  (CUFE: b07d783c9e742f07…)
+14:57:14  INFO        [  9.8%] Venta #131 → $200,000 | acum: $1,247,000
+14:57:18  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:18  INFO      ✅ Factura FPR61 emitida — CUFE: a023294521ff6fe10509…
+14:57:18  INFO               📄 FPR61 emitida OK  (CUFE: a023294521ff6fe1…)
+14:57:20  INFO        [ 11.6%] Venta #132 → $230,900 | acum: $1,477,900
+14:57:23  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:24  INFO      ✅ Factura FPR62 emitida — CUFE: 7c1b00d5c6ce96133726…
+14:57:24  INFO               📄 FPR62 emitida OK  (CUFE: 7c1b00d5c6ce9613…)
+14:57:25  INFO        [ 11.8%] Venta #133 → $20,000 | acum: $1,497,900
+14:57:28  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:29  INFO      ✅ Factura FPR63 emitida — CUFE: 6281dc6185c87ae33f56…
+14:57:29  INFO               📄 FPR63 emitida OK  (CUFE: 6281dc6185c87ae3…)
+14:57:30  INFO        [ 14.0%] Venta #134 → $272,050 | acum: $1,769,950
+14:57:34  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:35  INFO      ✅ Factura FPR64 emitida — CUFE: 06baf8f862ec4495b859…
+14:57:35  INFO               📄 FPR64 emitida OK  (CUFE: 06baf8f862ec4495…)
+14:57:36  INFO        [ 15.1%] Venta #135 → $142,000 | acum: $1,911,950
+14:57:39  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:40  INFO      ✅ Factura FPR65 emitida — CUFE: a64fd9629a04aa36d6d9…
+14:57:40  INFO               📄 FPR65 emitida OK  (CUFE: a64fd9629a04aa36…)
+14:57:41  INFO        [ 16.6%] Venta #136 → $200,000 | acum: $2,111,950
+14:57:45  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:45  INFO      ✅ Factura FPR66 emitida — CUFE: 15a701ac8a659591b34d…
+14:57:45  INFO               📄 FPR66 emitida OK  (CUFE: 15a701ac8a659591…)
+14:57:47  INFO        [ 18.4%] Venta #137 → $220,750 | acum: $2,332,700
+14:57:50  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:51  INFO      ✅ Factura FPR67 emitida — CUFE: 46ff2d8fea26d412005e…
+14:57:51  INFO               📄 FPR67 emitida OK  (CUFE: 46ff2d8fea26d412…)
+14:57:52  INFO        [ 18.5%] Venta #138 → $8,000 | acum: $2,340,700
+14:57:55  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:57:56  INFO      ✅ Factura FPR68 emitida — CUFE: 95378592765793d7641e…
+14:57:56  INFO               📄 FPR68 emitida OK  (CUFE: 95378592765793d7…)
+14:57:57  INFO        [ 21.0%] Venta #139 → $319,500 | acum: $2,660,200
+14:58:01  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:02  INFO      ✅ Factura FPR69 emitida — CUFE: 0f7c09b460e5707eea2c…
+14:58:02  INFO               📄 FPR69 emitida OK  (CUFE: 0f7c09b460e5707e…)
+14:58:03  INFO        [ 23.0%] Venta #140 → $260,000 | acum: $2,920,200
+14:58:06  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:07  INFO      ✅ Factura FPR70 emitida — CUFE: e3133e8997966b9192f6…
+14:58:07  INFO               📄 FPR70 emitida OK  (CUFE: e3133e8997966b91…)
+14:58:08  INFO        [ 34.5%] Venta #141 → $1,453,000 | acum: $4,373,200
+14:58:12  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:12  INFO      ✅ Factura FPR71 emitida — CUFE: 27a5fd6a74a85972c06c…
+14:58:12  INFO               📄 FPR71 emitida OK  (CUFE: 27a5fd6a74a85972…)
+14:58:14  INFO        [ 34.8%] Venta #142 → $40,000 | acum: $4,413,200
+14:58:17  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:18  INFO      ✅ Factura FPR72 emitida — CUFE: b800bab27bedec69832e…
+14:58:18  INFO               📄 FPR72 emitida OK  (CUFE: b800bab27bedec69…)
+14:58:19  INFO        [ 35.2%] Venta #143 → $50,000 | acum: $4,463,200
+14:58:22  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:23  INFO      ✅ Factura FPR73 emitida — CUFE: 67bd4bae1d171326a8a9…
+14:58:23  INFO               📄 FPR73 emitida OK  (CUFE: 67bd4bae1d171326…)
+14:58:24  INFO        [ 36.0%] Venta #144 → $108,000 | acum: $4,571,200
+14:58:27  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:28  INFO      ✅ Factura FPR74 emitida — CUFE: ed72078793553a0d9c80…
+14:58:28  INFO               📄 FPR74 emitida OK  (CUFE: ed72078793553a0d…)
+14:58:29  INFO        [ 36.4%] Venta #145 → $43,000 | acum: $4,614,200
+14:58:32  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:33  INFO      ✅ Factura FPR75 emitida — CUFE: 7f71af3f90b7d48d4f39…
+14:58:33  INFO               📄 FPR75 emitida OK  (CUFE: 7f71af3f90b7d48d…)
+14:58:34  INFO        [ 37.2%] Venta #146 → $99,500 | acum: $4,713,700
+14:58:38  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:38  INFO      ✅ Factura FPR76 emitida — CUFE: 5ce71bbadda3af296faa…
+14:58:38  INFO               📄 FPR76 emitida OK  (CUFE: 5ce71bbadda3af29…)
+14:58:40  INFO        [ 37.9%] Venta #147 → $92,000 | acum: $4,805,700
+14:58:43  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:44  INFO      ✅ Factura FPR77 emitida — CUFE: 305a9cfa030293b73e83…
+14:58:44  INFO               📄 FPR77 emitida OK  (CUFE: 305a9cfa030293b7…)
+14:58:45  INFO        [ 42.6%] Venta #148 → $600,000 | acum: $5,405,700
+14:58:48  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:49  INFO      ✅ Factura FPR78 emitida — CUFE: ad9c1254e017b35a6810…
+14:58:49  INFO               📄 FPR78 emitida OK  (CUFE: ad9c1254e017b35a…)
+14:58:50  INFO        [ 47.8%] Venta #149 → $664,000 | acum: $6,069,700
+14:58:53  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:54  INFO      ✅ Factura FPR79 emitida — CUFE: 4945d6a006843ca602b6…
+14:58:54  INFO               📄 FPR79 emitida OK  (CUFE: 4945d6a006843ca6…)
+14:58:55  INFO        [ 60.5%] Venta #150 → $1,600,000 | acum: $7,669,700
+14:58:59  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:58:59  INFO      ✅ Factura FPR80 emitida — CUFE: 48c4e6703a22c9efd081…
+14:58:59  INFO               📄 FPR80 emitida OK  (CUFE: 48c4e6703a22c9ef…)
+14:59:01  INFO        [ 64.8%] Venta #151 → $546,000 | acum: $8,215,700
+14:59:04  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:05  INFO      ✅ Factura FPR81 emitida — CUFE: a3f50822550e9da448d2…
+14:59:05  INFO               📄 FPR81 emitida OK  (CUFE: a3f50822550e9da4…)
+14:59:06  INFO        [ 67.6%] Venta #152 → $360,800 | acum: $8,576,500
+14:59:09  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:10  INFO      ✅ Factura FPR82 emitida — CUFE: ba02938ec7a7c986524e…
+14:59:10  INFO               📄 FPR82 emitida OK  (CUFE: ba02938ec7a7c986…)
+14:59:11  INFO        [ 67.7%] Venta #153 → $9,000 | acum: $8,585,500
+14:59:14  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:15  INFO      ✅ Factura FPR83 emitida — CUFE: f9429a9ce6bb10958982…
+14:59:15  INFO               📄 FPR83 emitida OK  (CUFE: f9429a9ce6bb1095…)
+14:59:16  INFO        [ 69.7%] Venta #154 → $256,500 | acum: $8,842,000
+14:59:20  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:20  INFO      ✅ Factura FPR84 emitida — CUFE: 27c712c89e3e2b1599c0…
+14:59:20  INFO               📄 FPR84 emitida OK  (CUFE: 27c712c89e3e2b15…)
+14:59:22  INFO        [ 82.8%] Venta #155 → $1,660,000 | acum: $10,502,000
+14:59:25  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:26  INFO      ✅ Factura FPR85 emitida — CUFE: c6bc96e2f16fc0e58ba7…
+14:59:26  INFO               📄 FPR85 emitida OK  (CUFE: c6bc96e2f16fc0e5…)
+14:59:27  INFO        [ 85.2%] Venta #156 → $306,000 | acum: $10,808,000
+14:59:30  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:31  INFO      ✅ Factura FPR86 emitida — CUFE: 7cae8d8116abd2b13b6d…
+14:59:31  INFO               📄 FPR86 emitida OK  (CUFE: 7cae8d8116abd2b1…)
+14:59:32  INFO        [ 88.7%] Venta #157 → $440,000 | acum: $11,248,000
+14:59:35  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:36  INFO      ✅ Factura FPR87 emitida — CUFE: 36a831fcf64165c2802e…
+14:59:36  INFO               📄 FPR87 emitida OK  (CUFE: 36a831fcf64165c2…)
+14:59:37  INFO        [ 91.7%] Venta #158 → $390,000 | acum: $11,638,000
+14:59:40  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:41  INFO      ✅ Factura FPR88 emitida — CUFE: 47ffe6e8c2264244ecce…
+14:59:41  INFO               📄 FPR88 emitida OK  (CUFE: 47ffe6e8c2264244…)
+14:59:42  INFO        [ 92.7%] Venta #159 → $120,000 | acum: $11,758,000
+14:59:46  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:46  INFO      ✅ Factura FPR89 emitida — CUFE: 5cfd4abfa46d29439011…
+14:59:46  INFO               📄 FPR89 emitida OK  (CUFE: 5cfd4abfa46d2943…)
+14:59:48  INFO        [ 93.4%] Venta #160 → $86,400 | acum: $11,844,400
+14:59:51  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:52  INFO      ✅ Factura FPR90 emitida — CUFE: 1658cc4a8929a03c82ab…
+14:59:52  INFO               📄 FPR90 emitida OK  (CUFE: 1658cc4a8929a03c…)
+14:59:53  INFO        [ 94.3%] Venta #161 → $124,500 | acum: $11,968,900
+14:59:56  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+14:59:57  INFO      ✅ Factura FPR91 emitida — CUFE: 19b11d27cdf09b7bbbc6…
+14:59:57  INFO               📄 FPR91 emitida OK  (CUFE: 19b11d27cdf09b7b…)
+14:59:58  INFO        [ 95.5%] Venta #162 → $152,800 | acum: $12,121,700
+15:00:04  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+15:00:05  INFO      ✅ Factura FPR92 emitida — CUFE: 1e57d40ce470b5ce7d6f…
+15:00:05  INFO               📄 FPR92 emitida OK  (CUFE: 1e57d40ce470b5ce…)
+15:00:06  INFO        [ 95.6%] Venta #163 → $5,000 | acum: $12,126,700
+15:00:09  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+15:00:10  INFO      ✅ Factura FPR93 emitida — CUFE: ff13a2b14d687420f228…
+15:00:10  INFO               📄 FPR93 emitida OK  (CUFE: ff13a2b14d687420…)
+15:00:12  INFO        [ 97.8%] Venta #164 → $286,700 | acum: $12,413,400
+15:00:15  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+15:00:16  INFO      ✅ Factura FPR94 emitida — CUFE: 8720812dfd92acc0ac32…
+15:00:16  INFO               📄 FPR94 emitida OK  (CUFE: 8720812dfd92acc0…)
+15:00:17  INFO        [102.5%] Venta #165 → $585,750 | acum: $12,999,150
+15:00:21  INFO      HTTP Request: POST https://api-v2.matias-api.com/api/ubl2.1/invoice "HTTP/1.1 200 OK"
+15:00:21  INFO      ✅ Factura FPR95 emitida — CUFE: b67b600d92923a9a87d2…
+15:00:21  INFO               📄 FPR95 emitida OK  (CUFE: b67b600d92923a9a…)
+15:00:22  INFO      
+15:00:22  INFO      ============================================================
+15:00:22  INFO        🎉  PROCESO COMPLETADO
+15:00:22  INFO        Total acumulado    : $12,999,150
+15:00:22  INFO        Ventas insertadas  : 39
+15:00:22  INFO        Facturas emitidas  : 39
+15:00:22  INFO        Facturas con error : 0
+15:00:22  INFO      ============================================================
