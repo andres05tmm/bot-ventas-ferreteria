@@ -20,6 +20,7 @@ import asyncio
 import logging
 from datetime import datetime, time
 
+import anthropic
 import config
 from memoria import cargar_memoria, guardar_memoria
 
@@ -118,8 +119,17 @@ async def _ping_cache():
 
     except asyncio.TimeoutError:
         logger.warning("[KEEPALIVE] ⏱ Timeout en ping")
+    except anthropic.OverloadedError:
+        # 529 overloaded_error: transitorio, no reportar como error a Sentry
+        logger.warning(
+            f"[KEEPALIVE] ⚠️ API sobrecargada (transitorio) — "
+            f"se reintentará en {INTERVALO_SEG // 60} min"
+        )
+    except anthropic.APIStatusError as e:
+        # Otros errores HTTP del SDK de Anthropic (401, 500, etc.)
+        logger.error(f"[KEEPALIVE] Error API ({e.status_code}): {e.message}")
     except Exception as e:
-        logger.error(f"[KEEPALIVE] Error: {e}")
+        logger.error(f"[KEEPALIVE] Error inesperado: {e}")
 
 
 async def loop_keepalive():
