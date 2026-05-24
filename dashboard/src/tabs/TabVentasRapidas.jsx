@@ -1185,7 +1185,6 @@ function ModalColorPreparado({ show, precioBase, nombreProducto, onClose, onConf
 const MOSTRAR_INICIAL = 8
 
 function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
-  const t = useTheme()
   const [expandido, setExpandido] = useState(false)
   if (!grupo.items.length) return null
 
@@ -1203,41 +1202,37 @@ function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
   const etiquetaCount = grupo.items.length === 1 ? '1 opción' : `${grupo.items.length} colores`
 
   return (
-    <div style={{
-      background: t.card, border: `1px solid ${t.border}`, borderRadius: 11,
-      padding: '14px 16px', marginBottom: 12,
-    }}>
+    <Card className="px-4 py-3.5 mb-3 rounded-xl">
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span style={{ fontSize: 16 }}>{grupo.icono}</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>{grupo.titulo}</span>
-          <span style={{ fontSize: 10, color: t.textMuted }}>({etiquetaCount})</span>
+      <div className="flex items-baseline justify-between mb-2.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-base">{grupo.icono}</span>
+          <span className="text-[13px] font-bold text-foreground">{grupo.titulo}</span>
+          <span className="text-[10px] text-muted-foreground">({etiquetaCount})</span>
         </div>
         {!grupo.sinPrecio && (
-          <span style={{ fontSize: 15, fontFamily: 'monospace', fontWeight: 700, color: t.accent }}>{cop(precioBase)}</span>
+          <span className="text-[15px] font-mono font-bold text-primary tabular">{cop(precioBase)}</span>
         )}
       </div>
 
       {/* Pills de colores */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+      <div className="flex flex-wrap gap-1.5">
         {visibles.map(prod => {
           const color = grupo.getColor(prod)
           const enCarrito = carrito.some(c => c.key === prod.key)
           return (
             <button
               key={prod.key}
+              type="button"
               onClick={() => onAgregar(prod)}
-              style={{
-                padding: '5px 11px', borderRadius: 99, cursor: 'pointer',
-                background: enCarrito ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#1a1a1a'),
-                border: `1px solid ${enCarrito ? t.accent : t.border}`,
-                color: enCarrito ? t.accent : t.text,
-                fontSize: 11, fontFamily: 'inherit', fontWeight: enCarrito ? 600 : 400,
-                transition: 'all .12s', whiteSpace: 'nowrap',
-              }}
+              className={cn(
+                'px-3 py-1 rounded-full text-[11px] border whitespace-nowrap transition-colors',
+                enCarrito
+                  ? 'bg-primary-soft border-primary text-primary font-semibold'
+                  : 'bg-muted border-border text-foreground hover:border-primary/40',
+              )}
             >
-              {enCarrito && <span style={{ marginRight: 4, fontSize: 9 }}>✓</span>}
+              {enCarrito && <span className="mr-1 text-[9px]">✓</span>}
               {color}
             </button>
           )
@@ -1246,13 +1241,9 @@ function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
         {/* Ver más / menos */}
         {hay_mas && (
           <button
+            type="button"
             onClick={() => setExpandido(v => !v)}
-            style={{
-              padding: '5px 11px', borderRadius: 99, cursor: 'pointer',
-              background: 'transparent',
-              border: `1px dashed ${t.border}`,
-              color: t.textMuted, fontSize: 11, fontFamily: 'inherit',
-            }}
+            className="px-3 py-1 rounded-full text-[11px] bg-transparent border border-dashed border-border text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
           >
             {expandido ? '▲ ver menos' : `+${grupo.items.length - MOSTRAR_INICIAL} más`}
           </button>
@@ -1261,20 +1252,15 @@ function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
         {/* Botón color preparado */}
         {onColorPrep && !grupo.sinColorPrep && !grupo.sinPrecio && (
           <button
+            type="button"
             onClick={() => onColorPrep(precioBase, grupo.titulo)}
-            style={{
-              padding: '5px 12px', borderRadius: 99, cursor: 'pointer',
-              background: 'transparent',
-              border: `1px solid ${t.accent}55`,
-              color: t.accent, fontSize: 11, fontFamily: 'inherit',
-              display: 'flex', alignItems: 'center', gap: 4,
-            }}
+            className="px-3 py-1 rounded-full text-[11px] bg-transparent border border-primary/40 text-primary hover:bg-primary-soft inline-flex items-center gap-1 transition-colors"
           >
             🎨 Color preparado
           </button>
         )}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -1282,7 +1268,6 @@ function GrupoColores({ grupo, carrito, onAgregar, onColorPrep }) {
 // VISTA GRUPOS — contenedor que usa GrupoColores + cards sueltas
 // ══════════════════════════════════════════════════════════════════════════════
 function VistaGrupos({ prods, subcatKey, carrito, onClickProd, favKeys, onFav, columnas, onColorPrep }) {
-  const t = useTheme()
   const { grupos, sueltos } = buildGrupos(prods, subcatKey)
 
   // Para agregar directo desde pill (producto simple)
@@ -1295,12 +1280,13 @@ function VistaGrupos({ prods, subcatKey, carrito, onClickProd, favKeys, onFav, c
       ))}
       {sueltos.length > 0 && (
         <div>
-          {sueltos.length > 0 && (
-            <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 8, marginTop: 4 }}>
-              Otros
-            </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columnas}, 1fr)`, gap: 8 }}>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 mt-1">
+            Otros
+          </div>
+          <div
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(${columnas}, minmax(0, 1fr))` }}
+          >
             {sueltos.map(prod => (
               <ProdCard
                 key={prod.key} prod={prod}
