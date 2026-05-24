@@ -1,6 +1,6 @@
 # Próximos pasos — Dashboard Redesign
 
-**Última actualización**: 2026-05-23 — Fase 1 cerrada
+**Última actualización**: 2026-05-24 — Fase 2 bloqueada (Stitch MCP no responde)
 
 ## Estado actual
 
@@ -11,7 +11,14 @@
     - `dashboard/src/index.css` vaciado (antes contenía HTML basura)
     - Viewport en `dashboard/index.html` sin `maximum-scale=1.0, user-scalable=no` (mejora accesibilidad de zoom)
 
-⏸️ Fase 2 sin iniciar
+✅ **FASE 2 COMPLETADA** (2026-05-24):
+  - 13 mockups generados en Stitch (`projects/12113492557069924495`)
+  - Comparativa: `MOCKUPS-COMPARATIVA.md`
+  - **Andrés eligió**: dirección **A · Bento minimalista** (Linear-style) + variante **dark mode** complementaria
+  - Feedback de calibración: cifras hero y subtítulos eran muy grandes → type scale bajada en DESIGN.md (hero tope **40px**, no 64-72px de Stitch)
+  - **Deliverable final**: `.planning/dashboard-redesign/DESIGN.md` (locked) con tokens 3 capas (primitive → semantic → component), light + dark, type scale calibrada
+
+⏸️ Fase 3 lista para arrancar
 
 ## Decisiones tomadas en Fase 1
 
@@ -27,17 +34,18 @@
 
 Capturar los screenshots listados en `baseline-screenshots/README.md` antes de Fase 2 (para Stitch). 5-10 minutos en producción.
 
-## Para retomar — Fase 2: Dirección visual por evidencia
+## Para retomar — Fase 3: Design System en código
 
-1. **Configurar proyecto Stitch** y subir baseline (assets actuales + IA.md como input semántico).
-2. **`stitch::taste-design`** → DESIGN.md anti-slop premium (tipo extremo, color calibrado `#C8200E`, layout asimétrico, micro-motion).
-3. **Generar 3-4 mockups exploratorios** del cockpit "HOY" + Ventas Rápidas + Caja:
-   - A: Bento minimalista (Linear-style)
-   - B: Industrial denso (Bloomberg/POS)
-   - C: Glassmorphism + motion
-   - D: Editorial/serio (banking)
-4. **Revisión con Andrés** → elegir dirección → consolidar `DESIGN.md` definitivo.
-5. **Deliverables**: 4 mockups + `DESIGN.md` final.
+1. `cd dashboard && npx shadcn@latest init` con stack Tailwind + tipografía Inter.
+2. Convertir `DESIGN.md` capa semantic → CSS vars en `dashboard/src/index.css` (ya vaciado en Fase 1, listo para tokens).
+3. Mapear capa component → preset Tailwind y `tailwind.config.js`.
+4. Instalar base shadcn: `Button Input Select Dialog DropdownMenu Table Tabs Toast Tooltip Card Badge Avatar Command` + `Toaster` global.
+5. Cargar Inter via `@fontsource/inter` (no `<link>` externo — Railway).
+6. **Adapter pattern**: `shared.jsx` mantiene exports actuales y delega a shadcn por dentro. Cero refactor de tabs en Fase 3.
+7. Sustituir `.stitch/DESIGN.md` baseline por `DESIGN.md` v2 de `.planning/dashboard-redesign/`.
+8. Eliminar los 4 temas legados (caramelo/forja/brasa/ferrari) del baseline cuando ya nada los referencie.
+
+**Deliverables Fase 3**: shadcn instalado, tokens en código, dos temas (light/dark) operativos vía `prefers-color-scheme` + toggle, `shared.jsx` adapter, sin regresión visual en tabs todavía sin migrar.
 
 ## Decisiones pendientes para Fase 2
 
