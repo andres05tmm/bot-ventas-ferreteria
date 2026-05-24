@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { Star } from 'lucide-react'
 import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
+import { Card } from '@/components/ui/card.jsx'
+import { cn } from '@/lib/utils'
 import { useAuth } from '../hooks/useAuth.js'
 import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
 import {
@@ -38,87 +41,60 @@ function useIsMobile() {
 // ══════════════════════════════════════════════════════════════════════════════
 // PRODUCT CARD
 // ══════════════════════════════════════════════════════════════════════════════
+const TIPO_BADGE = { cm: 'cm', mlt: 'ml', grm: 'gr', kg: 'kg', fraccion: '½' }
+
 function ProdCard({ prod, onClick, isFav, onFav, cantCarrito, isHighlighted }) {
-  const t    = useTheme()
-  const tipo = tipoProd(prod)
+  const tipo     = tipoProd(prod)
+  const enCarro  = cantCarrito > 0
+  const tipoTxt  = TIPO_BADGE[tipo]
 
   return (
-    <div
+    <Card
       onClick={() => onClick(prod)}
-      style={{
-        background:   cantCarrito > 0 ? t.accentSub : t.card,
-        border:       `1px solid ${isHighlighted ? t.accent : cantCarrito > 0 ? t.accent + '55' : t.border}`,
-        boxShadow:    isHighlighted ? `0 0 0 2px ${t.accent}55` : undefined,
-        borderRadius: 9,
-        padding:      '10px 10px 8px',
-        cursor:       'pointer',
-        position:     'relative',
-        transition:   'all .15s',
-        userSelect:   'none',
-      }}
-      onMouseEnter={e => {
-        e.currentTarget.style.borderColor = t.accent + '88'
-        e.currentTarget.style.transform   = 'translateY(-1px)'
-        e.currentTarget.style.boxShadow   = `0 4px 14px rgba(0,0,0,.35)`
-      }}
-      onMouseLeave={e => {
-        e.currentTarget.style.borderColor = cantCarrito > 0 ? t.accent + '55' : t.border
-        e.currentTarget.style.transform   = 'translateY(0)'
-        e.currentTarget.style.boxShadow   = 'none'
-      }}
+      className={cn(
+        'group relative cursor-pointer select-none px-2.5 pt-2.5 pb-2 rounded-md transition-all',
+        'hover:-translate-y-px hover:border-primary/60 hover:shadow-md',
+        enCarro    ? 'bg-primary-soft border-primary/40' : 'bg-card border-border',
+        isHighlighted && 'ring-2 ring-primary/40 border-primary',
+      )}
     >
       {/* Estrella favorito */}
-      <span
+      <button
+        type="button"
         onClick={e => { e.stopPropagation(); onFav(prod.key) }}
         title={isFav ? 'Quitar de favoritos' : 'Agregar a favoritos'}
-        style={{
-          position: 'absolute', top: 6, right: 7,
-          fontSize: 13, color: isFav ? '#fbbf24' : t.muted,
-          cursor: 'pointer', transition: 'color .15s', lineHeight: 1,
-          opacity: isFav ? 1 : .4,
-        }}
-        onMouseEnter={e => e.currentTarget.style.opacity = 1}
-        onMouseLeave={e => e.currentTarget.style.opacity = isFav ? 1 : .4}
+        className={cn(
+          'absolute top-1.5 right-1.5 leading-none transition-opacity',
+          isFav ? 'opacity-100 text-warning' : 'opacity-40 text-muted-foreground hover:opacity-100',
+        )}
       >
-        {isFav ? '★' : '☆'}
-      </span>
+        <Star className={cn('size-3.5', isFav && 'fill-current')} />
+      </button>
 
       {/* Badge cantidad en carrito */}
-      {cantCarrito > 0 && (
-        <div style={{
-          position: 'absolute', top: 6, left: 7,
-          background: t.accent, color: '#fff',
-          fontSize: 9, fontWeight: 700, lineHeight: 1,
-          padding: '2px 5px', borderRadius: 99,
-          fontFamily: 'monospace',
-        }}>{cantCarrito}</div>
+      {enCarro && (
+        <span className="absolute top-1.5 left-1.5 inline-flex items-center justify-center px-1.5 py-0.5 text-[9px] font-bold leading-none rounded-full bg-primary text-primary-foreground tabular">
+          {cantCarrito}
+        </span>
       )}
 
       {/* Badge tipo fracción/cm */}
-      {tipo !== 'simple' && (
-        <div style={{
-          position: 'absolute', bottom: 6, right: 7,
-          fontSize: 9, color: t.textMuted,
-          background: t.border, borderRadius: 3, padding: '1px 4px',
-          fontFamily: 'monospace',
-        }}>
-          {tipo === 'cm' ? 'cm' : tipo === 'mlt' ? 'ml' : tipo === 'grm' ? 'gr' : '½'}
-        </div>
+      {tipoTxt && (
+        <span className="absolute bottom-1.5 right-1.5 text-[9px] font-mono px-1 py-px rounded bg-muted text-muted-foreground">
+          {tipoTxt}
+        </span>
       )}
 
-      <div style={{ fontSize: 17, marginBottom: 5, marginTop: cantCarrito > 0 ? 8 : 0 }}>
+      <div className={cn('text-[17px] mb-1', enCarro && 'mt-2')}>
         {iconCat(prod.categoria)}
       </div>
-      <div style={{
-        fontSize: 11, fontWeight: 600, color: t.text,
-        lineHeight: 1.3, marginBottom: 3, paddingRight: 12,
-      }}>
+      <div className="text-[11px] font-semibold text-foreground leading-snug mb-0.5 pr-3">
         {prod.nombre}
       </div>
-      <div style={{ fontSize: 11, color: t.green, fontFamily: 'monospace' }}>
+      <div className="text-[11px] font-mono text-success">
         {cop(prod.precio)}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -126,34 +102,24 @@ function ProdCard({ prod, onClick, isFav, onFav, cantCarrito, isHighlighted }) {
 // SECCIÓN
 // ══════════════════════════════════════════════════════════════════════════════
 function Seccion({ icono, titulo, cantidad, productos, carrito, favKeys, onClickProd, onFav, columnas = 6, highlightedKey }) {
-  const t = useTheme()
   if (!productos.length) return null
   return (
-    <div style={{ marginBottom: 24 }}>
+    <section className="mb-6">
       {/* Header sección */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
-      }}>
-        <span style={{ fontSize: 14 }}>{icono}</span>
-        <span style={{
-          fontSize: 11, fontWeight: 600, color: t.textSub,
-          textTransform: 'uppercase', letterSpacing: '.1em',
-        }}>
+      <div className="flex items-center gap-2 mb-2.5">
+        <span className="text-sm">{icono}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {titulo}
         </span>
-        <div style={{ flex: 1, height: 1, background: t.border }} />
-        <span style={{
-          fontSize: 10, color: t.textMuted,
-          fontFamily: 'monospace',
-        }}>{cantidad}</span>
+        <div className="flex-1 h-px bg-border" />
+        <span className="text-[10px] font-mono text-muted-foreground">{cantidad}</span>
       </div>
 
       {/* Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: `repeat(${columnas}, 1fr)`,
-        gap: 7,
-      }}>
+      <div
+        className="grid gap-[7px]"
+        style={{ gridTemplateColumns: `repeat(${columnas}, minmax(0, 1fr))` }}
+      >
         {productos.map(p => (
           <ProdCard
             key={p.key}
@@ -166,7 +132,7 @@ function Seccion({ icono, titulo, cantidad, productos, carrito, favKeys, onClick
           />
         ))}
       </div>
-    </div>
+    </section>
   )
 }
 
