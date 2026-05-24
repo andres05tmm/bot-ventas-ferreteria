@@ -1,6 +1,6 @@
 # Próximos pasos — Dashboard Redesign
 
-**Última actualización**: 2026-05-24 — Fase 2 bloqueada (Stitch MCP no responde)
+**Última actualización**: 2026-05-24 — Wave 3.b 6/7 sub-tareas completadas (queda solo el shell del tab)
 
 ## Estado actual
 
@@ -18,7 +18,54 @@
   - Feedback de calibración: cifras hero y subtítulos eran muy grandes → type scale bajada en DESIGN.md (hero tope **40px**, no 64-72px de Stitch)
   - **Deliverable final**: `.planning/dashboard-redesign/DESIGN.md` (locked) con tokens 3 capas (primitive → semantic → component), light + dark, type scale calibrada
 
-⏸️ Fase 3 lista para arrancar
+✅ **FASE 3 COMPLETADA** (2026-05-24):
+  - `dashboard/tailwind.config.js` + `postcss.config.js` con tokens primitive (brand-red 50-900, escala 4-based, type scale calibrada, radii, shadows)
+  - `dashboard/src/index.css` con CSS vars semantic light + dark + auto `prefers-color-scheme`, focus-visible, reduce-motion
+  - `dashboard/components.json` + `src/lib/utils.js` (`cn()`) + alias `@` en `vite.config.js`
+  - Inter cargada vía `@fontsource/inter` (400/500/600/700) en `main.jsx`
+  - Primitives shadcn en `src/components/ui/`: button, card, input, label, badge, tooltip, dialog, select, dropdown-menu, table, tabs, avatar, command, sonner (Toaster)
+  - `Toaster` montado globalmente en `App.jsx`
+  - `shared.jsx` con nota de adapter (Fase 4 migra cada tab a `ui/*`)
+  - `npm run build` verde, sin regresiones visuales en tabs legacy
+  - **Deliverable**: design system en código operativo, listo para Fase 4
+
+🚧 **FASE 4 — Wave 1.a EN CURSO** (2026-05-24):
+  - ✅ Shell nuevo: `Sidebar.jsx` (240px desktop, colapsable, grupos Operación/Gestión/Reportes/Fiscal + Hoy top-level) y `MobileNav.jsx` (5 botones + drawer)
+  - ✅ Router real: `App.jsx` con `react-router` y 17 rutas (`/hoy`, `/ventas`, `/caja`, etc.). `/` redirige a `/hoy`
+  - ✅ `routes.jsx`: fuente única de verdad consumida por Sidebar, MobileNav y CommandPalette
+  - ✅ `TabHoy.jsx` cockpit (bento: ventas/caja/gastos, acumulados, métodos de pago, últimas 8 ventas, alertas stock, quick actions)
+  - ✅ `CommandPalette.jsx` (⌘K/Ctrl+K, ⌘N nueva venta) con navegación + acciones rápidas
+  - ✅ `HeaderBar.jsx` simplificado (título de ruta + vendor selector + refresh + bot status)
+  - ✅ `AppShell.jsx` con tema light/dark (data-theme en html, persiste en localStorage, respeta prefers-color-scheme); `ThemeContext` legacy mapea caramelo↔forja para tabs aún no migradas
+  - ✅ `npm run build` verde (1.9MB main, 7.7KB css gzipped)
+  - ✅ **Wave 1.b completada** (2026-05-24): migrados a primitives `ui/*` + tokens semantic
+    - `TabResumen.jsx`: KPIs en grid de Cards, AreaChart con CSS vars, métodos de pago + top 5 + vendedores. Sin THEMES legacy
+    - `TabTopProductos.jsx`: reescrito limpio. Chips de criterio, barras inline (sin SVG custom), tabla shadcn, categorías como cards
+    - `TabResultados.jsx`: shadcn Tabs internas — P&L (default) + Top productos (TabTopProductos embedded). EstadoResultados, GraficaHistorica, ProyeccionCaja tokenizados
+    - `npm run build` verde (8.04 KB css gzipped)
+  - 🚧 **Wave 2 parcial completada** (2026-05-24): 4/5 tabs migradas a primitives `ui/*` + tokens
+    - `TabKardex.jsx`: cards de productos colapsables, tabla movimientos con badges Entrada/Salida tokenizados (226 → 220 LOC)
+    - `TabClientes.jsx`: tabla densa desktop + lista mobile, Avatar shadcn, modales con `Dialog`+`Label`+`Input`, paginación con `Button`, edición/eliminación (792 → 470 LOC)
+    - `TabHistorial.jsx`: KPIs + filtros pagado/pendiente, tabla con badges método tokenizados, modal editar y eliminar (con eliminación granular por línea de venta multi-producto), export a Excel via `DropdownMenu` shadcn (676 → 480 LOC)
+    - **Fusión Historial + Histórico**: pospuesta — ambas conviven en `/historial` (transacciones del día tokenizado) y `/historico` (calendario mensual legacy). Cmd+K solo apunta a `/historial`
+    - `npm run build` verde (8.35 KB css gzipped, 555 KB js gzipped)
+  - ✅ **Wave 2.b completada** (2026-05-24): `TabInventario.jsx` reescrito (1328 → 765 LOC). PrecioInline/StockInline/FraccionesEditor/MayoristaInline + 3 modales (Crear/Editar/Eliminar) migrados a `Dialog`+`Button`+`Input`+`Label` shadcn. Cards de categoría con `Card`, subcategorías como chips tokenizadas, tabla densa desktop y MobileProductCard. Icons via lucide-react (Pencil/Trash2/Plus/Search/ChevronUp/Down/Check/X/AlertCircle/Package/Loader2). `UNIDAD_COLORES` hex → `UNIDAD_CLASS` tokens (warning/success/primary). Sin `useTheme()` ni inline styles. `npm run build` verde (8.60 KB css gzipped, 553 KB js gzipped)
+  - ✅ **Wave 3.a completada** (2026-05-24): POS — Caja + Gastos
+    - `TabCaja.jsx` (415 → 330 LOC): toast con sonner global, `Dialog` confirmar cierre, `Dialog` venta varia, KPIs Card+lucide, tabla gastos del día tokenizada
+    - `TabGastos.jsx` (323 → 310 LOC): **`ModalRegistrarGasto` exportado como named export (listo para reuso en Fase C desde el POS)**, gráficas con colores `hsl(var(--*))` tokenizados, period selector chips, tabla tokenizada
+    - `npm run build` verde (8.63 KB css gzipped, 555 KB js gzipped)
+  - 🚧 **Wave 3.b EN PROGRESO**: `TabVentasRapidas.jsx` (**2911 → 2404 LOC**). 6/7 sub-tareas completadas en sesión dedicada (2026-05-24):
+    - ✅ **1. Constantes/helpers** (commit `2796e58`): nuevo archivo `dashboard/src/tabs/ventasRapidas.helpers.js` (154 LOC) con `FAV_KEY`/`CART_KEY` + load/save, `CAT_ICON`/`iconCat`/`catLabel`, `nl`, `SUBCATS`, `ordenarTornilleria`, `tipoProd`, `GRUPOS_CONFIG`/`SUBCATS_COLORES`/`buildGrupos`. Mismas claves storage (`vr_favs_v2`/`vr_carrito_v1`)
+    - ✅ **2. ProdCard + Seccion** (commit `b48a544`): `<Card>` shadcn con `bg-primary-soft`/`border-primary` cuando hay items en carrito, `ring-primary` highlighted. Estrella favorito → lucide `<Star fill-current />`. Badges cantidad/tipo (cm/ml/gr/kg/fracción) tokenizados. `Seccion` sin `useTheme`
+    - ✅ **3. PanelCarrito + CartItem** (commit `e4ad1d3`): tokens shadcn (`bg-card`, `bg-primary-soft`, `border-border`), `animate-in fade-in slide-in`, iconos lucide `Trash2`/`ShoppingCart`. Multiplicadores (×1/×2/×3/×5/×10) y edición de cantidad intactos. Toggle "calcular cambio" tokenizado
+    - ✅ **4. Modales (×9) a Dialog shadcn** (commit `9edf12b`): `Modal` base montado sobre `<Dialog>` preservando API → los 6 modales hijos (Fraccion/Cm/Mlt/Grm/Kg/Qty) heredan el shell sin tocar lógica interna. `ModalCheckout`/`ModalMiscelanea`/`ModalColorPreparado` reescritos con Dialog y tokens. `PrecioEditor` tokenizado (warning/primary). `createPortal`/`getPortalRoot` se conservan para FAB/drawer móvil
+    - ✅ **5. SelectorCliente + reuso ModalCliente** (commit `92f1e18`): `ModalCliente` ahora es **named export** desde `TabClientes.jsx` con prop opcional `nombreInicial`. `ModalNuevoCliente` eliminado (~260 LOC duplicadas borradas). `SelectorCliente` reescrito con tokens (`bg-muted`, `bg-primary-soft`) e iconos lucide `User`/`Plus`/`X`/`Loader2`. Prop `t` removido de `PanelCarrito` y sus dos call sites
+    - ✅ **6. VistaGrupos + GrupoColores** (commit `04dfa11`): `GrupoColores` con `<Card>` shadcn, pills `bg-primary-soft+border-primary` en carrito, "ver más" con `border-dashed`, "color preparado" con `border-primary/40`. Grids de sueltas con columnas dinámicas vía inline `style` (Tailwind no genera `repeat(N)` en build)
+    - 🚧 **7. PENDIENTE — Shell del tab + smoke test**: queda migrar el componente principal `TabVentasRapidas` (~2200 LOC restantes en el tab — layout 3 columnas, sidebar de categorías/subcategorías, búsqueda, FAB móvil + drawer del carrito, banner caja cerrada, todo el `useTheme()` restante). **Sub-tarea 7 NO se ha empezado**.
+    - Commit + build verde tras cada sub-tarea (último build: 9.23 KB css gzipped, 552.82 KB js gzipped)
+    - Riesgo ALTO: tab crítico de operación diaria. Mantener mismas claves localStorage (`vr_favs_v2`) y sessionStorage (`vr_carrito_v1`)
+  - ⏸️ **Pendiente Wave 3.c**: atajos POS — `CajaStatusPill` widget en HeaderBar + reusar `ModalRegistrarGasto` desde `/ventas` (ya está exportado de `TabGastos.jsx`)
+  - ⏸️ **Pendiente Wave 4**: Fiscal — TabFacturacion, TabLibroIVA, TabComprasFiscal, TabCompras, TabProveedores, FacturasElectronicasRecibidas
 
 ## Decisiones tomadas en Fase 1
 
