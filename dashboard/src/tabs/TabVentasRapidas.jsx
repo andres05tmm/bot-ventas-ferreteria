@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Star, Trash2, ShoppingCart } from 'lucide-react'
+import { Star, Trash2, ShoppingCart, User, X, Plus, Loader2 } from 'lucide-react'
 import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
 import { Card } from '@/components/ui/card.jsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { cn } from '@/lib/utils'
+import { ModalCliente } from './TabClientes.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
 import {
@@ -1319,7 +1320,7 @@ function VistaGrupos({ prods, subcatKey, carrito, onClickProd, favKeys, onFav, c
 // ══════════════════════════════════════════════════════════════════════════════
 // SELECTOR DE CLIENTE
 // ══════════════════════════════════════════════════════════════════════════════
-function SelectorCliente({ t, clienteSeleccionado, onSeleccionar }) {
+function SelectorCliente({ clienteSeleccionado, onSeleccionar }) {
   const [busq,       setBusq]       = useState('')
   const [resultados, setResultados] = useState([])
   const [buscando,   setBuscando]   = useState(false)
@@ -1344,10 +1345,10 @@ function SelectorCliente({ t, clienteSeleccionado, onSeleccionar }) {
     }, 350)
   }
 
+  // c.id es el PK integer de la tabla clientes (FK en ventas.cliente_id)
+  // c['Identificacion'] es la cédula/NIT — distinto, no usar como FK
   const seleccionar = (c) => {
     const nombre = c['Nombre tercero'] || ''
-    // c.id es el PK integer de la tabla clientes (FK en ventas.cliente_id)
-    // c['Identificacion'] es la cédula/NIT — distinto, no usar como FK
     const id = c.id != null ? c.id : null
     onSeleccionar({ nombre, id, datos: c })
     setBusq(''); setResultados([]); setAbierto(false)
@@ -1355,349 +1356,112 @@ function SelectorCliente({ t, clienteSeleccionado, onSeleccionar }) {
 
   const limpiar = () => { onSeleccionar(null); setBusq('') }
 
-  const inp = {
-    flex:1, background: t.id==='caramelo'?'#f8fafc':'#111',
-    border:`1px solid ${t.border}`, borderRadius:5,
-    color:t.text, fontSize:11, padding:'5px 8px',
-    fontFamily:'inherit', outline:'none', minWidth:0,
-  }
-
   if (clienteSeleccionado) return (
-    <div style={{padding:'8px 14px',borderTop:`1px solid ${t.border}`}}>
-      <div style={{fontSize:9,color:t.textMuted,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:4}}>Cliente</div>
-      <div style={{display:'flex',alignItems:'center',gap:8,background:t.accentSub,border:`1px solid ${t.accent}33`,borderRadius:7,padding:'6px 10px'}}>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:12,fontWeight:600,color:t.accent,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-            👤 {clienteSeleccionado.nombre}
-          </div>
-          {clienteSeleccionado.id && <div style={{fontSize:10,color:t.textMuted}}>ID: {clienteSeleccionado.id}</div>}
+    <div className="px-3.5 py-2 border-t border-border">
+      <div className="text-[9px] uppercase tracking-wide text-muted-foreground mb-1">Cliente</div>
+      <div className="flex items-center gap-2 bg-primary-soft border border-primary/30 rounded-md px-2.5 py-1.5">
+        <User className="size-3.5 text-primary shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-semibold text-primary truncate">{clienteSeleccionado.nombre}</div>
+          {clienteSeleccionado.id && (
+            <div className="text-[10px] text-muted-foreground">ID: {clienteSeleccionado.id}</div>
+          )}
         </div>
-        <button onClick={limpiar} title="Quitar cliente" style={{
-          background:'transparent',border:'none',color:t.textMuted,
-          cursor:'pointer',fontSize:14,padding:'0 2px',flexShrink:0,
-        }}>✕</button>
+        <button
+          type="button"
+          onClick={limpiar}
+          title="Quitar cliente"
+          className="text-muted-foreground hover:text-primary px-0.5 shrink-0"
+        >
+          <X className="size-3.5" />
+        </button>
       </div>
     </div>
   )
 
   return (
-    <div style={{padding:'8px 14px',borderTop:`1px solid ${t.border}`,position:'relative'}}>
-      <div style={{fontSize:9,color:t.textMuted,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:4}}>Cliente (opcional)</div>
-      <div style={{display:'flex',gap:5}}>
+    <div className="px-3.5 py-2 border-t border-border relative">
+      <div className="text-[9px] uppercase tracking-wide text-muted-foreground mb-1">Cliente (opcional)</div>
+      <div className="flex gap-1.5">
         <input
-          style={inp} value={busq}
-          onChange={e=>buscar(e.target.value)}
-          onFocus={()=>busq&&setAbierto(true)}
+          value={busq}
+          onChange={e => buscar(e.target.value)}
+          onFocus={() => busq && setAbierto(true)}
           placeholder="Buscar por nombre o cédula/NIT..."
+          className="flex-1 min-w-0 bg-muted border border-border rounded text-foreground text-[11px] px-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
-        <button onClick={()=>setModalNuevo(true)} title="Registrar cliente nuevo" style={{
-          background:t.accentSub,border:`1px solid ${t.accent}44`,color:t.accent,
-          borderRadius:5,padding:'5px 8px',cursor:'pointer',fontSize:12,flexShrink:0,
-        }}>+</button>
+        <button
+          type="button"
+          onClick={() => setModalNuevo(true)}
+          title="Registrar cliente nuevo"
+          className="shrink-0 bg-primary-soft border border-primary/40 text-primary rounded px-2 py-1 hover:bg-primary-soft/80"
+        >
+          <Plus className="size-3.5" />
+        </button>
       </div>
+
       {/* Dropdown resultados */}
       {abierto && (resultados.length > 0 || buscando) && (
-        <div style={{
-          position:'absolute',left:14,right:14,top:'100%',zIndex:200,
-          background:t.card,border:`1px solid ${t.border}`,borderRadius:8,
-          boxShadow:'0 8px 24px rgba(0,0,0,.25)',overflow:'hidden',
-        }}>
-          {buscando && <div style={{padding:'10px 12px',fontSize:11,color:t.textMuted}}>Buscando…</div>}
-          {!buscando && resultados.length===0 && (
-            <div style={{padding:'10px 12px',fontSize:11,color:t.textMuted}}>
-              Sin resultados —{' '}
-              <span style={{color:t.accent,cursor:'pointer'}} onClick={()=>{setModalNuevo(true);setAbierto(false)}}>
-                registrar cliente nuevo
-              </span>
+        <div className="absolute left-3.5 right-3.5 top-full z-50 bg-card border border-border rounded-md shadow-md overflow-hidden mt-1">
+          {buscando && (
+            <div className="flex items-center gap-2 px-3 py-2.5 text-[11px] text-muted-foreground">
+              <Loader2 className="size-3 animate-spin" /> Buscando…
             </div>
           )}
-          {resultados.map((c,i)=>(
-            <div key={i} onClick={()=>seleccionar(c)} style={{
-              padding:'9px 12px',cursor:'pointer',borderBottom:`1px solid ${t.border}`,
-              transition:'background .1s',
-            }}
-              onMouseEnter={e=>e.currentTarget.style.background=t.cardHover}
-              onMouseLeave={e=>e.currentTarget.style.background='transparent'}
-            >
-              <div style={{fontSize:12,fontWeight:500,color:t.text}}>{c['Nombre tercero']}</div>
-              <div style={{fontSize:10,color:t.textMuted}}>
-                {c['Tipo de identificacion']} {c['Identificacion']}
-                {c['Telefono']&&c['Telefono']!=='000-0000000-' ? ` · ${c['Telefono']}` : ''}
-              </div>
+          {!buscando && resultados.length === 0 && (
+            <div className="px-3 py-2.5 text-[11px] text-muted-foreground">
+              Sin resultados —{' '}
+              <button
+                type="button"
+                onClick={() => { setModalNuevo(true); setAbierto(false) }}
+                className="text-primary hover:underline"
+              >
+                registrar cliente nuevo
+              </button>
             </div>
+          )}
+          {resultados.map((c, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => seleccionar(c)}
+              className="w-full text-left px-3 py-2 border-b border-border last:border-0 hover:bg-muted transition-colors"
+            >
+              <div className="text-xs font-medium text-foreground">{c['Nombre tercero']}</div>
+              <div className="text-[10px] text-muted-foreground">
+                {c['Tipo de identificacion']} {c['Identificacion']}
+                {c['Telefono'] && c['Telefono'] !== '000-0000000-' ? ` · ${c['Telefono']}` : ''}
+              </div>
+            </button>
           ))}
-          <div onClick={()=>{setModalNuevo(true);setAbierto(false)}} style={{
-            padding:'8px 12px',fontSize:11,color:t.accent,cursor:'pointer',
-            background:t.accentSub,textAlign:'center',fontWeight:500,
-          }}>
+          <button
+            type="button"
+            onClick={() => { setModalNuevo(true); setAbierto(false) }}
+            className="w-full px-3 py-2 text-[11px] text-primary bg-primary-soft text-center font-medium hover:bg-primary-soft/80"
+          >
             + Registrar cliente nuevo
-          </div>
+          </button>
         </div>
       )}
-      {/* Modal nuevo cliente */}
+
+      {/* Modal nuevo cliente — reusa ModalCliente de TabClientes */}
       {modalNuevo && (
-        <ModalNuevoCliente
-          t={t} nombreInicial={busq}
-          onClose={()=>setModalNuevo(false)}
-          onCreado={(c)=>{ seleccionar(c); setModalNuevo(false) }}
+        <ModalCliente
+          cliente={null}
+          nombreInicial={busq}
+          onClose={() => setModalNuevo(false)}
+          onGuardado={(c) => seleccionar(c)}
+          authFetch={authFetch}
         />
       )}
     </div>
-  )
-}
-
-// ── Modal Nuevo Cliente ───────────────────────────────────────────────────────
-function ModalNuevoCliente({ t, nombreInicial, onClose, onCreado }) {
-  const TIPOS_ID = ['CC','NIT','CE','PAS']
-  const [form, setForm] = useState({
-    nombre:         nombreInicial||'',
-    tipo_id:        'CC',
-    identificacion: '',
-    tipo_persona:   'Natural',
-    correo:         '',
-    telefono:       '',
-    direccion:      '',
-    municipio_dian: 13001,
-    pais_id:        45,
-    regimen_fiscal: 2,
-    ciudad_nombre:  'Cartagena',
-  })
-  const [estado, setEstado] = useState('idle')
-  const [err,    setErr]    = useState('')
-  const { authFetch } = useAuth()
-  const set = (k,v)=>setForm(f=>({...f,[k]:v}))
-  const esNIT = form.tipo_id === 'NIT'
-
-  const [paisesModal, setPaisesModal]           = useState([])
-  const [ciudadesModal, setCiudadesModal]       = useState([])
-  const [ciudadQueryModal, setCiudadQueryModal] = useState('')
-  const [ciudadOpenModal, setCiudadOpenModal]   = useState(false)
-  const [loadingCiudadesModal, setLoadingCiudadesModal] = useState(false)
-
-  // Cargar países al montar
-  useEffect(() => {
-    authFetch(`${API_BASE}/clientes/paises`)
-      .then(r => r.json())
-      .then(d => setPaisesModal(d.paises || []))
-      .catch(() => setPaisesModal([{ matias_id: 45, codigo_a2: 'CO', nombre: 'Colombia' }]))
-  }, [])
-
-  // Búsqueda de ciudades con debounce 300ms
-  const buscarCiudadesModal = useCallback(async (q, paisId) => {
-    if (q.length < 2) { setCiudadesModal([]); return }
-    setLoadingCiudadesModal(true)
-    try {
-      const r = await authFetch(`${API_BASE}/clientes/ciudades?pais_id=${paisId}&q=${encodeURIComponent(q)}`)
-      const d = await r.json()
-      setCiudadesModal(d.ciudades || [])
-    } catch { setCiudadesModal([]) }
-    finally { setLoadingCiudadesModal(false) }
-  }, [authFetch])
-
-  useEffect(() => {
-    const timer = setTimeout(() => buscarCiudadesModal(ciudadQueryModal, form.pais_id), 300)
-    return () => clearTimeout(timer)
-  }, [ciudadQueryModal, form.pais_id])
-
-  const seleccionarCiudadModal = (ciudad) => {
-    set('municipio_dian', ciudad.dane_code)
-    set('ciudad_nombre', ciudad.nombre)
-    setCiudadQueryModal(ciudad.nombre + (ciudad.departamento ? ` — ${ciudad.departamento}` : ''))
-    setCiudadesModal([])
-    setCiudadOpenModal(false)
-  }
-
-  const guardar = async () => {
-    if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); return }
-    if (esNIT && !form.identificacion.trim()) { setErr('El NIT es obligatorio'); return }
-    setEstado('saving'); setErr('')
-    try {
-      const r = await authFetch(`${API_BASE}/clientes`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(form),
-      })
-      const d = await r.json()
-      if (!r.ok) throw new Error(d.detail||'Error')
-      setEstado('ok')
-      // Usar el objeto cliente devuelto por el servidor — tiene el `id` (PK integer)
-      // que es la FK correcta en ventas.cliente_id (INTEGER REFERENCES clientes(id))
-      const clienteParaSelector = d.cliente || {
-        'Nombre tercero':          form.nombre.toUpperCase(),
-        'Identificacion':          form.identificacion,
-        'Tipo ID':                 form.tipo_id,
-        'Telefono':                form.telefono,
-      }
-      setTimeout(()=>{ onCreado(clienteParaSelector); onClose() }, 600)
-    } catch(e) { setErr(e.message); setEstado('err') }
-  }
-
-  const inp = {
-    width:'100%', boxSizing:'border-box',
-    background:t.id==='caramelo'?'#f8fafc':'#111',
-    border:`1px solid ${t.border}`, borderRadius:7,
-    color:t.text, fontSize:12, padding:'7px 10px',
-    outline:'none', fontFamily:'inherit',
-  }
-  const lbl = { fontSize:10, color:t.textMuted, textTransform:'uppercase', letterSpacing:'.07em', marginBottom:3, display:'block' }
-
-  return createPortal(
-    <div
-      onClick={e=>e.target===e.currentTarget&&onClose()}
-      style={{
-      position:'fixed',inset:0,zIndex:10000,background:'rgba(0,0,0,.65)',
-      display:'flex',alignItems:'center',justifyContent:'center',padding:16,
-      pointerEvents:'auto',
-    }}>
-      <div style={{
-        background:t.bg, border:`1px solid ${t.border}`, borderRadius:14,
-        width:'100%', maxWidth:420, maxHeight:'90vh', overflowY:'auto',
-        boxShadow:'0 24px 64px rgba(0,0,0,.45)',
-      }}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 20px 0'}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:14,color:t.text}}>👤 Registrar cliente</div>
-            <div style={{fontSize:11,color:t.textMuted,marginTop:2}}>Datos para factura electrónica DIAN</div>
-          </div>
-          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:7,color:t.textMuted,width:28,height:28,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
-        </div>
-        <div style={{padding:'16px 20px 20px',display:'flex',flexDirection:'column',gap:11}}>
-
-          <div><label style={lbl}>Nombre completo *</label>
-            <input style={inp} value={form.nombre} onChange={e=>set('nombre',e.target.value)} autoFocus/></div>
-
-          <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:10}}>
-            <div><label style={lbl}>Tipo ID</label>
-              <select style={inp} value={form.tipo_id} onChange={e=>set('tipo_id',e.target.value)}>
-                {TIPOS_ID.map(t=><option key={t} value={t}>{t}</option>)}
-              </select></div>
-            <div><label style={lbl}>Número</label>
-              <input style={inp} value={form.identificacion} onChange={e=>set('identificacion',e.target.value)} placeholder="Cédula o NIT"/></div>
-          </div>
-
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <div><label style={lbl}>Tipo persona</label>
-              <select style={inp} value={form.tipo_persona} onChange={e=>set('tipo_persona',e.target.value)}>
-                <option value="Natural">Natural</option>
-                <option value="Juridica">Jurídica</option>
-              </select></div>
-            <div><label style={lbl}>Teléfono (opcional)</label>
-              <input style={inp} value={form.telefono} onChange={e=>set('telefono',e.target.value)} placeholder="300..."/></div>
-          </div>
-
-          <div><label style={lbl}>Correo electrónico (opcional)</label>
-            <input style={inp} type="email" value={form.correo} onChange={e=>set('correo',e.target.value)} placeholder="correo@..."/></div>
-
-          {/* País */}
-          <div><label style={lbl}>País</label>
-            <select style={inp} value={form.pais_id}
-              onChange={e=>{
-                set('pais_id', Number(e.target.value))
-                setCiudadQueryModal('')
-                set('municipio_dian', null)
-                set('ciudad_nombre', '')
-              }}>
-              {paisesModal.length > 0
-                ? paisesModal.map(p=><option key={p.matias_id} value={p.matias_id}>{p.nombre}</option>)
-                : <option value={45}>Colombia</option>}
-            </select>
-          </div>
-
-          {/* Buscador de Ciudad */}
-          <div style={{position:'relative'}}>
-            <label style={lbl}>Ciudad</label>
-            <input
-              style={inp}
-              value={ciudadQueryModal}
-              placeholder="Buscar ciudad... (ej: Cartagena, Bogotá)"
-              onChange={e=>{ setCiudadQueryModal(e.target.value); setCiudadOpenModal(true) }}
-              onFocus={()=>ciudadQueryModal.length>=2&&setCiudadOpenModal(true)}
-              onBlur={()=>setTimeout(()=>setCiudadOpenModal(false),200)}
-            />
-            {ciudadOpenModal && (loadingCiudadesModal || ciudadesModal.length > 0) && (
-              <div style={{
-                position:'absolute',top:'100%',left:0,right:0,zIndex:100,
-                background:t.bg,border:`1px solid ${t.border}`,borderRadius:7,
-                maxHeight:200,overflowY:'auto',boxShadow:'0 8px 24px rgba(0,0,0,.2)',
-              }}>
-                {loadingCiudadesModal
-                  ? <div style={{padding:'8px 12px',color:t.textMuted,fontSize:12}}>Buscando...</div>
-                  : ciudadesModal.map(c=>(
-                    <div key={c.matias_id} onMouseDown={()=>seleccionarCiudadModal(c)}
-                      style={{padding:'8px 12px',cursor:'pointer',fontSize:12,
-                        borderBottom:`1px solid ${t.border}20`,
-                      }}
-                    >
-                      <span style={{fontWeight:600}}>{c.nombre}</span>
-                      {c.departamento&&<span style={{color:t.textMuted}}> — {c.departamento}</span>}
-                    </div>
-                  ))
-                }
-              </div>
-            )}
-          </div>
-
-          {/* Régimen Fiscal — solo para NIT o Jurídica */}
-          {(form.tipo_id==='NIT'||form.tipo_persona==='Jurídica'||form.tipo_persona==='Juridica') && (
-            <div>
-              <label style={lbl}>Régimen Fiscal</label>
-              <div style={{display:'flex',gap:8}}>
-                {[
-                  {value:2,label:'No Responsable de IVA'},
-                  {value:1,label:'Responsable de IVA'},
-                ].map(({value,label})=>(
-                  <button key={value} onClick={()=>set('regimen_fiscal',value)} style={{
-                    flex:1,padding:'8px 0',borderRadius:7,fontSize:11,fontWeight:600,
-                    fontFamily:'inherit',cursor:'pointer',
-                    border:form.regimen_fiscal===value?`1.5px solid ${t.blue}`:`1px solid ${t.border}`,
-                    background:form.regimen_fiscal===value?t.blueSub:'transparent',
-                    color:form.regimen_fiscal===value?t.blue:t.textMuted,
-                  }}>{label}</button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Dirección: solo obligatoria para empresas (NIT), pero disponible para todos */}
-          <div>
-            <label style={lbl}>
-              Dirección {esNIT ? <span style={{color:t.accent}}>*</span> : <span style={{color:t.textMuted}}>(opcional)</span>}
-            </label>
-            <input
-              style={inp}
-              value={form.direccion}
-              onChange={e=>set('direccion',e.target.value)}
-              placeholder={esNIT ? 'Dirección de la empresa' : 'No tiene (opcional)'}
-            />
-          </div>
-
-          <div style={{padding:'7px 10px',background:t.accentSub,border:`1px solid ${t.accent}22`,borderRadius:7,fontSize:10,color:t.accent}}>
-            💡 Con estos datos queda listo para factura electrónica DIAN. El teléfono, correo y dirección son opcionales para personas naturales.
-          </div>
-
-          {err && <div style={{padding:'7px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626'}}>⚠ {err}</div>}
-
-          <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:2}}>
-            <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>Cancelar</button>
-            <button onClick={guardar} disabled={estado==='saving'} style={{
-              background:estado==='ok'?t.green:estado==='err'?'#dc2626':t.accent,
-              border:'none',borderRadius:8,color:'#fff',padding:'8px 20px',
-              cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
-              opacity:estado==='saving'?.7:1,transition:'background .2s',
-            }}>
-              {estado==='saving'?'Guardando…':estado==='ok'?'✓ Guardado':estado==='err'?'✗ Error':'Registrar cliente'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    getPortalRoot()
   )
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PANEL CARRITO (compartido desktop + drawer móvil)
 // ══════════════════════════════════════════════════════════════════════════════
-function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo, setMetodo,
+function PanelCarrito({ carrito, totalCarrito, vendedor, setVendedor, metodo, setMetodo,
                         clienteSeleccionado, setClienteSeleccionado,
                         removeItem, qtyChange, qtySet, onCheckout, calcCambio, setCalcCambio,
                         enviando, sticky, mobile }) {
@@ -1760,7 +1524,6 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
 
       {/* Cliente */}
       <SelectorCliente
-        t={t}
         clienteSeleccionado={clienteSeleccionado}
         onSeleccionar={setClienteSeleccionado}
       />
@@ -2434,7 +2197,7 @@ export default function TabVentasRapidas({ refreshKey }) {
       {/* ══ CARRITO — solo visible en desktop ══ */}
       {!isMobile && (
         <PanelCarrito
-          t={t} carrito={carrito} totalCarrito={totalCarrito}
+          carrito={carrito} totalCarrito={totalCarrito}
           vendedor={vendedor} setVendedor={setVendedor}
           metodo={metodo} setMetodo={setMetodo}
           clienteSeleccionado={clienteSeleccionado}
@@ -2566,7 +2329,7 @@ export default function TabVentasRapidas({ refreshKey }) {
             {/* Content */}
             <div style={{ overflowY: 'auto', flex: 1, paddingBottom: 16, WebkitOverflowScrolling: 'touch' }}>
               <PanelCarrito
-                t={t} carrito={carrito} totalCarrito={totalCarrito}
+                carrito={carrito} totalCarrito={totalCarrito}
                 vendedor={vendedor} setVendedor={setVendedor}
                 metodo={metodo} setMetodo={setMetodo}
                 clienteSeleccionado={clienteSeleccionado}
