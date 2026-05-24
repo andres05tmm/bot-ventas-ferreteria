@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { Star, Trash2, ShoppingCart } from 'lucide-react'
 import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
 import { Card } from '@/components/ui/card.jsx'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog.jsx'
+import { Button } from '@/components/ui/button.jsx'
 import { cn } from '@/lib/utils'
 import { useAuth } from '../hooks/useAuth.js'
 import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
@@ -151,88 +153,73 @@ function getPortalRoot() {
 // ══════════════════════════════════════════════════════════════════════════════
 // MODAL BASE
 // ══════════════════════════════════════════════════════════════════════════════
-function Modal({ show, onClose, title, subtitle, children, onConfirm, okLabel = 'Agregar al carrito', okDisabled }) {
-  const t = useTheme()
+// Shell unificado: Dialog shadcn + footer Cancelar/Confirmar.
+// API legacy preservada para que los 6 modales hijos sigan funcionando sin cambios.
+function Modal({ show, onClose, title, subtitle, children, onConfirm, okLabel = 'Agregar al carrito', okDisabled, maxWidth = 'sm:max-w-[390px]' }) {
   if (!show) return null
-  return createPortal(
-    <div
-      onClick={e => e.target === e.currentTarget && onClose()}
-      style={{
-        position: 'fixed', inset: 0, background: '#000000cc',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 9999, padding: 16, pointerEvents: 'auto',
-      }}
-    >
-      <div style={{
-        position: 'relative',
-        background: t.card, border: `1px solid ${t.accent}44`,
-        borderRadius: 14, width: 'calc(100% - 32px)', maxWidth: 390,
-        maxHeight: '85vh', overflowY: 'auto',
-        animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)',
-      }}>
-        <style>{`@keyframes mIn{from{opacity:0;transform:scale(.92) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}} input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}`}</style>
-        <div style={{ padding: '16px 18px 12px', borderBottom: `1px solid ${t.border}` }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{title}</div>
-          {subtitle && <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>{subtitle}</div>}
-        </div>
-        <div style={{ padding: '14px 18px' }}>{children}</div>
-        <div style={{ display: 'flex', gap: 8, padding: '0 18px 18px' }}>
-          <button onClick={onClose} style={{
-            flex: 1, padding: 10, background: t.border, border: 'none',
-            borderRadius: 8, color: t.textMuted, cursor: 'pointer',
-            fontFamily: 'inherit', fontSize: 12,
-          }}>Cancelar</button>
-          <button onClick={onConfirm} disabled={okDisabled} style={{
-            flex: 2, padding: 10,
-            background: okDisabled ? t.border : t.accent,
-            border: 'none', borderRadius: 8,
-            color: okDisabled ? t.textMuted : '#fff',
-            cursor: okDisabled ? 'not-allowed' : 'pointer',
-            fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
-          }}>{okLabel}</button>
-        </div>
-      </div>
-    </div>,
-    getPortalRoot()
+  return (
+    <Dialog open={show} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent
+        className={cn(
+          'p-0 gap-0 overflow-hidden max-h-[85vh] overflow-y-auto',
+          maxWidth,
+        )}
+      >
+        <DialogHeader className="px-[18px] pt-4 pb-3 border-b border-border">
+          <DialogTitle className="text-sm font-bold">{title}</DialogTitle>
+          {subtitle && (
+            <DialogDescription className="text-[11px] mt-0.5">{subtitle}</DialogDescription>
+          )}
+        </DialogHeader>
+        <div className="px-[18px] py-3.5">{children}</div>
+        <DialogFooter className="px-[18px] pb-[18px] flex-row gap-2 sm:justify-stretch">
+          <Button variant="secondary" onClick={onClose} className="flex-1 h-10 text-xs">
+            Cancelar
+          </Button>
+          <Button
+            onClick={onConfirm}
+            disabled={okDisabled}
+            className="flex-[2] h-10 text-xs font-semibold"
+          >
+            {okLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function PrecioEditor({ precioCalc, precioFinal, onChange, desc }) {
-  const t = useTheme()
   const mod = precioFinal !== precioCalc
   return (
-    <div style={{
-      background: t.id === 'caramelo' ? '#f8fafc' : '#0f0f0f',
-      border: `1px solid ${mod ? t.yellow + '88' : t.border}`,
-      borderRadius: 8, padding: '10px 13px',
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 2 }}>{desc || '—'}</div>
-          {mod && <div style={{ fontSize: 9, color: t.yellow }}>✏️ Precio especial · base {cop(precioCalc)}</div>}
+    <div className={cn(
+      'rounded-md bg-muted px-3 py-2.5 border',
+      mod ? 'border-warning/60' : 'border-border',
+    )}>
+      <div className="flex justify-between items-center gap-2.5">
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] text-muted-foreground mb-0.5">{desc || '—'}</div>
+          {mod && <div className="text-[9px] text-warning">✏️ Precio especial · base {cop(precioCalc)}</div>}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ fontSize: 13, color: t.textMuted }}>$</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm text-muted-foreground">$</span>
           <input
             type="number" min="0"
             value={precioFinal === 0 ? '' : precioFinal}
             onChange={e => onChange(parseInt(e.target.value) || 0)}
-            style={{
-              width: 100, background: 'transparent', border: 'none',
-              borderBottom: `1px solid ${mod ? t.yellow : t.accent + '66'}`,
-              color: mod ? t.yellow : t.accent,
-              fontSize: 18, fontFamily: 'monospace', fontWeight: 700,
-              outline: 'none', textAlign: 'right', padding: '2px 0',
-              MozAppearance: 'textfield', appearance: 'textfield',
-            }}
+            className={cn(
+              'w-[100px] bg-transparent border-0 border-b text-right text-lg font-mono font-bold outline-none px-0 py-0.5 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none',
+              mod ? 'text-warning border-warning' : 'text-primary border-primary/40',
+            )}
           />
         </div>
       </div>
       {mod && (
-        <button onClick={() => onChange(precioCalc)} style={{
-          marginTop: 5, fontSize: 9, color: t.textMuted, background: 'none',
-          border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit',
-        }}>↩ Volver al precio original</button>
+        <button
+          type="button"
+          onClick={() => onChange(precioCalc)}
+          className="mt-1 text-[9px] text-muted-foreground bg-transparent border-0 cursor-pointer p-0"
+        >↩ Volver al precio original</button>
       )}
     </div>
   )
@@ -909,7 +896,6 @@ function CartItem({ item, idx, onRemove, onQtyChange, onQtySet }) {
 // MODAL CHECKOUT
 // ══════════════════════════════════════════════════════════════════════════════
 function ModalCheckout({ show, total, metodo, setMetodo, onClose, onConfirm, enviando }) {
-  const t = useTheme()
   const [recibido, setRecibido] = useState('')
 
   useEffect(() => { if (show) setRecibido('') }, [show])
@@ -918,109 +904,82 @@ function ModalCheckout({ show, total, metodo, setMetodo, onClose, onConfirm, env
   const recNum = parseInt(recibido) || 0
   const cambio = recibido !== '' && recNum >= total ? recNum - total : null
 
-  return createPortal(
-    <div
-      onClick={e => e.target === e.currentTarget && !enviando && onClose()}
-      style={{
-        position: 'fixed', inset: 0, background: '#000000cc',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 9999, padding: 16, pointerEvents: 'auto',
-      }}
-    >
-      <div style={{
-        background: t.card, border: `1px solid ${t.accent}44`,
-        borderRadius: 14, width: 'calc(100% - 32px)', maxWidth: 360,
-        animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)', overflow: 'hidden',
-      }}>
-        <div style={{ padding: '16px 18px 12px', borderBottom: `1px solid ${t.border}` }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: t.text }}>Confirmar venta</div>
-        </div>
-        <div style={{ padding: '16px 18px' }}>
+  const METODOS = [
+    { key: 'efectivo',      label: 'Efectivo',  icon: '💵' },
+    { key: 'transferencia', label: 'Transfer.', icon: '📲' },
+    { key: 'datafono',      label: 'Datáfono',  icon: '💳' },
+  ]
+
+  return (
+    <Dialog open={show} onOpenChange={(o) => { if (!o && !enviando) onClose() }}>
+      <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-[360px]">
+        <DialogHeader className="px-[18px] pt-4 pb-3 border-b border-border">
+          <DialogTitle className="text-[15px] font-bold">Confirmar venta</DialogTitle>
+        </DialogHeader>
+        <div className="px-[18px] py-4">
           {/* Total */}
-          <div style={{ textAlign: 'center', marginBottom: 20 }}>
-            <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 4 }}>Total a cobrar</div>
-            <div style={{ fontSize: 38, fontFamily: 'monospace', fontWeight: 800, color: t.accent }}>{cop(total)}</div>
+          <div className="text-center mb-5">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Total a cobrar</div>
+            <div className="text-[38px] font-mono font-extrabold text-primary tabular">{cop(total)}</div>
           </div>
 
           {/* Método de pago */}
-          <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Método de pago</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 16 }}>
-            {[
-              { key: 'efectivo',      label: 'Efectivo',  icon: '💵' },
-              { key: 'transferencia', label: 'Transfer.', icon: '📲' },
-              { key: 'datafono',      label: 'Datáfono',  icon: '💳' },
-            ].map(m => (
-              <button key={m.key} onClick={() => setMetodo(m.key)} style={{
-                padding: '8px 4px',
-                background: metodo === m.key ? t.accentSub : (t.id === 'caramelo' ? '#f8fafc' : '#0f0f0f'),
-                border: `1px solid ${metodo === m.key ? t.accent : t.border}`,
-                borderRadius: 8, color: metodo === m.key ? t.accent : t.textMuted,
-                fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-                transition: 'all .15s',
-              }}>
-                <span style={{ fontSize: 16 }}>{m.icon}</span>{m.label}
-              </button>
-            ))}
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Método de pago</div>
+          <div className="grid grid-cols-3 gap-1.5 mb-4">
+            {METODOS.map(m => {
+              const active = metodo === m.key
+              return (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setMetodo(m.key)}
+                  className={cn(
+                    'flex flex-col items-center gap-0.5 py-2 px-1 rounded-md border text-[10px] transition-colors',
+                    active
+                      ? 'bg-primary-soft border-primary text-primary'
+                      : 'bg-muted border-border text-muted-foreground hover:border-primary/40',
+                  )}
+                >
+                  <span className="text-base">{m.icon}</span>{m.label}
+                </button>
+              )
+            })}
           </div>
 
           {/* Recibido + cambio (solo efectivo) */}
           {metodo === 'efectivo' && (
             <>
-              <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Recibido (opcional)</div>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-                border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 13px', marginBottom: 10,
-              }}>
-                <span style={{ fontSize: 14, color: t.textMuted }}>$</span>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Recibido (opcional)</div>
+              <div className="flex items-center gap-2 bg-muted border border-border rounded-md px-3 py-2.5 mb-2.5">
+                <span className="text-sm text-muted-foreground">$</span>
                 <input
                   autoFocus
                   type="number" min="0"
                   value={recibido}
                   onChange={e => setRecibido(e.target.value)}
                   placeholder={String(total)}
-                  style={{
-                    flex: 1, background: 'transparent', border: 'none',
-                    color: t.text, fontSize: 22, fontFamily: 'monospace',
-                    outline: 'none', padding: '2px 0',
-                    MozAppearance: 'textfield', appearance: 'textfield',
-                  }}
+                  className="flex-1 bg-transparent border-0 text-foreground text-[22px] font-mono outline-none py-0.5 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                 />
               </div>
               {cambio !== null && (
-                <div style={{
-                  padding: '8px 13px', marginBottom: 6,
-                  background: `${t.green}18`, border: `1px solid ${t.green}44`,
-                  borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}>
-                  <span style={{ fontSize: 11, color: t.green }}>Cambio</span>
-                  <span style={{ fontSize: 20, fontFamily: 'monospace', fontWeight: 700, color: t.green }}>{cop(cambio)}</span>
+                <div className="flex justify-between items-center px-3 py-2 mb-1.5 rounded-md bg-success/10 border border-success/30">
+                  <span className="text-[11px] text-success">Cambio</span>
+                  <span className="text-xl font-mono font-bold text-success tabular">{cop(cambio)}</span>
                 </div>
               )}
             </>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 8, padding: '0 18px 18px' }}>
-          <button onClick={onClose} disabled={enviando} style={{
-            flex: 1, padding: 11, background: t.border, border: 'none',
-            borderRadius: 8, color: t.textMuted, cursor: enviando ? 'not-allowed' : 'pointer',
-            fontFamily: 'inherit', fontSize: 12,
-          }}>Cancelar</button>
-          <button onClick={onConfirm} disabled={enviando} style={{
-            flex: 2, padding: 11,
-            background: enviando ? t.border : t.accent,
-            border: 'none', borderRadius: 8,
-            color: enviando ? t.textMuted : '#fff',
-            cursor: enviando ? 'not-allowed' : 'pointer',
-            fontFamily: 'inherit', fontSize: 13, fontWeight: 700,
-          }}>
+        <DialogFooter className="px-[18px] pb-[18px] flex-row gap-2 sm:justify-stretch">
+          <Button variant="secondary" onClick={onClose} disabled={enviando} className="flex-1 h-10 text-xs">
+            Cancelar
+          </Button>
+          <Button onClick={onConfirm} disabled={enviando} className="flex-[2] h-10 text-[13px] font-bold">
             {enviando ? 'Registrando...' : '✓ Registrar venta'}
-          </button>
-        </div>
-      </div>
-    </div>,
-    getPortalRoot()
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1028,7 +987,6 @@ function ModalCheckout({ show, total, metodo, setMetodo, onClose, onConfirm, env
 // MODAL MISCELÁNEA
 // ══════════════════════════════════════════════════════════════════════════════
 function ModalMiscelanea({ show, onClose, onConfirm }) {
-  const t = useTheme()
   const [monto, setMonto] = useState('')
   const [desc,  setDesc]  = useState('')
 
@@ -1037,80 +995,49 @@ function ModalMiscelanea({ show, onClose, onConfirm }) {
   if (!show) return null
   const montoNum = parseInt(monto) || 0
   const valid = montoNum > 0
+  const submit = () => valid && onConfirm({ monto: montoNum, desc: desc.trim() || 'Miscelánea' })
 
-  return createPortal(
-    <div
-      onClick={e => e.target === e.currentTarget && onClose()}
-      style={{
-        position: 'fixed', inset: 0, background: '#000000cc',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 9999, padding: 16, pointerEvents: 'auto',
-      }}
-    >
-      <div style={{
-        background: t.card, border: `1px solid ${t.accent}44`,
-        borderRadius: 14, width: 'calc(100% - 32px)', maxWidth: 360,
-        animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)', overflow: 'hidden',
-      }}>
-        <div style={{ padding: '16px 18px 12px', borderBottom: `1px solid ${t.border}` }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: t.text }}>💸 Venta miscelánea</div>
-          <div style={{ fontSize: 11, color: t.textMuted, marginTop: 3 }}>Monto libre · no descuenta inventario</div>
-        </div>
-        <div style={{ padding: '16px 18px' }}>
-          <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Monto</div>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-            border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 13px', marginBottom: 16,
-          }}>
-            <span style={{ fontSize: 14, color: t.textMuted }}>$</span>
+  return (
+    <Dialog open={show} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-[360px]">
+        <DialogHeader className="px-[18px] pt-4 pb-3 border-b border-border">
+          <DialogTitle className="text-[15px] font-bold">💸 Venta miscelánea</DialogTitle>
+          <DialogDescription className="text-[11px] mt-0.5">
+            Monto libre · no descuenta inventario
+          </DialogDescription>
+        </DialogHeader>
+        <div className="px-[18px] py-4">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Monto</div>
+          <div className="flex items-center gap-2 bg-muted border border-border rounded-md px-3 py-2.5 mb-4">
+            <span className="text-sm text-muted-foreground">$</span>
             <input
               autoFocus
               type="number" min="0"
               value={monto}
               onChange={e => setMonto(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && valid && onConfirm({ monto: montoNum, desc: desc.trim() || 'Miscelánea' })}
+              onKeyDown={e => e.key === 'Enter' && submit()}
               placeholder="0"
-              style={{
-                flex: 1, background: 'transparent', border: 'none',
-                color: t.text, fontSize: 22, fontFamily: 'monospace',
-                outline: 'none', padding: '2px 0',
-                MozAppearance: 'textfield', appearance: 'textfield',
-              }}
+              className="flex-1 bg-transparent border-0 text-foreground text-[22px] font-mono outline-none py-0.5 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
             />
           </div>
-          <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Descripción (opcional)</div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Descripción (opcional)</div>
           <input
             type="text"
             value={desc}
             onChange={e => setDesc(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && valid && onConfirm({ monto: montoNum, desc: desc.trim() || 'Miscelánea' })}
+            onKeyDown={e => e.key === 'Enter' && submit()}
             placeholder="ej: Miscelánea varios"
-            style={{
-              width: '100%', background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-              border: `1px solid ${t.border}`, borderRadius: 8,
-              color: t.text, fontSize: 13, padding: '9px 12px',
-              fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
-            }}
+            className="w-full bg-muted border border-border rounded-md text-foreground text-[13px] px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
-        <div style={{ display: 'flex', gap: 8, padding: '0 18px 18px' }}>
-          <button onClick={onClose} style={{
-            flex: 1, padding: 11, background: t.border, border: 'none',
-            borderRadius: 8, color: t.textMuted, cursor: 'pointer',
-            fontFamily: 'inherit', fontSize: 12,
-          }}>Cancelar</button>
-          <button onClick={() => valid && onConfirm({ monto: montoNum, desc: desc.trim() || 'Miscelánea' })} disabled={!valid} style={{
-            flex: 2, padding: 11,
-            background: valid ? t.accent : t.border, border: 'none', borderRadius: 8,
-            color: valid ? '#fff' : t.textMuted,
-            cursor: valid ? 'pointer' : 'not-allowed',
-            fontFamily: 'inherit', fontSize: 13, fontWeight: 700,
-          }}>Agregar al carrito</button>
-        </div>
-      </div>
-    </div>,
-    getPortalRoot()
+        <DialogFooter className="px-[18px] pb-[18px] flex-row gap-2 sm:justify-stretch">
+          <Button variant="secondary" onClick={onClose} className="flex-1 h-10 text-xs">Cancelar</Button>
+          <Button onClick={submit} disabled={!valid} className="flex-[2] h-10 text-[13px] font-bold">
+            Agregar al carrito
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1129,7 +1056,6 @@ const FRACS_CP = [
 ]
 
 function ModalColorPreparado({ show, precioBase, nombreProducto, onClose, onConfirm }) {
-  const t = useTheme()
   const [desc,    setDesc]    = useState('')
   const [precio,  setPrecio]  = useState(precioBase || 0)
   const [qty,     setQty]     = useState(1)
@@ -1150,126 +1076,105 @@ function ModalColorPreparado({ show, precioBase, nombreProducto, onClose, onConf
     frac || null,
   ].filter(Boolean).join(' + ')
   const valid = desc.trim().length > 0 && precioFinal > 0
+  const submit = () => valid && onConfirm({ desc: desc.trim(), descCompleta, precio: precioFinal })
 
-  return createPortal(
-    <div
-      onClick={e => e.target === e.currentTarget && onClose()}
-      style={{
-      position: 'fixed', inset: 0, background: '#00000088',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 9998, padding: 16, pointerEvents: 'auto',
-    }}>
-      <div style={{
-        background: t.card, border: `1px solid ${t.border}`, borderRadius: 14,
-        padding: '22px 20px', width: '100%', maxWidth: 400,
-        maxHeight: '90vh', overflowY: 'auto',
-        animation: 'mIn .2s cubic-bezier(.34,1.4,.64,1)',
-      }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 4 }}>🎨 Color Preparado</div>
-        {nombreProducto && (
-          <div style={{ fontSize: 12, color: t.accent, fontWeight: 600, marginBottom: 4 }}>
-            {nombreProducto}
-          </div>
-        )}
-        <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 18 }}>
-          El cliente trae la muestra y se prepara en tienda
-        </div>
-
-        {/* Descripción */}
-        <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 6 }}>Descripción del color</div>
-        <input
-          autoFocus value={desc} onChange={e => setDesc(e.target.value)}
-          placeholder="ej: Vinilo T1 mostaza cliente"
-          style={{
-            width: '100%', background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-            border: `1px solid ${t.accent}66`, borderRadius: 8,
-            color: t.text, fontSize: 13, padding: '10px 12px',
-            fontFamily: 'inherit', outline: 'none', marginBottom: 16,
-          }}
-        />
-
-        {/* Cantidad en galones */}
-        <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Galones completos</div>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
-          background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-          border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16,
-        }}>
-          <button onClick={() => { setQty(q => Math.max(0, q-1)); setModoPrecio(false) }}
-            style={{ width: 32, height: 32, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 18 }}>−</button>
-          <input type="number" min="0" value={qty}
-            onChange={e => { setQty(parseInt(e.target.value)||0); setModoPrecio(false) }}
-            style={{ width: 52, background: 'transparent', border: 'none', borderBottom: `1px solid ${t.border}`, color: t.text, fontSize: 22, fontFamily: 'monospace', outline: 'none', textAlign: 'center', MozAppearance: 'textfield', appearance: 'textfield' }}
-          />
-          <button onClick={() => { setQty(q => q+1); setModoPrecio(false) }}
-            style={{ width: 32, height: 32, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 18 }}>+</button>
-        </div>
-
-        {/* Fracción adicional */}
-        <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>Fracción adicional</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
-          {FRACS_CP.map(f => (
-            <button key={f.k||'gal'} onClick={() => { if (f.k === null) return; setFrac(frac === f.k ? null : f.k); setModoPrecio(false) }}
-              style={{
-                padding: '5px 12px', borderRadius: 99, cursor: f.k ? 'pointer' : 'default',
-                background: frac === f.k ? t.accentSub : (t.id==='caramelo'?'#f1f5f9':'#1a1a1a'),
-                border: `1px solid ${frac === f.k ? t.accent : t.border}`,
-                color: frac === f.k ? t.accent : (f.k ? t.text : t.textMuted),
-                fontSize: 11, fontFamily: 'inherit', fontWeight: frac===f.k ? 600 : 400,
-              }}
-            >{f.label}</button>
-          ))}
-        </div>
-
-        {/* Precio total */}
-        <div style={{
-          background: t.id==='caramelo'?'#f8fafc':'#0f0f0f',
-          border: `1px solid ${modoPrecio ? t.yellow+'88' : t.border}`,
-          borderRadius: 8, padding: '10px 13px', marginBottom: 20,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 11, color: t.textMuted }}>{descCompleta || '—'}</div>
-              {modoPrecio && <div style={{ fontSize: 9, color: t.yellow }}>✏️ Precio manual</div>}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ fontSize: 13, color: t.textMuted }}>$</span>
-              <input type="number" min="0"
-                value={precioFinal === 0 ? '' : precioFinal}
-                onChange={e => { setPrecio(parseInt(e.target.value)||0); setModoPrecio(true) }}
-                style={{
-                  width: 100, background: 'transparent', border: 'none',
-                  borderBottom: `1px solid ${modoPrecio ? t.yellow : t.accent+'66'}`,
-                  color: modoPrecio ? t.yellow : t.accent,
-                  fontSize: 18, fontFamily: 'monospace', fontWeight: 700,
-                  outline: 'none', textAlign: 'right', padding: '2px 0',
-                  MozAppearance: 'textfield', appearance: 'textfield',
-                }}
-              />
-            </div>
-          </div>
-          {modoPrecio && (
-            <button onClick={() => setModoPrecio(false)} style={{ marginTop: 5, fontSize: 9, color: t.textMuted, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-              ↩ Volver al precio calculado ({cop(precioCalc)})
-            </button>
+  return (
+    <Dialog open={show} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="p-[22px_20px] gap-0 sm:max-w-[400px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="space-y-0">
+          <DialogTitle className="text-[15px] font-bold">🎨 Color Preparado</DialogTitle>
+          {nombreProducto && (
+            <div className="text-xs font-semibold text-primary">{nombreProducto}</div>
           )}
+          <DialogDescription className="text-[11px]">
+            El cliente trae la muestra y se prepara en tienda
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="mt-4">
+          {/* Descripción */}
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Descripción del color</div>
+          <input
+            autoFocus value={desc} onChange={e => setDesc(e.target.value)}
+            placeholder="ej: Vinilo T1 mostaza cliente"
+            className="w-full bg-muted border border-primary/40 rounded-md text-foreground text-[13px] px-3 py-2.5 outline-none mb-4 focus-visible:ring-2 focus-visible:ring-ring"
+          />
+
+          {/* Cantidad en galones */}
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Galones completos</div>
+          <div className="flex items-center justify-center gap-3.5 bg-muted border border-border rounded-md px-3.5 py-2.5 mb-4">
+            <button type="button"
+              onClick={() => { setQty(q => Math.max(0, q-1)); setModoPrecio(false) }}
+              className="w-8 h-8 bg-card border border-border rounded-md text-foreground cursor-pointer text-lg">−</button>
+            <input type="number" min="0" value={qty}
+              onChange={e => { setQty(parseInt(e.target.value)||0); setModoPrecio(false) }}
+              className="w-[52px] bg-transparent border-0 border-b border-border text-foreground text-[22px] font-mono outline-none text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <button type="button"
+              onClick={() => { setQty(q => q+1); setModoPrecio(false) }}
+              className="w-8 h-8 bg-card border border-border rounded-md text-foreground cursor-pointer text-lg">+</button>
+          </div>
+
+          {/* Fracción adicional */}
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Fracción adicional</div>
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {FRACS_CP.map(f => {
+              const active = frac === f.k
+              return (
+                <button key={f.k||'gal'} type="button"
+                  onClick={() => { if (f.k === null) return; setFrac(active ? null : f.k); setModoPrecio(false) }}
+                  className={cn(
+                    'px-3 py-1 rounded-full text-[11px] border transition-colors',
+                    active
+                      ? 'bg-primary-soft border-primary text-primary font-semibold'
+                      : f.k
+                        ? 'bg-muted border-border text-foreground hover:border-primary/40 cursor-pointer'
+                        : 'bg-muted border-border text-muted-foreground cursor-default',
+                  )}
+                >{f.label}</button>
+              )
+            })}
+          </div>
+
+          {/* Precio total */}
+          <div className={cn(
+            'rounded-md bg-muted px-3 py-2.5 mb-5 border',
+            modoPrecio ? 'border-warning/60' : 'border-border',
+          )}>
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-[11px] text-muted-foreground">{descCompleta || '—'}</div>
+                {modoPrecio && <div className="text-[9px] text-warning">✏️ Precio manual</div>}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm text-muted-foreground">$</span>
+                <input type="number" min="0"
+                  value={precioFinal === 0 ? '' : precioFinal}
+                  onChange={e => { setPrecio(parseInt(e.target.value)||0); setModoPrecio(true) }}
+                  className={cn(
+                    'w-[100px] bg-transparent border-0 border-b text-right text-lg font-mono font-bold outline-none px-0 py-0.5 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none',
+                    modoPrecio ? 'text-warning border-warning' : 'text-primary border-primary/40',
+                  )}
+                />
+              </div>
+            </div>
+            {modoPrecio && (
+              <button type="button" onClick={() => setModoPrecio(false)}
+                className="mt-1 text-[9px] text-muted-foreground bg-transparent border-0 cursor-pointer p-0">
+                ↩ Volver al precio calculado ({cop(precioCalc)})
+              </button>
+            )}
+          </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <button onClick={onClose} style={{
-            padding: 11, background: 'transparent', border: `1px solid ${t.border}`,
-            borderRadius: 8, color: t.textMuted, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
-          }}>Cancelar</button>
-          <button onClick={() => valid && onConfirm({ desc: desc.trim(), descCompleta, precio: precioFinal })}
-            disabled={!valid} style={{
-              padding: 11, background: valid ? t.accent : t.border, border: 'none', borderRadius: 8,
-              color: valid ? '#fff' : t.textMuted,
-              cursor: valid ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
-          }}>Agregar al carrito</button>
-        </div>
-      </div>
-    </div>,
-    getPortalRoot()
+        <DialogFooter className="grid grid-cols-2 gap-2 sm:justify-stretch">
+          <Button variant="outline" onClick={onClose} className="h-10 text-[13px]">Cancelar</Button>
+          <Button onClick={submit} disabled={!valid} className="h-10 text-[13px] font-semibold">
+            Agregar al carrito
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
