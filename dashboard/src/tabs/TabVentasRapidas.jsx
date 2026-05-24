@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Star, Trash2, ShoppingCart, User, X, Plus, Loader2 } from 'lucide-react'
+import { Star, Trash2, ShoppingCart, User, X, Plus, Loader2, Search, Sparkles } from 'lucide-react'
 import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
 import { Card } from '@/components/ui/card.jsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog.jsx'
 import { Button } from '@/components/ui/button.jsx'
+import { Input } from '@/components/ui/input.jsx'
 import { cn } from '@/lib/utils'
 import { ModalCliente } from './TabClientes.jsx'
 import { useAuth } from '../hooks/useAuth.js'
@@ -1608,7 +1609,6 @@ function PanelCarrito({ carrito, totalCarrito, vendedor, setVendedor, metodo, se
 // TAB PRINCIPAL
 // ══════════════════════════════════════════════════════════════════════════════
 export default function TabVentasRapidas({ refreshKey }) {
-  const t = useTheme()
   const { authFetch } = useAuth()
   const { selectedVendor } = useVendorFilter()
 
@@ -1911,111 +1911,119 @@ export default function TabVentasRapidas({ refreshKey }) {
 
   const totalItems = carrito.reduce((s, c) => s + (c.qty || 1), 0)
 
+  const isError = toast?.includes('Error') || toast?.includes('⚠️')
+
   return (
-    <div style={{ position: 'relative', overflow: 'hidden', maxWidth: '100vw' }}>
+    <div className="relative overflow-hidden max-w-screen">
       <style>{`
         .vr-filtros::-webkit-scrollbar { display: none }
         .vr-filtros { -ms-overflow-style: none; scrollbar-width: none }
-        @keyframes cartPulse{0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)}}
+        .sc-bar::-webkit-scrollbar { display: none }
+        @keyframes drawerUp { from { transform: translateY(100%) } to { transform: translateY(0) } }
+        @keyframes vrToastIn { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: translateY(0) } }
+        @keyframes vrCarritoToast { 0% { opacity: 0; transform: translateY(8px) } 13% { opacity: 1; transform: translateY(0) } 80% { opacity: 1 } 100% { opacity: 0 } }
       `}</style>
 
       {/* ══ LAYOUT DESKTOP: grid | MÓVIL: columna ══ */}
-      <div style={{
-        display: isMobile ? 'block' : 'grid',
-        gridTemplateColumns: '1fr 310px',
-        gap: 16, alignItems: 'start',
-        width: '100%', minWidth: 0, overflow: 'hidden',
-      }}>
+      <div
+        className={cn(
+          'w-full min-w-0 overflow-hidden items-start gap-4',
+          isMobile ? 'block' : 'grid',
+        )}
+        style={!isMobile ? { gridTemplateColumns: '1fr 310px' } : undefined}
+      >
 
       {/* ══ PANEL IZQUIERDO ══ */}
-      <div>
+      <div className="min-w-0">
 
         {/* ── Botones de filtro + selector columnas ── */}
-        <div style={{ marginBottom: 12 }}>
-        <div className="vr-filtros" style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          overflowX: 'auto', paddingBottom: 4,
-          flexWrap: isMobile ? 'nowrap' : 'wrap',
-          WebkitOverflowScrolling: 'touch',
-        }}>
-          {filtros.map(f => {
-            const activo = filtro === f.key
-            return (
-              <button
-                key={f.key}
-                onClick={() => { setFiltro(f.key); setBusq(''); setSubcatFiltro(null) }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '5px 12px', borderRadius: 99,
-                  background: activo ? t.accentSub : 'transparent',
-                  border: `1px solid ${activo ? t.accent : t.border}`,
-                  color: activo ? t.accent : t.textMuted,
-                  fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
-                  transition: 'all .15s', whiteSpace: 'nowrap',
-                }}
-                onMouseEnter={e => { if (!activo) { e.currentTarget.style.borderColor = t.accent + '66'; e.currentTarget.style.color = t.text } }}
-                onMouseLeave={e => { if (!activo) { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textMuted } }}
-              >
-                <span>{f.icono}</span>
-                {f.label}
-              </button>
-            )
-          })}
+        <div className="mb-3">
+          <div
+            className={cn(
+              'vr-filtros flex items-center gap-1.5 overflow-x-auto pb-1',
+              isMobile ? 'flex-nowrap' : 'flex-wrap',
+            )}
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
+            {filtros.map(f => {
+              const activo = filtro === f.key
+              return (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => { setFiltro(f.key); setBusq(''); setSubcatFiltro(null) }}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs whitespace-nowrap border transition-colors',
+                    activo
+                      ? 'bg-primary-soft border-primary text-primary'
+                      : 'bg-transparent border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                  )}
+                >
+                  <span>{f.icono}</span>
+                  {f.label}
+                </button>
+              )
+            })}
 
-          {/* Espaciador */}
-          <div style={{ flex: 1 }} />
+            {/* Espaciador */}
+            <div className="flex-1" />
 
-          {/* Selector de columnas — 2/3 en móvil, 4/5/6 en desktop */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, color: t.textMuted, marginRight: 2 }}>Col:</span>
-            {(isMobile ? [2, 3] : [4, 5, 6]).map(n => (
-              <button
-                key={n}
-                onClick={() => setColumnas(n)}
-                style={{
-                  width: 26, height: 26, borderRadius: 6,
-                  background: columnas === n ? t.accentSub : 'transparent',
-                  border: `1px solid ${columnas === n ? t.accent : t.border}`,
-                  color: columnas === n ? t.accent : t.textMuted,
-                  fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                  fontFamily: 'inherit', transition: 'all .15s',
-                }}
-              >{n}</button>
-            ))}
+            {/* Selector de columnas — 2/3 en móvil, 4/5/6 en desktop */}
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground mr-0.5">Col:</span>
+              {(isMobile ? [2, 3] : [4, 5, 6]).map(n => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setColumnas(n)}
+                  className={cn(
+                    'w-[26px] h-[26px] rounded-md text-xs font-semibold border transition-colors',
+                    columnas === n
+                      ? 'bg-primary-soft border-primary text-primary'
+                      : 'bg-transparent border-border text-muted-foreground hover:border-primary/40',
+                  )}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
         </div>
 
         {/* ── Frecuentes ── */}
         {frecuentes.length > 0 && !busq.trim() && (
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
+          <div className="mb-3">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">
               🔥 Más vendidos
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-              {frecuentes.map(prod => (
-                <button
-                  key={prod.key}
-                  onClick={() => clickProd(prod)}
-                  style={{
-                    padding: '4px 11px', borderRadius: 99, fontSize: 11,
-                    background: carrito.some(c => c.key === prod.key) ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#1a1a1a'),
-                    border: `1px solid ${carrito.some(c => c.key === prod.key) ? t.accent : t.border}`,
-                    color: carrito.some(c => c.key === prod.key) ? t.accent : t.text,
-                    cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all .15s',
-                  }}
-                >
-                  {iconCat(prod.categoria)} {prod.nombre}
-                </button>
-              ))}
+            <div className="flex flex-wrap gap-1.5">
+              {frecuentes.map(prod => {
+                const enCarro = carrito.some(c => c.key === prod.key)
+                return (
+                  <button
+                    key={prod.key}
+                    type="button"
+                    onClick={() => clickProd(prod)}
+                    className={cn(
+                      'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs whitespace-nowrap border transition-colors',
+                      enCarro
+                        ? 'bg-primary-soft border-primary text-primary'
+                        : 'bg-muted border-border text-foreground hover:border-primary/40',
+                    )}
+                  >
+                    <span>{iconCat(prod.categoria)}</span>
+                    {prod.nombre}
+                  </button>
+                )
+              })}
             </div>
           </div>
         )}
 
         {/* ── Búsqueda ── */}
-        <div style={{ position: 'relative', marginBottom: 10 }}>
-          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: t.textMuted, pointerEvents: 'none' }}>🔍</span>
-          <input
+        <div className="relative mb-2.5">
+          <Search className="size-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Input
             ref={searchRef}
             value={busq}
             onChange={e => { setBusq(e.target.value); if (e.target.value) setFiltro('todos'); setHighlightedIdx(-1) }}
@@ -2034,62 +2042,56 @@ export default function TabVentasRapidas({ refreshKey }) {
               }
             }}
             placeholder="Buscar producto... (Enter agrega el primero)"
-            style={{
-              width: '100%', background: t.card, border: `1px solid ${t.border}`,
-              borderRadius: 8, padding: '8px 10px 8px 30px',
-              color: t.text, fontFamily: 'inherit', fontSize: 12, outline: 'none',
-            }}
-            onFocus={e => e.currentTarget.style.borderColor = t.accent + '88'}
-            onBlur={e  => e.currentTarget.style.borderColor = t.border}
+            className="pl-8 h-9 text-xs"
           />
         </div>
 
         {/* ── Venta miscelánea ── */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+        <div className="flex justify-end mb-3.5">
           <button
+            type="button"
             onClick={() => setModalMisc(true)}
-            style={{
-              padding: '4px 12px', borderRadius: 99, fontSize: 11,
-              background: 'transparent', border: `1px solid ${t.border}`,
-              color: t.textMuted, cursor: 'pointer', fontFamily: 'inherit',
-              display: 'flex', alignItems: 'center', gap: 5, transition: 'all .15s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = t.accent + '66'; e.currentTarget.style.color = t.text }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textMuted }}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-transparent border border-border text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
           >
-            💸 Venta miscelánea
+            <Sparkles className="size-3" />
+            Venta miscelánea
           </button>
         </div>
 
         {/* ── Subcategorías ── */}
         {subcatsDisp.length > 0 && !busq.trim() && (
-          <div style={{
-            display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 12,
-            scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch',
-          }}>
-            <style>{`.sc-bar::-webkit-scrollbar{display:none}`}</style>
+          <div
+            className="sc-bar flex gap-1.5 overflow-x-auto pb-1 mb-3"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
             <button
+              type="button"
               onClick={() => setSubcatFiltro(null)}
-              style={{
-                padding: '5px 13px', borderRadius: 99, whiteSpace: 'nowrap', cursor: 'pointer',
-                background: !subcatFiltro ? t.accentSub : 'transparent',
-                border: `1px solid ${!subcatFiltro ? t.accent : t.border}`,
-                color: !subcatFiltro ? t.accent : t.textMuted,
-                fontSize: 11, fontFamily: 'inherit', flexShrink: 0,
-              }}
-            >Todos</button>
+              className={cn(
+                'flex-shrink-0 px-3 py-1 rounded-full text-xs whitespace-nowrap border transition-colors',
+                !subcatFiltro
+                  ? 'bg-primary-soft border-primary text-primary'
+                  : 'bg-transparent border-border text-muted-foreground hover:border-primary/40',
+              )}
+            >
+              Todos
+            </button>
             {subcatsDisp.map(sub => {
               const active = subcatFiltro === sub.key
               return (
-                <button key={sub.key} onClick={() => setSubcatFiltro(active ? null : sub.key)} style={{
-                  padding: '5px 13px', borderRadius: 99, whiteSpace: 'nowrap', cursor: 'pointer',
-                  background: active ? t.accentSub : 'transparent',
-                  border: `1px solid ${active ? t.accent : t.border}`,
-                  color: active ? t.accent : t.textMuted,
-                  fontSize: 11, fontFamily: 'inherit', flexShrink: 0,
-                  display: 'flex', alignItems: 'center', gap: 5,
-                }}>
-                  <span>{sub.icono}</span>{sub.label}
+                <button
+                  key={sub.key}
+                  type="button"
+                  onClick={() => setSubcatFiltro(active ? null : sub.key)}
+                  className={cn(
+                    'flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs whitespace-nowrap border transition-colors',
+                    active
+                      ? 'bg-primary-soft border-primary text-primary'
+                      : 'bg-transparent border-border text-muted-foreground hover:border-primary/40',
+                  )}
+                >
+                  <span>{sub.icono}</span>
+                  {sub.label}
                 </button>
               )
             })}
@@ -2105,24 +2107,17 @@ export default function TabVentasRapidas({ refreshKey }) {
               favs.length > 0 ? (
                 <Seccion icono="⭐" titulo="Favoritos" cantidad={favs.length} productos={favs} {...seccionProps} />
               ) : filtro === 'favs' ? (
-                <div style={{
-                  border: `1px dashed ${t.border}`, borderRadius: 9,
-                  padding: '24px 16px', marginBottom: 22, textAlign: 'center',
-                }}>
-                  <div style={{ fontSize: 28, opacity: .3, marginBottom: 8 }}>⭐</div>
-                  <span style={{ fontSize: 12, color: t.textMuted }}>
-                    Aún no tienes favoritos.<br />Marca la <strong style={{ color: '#fbbf24' }}>★</strong> en cualquier producto para agregarlo.
+                <div className="border border-dashed border-border rounded-lg py-6 px-4 mb-6 text-center">
+                  <Star className="size-7 mx-auto mb-2 opacity-30 text-warning" />
+                  <span className="text-xs text-muted-foreground">
+                    Aún no tienes favoritos.<br />Marca la <Star className="inline size-3 fill-current text-warning" /> en cualquier producto para agregarlo.
                   </span>
                 </div>
               ) : (
-                <div style={{
-                  border: `1px dashed ${t.border}`, borderRadius: 9,
-                  padding: '12px 16px', marginBottom: 22,
-                  display: 'flex', alignItems: 'center', gap: 10,
-                }}>
-                  <span style={{ fontSize: 16, opacity: .4 }}>⭐</span>
-                  <span style={{ fontSize: 11, color: t.textMuted }}>
-                    Marca la <strong style={{ color: '#fbbf24' }}>★</strong> en cualquier producto para agregarlo a favoritos
+                <div className="border border-dashed border-border rounded-lg py-3 px-4 mb-6 flex items-center gap-2.5">
+                  <Star className="size-4 opacity-40 text-warning" />
+                  <span className="text-xs text-muted-foreground">
+                    Marca la <Star className="inline size-3 fill-current text-warning" /> en cualquier producto para agregarlo a favoritos
                   </span>
                 </div>
               )
@@ -2148,7 +2143,7 @@ export default function TabVentasRapidas({ refreshKey }) {
               if (usarGrupos) {
                 return (
                   <div key={cat}>
-                    <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 10 }}>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2.5">
                       {iconCat(cat)} {titulo}
                     </div>
                     <VistaGrupos
@@ -2200,86 +2195,69 @@ export default function TabVentasRapidas({ refreshKey }) {
 
       {/* ══ MÓVIL: barra inferior fija del carrito — solo cuando hay ítems ══ */}
       {isMobile && totalItems > 0 && createPortal(
-        <div style={{
-          position: 'fixed', bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))', left: 0, right: 0,
-          zIndex: 200, padding: '8px 12px',
-          background: t.header,
-          borderTop: `1px solid ${t.border}`,
-          boxShadow: '0 -4px 20px rgba(0,0,0,.15)',
-          display: 'flex', gap: 8, boxSizing: 'border-box',
-        }}>
+        <div
+          className="fixed left-0 right-0 z-[200] px-3 py-2 bg-card border-t border-border flex gap-2 box-border shadow-[0_-4px_20px_rgba(0,0,0,.15)]"
+          style={{ bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))' }}
+        >
           {/* Botón izquierdo: ver carrito */}
           <button
+            type="button"
             onClick={() => setCarritoAbierto(true)}
-            style={{
-              flex: 1, padding: '14px 12px',
-              background: totalItems > 0 ? t.accent : t.card,
-              border: `1px solid ${totalItems > 0 ? t.accent : t.border}`,
-              borderRadius: 11, color: totalItems > 0 ? '#fff' : t.textMuted,
-              fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
-              cursor: 'pointer', display: 'flex',
-              alignItems: 'center', justifyContent: 'center', gap: 8,
-              transition: 'all .2s',
-            }}
+            className="flex-1 inline-flex items-center justify-center gap-2 py-3.5 px-3 rounded-xl text-sm font-semibold bg-primary border border-primary text-primary-foreground transition-colors hover:bg-primary-hover"
           >
-            <span style={{ fontSize: 17 }}>🛒</span>
-            {totalItems > 0
-              ? <span>{totalItems} {totalItems === 1 ? 'ítem' : 'ítems'} · {cop(totalCarrito)}</span>
-              : <span>Carrito vacío</span>
-            }
+            <ShoppingCart className="size-4" />
+            <span>{totalItems} {totalItems === 1 ? 'ítem' : 'ítems'} · {cop(totalCarrito)}</span>
           </button>
           {/* Toggle cambio sutil — solo efectivo */}
-          {totalItems > 0 && metodo === 'efectivo' && (
+          {metodo === 'efectivo' && (
             <button
+              type="button"
               onClick={() => setCalcCambio(v => !v)}
               title={calcCambio ? 'Desactivar cambio' : 'Calcular cambio'}
-              style={{
-                flexShrink: 0,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-                background: calcCambio ? `${t.accent}20` : 'transparent',
-                border: `1px solid ${calcCambio ? t.accent + '55' : t.border}`,
-                borderRadius: 10, padding: '6px 8px',
-                cursor: 'pointer', transition: 'all .18s',
-              }}
+              className={cn(
+                'flex-shrink-0 flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 border transition-colors',
+                calcCambio
+                  ? 'bg-primary-soft border-primary/55'
+                  : 'bg-transparent border-border',
+              )}
             >
-              <div style={{
-                width: 24, height: 14, borderRadius: 7,
-                background: calcCambio ? t.accent : t.border,
-                position: 'relative', transition: 'background .15s',
-              }}>
-                <div style={{
-                  position: 'absolute', top: 2, left: calcCambio ? 12 : 2,
-                  width: 10, height: 10, borderRadius: '50%', background: '#fff',
-                  transition: 'left .15s',
-                }} />
+              <div
+                className={cn(
+                  'w-6 h-3.5 rounded-full relative transition-colors',
+                  calcCambio ? 'bg-primary' : 'bg-border',
+                )}
+              >
+                <div
+                  className="absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-[left]"
+                  style={{ left: calcCambio ? 12 : 2 }}
+                />
               </div>
-              <span style={{ fontSize: 8, color: calcCambio ? t.accent : t.textMuted, fontWeight: 700, letterSpacing: '.02em' }}>
+              <span
+                className={cn(
+                  'text-[8px] font-bold tracking-wide',
+                  calcCambio ? 'text-primary' : 'text-muted-foreground',
+                )}
+              >
                 💱
               </span>
             </button>
           )}
-          {/* Botón derecho: checkout — solo cuando hay ítems */}
-          {totalItems > 0 && (
-            <button
-              onClick={enviando ? undefined : () => {
-                if (calcCambio) setModalCheckout(true)
-                else registrar()
-              }}
-              disabled={enviando}
-              style={{
-                padding: '12px 18px',
-                background: t.accent, border: 'none',
-                borderRadius: 11, color: '#fff',
-                fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
-                cursor: enviando ? 'not-allowed' : 'pointer',
-                whiteSpace: 'nowrap', flexShrink: 0,
-                opacity: enviando ? 0.7 : 1,
-                transition: 'all .2s',
-              }}
-            >
-              {enviando ? '⏳' : '✓ Registrar'}
-            </button>
-          )}
+          {/* Botón derecho: checkout */}
+          <button
+            type="button"
+            onClick={enviando ? undefined : () => {
+              if (calcCambio) setModalCheckout(true)
+              else registrar()
+            }}
+            disabled={enviando}
+            className={cn(
+              'flex-shrink-0 px-4 py-3 rounded-xl text-sm font-bold whitespace-nowrap transition-colors',
+              'bg-primary text-primary-foreground hover:bg-primary-hover',
+              enviando && 'opacity-70 cursor-not-allowed',
+            )}
+          >
+            {enviando ? <Loader2 className="size-4 animate-spin" /> : '✓ Registrar'}
+          </button>
         </div>
       , document.body)}
 
@@ -2287,33 +2265,38 @@ export default function TabVentasRapidas({ refreshKey }) {
       {isMobile && carritoAbierto && createPortal(
         <div
           onClick={e => e.target === e.currentTarget && setCarritoAbierto(false)}
-          style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: '#00000077', zIndex: 300,
-            display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-          }}
+          className="fixed inset-0 z-[300] bg-black/45 flex flex-col justify-end"
         >
           <div
             onPointerDown={e => e.stopPropagation()}
+            className="bg-card rounded-t-2xl overflow-hidden flex flex-col"
             style={{
-              background: t.card, borderRadius: '18px 18px 0 0',
               maxHeight: 'calc(100dvh - 130px - env(safe-area-inset-bottom, 0px))',
-              overflow: 'hidden', display: 'flex', flexDirection: 'column',
               animation: 'drawerUp .25s cubic-bezier(.34,1.2,.64,1)',
             }}
           >
-            <style>{`@keyframes drawerUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
             {/* Handle */}
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
-              <div style={{ width: 36, height: 4, borderRadius: 99, background: t.border }} />
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-9 h-1 rounded-full bg-border" />
             </div>
             {/* Header */}
-            <div style={{ padding: '8px 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${t.border}` }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>🛒 Carrito</span>
-              <button onClick={() => setCarritoAbierto(false)} style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: 20, cursor: 'pointer', padding: '4px 8px' }}>✕</button>
+            <div className="px-4 pt-2 pb-3 flex items-center justify-between border-b border-border">
+              <span className="text-sm font-bold text-foreground inline-flex items-center gap-1.5">
+                <ShoppingCart className="size-4" /> Carrito
+              </span>
+              <button
+                type="button"
+                onClick={() => setCarritoAbierto(false)}
+                className="text-muted-foreground hover:text-foreground p-1 rounded-md transition-colors"
+              >
+                <X className="size-5" />
+              </button>
             </div>
             {/* Content */}
-            <div style={{ overflowY: 'auto', flex: 1, paddingBottom: 16, WebkitOverflowScrolling: 'touch' }}>
+            <div
+              className="overflow-y-auto flex-1 pb-4"
+              style={{ WebkitOverflowScrolling: 'touch' }}
+            >
               <PanelCarrito
                 carrito={carrito} totalCarrito={totalCarrito}
                 vendedor={vendedor} setVendedor={setVendedor}
@@ -2361,7 +2344,7 @@ export default function TabVentasRapidas({ refreshKey }) {
         onConfirm={confirmarColorPrep}
       />
 
-      {/* Modales */}
+      {/* Modales tipados */}
       {modalFrac && <ModalFraccion key={modalFrac.key} prod={modalFrac} onClose={() => setModalFrac(null)} onConfirm={confirmarFrac} />}
       {modalCm   && <ModalCm       key={modalCm.key}   prod={modalCm}   onClose={() => setModalCm(null)}   onConfirm={confirmarCm}  />}
       {modalQty  && <ModalQty      key={modalQty.key}   prod={modalQty}  onClose={() => setModalQty(null)}  onConfirm={confirmarQty} />}
@@ -2371,31 +2354,26 @@ export default function TabVentasRapidas({ refreshKey }) {
 
       {/* Toast carrito móvil — confirmación al agregar producto */}
       {isMobile && carritoToast && (
-        <div style={{
-          position: 'fixed', bottom: 140, left: 16, right: 16,
-          background: t.green, color: '#fff',
-          borderRadius: 12, padding: '12px 16px',
-          fontSize: 13, fontWeight: 600,
-          zIndex: 9999, textAlign: 'center',
-          animation: 'carritoToastAnim 1.5s ease forwards',
-        }}>
-          <style>{`@keyframes carritoToastAnim{0%{opacity:0;transform:translateY(8px)}13%{opacity:1;transform:translateY(0)}80%{opacity:1}100%{opacity:0}}`}</style>
+        <div
+          className="fixed left-4 right-4 bg-success text-success-foreground rounded-xl px-4 py-3 text-sm font-semibold z-[9999] text-center"
+          style={{ bottom: 140, animation: 'vrCarritoToast 1.5s ease forwards' }}
+        >
           {carritoToast}
         </div>
       )}
 
       {/* Toast */}
       {toast && (
-        <div style={{
-          position: 'fixed', bottom: isMobile ? 90 : 22, right: 22,
-          background: t.card,
-          border: `1px solid ${toast.includes('Error') ? t.accent : t.green}`,
-          color: toast.includes('Error') ? t.accent : t.green,
-          padding: '10px 16px', borderRadius: 9, fontSize: 12, fontWeight: 500,
-          zIndex: 999, boxShadow: t.shadow,
-          animation: 'tIn .25s cubic-bezier(.34,1.56,.64,1)',
-        }}>
-          <style>{`@keyframes tIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}`}</style>
+        <div
+          className={cn(
+            'fixed right-5 bg-card border rounded-lg px-4 py-2.5 text-xs font-medium z-[999] shadow-md',
+            isError ? 'border-destructive text-destructive' : 'border-success text-success',
+          )}
+          style={{
+            bottom: isMobile ? 90 : 22,
+            animation: 'vrToastIn .25s cubic-bezier(.34,1.56,.64,1)',
+          }}
+        >
           {toast}
         </div>
       )}
