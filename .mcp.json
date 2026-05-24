@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://postgres:AEhLzbOurMUbRanRmSaPyMuokEwGdjcd@crossover.proxy.rlwy.net:21606/railway"]
+    }
+  }
+}
