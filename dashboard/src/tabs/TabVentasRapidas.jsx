@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Star } from 'lucide-react'
+import { Star, Trash2, ShoppingCart } from 'lucide-react'
 import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
 import { Card } from '@/components/ui/card.jsx'
 import { cn } from '@/lib/utils'
@@ -830,7 +830,6 @@ function ModalQty({ prod, onClose, onConfirm }) {
 // CARRITO ITEM
 // ══════════════════════════════════════════════════════════════════════════════
 function CartItem({ item, idx, onRemove, onQtyChange, onQtySet }) {
-  const t = useTheme()
   const [editingQty, setEditingQty] = useState(false)
   const [qtyInput,   setQtyInput]   = useState(String(item.qty))
   const inputRef = useRef(null)
@@ -846,36 +845,39 @@ function CartItem({ item, idx, onRemove, onQtyChange, onQtySet }) {
   }
 
   return (
-    <div style={{ padding: '8px 14px', borderBottom: `1px solid ${t.border}`, animation: 'cIn .15s ease' }}>
-      <style>{`@keyframes cIn{from{opacity:0;transform:translateX(6px)}to{opacity:1;transform:translateX(0)}}`}</style>
+    <div className="px-3.5 py-2 border-b border-border animate-in fade-in slide-in-from-right-1 duration-150">
       {/* Fila principal: nombre + total + trash */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: item.tipo === 'simple' ? 6 : 0 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nombre}</div>
-          <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>{item.desc}</div>
+      <div className={cn('flex items-center gap-2', item.tipo === 'simple' && 'mb-1.5')}>
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] text-foreground truncate">{item.nombre}</div>
+          <div className="text-[10px] text-muted-foreground mt-px">{item.desc}</div>
         </div>
-        <div style={{ fontSize: 11, fontFamily: 'monospace', color: t.green, minWidth: 54, textAlign: 'right' }}>{cop(item.total)}</div>
-        <span
+        <div className="text-[11px] font-mono text-success min-w-[54px] text-right tabular">{cop(item.total)}</div>
+        <button
+          type="button"
           onClick={() => onRemove(idx)}
           title="Eliminar"
-          style={{ color: t.textMuted, cursor: 'pointer', fontSize: 14, padding: '2px 4px', transition: 'color .1s', flexShrink: 0 }}
-          onMouseEnter={e => e.currentTarget.style.color = t.accent}
-          onMouseLeave={e => e.currentTarget.style.color = t.textMuted}
-        >🗑</span>
+          className="text-muted-foreground hover:text-primary transition-colors shrink-0 px-1 py-0.5"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
       </div>
 
       {/* Fila multiplicadores — solo productos simples */}
       {item.tipo === 'simple' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+        <div className="flex items-center gap-1 flex-wrap">
           {[1, 2, 3, 5, 10].map(m => (
-            <button key={m} onClick={() => onQtySet(idx, m)} style={{
-              padding: '2px 7px', borderRadius: 5, fontSize: 10,
-              background: item.qty === m ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#1a1a1a'),
-              border: `1px solid ${item.qty === m ? t.accent : t.border}`,
-              color: item.qty === m ? t.accent : t.textMuted,
-              cursor: 'pointer', fontFamily: 'inherit', fontWeight: item.qty === m ? 700 : 400,
-              transition: 'all .1s',
-            }}>×{m}</button>
+            <button
+              key={m}
+              type="button"
+              onClick={() => onQtySet(idx, m)}
+              className={cn(
+                'px-1.5 py-0.5 rounded text-[10px] border transition-colors',
+                item.qty === m
+                  ? 'bg-primary-soft border-primary text-primary font-bold'
+                  : 'bg-muted border-border text-muted-foreground hover:border-primary/40',
+              )}
+            >×{m}</button>
           ))}
           {editingQty ? (
             <input
@@ -885,23 +887,13 @@ function CartItem({ item, idx, onRemove, onQtyChange, onQtySet }) {
               onChange={e => setQtyInput(e.target.value)}
               onBlur={commitEdit}
               onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingQty(false) }}
-              style={{
-                width: 40, fontSize: 11, fontFamily: 'monospace', textAlign: 'center',
-                background: 'transparent', border: 'none',
-                borderBottom: `1px solid ${t.accent}`,
-                color: t.accent, outline: 'none', padding: '1px 0',
-                MozAppearance: 'textfield', appearance: 'textfield',
-              }}
+              className="w-10 text-[11px] font-mono text-center bg-transparent border-0 border-b border-primary text-primary outline-none px-0 py-px [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
             />
           ) : (
             <span
               onDoubleClick={() => { setQtyInput(String(item.qty)); setEditingQty(true) }}
               title="Doble clic para cantidad personalizada"
-              style={{
-                fontSize: 10, fontFamily: 'monospace', color: t.textMuted,
-                cursor: 'text', padding: '2px 5px', borderRadius: 4,
-                border: `1px dashed ${t.border}`, minWidth: 24, textAlign: 'center',
-              }}
+              className="text-[10px] font-mono text-muted-foreground cursor-text px-1.5 py-0.5 rounded border border-dashed border-border min-w-[24px] text-center"
             >{item.qty}</span>
           )}
         </div>
@@ -1804,34 +1796,42 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
                         clienteSeleccionado, setClienteSeleccionado,
                         removeItem, qtyChange, qtySet, onCheckout, calcCambio, setCalcCambio,
                         enviando, sticky, mobile }) {
+  const totalQty = carrito.reduce((s, c) => s + (c.qty || 1), 0)
+
+  const METODOS = [
+    { key: 'efectivo',      label: 'Efectivo',  icon: '💵' },
+    { key: 'transferencia', label: 'Transfer.', icon: '📲' },
+    { key: 'datafono',      label: 'Datáfono',  icon: '💳' },
+  ]
+
   return (
-    <div style={{
-      background: t.card, border: mobile ? 'none' : `1px solid ${t.border}`,
-      borderRadius: mobile ? 0 : 11, overflow: 'hidden',
-      position: sticky ? 'sticky' : 'relative', top: sticky ? 70 : 'auto',
-    }}>
+    <div
+      className={cn(
+        'bg-card overflow-hidden',
+        mobile ? '' : 'border border-border rounded-xl',
+        sticky && 'sticky top-[70px]',
+      )}
+    >
       {/* Header (solo desktop) */}
       {!mobile && (
-        <div style={{
-          padding: '12px 14px', borderBottom: `1px solid ${t.border}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: '.1em', textTransform: 'uppercase' }}>Carrito</span>
-          <div style={{
-            background: carrito.length ? t.accent : t.border, color: '#fff',
-            fontSize: 9, fontWeight: 700, width: 18, height: 18, borderRadius: '50%',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .2s',
-          }}>
-            {carrito.reduce((s, c) => s + (c.qty || 1), 0)}
+        <div className="px-3.5 py-3 border-b border-border flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Carrito</span>
+          <div
+            className={cn(
+              'w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] font-bold text-primary-foreground transition-colors',
+              carrito.length ? 'bg-primary' : 'bg-border',
+            )}
+          >
+            {totalQty}
           </div>
         </div>
       )}
 
       {/* Items */}
-      <div style={{ maxHeight: mobile ? 'none' : 280, overflowY: mobile ? 'visible' : 'auto' }}>
+      <div className={cn(mobile ? '' : 'max-h-[280px] overflow-y-auto')}>
         {carrito.length === 0 ? (
-          <div style={{ padding: '28px 14px', textAlign: 'center', color: t.textMuted, fontSize: 12, lineHeight: 1.9 }}>
-            <div style={{ fontSize: 28, opacity: .25, marginBottom: 6 }}>🛒</div>
+          <div className="px-3.5 py-7 text-center text-muted-foreground text-xs leading-relaxed">
+            <ShoppingCart className="size-7 mx-auto mb-1.5 opacity-25" />
             Toca un producto para agregarlo
           </div>
         ) : (
@@ -1843,10 +1843,12 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
 
       {/* Total */}
       {carrito.length > 0 && (
-        <div style={{ padding: '10px 14px', borderTop: `1px solid ${t.border}` }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.08em' }}>Total</span>
-            <span style={{ fontSize: mobile ? 24 : 20, fontFamily: 'monospace', fontWeight: 700, color: t.text }}>{cop(totalCarrito)}</span>
+        <div className="px-3.5 py-2.5 border-t border-border">
+          <div className="flex justify-between items-baseline">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</span>
+            <span className={cn('font-mono font-bold text-foreground tabular', mobile ? 'text-2xl' : 'text-xl')}>
+              {cop(totalCarrito)}
+            </span>
           </div>
         </div>
       )}
@@ -1859,17 +1861,15 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
       />
 
       {/* Vendedor */}
-      <div style={{ padding: '8px 14px', borderTop: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.08em', minWidth: 54 }}>Vendedor</span>
+      <div className="px-3.5 py-2 border-t border-border flex items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground min-w-[54px]">Vendedor</span>
         <select
           value={vendedor}
           onChange={e => { setVendedor(e.target.value); localStorage.setItem('vr_vendedor', e.target.value) }}
-          style={{
-            flex: 1, background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-            border: `1px solid ${t.border}`, borderRadius: 5, color: t.text,
-            fontSize: mobile ? 14 : 11, padding: mobile ? '7px 10px' : '4px 7px',
-            fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
-          }}
+          className={cn(
+            'flex-1 bg-muted border border-border rounded text-foreground outline-none cursor-pointer focus-visible:ring-2 focus-visible:ring-ring',
+            mobile ? 'text-sm px-2.5 py-1.5' : 'text-[11px] px-2 py-1',
+          )}
         >
           {['Andres', 'Farid M', 'Farid D', 'Karolay'].map(v => (
             <option key={v} value={v}>{v}</option>
@@ -1878,51 +1878,54 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
       </div>
 
       {/* Método de pago */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, padding: '8px 14px 12px' }}>
-        {[
-          { key: 'efectivo',      label: 'Efectivo',  icon: '💵' },
-          { key: 'transferencia', label: 'Transfer.', icon: '📲' },
-          { key: 'datafono',      label: 'Datáfono',  icon: '💳' },
-        ].map(m => (
-          <button key={m.key} onClick={() => setMetodo(m.key)} style={{
-            padding: mobile ? '10px 3px' : '7px 3px',
-            background: metodo === m.key ? t.accentSub : (t.id === 'caramelo' ? '#f8fafc' : '#0f0f0f'),
-            border: `1px solid ${metodo === m.key ? t.accent : t.border}`,
-            borderRadius: 7, color: metodo === m.key ? t.accent : t.textMuted,
-            fontSize: mobile ? 12 : 10, cursor: 'pointer', fontFamily: 'inherit',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-            transition: 'all .15s',
-          }}>
-            <span style={{ fontSize: mobile ? 18 : 13 }}>{m.icon}</span>{m.label}
-          </button>
-        ))}
+      <div className="grid grid-cols-3 gap-1.5 px-3.5 pt-2 pb-3">
+        {METODOS.map(m => {
+          const active = metodo === m.key
+          return (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => setMetodo(m.key)}
+              className={cn(
+                'flex flex-col items-center gap-0.5 rounded-md border transition-colors',
+                mobile ? 'py-2.5 px-1 text-xs' : 'py-1.5 px-1 text-[10px]',
+                active
+                  ? 'bg-primary-soft border-primary text-primary'
+                  : 'bg-muted border-border text-muted-foreground hover:border-primary/40',
+              )}
+            >
+              <span className={mobile ? 'text-lg' : 'text-sm'}>{m.icon}</span>{m.label}
+            </button>
+          )
+        })}
       </div>
 
       {/* Toggle calcular cambio */}
       {metodo === 'efectivo' && (
         <button
+          type="button"
           onClick={() => setCalcCambio(v => !v)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            margin: '0 14px 8px', padding: '7px 10px',
-            background: calcCambio ? `${t.accent}12` : 'transparent',
-            border: `1px solid ${calcCambio ? t.accent + '55' : t.border}`,
-            borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
-            transition: 'all .15s', width: 'calc(100% - 28px)',
-          }}
+          className={cn(
+            'mx-3.5 mb-2 px-2.5 py-1.5 flex items-center gap-2 rounded-md border transition-colors w-[calc(100%-28px)]',
+            calcCambio
+              ? 'bg-primary-soft border-primary/40'
+              : 'bg-transparent border-border hover:border-primary/40',
+          )}
         >
-          <div style={{
-            width: 28, height: 16, borderRadius: 8,
-            background: calcCambio ? t.accent : t.border,
-            position: 'relative', flexShrink: 0, transition: 'background .15s',
-          }}>
-            <div style={{
-              position: 'absolute', top: 2, left: calcCambio ? 14 : 2,
-              width: 12, height: 12, borderRadius: '50%', background: '#fff',
-              transition: 'left .15s',
-            }} />
+          <div
+            className={cn(
+              'w-7 h-4 rounded-full relative shrink-0 transition-colors',
+              calcCambio ? 'bg-primary' : 'bg-border',
+            )}
+          >
+            <div
+              className={cn(
+                'absolute top-0.5 w-3 h-3 rounded-full bg-white transition-[left]',
+                calcCambio ? 'left-3.5' : 'left-0.5',
+              )}
+            />
           </div>
-          <span style={{ fontSize: 11, color: calcCambio ? t.accent : t.textMuted, fontWeight: 600 }}>
+          <span className={cn('text-[11px] font-semibold', calcCambio ? 'text-primary' : 'text-muted-foreground')}>
             Calcular cambio
           </span>
         </button>
@@ -1930,18 +1933,16 @@ function PanelCarrito({ t, carrito, totalCarrito, vendedor, setVendedor, metodo,
 
       {/* Botón registrar */}
       <button
+        type="button"
         onClick={() => carrito.length && onCheckout()}
         disabled={!carrito.length || enviando}
-        style={{
-          margin: '0 14px 14px', padding: mobile ? 16 : 12,
-          background: carrito.length ? t.accent : t.border,
-          color: carrito.length ? '#fff' : t.textMuted,
-          border: 'none', borderRadius: 8,
-          fontSize: mobile ? 15 : 12, fontWeight: 600,
-          cursor: carrito.length ? 'pointer' : 'not-allowed',
-          fontFamily: 'inherit', letterSpacing: '.04em',
-          width: 'calc(100% - 28px)', transition: 'all .15s',
-        }}
+        className={cn(
+          'mx-3.5 mb-3.5 w-[calc(100%-28px)] rounded-md font-semibold tracking-wide transition-colors',
+          mobile ? 'py-4 text-[15px]' : 'py-3 text-xs',
+          carrito.length
+            ? 'bg-primary text-primary-foreground hover:bg-primary-hover'
+            : 'bg-border text-muted-foreground cursor-not-allowed',
+        )}
       >
         {enviando ? 'Registrando...' : `Registrar venta${carrito.length > 0 ? ' · ' + cop(totalCarrito) : ''}`}
       </button>
