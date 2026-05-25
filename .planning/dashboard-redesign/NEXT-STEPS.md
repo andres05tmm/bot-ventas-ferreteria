@@ -1,6 +1,6 @@
 # Próximos pasos — Dashboard Redesign
 
-**Última actualización**: 2026-05-24 — Wave 3.c COMPLETADA · **Wave 4 COMPLETADA (6/6 tabs Fiscal)**
+**Última actualización**: 2026-05-24 — **Fase 5 COMPLETADA** (componentes especiales) · Wave 4 COMPLETADA (6/6 tabs Fiscal)
 
 ## Estado actual
 
@@ -77,6 +77,31 @@
     - ✅ **TabProveedores.jsx** (866 → 830 LOC, commit `8453747`): `FacturaCard` con acordeón Card+`ChevronDown` (semáforo via bg-success/warning/destructive en lugar de emojis), `BarraDeuda` tokenizada, modales `ModalNuevaFactura` y `ModalAbono` migrados a Dialog (multi-step con `StepDots`), `SelectorFoto` con border-dashed + Camera lucide, filtros chips, `ResumenProveedores` tokenizado. Build: 9.95 KB css gz
     - ✅ **TabComprasFiscal.jsx** (1697 → 1438 LOC, commit `c93bb2d`): 3 modales (Editar item / Editar factura agrupada / Enviar a Almacén) migrados a Dialog shadcn con `Promise.allSettled` preservado, `IvaToggle` con tamaño 'sm' para filas de tabla, PieChart con tokens, acordeón con badges Almacén/IVA, `StickyNote` lucide para notas fiscales, AlertTriangle warning para "sin nro.". Build: 10.02 KB css gz, **550.52 KB js gz** (bajó vs Wave 3 al eliminar inline styles)
   - **Resumen Wave 4**: 5076 LOC → 4760 LOC (-316 LOC) en 6 tabs · CSS bundle: 9.51 → 10.02 KB (+0.51 KB en gz para 6 tabs es aceptable) · JS bundle redujo de 553 KB a 550 KB gz (menos código por eliminación de useTheme/THEMES tree-shake-friendly)
+
+✅ **FASE 5 COMPLETADA — Componentes especiales** (2026-05-24, commit `129b444`):
+  - **AnimatedBackground.jsx** (211 → 216 LOC): useTheme reemplazado por hook `useDataTheme()` (MutationObserver sobre `html[data-theme]`). Blobs con `hsl(var(--accent))` y `bg-background`. Orphan pero alineado al DS por si se reactiva.
+  - **Login.jsx** (225 → 110 LOC): drop useTheme (no se usaba). `Card` shadcn + tokens semantic, `Loader2` lucide. Hereda dark mode automáticamente. Branding "Punto Rojo" intacto.
+  - **TabHistoricoVentas.jsx** (630 → 527 LOC): `KpiCard` con tonos primary/success/warning/info + iconos lucide (Wallet/Calendar/TrendingUp/Trophy/CreditCard/Smartphone), heatmap del calendario con `hsl(var(--accent) / opacity)`, `DiaCell` tokenizada, tabla de desglose, `Button` shadcn para nav y acciones (Edit3/Save/RefreshCw/Download), toasts via sonner.
+  - **shared.jsx**: `Spinner`/`ErrorMsg`/`EmptyState` reemplazados por versiones tokenizadas con SVG inline (sin tirar de lucide en shared para no inflar el bundle). Consumers existentes heredan light/dark sin cambios.
+  - **ChatWidget.jsx** auditado: 1342 LOC pero **no consume `useTheme`** (scoped CSS `.fw-*` con colores brand hardcoded). Refinement visual queda para una segunda pasada — no bloquea limpieza de `shared.jsx`.
+  - Build: **10.17 KB css gz · 507.66 KB js gz** (-43 KB js gz vs Wave 4 por mejor tree-shake al eliminar useTheme en más archivos)
+
+## ⏸️ Pendiente
+
+**Tabs aún no migrados**
+- `TabVentasRapidas.jsx` modales internos (Fraccion / Cm / Mlt / Grm / Kg / Qty) — declarados explícitamente "fuera de scope" en Wave 3.b. Sub-shell ya en Dialog; falta tokenizar el contenido interno.
+
+**Fase 6 — Polish y audit (2 días)**
+- `impeccable audit` 6 pilares (visual hierarchy, IA, accesibilidad, performance, responsive, motion)
+- WCAG AA · Lighthouse > 90
+- QA visual final tab por tab en light + dark
+
+**Limpieza shared.jsx (post-Fase 5)**
+- Auditar qué legacy consumers quedan de `THEMES`, `ThemeContext`, `useTheme`, `Card`, `KpiCard`, `GlassCard`, `Btn`, `PeriodBtn`, `StyledInput`, `Th`, `SectionTitle`, `Badge` — quedan refs en `TabVentasRapidas` y `shared.jsx` mismo.
+- Eliminar los 4 temas legacy (`caramelo` / `forja` / `brasa` / `ferrari`) cuando ya no haya consumers
+- Adelgazar `shared.jsx` a solo helpers de datos (`cop`, `num`, `API_BASE`, `useFetch`, `useIsMobile`, `useCountUp`)
+
+**Fase 7 — opcional**: Walkthrough video con Remotion
 
 ## Decisiones tomadas en Fase 1
 
