@@ -82,24 +82,33 @@ Estimación post-fixes: Performance 85→95 (lazy loading + tree-shake), Accessi
 
 ---
 
-## Lighthouse — pendiente de medición manual
+## Lighthouse — MEDIDO
 
-No se midió Lighthouse en este pass (requiere servir el build y un Chrome headless). Comandos sugeridos:
+Servido `dist/` con `npx serve -s dist -l 5050` y corrido `npx lighthouse http://localhost:5050/hoy` (desktop + mobile preset).
 
-```bash
-# Servir el build
-cd dashboard && npx serve dist -p 5000
+| Categoría | Desktop | Mobile | Target PLAN.md |
+|---|---|---|---|
+| **Performance** | **100** | **91** | > 90 ✅ |
+| **Accessibility** | **100** | **100** | = 100 ✅ |
+| Best Practices | 77 | 77 | — |
+| SEO | 82 | 82 | — |
 
-# En otra terminal — Lighthouse CLI
-npx lighthouse http://localhost:5000/hoy --view --preset=desktop
-npx lighthouse http://localhost:5000/hoy --view  # mobile
-```
+**Core Web Vitals — Desktop**:
+- FCP 0.5s · LCP 0.5s · TBT 0ms · CLS 0 · SI 0.5s · TTI 0.5s
 
-**Estimación post-fixes** vs PLAN.md targets:
-- Performance > 90 → muy probable (lazy loading hizo el trabajo pesado)
-- Accessibility = 100 → probable con focus-visible global + aria-labels nuevos. Si Axe levanta algo, será contraste de colores muy puntual
+**Core Web Vitals — Mobile**:
+- FCP 2.5s · LCP 3.1s · TBT 60ms · CLS 0 · SI 2.5s · TTI 3.2s
 
-Axe DevTools (extensión Chrome) es la otra herramienta recomendada para validar WCAG AA manualmente tab por tab.
+**Fix adicional aplicado** (commit `ec0ea82`) para llegar a A11y 100 en mobile:
+- `Login.jsx`: `<div>` raíz → `<main aria-labelledby="login-title">` (faltaba landmark)
+- `MutationObserver` que inyecta `title="Iniciar sesión con Telegram"` al `<iframe>` que crea el widget de Telegram (el script no acepta el atributo en sus opts)
+
+**Best Practices 77 y SEO 82 — no se accionan**:
+- "Uses third-party cookies" — necesarias por OAuth Telegram
+- "Missing source maps for first-party JS" — Vite no emite sourcemaps en prod por default; se podría activar (`build.sourcemap: true`) pero infla el bundle subido
+- "robots.txt is not valid" + "meta description" — dashboard interno, no se indexa
+
+Reportes completos: `.planning/dashboard-redesign/lighthouse/{desktop,mobile}.report.html`
 
 ---
 

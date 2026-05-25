@@ -107,7 +107,7 @@
   - **H4 Aria-labels icon-only** (commit `817aa1b`): 6 tabs migrados (TabCompras/ComprasFiscal/Facturacion/HistoricoVentas/Inventario/Proveedores). Iconos lucide marcados `aria-hidden="true"`. Bonus: `bg-black/70` en TabProveedores → `bg-foreground/70` para respetar dark mode
   - **M1 Tokens chart** (commit `edd5f3f`): `--chart-1..6` + `--info` en `index.css` (light + dark + media query). Eliminados hex `#0284C7`, `#a78bfa`, `#94a3b8`, `#EA580C`, `#7c3aed`, `#71717A` de TabResumen/TabCompras/TabComprasFiscal/TabResultados
   - **M2/M3/M5/L1/L2**: revisados sin cambios — consoles son `console.error` en catch (logging legítimo), overlays restantes son patrón shadcn estándar, inline styles de TabVentasRapidas son `gridTemplateColumns` dinámico / `env(safe-area-inset-*)` / `WebkitOverflowScrolling` (Tailwind no cubre), `AnimatedBackground` ya respetaba `prefers-reduced-motion`
-  - **Pendiente manual**: medir Lighthouse con `npx serve dist` + `npx lighthouse` (estimación: Performance >90, Accessibility ≥95) y validar con Axe DevTools tab por tab
+  - **Lighthouse medido** (commit `ec0ea82`): Desktop **Perf 100 / A11y 100**, Mobile **Perf 91 / A11y 100**. Fix adicional: `<main>` landmark en Login + `title` inyectado al iframe Telegram via MutationObserver. Reportes en `.planning/dashboard-redesign/lighthouse/`. Targets del PLAN.md cumplidos.
   - Build final: **10.18 KB css gz · 292.82 KB js gz inicial**
 
 **Fase 7 — opcional**: Walkthrough video con Remotion
