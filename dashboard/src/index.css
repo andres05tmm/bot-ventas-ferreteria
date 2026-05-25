@@ -128,10 +128,10 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Aurora ferretera — gradient mesh fijo con flujo diagonal TR → BL.
-     Capa 1: linear gradient 225deg (warm TR → neutral → cool BL).
-     Capa 2-4: orbes radiales reposicionados hacia dentro del viewport.
-     Requiere que el wrapper de AppShell sea transparente (no bg-background).
+  /* Aurora ferretera — gradient mesh fijo con flujo diagonal TL → BR.
+     Capa 1: linear gradient 135deg (warm TL → neutral → cool BR).
+     Capa 2-4: orbes radiales que refuerzan el flujo.
+     Requiere que el wrapper de AppShell y la Sidebar sean transparentes.
      Sin blur ni animación (Lighthouse-friendly). */
   body::before {
     content: "";
@@ -140,27 +140,62 @@
     pointer-events: none;
     z-index: 0;
     background:
-      linear-gradient(225deg,
-        hsl(var(--accent) / 0.12) 0%,
-        hsl(var(--accent) / 0.04) 32%,
+      linear-gradient(135deg,
+        hsl(var(--accent) / 0.14) 0%,
+        hsl(var(--accent) / 0.05) 32%,
         transparent              55%,
         hsl(var(--info)   / 0.05) 82%,
         hsl(var(--info)   / 0.12) 100%),
-      radial-gradient(circle 820px at 82% 18%,  hsl(var(--accent) / 0.16), transparent 62%),
-      radial-gradient(circle 880px at 18% 82%,  hsl(var(--info)   / 0.13), transparent 62%),
+      radial-gradient(circle 820px at 18% 18%,  hsl(var(--accent) / 0.18), transparent 62%),
+      radial-gradient(circle 880px at 82% 82%,  hsl(var(--info)   / 0.13), transparent 62%),
       radial-gradient(circle 480px at 50% 50%,  hsl(var(--warning)/ 0.05), transparent 68%);
   }
   [data-theme="dark"] body::before {
     background:
-      linear-gradient(225deg,
-        hsl(var(--accent) / 0.18) 0%,
-        hsl(var(--accent) / 0.06) 32%,
+      linear-gradient(135deg,
+        hsl(var(--accent) / 0.20) 0%,
+        hsl(var(--accent) / 0.07) 32%,
         transparent              55%,
         hsl(var(--info)   / 0.09) 82%,
         hsl(var(--info)   / 0.18) 100%),
-      radial-gradient(circle 820px at 82% 18%,  hsl(var(--accent) / 0.22), transparent 62%),
-      radial-gradient(circle 880px at 18% 82%,  hsl(var(--info)   / 0.18), transparent 62%),
+      radial-gradient(circle 820px at 18% 18%,  hsl(var(--accent) / 0.24), transparent 62%),
+      radial-gradient(circle 880px at 82% 82%,  hsl(var(--info)   / 0.18), transparent 62%),
       radial-gradient(circle 480px at 50% 50%,  hsl(var(--warning)/ 0.08), transparent 68%);
+  }
+
+  /* ── Scrollbar "Aurora" — fino, brand-tinted, fade en hover ─────────────
+     Patrón inspirado en base-ui Scroll Area (sin dependencia extra).
+     Aplicar con la clase `.scrollbar-aurora` en cualquier contenedor scroll. */
+  .scrollbar-aurora {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--accent) / 0.28) transparent;
+  }
+  .scrollbar-aurora::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-aurora::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-aurora::-webkit-scrollbar-thumb {
+    background: hsl(var(--accent) / 0.22);
+    border-radius: 999px;
+    transition: background 200ms;
+  }
+  .scrollbar-aurora::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--accent) / 0.55);
+  }
+  .scrollbar-aurora::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  [data-theme="dark"] .scrollbar-aurora {
+    scrollbar-color: hsl(var(--accent) / 0.4) transparent;
+  }
+  [data-theme="dark"] .scrollbar-aurora::-webkit-scrollbar-thumb {
+    background: hsl(var(--accent) / 0.32);
+  }
+  [data-theme="dark"] .scrollbar-aurora::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--accent) / 0.65);
   }
   /* Contenido por encima del background */
   #root { position: relative; z-index: 1; }

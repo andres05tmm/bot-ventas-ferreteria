@@ -53,7 +53,7 @@ export default function Sidebar({ collapsed, setCollapsed, onOpenCommand, colorS
   return (
     <aside
       className={cn(
-        'sticky top-0 h-dvh shrink-0 border-r border-border bg-surface-sidebar',
+        'sticky top-0 h-dvh shrink-0 border-r border-border bg-surface-sidebar/55',
         'flex flex-col transition-[width] duration-base ease-out-quad',
         collapsed ? 'w-16' : 'w-60',
       )}
@@ -70,8 +70,8 @@ export default function Sidebar({ collapsed, setCollapsed, onOpenCommand, colorS
         )}
       </div>
 
-      {/* Nav scrollable */}
-      <nav className="flex-1 overflow-y-auto py-3">
+      {/* Nav scrollable — scrollbar-aurora: thumb fino brand-tinted con fade */}
+      <nav className="flex-1 overflow-y-auto py-3 scrollbar-aurora">
         {topItems.map(item => (
           <SidebarLink key={item.path} item={item} collapsed={collapsed} />
         ))}
