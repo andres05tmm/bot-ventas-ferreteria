@@ -1,6 +1,6 @@
 # Próximos pasos — Dashboard Redesign
 
-**Última actualización**: 2026-05-24 — Wave 3.c COMPLETADA · Wave 4 2/6 (FacturasElectronicasRecibidas + TabLibroIVA)
+**Última actualización**: 2026-05-24 — Wave 3.c COMPLETADA · **Wave 4 COMPLETADA (6/6 tabs Fiscal)**
 
 ## Estado actual
 
@@ -69,10 +69,14 @@
     - `ModalRegistrarGasto` reusado en `TabVentasRapidas`: nuevo botón "Registrar gasto" junto a "Venta miscelánea". SSE `gasto_registrado` dispara el refresh global, `onSaved` es no-op
     - `AppShell` ahora pasa `refreshKey` a `HeaderBar`
     - `npm run build` verde (9.47 KB css gzipped, 553.20 KB js gzipped)
-  - 🚧 **Wave 4 EN PROGRESO — Fiscal** (2/6 tabs migradas):
-    - ✅ **FacturasElectronicasRecibidas.jsx** (292 → 282 LOC, commit `6d2b38c`, 2026-05-24): tokens shadcn, `Card`/`Dialog`/`Label`/`Button`, iconos lucide (Mail/Clock/CheckCircle2/AlertTriangle/Inbox/Loader2), `BadgeEvento` con `bg-success`/`bg-border`, `ModalReclamo` con Dialog, toasts via sonner. Build: 9.51 KB css gz / 553.42 KB js gz
-    - ✅ **TabLibroIVA.jsx** (582 → 764 LOC, commit `f7a95e7`, 2026-05-24): banner RST + selector bimestral/custom con chips `bg-primary-soft+border-primary`, KPIs con `Card`+tonos primary/success/warning (Receipt/ShoppingCart/Scale lucide), `CuadroNeto` tokenizado (IVA generado primary, descontable success, resultado favor/pago), `HistorialCierres` con tabla tokenizada y `Button` shadcn (Lock/RefreshCw), `TablaVentasFE`/`TablaComprasIVA` con cabecera `bg-muted`, chips de tarifa `primary-soft`/`success/10`, `ModalCierre` migrado a `Dialog`+`Label`+`Input`, toasts via sonner. LOC subió por verbosidad de Tailwind classNames vs inline styles. Build: 9.64 KB css gz / 554.13 KB js gz
-    - ⏸️ Pendientes (orden sugerido): TabFacturacion (780) → TabCompras (859) → TabProveedores (866) → TabComprasFiscal (1697)
+  - ✅ **Wave 4 COMPLETADA — Fiscal** (6/6 tabs migradas, 2026-05-24):
+    - ✅ **FacturasElectronicasRecibidas.jsx** (292 → 282 LOC, commit `6d2b38c`): tokens shadcn, `Card`/`Dialog`/`Label`/`Button`, iconos lucide (Mail/Clock/CheckCircle2/AlertTriangle/Inbox/Loader2), `BadgeEvento` con `bg-success`/`bg-border`, `ModalReclamo` con Dialog, toasts via sonner. Build: 9.51 KB css gz
+    - ✅ **TabLibroIVA.jsx** (582 → 764 LOC, commit `f7a95e7`): banner RST + selector bimestral/custom con chips `bg-primary-soft+border-primary`, KPIs con `Card`+tonos primary/success/warning, `CuadroNeto`/`HistorialCierres`/`TablaVentasFE`/`TablaComprasIVA` tokenizados, `ModalCierre` con Dialog. Build: 9.64 KB css gz
+    - ✅ **TabFacturacion.jsx** (780 → 617 LOC, commit `82d24a9`): KPIs success/primary/destructive, `EstadoBadge` y `MetodoBadge` tokenizados, `PanelEmitir` con tabla y Button shadcn, `Historial` con filtros chips y descarga PDF (Button outline + Loader2), `ModalEmitir` con Dialog (sin createPortal). Build: 9.69 KB css gz
+    - ✅ **TabCompras.jsx** (859 → 829 LOC, commit `8a7b3ea`): `KpiCard`+`IvaToggle` reutilizables, form con Card+Input+Label, `PieChart` con colores `hsl(var(--accent/success/warning/danger))`, `ModalEditar` con Dialog, acordeón de grupos con `ChevronRight` lucide, Button outline para Editar/Fiscal con `Pencil`/`FileBarChart`. Build: 9.82 KB css gz
+    - ✅ **TabProveedores.jsx** (866 → 830 LOC, commit `8453747`): `FacturaCard` con acordeón Card+`ChevronDown` (semáforo via bg-success/warning/destructive en lugar de emojis), `BarraDeuda` tokenizada, modales `ModalNuevaFactura` y `ModalAbono` migrados a Dialog (multi-step con `StepDots`), `SelectorFoto` con border-dashed + Camera lucide, filtros chips, `ResumenProveedores` tokenizado. Build: 9.95 KB css gz
+    - ✅ **TabComprasFiscal.jsx** (1697 → 1438 LOC, commit `c93bb2d`): 3 modales (Editar item / Editar factura agrupada / Enviar a Almacén) migrados a Dialog shadcn con `Promise.allSettled` preservado, `IvaToggle` con tamaño 'sm' para filas de tabla, PieChart con tokens, acordeón con badges Almacén/IVA, `StickyNote` lucide para notas fiscales, AlertTriangle warning para "sin nro.". Build: 10.02 KB css gz, **550.52 KB js gz** (bajó vs Wave 3 al eliminar inline styles)
+  - **Resumen Wave 4**: 5076 LOC → 4760 LOC (-316 LOC) en 6 tabs · CSS bundle: 9.51 → 10.02 KB (+0.51 KB en gz para 6 tabs es aceptable) · JS bundle redujo de 553 KB a 550 KB gz (menos código por eliminación de useTheme/THEMES tree-shake-friendly)
 
 ## Decisiones tomadas en Fase 1
 
