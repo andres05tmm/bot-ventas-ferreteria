@@ -1,4 +1,11 @@
 // ── shared.jsx — Componentes y utilidades globales de FerreBot Dashboard ──────
+// Fase 3 (DESIGN.md v2): este archivo es la frontera de adaptación.
+// Los exports legacy (Card, KpiCard, Btn, etc.) mantienen su firma actual y
+// siguen usando inline-styles + THEMES de los 4 temas heredados, para que los
+// tabs aún-no-migrados no rompan visualmente. Durante Fase 4, cada tab se
+// migra a primitives de `./ui/*` (shadcn + tokens light/dark) y los exports
+// de aquí se vacían gradualmente. Los 4 temas (caramelo/forja/brasa/ferrari)
+// se eliminan cuando no quede ningún consumer.
 import { createContext, useContext, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth.js'
@@ -438,53 +445,60 @@ export function SectionTitle({ children }) {
   )
 }
 
+// ── Tokenizados (Fase 5) ────────────────────────────────────────────────────
+// Spinner / ErrorMsg / EmptyState ahora usan tokens semantic vía Tailwind.
+// Cualquier tab (legacy o nuevo) que los importe hereda light/dark.
+
 export function Spinner() {
-  const t = useTheme()
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 48, color: t.textMuted, gap: 12 }}>
-      <div style={{
-        width: 28, height: 28,
-        border: `2px solid ${t.border}`,
-        borderTopColor: t.accent,
-        borderRadius: '50%',
-        animation: 'spin .65s linear infinite',
-      }} />
-      <span style={{ fontSize: 12, letterSpacing: '.04em' }}>Cargando...</span>
+    <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+      <div
+        className="size-7 rounded-full border-2 border-border animate-spin"
+        style={{ borderTopColor: 'hsl(var(--accent))' }}
+      />
+      <span className="text-xs tracking-wide">Cargando…</span>
     </div>
   )
 }
 
 export function ErrorMsg({ msg }) {
-  const t         = useTheme()
-  const isDark    = t.id !== 'caramelo' && t.id !== 'ferrari'
-  const r         = t.radius ?? 10
   return (
-    <div style={{
-      background:   isDark ? `${t.accent}10` : '#fef2f2',
-      border:       `1px solid ${t.accent}40`,
-      borderRadius: r,
-      padding:      '12px 16px',
-      color:        isDark ? '#f87171' : t.accent,
-      fontSize:     13,
-      display:      'flex',
-      alignItems:   'center',
-      gap:          8,
-    }}>
-      <span style={{ fontSize: 16 }}>⚠️</span>
-      {msg}
+    <div className="bg-destructive/10 border border-destructive/40 rounded-md px-4 py-3 text-sm text-destructive flex items-center gap-2">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="size-4 flex-shrink-0"
+      >
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+        <line x1="12" x2="12" y1="9" y2="13" />
+        <line x1="12" x2="12.01" y1="17" y2="17" />
+      </svg>
+      <span>{msg}</span>
     </div>
   )
 }
 
 export function EmptyState({ msg = 'Sin datos para este período.' }) {
-  const t = useTheme()
   return (
-    <div style={{
-      padding: '40px 24px', textAlign: 'center',
-      color: t.textMuted, fontSize: 12,
-      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-    }}>
-      <div style={{ fontSize: 28, opacity: 0.4 }}>📭</div>
+    <div className="flex flex-col items-center text-center px-6 py-10 text-xs text-muted-foreground gap-2">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="size-7 opacity-40"
+      >
+        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z" />
+      </svg>
       <span>{msg}</span>
     </div>
   )

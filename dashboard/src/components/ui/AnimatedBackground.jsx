@@ -1,16 +1,33 @@
 // -- AnimatedBackground.jsx --------------------------------------------------
 // CSS animated gradient mesh + canvas particles — Ferretería Punto Rojo.
 // Light mode: blobs CSS + partículas canvas (solo desktop).
-// Dark modes: no background animado.
+// Dark mode: no background animado.
 // Respeta prefers-reduced-motion.
 // ---------------------------------------------------------------------------
-import { useEffect, useRef } from 'react'
-import { useTheme } from '../shared.jsx'
+import { useEffect, useRef, useState } from 'react'
+
+// ── Hook: detecta el tema actual del <html data-theme> ───────────────────────
+function useDataTheme() {
+  const get = () =>
+    typeof document !== 'undefined'
+      ? document.documentElement.getAttribute('data-theme') || 'light'
+      : 'light'
+  const [theme, setTheme] = useState(get)
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const obs = new MutationObserver(() => setTheme(get()))
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => obs.disconnect()
+  }, [])
+
+  return theme
+}
 
 export default function AnimatedBackground() {
-  const t         = useTheme()
+  const theme     = useDataTheme()
+  const isLight   = theme !== 'dark'
   const canvasRef = useRef(null)
-  const isLight   = t.id === 'caramelo'
   const noMotion  = typeof window !== 'undefined' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const isMobile  = typeof window !== 'undefined' && window.innerWidth < 768
@@ -35,9 +52,9 @@ export default function AnimatedBackground() {
     }
     const onMouseMove = e => { mouse.x = e.clientX; mouse.y = e.clientY }
 
-    // Paleta cálida multicolor — más elegante que solo rojo
+    // Paleta cálida multicolor — alineada con tokens semantic (brand-red + ámbar + azul acero)
     const COLORS = [
-      'rgba(200,32,14,',    // rojo marca
+      'rgba(200,32,14,',    // --accent light (#C8200E)
       'rgba(180,90,40,',    // ámbar cálido
       'rgba(80,120,200,',   // azul acero suave
     ]
@@ -112,7 +129,7 @@ export default function AnimatedBackground() {
       window.removeEventListener('resize', resize)
       window.removeEventListener('mousemove', onMouseMove)
     }
-  }, [t.id])
+  }, [isLight, noMotion, isMobile])
 
   if (!isLight) return null
 
@@ -127,7 +144,7 @@ export default function AnimatedBackground() {
         .ab-b1 {
           top: -18%; left: -12%;
           width: 68vw; height: 68vw;
-          background: radial-gradient(circle, rgba(200,32,14,0.085) 0%, transparent 64%);
+          background: radial-gradient(circle, hsl(var(--accent) / 0.085) 0%, transparent 64%);
           filter: blur(48px);
           animation: abFloat1 30s ease-in-out infinite;
         }
@@ -177,34 +194,22 @@ export default function AnimatedBackground() {
         }
       `}</style>
 
-      {/* Capa base sólida */}
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: -3,
-        background: '#F8F5F1',
-        pointerEvents: 'none',
-      }}/>
+      {/* Capa base — usa bg-body de la capa semantic */}
+      <div className="fixed inset-0 -z-[3] pointer-events-none bg-background" />
 
       {/* Blobs CSS animados */}
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: -2,
-        overflow: 'hidden', pointerEvents: 'none',
-      }}>
-        <div className="ab-blob ab-b1"/>
-        <div className="ab-blob ab-b2"/>
-        <div className="ab-blob ab-b3"/>
-        <div className="ab-blob ab-b4"/>
+      <div className="fixed inset-0 -z-[2] overflow-hidden pointer-events-none">
+        <div className="ab-blob ab-b1" />
+        <div className="ab-blob ab-b2" />
+        <div className="ab-blob ab-b3" />
+        <div className="ab-blob ab-b4" />
       </div>
 
       {/* Canvas partículas (solo desktop) */}
       <canvas
         ref={canvasRef}
-        style={{
-          position: 'fixed', inset: 0,
-          width: '100%', height: '100%',
-          pointerEvents: 'none',
-          zIndex: -1,
-          willChange: 'transform',
-        }}
+        className="fixed inset-0 w-full h-full pointer-events-none -z-[1]"
+        style={{ willChange: 'transform' }}
       />
     </>
   )
