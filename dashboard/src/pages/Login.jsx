@@ -59,11 +59,21 @@ export default function Login() {
       widgetRef.current.appendChild(script)
     }
 
-    return () => { delete window.onTelegramAuth }
+    // Telegram inyecta un <iframe> sin title — observador lo etiqueta para a11y.
+    const obs = widgetRef.current && new MutationObserver(() => {
+      const iframe = widgetRef.current?.querySelector('iframe')
+      if (iframe && !iframe.title) iframe.title = 'Iniciar sesión con Telegram'
+    })
+    if (obs && widgetRef.current) obs.observe(widgetRef.current, { childList: true, subtree: true })
+
+    return () => {
+      delete window.onTelegramAuth
+      obs?.disconnect()
+    }
   }, [navigate])
 
   return (
-    <div className="min-h-[100dvh] bg-background flex flex-col items-center justify-center p-5 text-foreground">
+    <main className="min-h-[100dvh] bg-background flex flex-col items-center justify-center p-5 text-foreground" aria-labelledby="login-title">
       <Card className="w-full max-w-sm px-10 py-12 flex flex-col items-center gap-7">
         {/* Branding */}
         <div className="flex flex-col items-center gap-2.5 w-full">
@@ -71,7 +81,7 @@ export default function Login() {
           <p className="m-0 text-[9px] font-medium text-muted-foreground tracking-[.2em] uppercase">
             Ferretería
           </p>
-          <h1 className="m-0 text-[22px] font-extrabold text-foreground tracking-tight leading-tight text-center">
+          <h1 id="login-title" className="m-0 text-[22px] font-extrabold text-foreground tracking-tight leading-tight text-center">
             Punto Rojo
           </h1>
           <p className="m-0 mt-1 text-[11px] text-muted-foreground tracking-wider uppercase">
@@ -105,6 +115,6 @@ export default function Login() {
       <p className="mt-8 text-[10px] text-muted-foreground tracking-widest uppercase">
         v5 · Bot Telegram
       </p>
-    </div>
+    </main>
   )
 }
