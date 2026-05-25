@@ -121,7 +121,7 @@ Andrés probó la versión live y reportó 4 problemas + 1 pedido global de "men
 - [x] Fase D ejecutada — `70b3d0d`
 - [x] Fase E ejecutada — `363a3b3`
 - [x] Fase F ejecutada — docs + PR
-- [x] PR creada — ver SESSION-LOG.md
+- [x] PR creada — [#3](https://github.com/andres05tmm/bot-ventas-ferreteria/pull/3)
 - [ ] PR mergeada
 
 Ver `SESSION-LOG.md` para el detalle de cada fase y `NEXT-STEPS.md` para

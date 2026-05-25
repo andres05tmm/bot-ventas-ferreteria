@@ -127,7 +127,7 @@ Git registró rename de `TabHistoricoVentas.jsx` → `historial/VistaMes.jsx` co
 - Build final verde (13.15s, sin errores).
 - SESSION-LOG.md (este archivo) + NEXT-STEPS.md generados.
 - PLAN.md actualizado con todos los checkboxes marcados.
-- PR `feat/dashboard-polish` → `main` creado.
+- PR `feat/dashboard-polish` → `main` creado: **[#3](https://github.com/andres05tmm/bot-ventas-ferreteria/pull/3)**.
 
 **Lighthouse re-medición pendiente** — se hace después del merge desde Andrés en el deploy de Railway (no tengo browser tooling local).
 
