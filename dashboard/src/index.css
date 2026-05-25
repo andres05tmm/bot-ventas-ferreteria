@@ -41,6 +41,15 @@
     --success:        142 67% 28%;  /* #15803D */
     --warning:        20 80% 40%;   /* #C2410C */
     --danger:         0 73% 41%;    /* #B91C1C */
+    --info:           199 89% 40%;  /* #0284C7 */
+
+    /* ── Paleta categórica de charts ───────────────────────────────── */
+    --chart-1:        6 87% 42%;    /* accent */
+    --chart-2:        142 67% 28%;  /* success */
+    --chart-3:        199 89% 40%;  /* info */
+    --chart-4:        20 80% 40%;   /* warning */
+    --chart-5:        262 71% 56%;  /* purple */
+    --chart-6:        240 4% 46%;   /* muted */
   }
 
   [data-theme="dark"] {
@@ -68,6 +77,14 @@
     --success:        142 71% 45%;  /* #16A34A */
     --warning:        21 90% 48%;   /* #EA580C */
     --danger:         0 73% 51%;    /* #DC2626 */
+    --info:           199 89% 56%;  /* lighter blue for dark bg */
+
+    --chart-1:        7 73% 58%;    /* accent-hover */
+    --chart-2:        142 71% 45%;
+    --chart-3:        199 89% 56%;
+    --chart-4:        21 90% 48%;
+    --chart-5:        262 83% 68%;
+    --chart-6:        240 5% 65%;
   }
 
   /* Respeta sistema cuando no hay override manual */
@@ -93,6 +110,13 @@
       --success:        142 71% 45%;
       --warning:        21 90% 48%;
       --danger:         0 73% 51%;
+      --info:           199 89% 56%;
+      --chart-1:        7 73% 58%;
+      --chart-2:        142 71% 45%;
+      --chart-3:        199 89% 56%;
+      --chart-4:        21 90% 48%;
+      --chart-5:        262 83% 68%;
+      --chart-6:        240 5% 65%;
     }
   }
 

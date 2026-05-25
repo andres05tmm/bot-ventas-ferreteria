@@ -23,7 +23,10 @@ import { cn } from '@/lib/utils'
 
 const KPI_ICONS = { Wallet, Receipt, AlertTriangle, Calculator, CalendarRange, CalendarDays }
 
-const METODO_COLORS = ['hsl(var(--accent))','hsl(var(--success))','#0284C7','#EA580C','#7c3aed','#71717A']
+const METODO_COLORS = [
+  'hsl(var(--chart-1))','hsl(var(--chart-2))','hsl(var(--chart-3))',
+  'hsl(var(--chart-4))','hsl(var(--chart-5))','hsl(var(--chart-6))',
+]
 const MEDALLAS      = ['🥇','🥈','🥉']
 
 function fmtFecha(s) {

@@ -209,8 +209,8 @@ function ProyeccionCaja({ pd }) {
                   <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="gradProy" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#0284C7" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#0284C7" stopOpacity={0} />
+                  <stop offset="5%"  stopColor="hsl(var(--info))" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="hsl(var(--info))" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border-subtle))" />
@@ -241,7 +241,7 @@ function ProyeccionCaja({ pd }) {
               <Area
                 type="monotone" dataKey="valor"
                 data={serie.filter(s => !s.real)}
-                stroke="#0284C7" fill="url(#gradProy)" strokeWidth={2}
+                stroke="hsl(var(--info))" fill="url(#gradProy)" strokeWidth={2}
                 strokeDasharray="5 3" dot={false} name="Proyectado"
               />
             </AreaChart>
