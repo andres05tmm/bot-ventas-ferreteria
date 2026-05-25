@@ -141,26 +141,28 @@
     z-index: 0;
     background:
       linear-gradient(135deg,
-        hsl(var(--accent) / 0.14) 0%,
-        hsl(var(--accent) / 0.05) 32%,
-        transparent              55%,
-        hsl(var(--info)   / 0.05) 82%,
-        hsl(var(--info)   / 0.12) 100%),
-      radial-gradient(circle 820px at 18% 18%,  hsl(var(--accent) / 0.18), transparent 62%),
-      radial-gradient(circle 880px at 82% 82%,  hsl(var(--info)   / 0.13), transparent 62%),
-      radial-gradient(circle 480px at 50% 50%,  hsl(var(--warning)/ 0.05), transparent 68%);
+        hsl(var(--accent) / 0.085) 0%,
+        hsl(var(--accent) / 0.055) 22%,
+        hsl(var(--accent) / 0.025) 42%,
+        transparent                58%,
+        hsl(var(--info)   / 0.04)  78%,
+        hsl(var(--info)   / 0.10)  100%),
+      radial-gradient(circle 920px at 14% 16%,  hsl(var(--accent) / 0.11), transparent 66%),
+      radial-gradient(circle 880px at 84% 84%,  hsl(var(--info)   / 0.12), transparent 64%),
+      radial-gradient(circle 520px at 50% 52%,  hsl(var(--warning)/ 0.045), transparent 68%);
   }
   [data-theme="dark"] body::before {
     background:
       linear-gradient(135deg,
-        hsl(var(--accent) / 0.20) 0%,
-        hsl(var(--accent) / 0.07) 32%,
-        transparent              55%,
-        hsl(var(--info)   / 0.09) 82%,
-        hsl(var(--info)   / 0.18) 100%),
-      radial-gradient(circle 820px at 18% 18%,  hsl(var(--accent) / 0.24), transparent 62%),
-      radial-gradient(circle 880px at 82% 82%,  hsl(var(--info)   / 0.18), transparent 62%),
-      radial-gradient(circle 480px at 50% 50%,  hsl(var(--warning)/ 0.08), transparent 68%);
+        hsl(var(--accent) / 0.13)  0%,
+        hsl(var(--accent) / 0.08)  22%,
+        hsl(var(--accent) / 0.035) 42%,
+        transparent                58%,
+        hsl(var(--info)   / 0.075) 78%,
+        hsl(var(--info)   / 0.16)  100%),
+      radial-gradient(circle 920px at 14% 16%,  hsl(var(--accent) / 0.16), transparent 66%),
+      radial-gradient(circle 880px at 84% 84%,  hsl(var(--info)   / 0.17), transparent 64%),
+      radial-gradient(circle 520px at 50% 52%,  hsl(var(--warning)/ 0.07), transparent 68%);
   }
 
   /* ── Scrollbar "Aurora" — fino, brand-tinted, fade en hover ─────────────

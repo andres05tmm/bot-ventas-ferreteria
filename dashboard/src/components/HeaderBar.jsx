@@ -16,7 +16,7 @@ export default function HeaderBar({ isMobile, onOpenCommand, onRefresh, lastRefr
   const title = route?.label || 'Hoy'
 
   return (
-    <header className="sticky top-0 z-30 bg-surface/90 backdrop-blur-md border-b border-border">
+    <header className="sticky top-0 z-30 bg-surface/40 backdrop-blur-md border-b border-border/40">
       <div className="flex items-center gap-3 h-14 px-4 md:px-6">
         <h1 className="text-base md:text-lg font-semibold tracking-tight truncate">{title}</h1>
 

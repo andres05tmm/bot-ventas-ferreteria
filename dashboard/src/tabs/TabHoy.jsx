@@ -25,7 +25,6 @@ import {
 import { useFetch, cop, num } from '@/components/shared.jsx'
 import { useVendorFilter } from '@/hooks/useVendorFilter.jsx'
 import { Card } from '@/components/ui/card.jsx'
-import { Button } from '@/components/ui/button.jsx'
 import { Badge } from '@/components/ui/badge.jsx'
 import { cn } from '@/lib/utils'
 
@@ -139,14 +138,6 @@ export default function TabHoy({ refreshKey }) {
             {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Bogota' })}
           </p>
         </div>
-        <Button
-          size="sm"
-          variant={cajaAbierta ? 'outline' : 'default'}
-          onClick={() => navigate('/caja')}
-        >
-          <Wallet className="size-3.5" />
-          {cajaAbierta ? 'Cerrar caja' : 'Abrir caja'}
-        </Button>
       </header>
 
       {/* KPI STRIP — 3 cards compactos con tints semánticos */}
@@ -165,6 +156,8 @@ export default function TabHoy({ refreshKey }) {
           tone="info"
           label="Caja"
           icon={Wallet}
+          onClick={() => navigate('/caja')}
+          actionLabel={cajaAbierta ? 'Cerrar caja' : 'Abrir caja'}
           value={
             <span className="inline-flex items-baseline gap-2">
               <Badge variant="secondary" className={cn(
@@ -189,6 +182,8 @@ export default function TabHoy({ refreshKey }) {
           label="Gastos hoy"
           value={cop(totalGastos)}
           icon={Receipt}
+          onClick={() => navigate('/gastos')}
+          actionLabel="Registrar gasto"
           sub={`${numGastos} ${numGastos === 1 ? 'registro' : 'registros'}`}
         />
       </div>
@@ -258,24 +253,47 @@ const TONES = {
   warning: { color: 'hsl(var(--warning))',  bg: 'bg-warning/[0.05]',  border: 'border-warning/25  hover:border-warning/45'  },
 }
 
-function KpiCard({ tone = 'success', label, value, icon: Icon, sub, deltaPct, spark, loading }) {
+function KpiCard({ tone = 'success', label, value, icon: Icon, sub, deltaPct, spark, loading, onClick, actionLabel }) {
   const t = TONES[tone] || TONES.success
+  const clickable = typeof onClick === 'function'
   return (
     <Card
       className={cn(
-        'relative overflow-hidden p-3 transition-all duration-base ease-out-quad',
+        'relative overflow-hidden p-3 transition-all duration-base ease-out-quad group',
         t.bg, t.border,
-        'hover:-translate-y-px hover:shadow-md',
+        clickable
+          ? 'cursor-pointer text-left w-full hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40'
+          : 'hover:-translate-y-px hover:shadow-md',
       )}
+      {...(clickable ? { onClick, role: 'button', tabIndex: 0, onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } } : {})}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
-        <span
-          className="grid place-items-center rounded-md size-6"
-          style={{ background: `color-mix(in srgb, ${t.color} 12%, transparent)`, color: t.color }}
-        >
-          <Icon className="size-3"/>
-        </span>
+        <div className="flex items-center gap-1.5">
+          {actionLabel && (
+            <span
+              className={cn(
+                'hidden sm:inline-flex items-center gap-1 h-5 px-1.5 rounded-md',
+                'text-[10px] font-medium tabular',
+                'opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0',
+                'transition-all duration-base ease-out-quad',
+              )}
+              style={{
+                background: `color-mix(in srgb, ${t.color} 14%, transparent)`,
+                color: t.color,
+              }}
+            >
+              {actionLabel}
+              <ArrowRight className="size-2.5" />
+            </span>
+          )}
+          <span
+            className="grid place-items-center rounded-md size-6"
+            style={{ background: `color-mix(in srgb, ${t.color} 12%, transparent)`, color: t.color }}
+          >
+            <Icon className="size-3"/>
+          </span>
+        </div>
       </div>
 
       <div className={cn(
