@@ -1,6 +1,6 @@
 # Próximos pasos — Dashboard Redesign
 
-**Última actualización**: 2026-05-24 — Wave 3.c COMPLETADA · Wave 4 (Fiscal) pendiente
+**Última actualización**: 2026-05-24 — Wave 3.c COMPLETADA · Wave 4 1/6 (FacturasElectronicasRecibidas)
 
 ## Estado actual
 
@@ -69,7 +69,9 @@
     - `ModalRegistrarGasto` reusado en `TabVentasRapidas`: nuevo botón "Registrar gasto" junto a "Venta miscelánea". SSE `gasto_registrado` dispara el refresh global, `onSaved` es no-op
     - `AppShell` ahora pasa `refreshKey` a `HeaderBar`
     - `npm run build` verde (9.47 KB css gzipped, 553.20 KB js gzipped)
-  - ⏸️ **Pendiente Wave 4 — Fiscal** (~5076 LOC en 6 tabs, sesión multi-día): TabFacturacion (780), TabLibroIVA (582), TabComprasFiscal (1697), TabCompras (859), TabProveedores (866), FacturasElectronicasRecibidas (292). Orden sugerido: empezar por `FacturasElectronicasRecibidas` (más chico, validar patrones), luego `TabLibroIVA` → `TabFacturacion` → `TabCompras` → `TabProveedores` → `TabComprasFiscal` (el más grande, dejar al final)
+  - 🚧 **Wave 4 EN PROGRESO — Fiscal** (1/6 tabs migradas):
+    - ✅ **FacturasElectronicasRecibidas.jsx** (292 → 282 LOC, commit `6d2b38c`, 2026-05-24): tokens shadcn, `Card`/`Dialog`/`Label`/`Button`, iconos lucide (Mail/Clock/CheckCircle2/AlertTriangle/Inbox/Loader2), `BadgeEvento` con `bg-success`/`bg-border`, `ModalReclamo` con Dialog, toasts via sonner. Build: 9.51 KB css gz / 553.42 KB js gz
+    - ⏸️ Pendientes (orden sugerido): TabLibroIVA (582) → TabFacturacion (780) → TabCompras (859) → TabProveedores (866) → TabComprasFiscal (1697)
 
 ## Decisiones tomadas en Fase 1
 
