@@ -78,7 +78,7 @@ function ShellInner() {
   const activeTabName = activeRoute?.label || 'Hoy'
 
   return (
-    <div className="min-h-dvh bg-background text-foreground flex">
+    <div className="min-h-dvh text-foreground flex">
         {!isMobile && (
           <Sidebar
             collapsed={collapsed}

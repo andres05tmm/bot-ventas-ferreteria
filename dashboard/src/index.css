@@ -129,8 +129,9 @@
   }
 
   /* Aurora ferretera — gradient mesh fijo con flujo diagonal TR → BL.
-     Capa 1: linear gradient 225deg (warm top-right → cool bottom-left).
-     Capa 2-4: orbes radiales que refuerzan el flujo + acento central.
+     Capa 1: linear gradient 225deg (warm TR → neutral → cool BL).
+     Capa 2-4: orbes radiales reposicionados hacia dentro del viewport.
+     Requiere que el wrapper de AppShell sea transparente (no bg-background).
      Sin blur ni animación (Lighthouse-friendly). */
   body::before {
     content: "";
@@ -140,26 +141,26 @@
     z-index: 0;
     background:
       linear-gradient(225deg,
-        hsl(var(--accent) / 0.055) 0%,
-        hsl(var(--accent) / 0.018) 35%,
-        transparent              60%,
-        hsl(var(--info)   / 0.025) 85%,
-        hsl(var(--info)   / 0.055) 100%),
-      radial-gradient(circle 880px at 92% 8%,   hsl(var(--accent) / 0.09),  transparent 65%),
-      radial-gradient(circle 980px at 8%  92%,  hsl(var(--info)   / 0.07),  transparent 65%),
-      radial-gradient(circle 520px at 50% 50%,  hsl(var(--warning)/ 0.028), transparent 70%);
+        hsl(var(--accent) / 0.12) 0%,
+        hsl(var(--accent) / 0.04) 32%,
+        transparent              55%,
+        hsl(var(--info)   / 0.05) 82%,
+        hsl(var(--info)   / 0.12) 100%),
+      radial-gradient(circle 820px at 82% 18%,  hsl(var(--accent) / 0.16), transparent 62%),
+      radial-gradient(circle 880px at 18% 82%,  hsl(var(--info)   / 0.13), transparent 62%),
+      radial-gradient(circle 480px at 50% 50%,  hsl(var(--warning)/ 0.05), transparent 68%);
   }
   [data-theme="dark"] body::before {
     background:
       linear-gradient(225deg,
-        hsl(var(--accent) / 0.10) 0%,
-        hsl(var(--accent) / 0.03) 35%,
-        transparent             60%,
-        hsl(var(--info)   / 0.05) 85%,
-        hsl(var(--info)   / 0.11) 100%),
-      radial-gradient(circle 880px at 92% 8%,   hsl(var(--accent) / 0.14), transparent 65%),
-      radial-gradient(circle 980px at 8%  92%,  hsl(var(--info)   / 0.12), transparent 65%),
-      radial-gradient(circle 520px at 50% 50%,  hsl(var(--warning)/ 0.06), transparent 70%);
+        hsl(var(--accent) / 0.18) 0%,
+        hsl(var(--accent) / 0.06) 32%,
+        transparent              55%,
+        hsl(var(--info)   / 0.09) 82%,
+        hsl(var(--info)   / 0.18) 100%),
+      radial-gradient(circle 820px at 82% 18%,  hsl(var(--accent) / 0.22), transparent 62%),
+      radial-gradient(circle 880px at 18% 82%,  hsl(var(--info)   / 0.18), transparent 62%),
+      radial-gradient(circle 480px at 50% 50%,  hsl(var(--warning)/ 0.08), transparent 68%);
   }
   /* Contenido por encima del background */
   #root { position: relative; z-index: 1; }

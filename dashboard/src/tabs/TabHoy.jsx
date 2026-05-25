@@ -324,24 +324,31 @@ const MINI_TONES = {
 function MiniMetric({ label, value, sub, icon: Icon, tone = 'primary' }) {
   const color = MINI_TONES[tone] || MINI_TONES.primary
   return (
-    <div className="relative p-3 md:p-3.5 group transition-colors duration-base hover:bg-foreground/[0.015]">
+    <div
+      className="relative p-3 md:p-3.5 group transition-all duration-base hover:brightness-105"
+      style={{
+        backgroundImage:
+          `radial-gradient(circle at 100% 0%, color-mix(in srgb, ${color} 11%, transparent) 0%, transparent 65%),` +
+          `linear-gradient(135deg, color-mix(in srgb, ${color} 5%, transparent) 0%, transparent 60%)`,
+      }}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">{label}</div>
         {Icon && (
           <span
             className="grid place-items-center rounded-md size-5 shrink-0"
-            style={{ background: `color-mix(in srgb, ${color} 12%, transparent)`, color }}
+            style={{ background: `color-mix(in srgb, ${color} 16%, transparent)`, color }}
           >
             <Icon className="size-2.5"/>
           </span>
         )}
       </div>
-      <div className="mt-1 text-base font-semibold tracking-tight tabular leading-none">{value}</div>
+      <div className="mt-1 text-base font-semibold tracking-tight tabular leading-none" style={{ color }}>{value}</div>
       {sub && <div className="mt-1 text-[10.5px] text-muted-foreground truncate">{sub}</div>}
-      {/* Línea inferior de acento por tone */}
+      {/* Línea inferior decorativa */}
       <span
         aria-hidden
-        className="absolute left-3 right-3 bottom-0 h-px opacity-40"
+        className="absolute left-3 right-3 bottom-0 h-px opacity-60"
         style={{ background: `linear-gradient(90deg, transparent, ${color} 50%, transparent)` }}
       />
     </div>
