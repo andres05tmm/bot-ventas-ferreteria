@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Star, Trash2, ShoppingCart, User, X, Plus, Loader2, Search, Sparkles } from 'lucide-react'
+import { Star, Trash2, ShoppingCart, User, X, Plus, Loader2, Search, Sparkles, Receipt } from 'lucide-react'
 import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
 import { Card } from '@/components/ui/card.jsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog.jsx'
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { cn } from '@/lib/utils'
 import { ModalCliente } from './TabClientes.jsx'
+import { ModalRegistrarGasto } from './TabGastos.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
 import {
@@ -1643,6 +1644,7 @@ export default function TabVentasRapidas({ refreshKey }) {
   const [modalCheckout,   setModalCheckout]   = useState(false)
   const [calcCambio,      setCalcCambio]      = useState(false)
   const [modalMisc,       setModalMisc]       = useState(false)
+  const [modalGasto,      setModalGasto]      = useState(false)
   const [highlightedIdx,  setHighlightedIdx]  = useState(-1)
   const searchRef = useRef(null)
   const isMobile = useIsMobile()
@@ -2046,8 +2048,17 @@ export default function TabVentasRapidas({ refreshKey }) {
           />
         </div>
 
-        {/* ── Venta miscelánea ── */}
-        <div className="flex justify-end mb-3.5">
+        {/* ── Acciones: venta miscelánea + gasto rápido ── */}
+        <div className="flex justify-end gap-1.5 mb-3.5">
+          <button
+            type="button"
+            onClick={() => setModalGasto(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-transparent border border-border text-muted-foreground hover:border-warning/50 hover:text-warning transition-colors"
+            title="Registrar un gasto sin salir del POS"
+          >
+            <Receipt className="size-3" />
+            Registrar gasto
+          </button>
           <button
             type="button"
             onClick={() => setModalMisc(true)}
@@ -2333,6 +2344,14 @@ export default function TabVentasRapidas({ refreshKey }) {
         show={modalMisc}
         onClose={() => setModalMisc(false)}
         onConfirm={confirmarMisc}
+      />
+
+      {/* Modal gasto rápido — reusa el modal de TabGastos */}
+      <ModalRegistrarGasto
+        open={modalGasto}
+        onClose={() => setModalGasto(false)}
+        onSaved={() => { /* SSE gasto_registrado dispara refresh global */ }}
+        authFetch={authFetch}
       />
 
       {/* Modal color preparado */}
