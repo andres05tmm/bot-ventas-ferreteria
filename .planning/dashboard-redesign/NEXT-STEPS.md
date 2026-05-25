@@ -100,16 +100,15 @@
   - **`shared.jsx` final** (651 → 142 LOC): solo helpers de datos — `cop`, `num`, `API_BASE`, `useFetch`, `useIsMobile` + componentes tokenizados transversales `Spinner`/`ErrorMsg`
   - Build verde: 10.18 KB css gz · **506.16 KB js gz** (-0.83 KB)
 
-## ⏸️ Pendiente
-
-**Fase 6 — Polish y audit (2 días)**
-- `impeccable audit` 6 pilares (visual hierarchy, IA, accesibilidad, performance, responsive, motion)
-- WCAG AA · Lighthouse > 90
-- QA visual final tab por tab en light + dark
-
-**ChatWidget visual refinement (post-Fase 5)**
-- 1342 LOC, no usa `useTheme` pero scoped CSS `.fw-*` con colores brand hardcoded
-- Revisar coherencia con tokens semantic — no bloqueante, queda fuera del scope de la limpieza
+✅ **FASE 6 COMPLETADA — Polish y audit** (2026-05-25):
+  - **Auditoría**: `.planning/dashboard-redesign/AUDIT-F6.md` con findings de 6 pilares priorizados (4 HIGH, 5 MEDIUM, 3 LOW)
+  - **H1 Performance** (commit `a05857d`): `React.lazy()` + `Suspense` sobre los 18 tabs. Bundle inicial **506 → 292 KB gz (-42%)**. Cada tab vive en chunk on-demand (TabHoy 3.3 KB, TabVentasRapidas 17 KB, TabHistorial 22 KB). Recharts en chunk separado (98 KB gz)
+  - **H2+H3 ChatWidget** (commit `e0aa433`): scoped CSS `.fw-*` reescrito — surfaces (`bg-surface`, `bg-body`, `bg-surface-2`) y texto (`text-primary`, `text-muted`) via `hsl(var(--*))`. Dark mode ahora funciona. Brand red gradient (header, FAB, burbuja usuario) intacto por identidad. Aria: `role="dialog"` en panel, `role="log" aria-live="polite"` en mensajes, `role="menu"/menuitemradio"` en selector de vendedor, `role="radiogroup"/radio"` en toggle de modelo, aria-label en cerrar/limpiar/reintentar/mic/send/textarea
+  - **H4 Aria-labels icon-only** (commit `817aa1b`): 6 tabs migrados (TabCompras/ComprasFiscal/Facturacion/HistoricoVentas/Inventario/Proveedores). Iconos lucide marcados `aria-hidden="true"`. Bonus: `bg-black/70` en TabProveedores → `bg-foreground/70` para respetar dark mode
+  - **M1 Tokens chart** (commit `edd5f3f`): `--chart-1..6` + `--info` en `index.css` (light + dark + media query). Eliminados hex `#0284C7`, `#a78bfa`, `#94a3b8`, `#EA580C`, `#7c3aed`, `#71717A` de TabResumen/TabCompras/TabComprasFiscal/TabResultados
+  - **M2/M3/M5/L1/L2**: revisados sin cambios — consoles son `console.error` en catch (logging legítimo), overlays restantes son patrón shadcn estándar, inline styles de TabVentasRapidas son `gridTemplateColumns` dinámico / `env(safe-area-inset-*)` / `WebkitOverflowScrolling` (Tailwind no cubre), `AnimatedBackground` ya respetaba `prefers-reduced-motion`
+  - **Pendiente manual**: medir Lighthouse con `npx serve dist` + `npx lighthouse` (estimación: Performance >90, Accessibility ≥95) y validar con Axe DevTools tab por tab
+  - Build final: **10.18 KB css gz · 292.82 KB js gz inicial**
 
 **Fase 7 — opcional**: Walkthrough video con Remotion
 

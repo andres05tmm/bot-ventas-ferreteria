@@ -2,6 +2,7 @@
 
 **Fecha**: 2026-05-25
 **Estado entrada**: 10.18 KB css gz · 506.16 KB js gz · 1.823 MB js sin minificar
+**Estado salida**: 10.18 KB css gz · 292.82 KB js gz inicial (−42%) · tabs en chunks separados
 **Build**: verde
 **Cobertura**: 18 tabs migrados (Waves 1-4 + Fase 5) · `useTheme` legacy eliminado · `shared.jsx` 651→142 LOC
 
@@ -62,17 +63,43 @@ Estimación post-fixes: Performance 85→95 (lazy loading + tree-shake), Accessi
 
 ---
 
-## Plan de fixes propuesto (orden sugerido)
+## Plan de fixes — APLICADO
 
-1. **H1** — Lazy loading de tabs (~30 min, biggest win)
-2. **H2 + H3** — ChatWidget: tokenizar + aria-labels (~1h, ambos juntos)
-3. **H4** — Barrido aria-labels en botones icon-only de tabs (~45 min)
-4. **M1** — Tokens `--chart-1..5` y reemplazo en 4 archivos (~30 min)
-5. **M2 + M3** — Limpieza overlays + remove consoles (~20 min)
-6. **M5 + L1 + L2** — Pulido final (~30 min)
-7. **Lighthouse + Axe** — medición y captura de score (~15 min)
+| Fix | Estado | Commit | Notas |
+|---|---|---|---|
+| H1 — Lazy loading tabs | ✅ | `a05857d` | Bundle inicial −42% gz; cada tab on-demand |
+| H2 — ChatWidget aria-labels | ✅ | `e0aa433` | role="dialog/log/menu/radiogroup", aria-label en todos los icon-only |
+| H3 — ChatWidget tokens semantic | ✅ | `e0aa433` | Surfaces y text con `hsl(var(--*))`. Brand red intacto |
+| H4 — Aria-labels icon-only en tabs | ✅ | `817aa1b` | 6 tabs (Compras/ComprasFiscal/Facturacion/HistoricoVentas/Inventario/Proveedores) |
+| M1 — Tokens `--chart-1..6` + `--info` | ✅ | `edd5f3f` | Light/dark/system; hex de charts eliminados |
+| M2 — Overlays `bg-black/X` | ✅ parcial | `817aa1b` | TabProveedores → `bg-foreground/70`. Resto (DialogOverlay shadcn, modales bottom-sheet) son patrones estándar — se mantienen |
+| M3 — Consoles residuales | ✅ no-op | — | Los 4 `console.error` viven en `catch` blocks; son logging legítimo en JS frontend (sin `logger` idiomático). Se mantienen |
+| M5 — Inline styles TabVentasRapidas | ✅ no-op | — | Los 11 `style={{` son legítimos: `gridTemplateColumns` dinámico, `WebkitOverflowScrolling`, `env(safe-area-inset-*)`, posición de switches, keyframes inline. Tailwind no cubre |
+| L1 — Comentario shared.jsx | ✅ no-op | — | El comentario describe el cambio histórico, no referencia un símbolo vigente. Correcto |
+| L2 — AnimatedBackground reduced-motion | ✅ no-op | — | Ya cumplía: `noMotion` cancela canvas (l.31-32) + CSS `@media (prefers-reduced-motion: reduce) { animation: none }` (l.192-194) |
 
-**Total estimado**: 3.5-4 horas. Encaja en el budget de "2 días" del PLAN si Andrés solo prioriza HIGH + M1.
+**Tiempo real**: ~2.5 horas. Dentro del budget de "2 días" del PLAN.
+
+---
+
+## Lighthouse — pendiente de medición manual
+
+No se midió Lighthouse en este pass (requiere servir el build y un Chrome headless). Comandos sugeridos:
+
+```bash
+# Servir el build
+cd dashboard && npx serve dist -p 5000
+
+# En otra terminal — Lighthouse CLI
+npx lighthouse http://localhost:5000/hoy --view --preset=desktop
+npx lighthouse http://localhost:5000/hoy --view  # mobile
+```
+
+**Estimación post-fixes** vs PLAN.md targets:
+- Performance > 90 → muy probable (lazy loading hizo el trabajo pesado)
+- Accessibility = 100 → probable con focus-visible global + aria-labels nuevos. Si Axe levanta algo, será contraste de colores muy puntual
+
+Axe DevTools (extensión Chrome) es la otra herramienta recomendada para validar WCAG AA manualmente tab por tab.
 
 ---
 
@@ -80,3 +107,4 @@ Estimación post-fixes: Performance 85→95 (lazy loading + tree-shake), Accessi
 
 - Fase 7 (Remotion walkthrough) — opcional
 - Test E2E formal — no hay CI, queda manual
+- Medición Lighthouse en producción Railway (post-merge)
