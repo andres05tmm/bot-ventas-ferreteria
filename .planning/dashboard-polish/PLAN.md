@@ -113,13 +113,17 @@ Andrés probó la versión live y reportó 4 problemas + 1 pedido global de "men
 
 ## Estado de aprobación
 
-- [ ] Plan aprobado por Andrés (esperando confirmación post-/clear)
-- [ ] Branch creada (`feat/dashboard-polish`)
-- [ ] Fase A ejecutada
-- [ ] Fase B ejecutada
-- [ ] Fase C ejecutada
-- [ ] Fase D ejecutada
-- [ ] Fase E ejecutada
-- [ ] Fase F ejecutada
-- [ ] PR creada
+- [x] Plan aprobado por Andrés
+- [x] Branch creada (`feat/dashboard-polish`)
+- [x] Fase A ejecutada — `be063be`
+- [x] Fase B ejecutada (Wave 1: Aurora + nuevo TabHoy) — `0f29426`
+- [x] Fase C ejecutada — `4872e9a`
+- [x] Fase D ejecutada — `70b3d0d`
+- [x] Fase E ejecutada — `363a3b3`
+- [x] Fase F ejecutada — docs + PR
+- [x] PR creada — ver SESSION-LOG.md
 - [ ] PR mergeada
+
+Ver `SESSION-LOG.md` para el detalle de cada fase y `NEXT-STEPS.md` para
+el backlog post-merge (incluye Lighthouse re-medición, contraste dark
+WCAG y Wave 2 con TanStack data table).
