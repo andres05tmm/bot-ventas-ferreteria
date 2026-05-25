@@ -192,12 +192,12 @@ const CSS = `
     z-index: 9999;
     width: 368px; height: 560px;
     border-radius: 22px;
-    background: #FFFFFF;
+    background: hsl(var(--bg-surface));
     box-shadow: 0 4px 6px rgba(0,0,0,.04), 0 12px 28px rgba(0,0,0,.14), 0 32px 56px rgba(0,0,0,.1);
     display: flex; flex-direction: column;
     overflow: visible;
     animation: fw-pop .24s cubic-bezier(.34,1.56,.64,1) forwards;
-    border: 1px solid rgba(0,0,0,.07);
+    border: 1px solid hsl(var(--border-subtle));
     transition: box-shadow .15s;
   }
   .fw-panel.dragging {
@@ -266,7 +266,7 @@ const CSS = `
   .fw-msgs {
     flex: 1; overflow-y: auto; overflow-x: hidden; padding: 14px 13px;
     display: flex; flex-direction: column; gap: 3px;
-    background: #F7F6F4; scroll-behavior: smooth;
+    background: hsl(var(--bg-body)); scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
   }
@@ -284,8 +284,8 @@ const CSS = `
     display: flex; align-items: center; justify-content: center;
     margin-bottom: 6px; box-shadow: 0 6px 18px rgba(200,32,14,.28);
   }
-  .fw-wtitle { font-size: 15.5px; font-weight: 600; color: #1A1A1A; letter-spacing: -.02em; }
-  .fw-wsub { font-size: 12.5px; line-height: 1.55; color: #888; max-width: 230px; margin-top: 2px; }
+  .fw-wtitle { font-size: 15.5px; font-weight: 600; color: hsl(var(--text-primary)); letter-spacing: -.02em; }
+  .fw-wsub { font-size: 12.5px; line-height: 1.55; color: hsl(var(--text-muted)); max-width: 230px; margin-top: 2px; }
   .fw-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 12px; }
   .fw-chip {
     font-family: inherit; font-size: 12px; font-weight: 500;
@@ -299,7 +299,7 @@ const CSS = `
   .fw-row { display: flex; flex-direction: column; animation: fw-msg .16s ease forwards; }
   .fw-row.u { align-items: flex-end;   margin-top: 7px; }
   .fw-row.b { align-items: flex-start; margin-top: 7px; }
-  .fw-bbl.briefing { border-left: 3px solid var(--fw-accent) !important; background: color-mix(in srgb, var(--fw-accent) 8%, transparent) !important; }
+  .fw-bbl.briefing { border-left: 3px solid hsl(var(--accent)) !important; background: hsl(var(--accent) / 0.08) !important; }
 
   .fw-bbl {
     max-width: 85%; padding: 9px 13px;
@@ -312,9 +312,9 @@ const CSS = `
     box-shadow: 0 2px 8px rgba(180,30,12,.28);
   }
   .fw-bbl.b {
-    background: #FFFFFF; color: #1A1A1A;
+    background: hsl(var(--bg-surface)); color: hsl(var(--text-primary));
     border-radius: 17px 17px 17px 4px;
-    border: 1px solid rgba(0,0,0,.07);
+    border: 1px solid hsl(var(--border-subtle));
     box-shadow: 0 1px 4px rgba(0,0,0,.06);
   }
   .fw-bbl.b.streaming::after {
@@ -339,7 +339,7 @@ const CSS = `
   .fw-meta {
     display: flex; align-items: center; gap: 6px;
     margin-top: 2px; padding: 0 4px;
-    font-size: 10.5px; color: #A8A29E; font-weight: 400;
+    font-size: 10.5px; color: hsl(var(--text-muted)); font-weight: 400;
     user-select: none;
   }
   .fw-meta .fw-model-tag {
@@ -396,12 +396,12 @@ const CSS = `
     font-family: 'DM Sans', system-ui, sans-serif;
     font-size: 10.5px; font-weight: 500;
     padding: 3px 10px; border-radius: 12px;
-    border: 1.5px solid rgba(0,0,0,.08);
-    background: transparent; color: #999;
+    border: 1.5px solid hsl(var(--border-subtle));
+    background: transparent; color: hsl(var(--text-muted));
     cursor: pointer; transition: all .15s;
     white-space: nowrap;
   }
-  .fw-model-pill:hover { background: rgba(0,0,0,.04); color: #666; }
+  .fw-model-pill:hover { background: hsl(var(--bg-surface-2)); color: hsl(var(--text-secondary)); }
   .fw-model-pill.active-auto {
     background: rgba(200,32,14,.08); border-color: rgba(200,32,14,.3);
     color: #B81D0C; font-weight: 600;
@@ -418,9 +418,9 @@ const CSS = `
   .fw-typing {
     display: flex; align-items: center; gap: 4px;
     padding: 11px 15px; margin-top: 7px;
-    background: #FFFFFF; align-self: flex-start;
+    background: hsl(var(--bg-surface)); align-self: flex-start;
     border-radius: 17px 17px 17px 4px;
-    border: 1px solid rgba(0,0,0,.07);
+    border: 1px solid hsl(var(--border-subtle));
     box-shadow: 0 1px 4px rgba(0,0,0,.05);
     animation: fw-msg .16s ease forwards;
   }
@@ -429,8 +429,8 @@ const CSS = `
   .fw-td:nth-child(3){ animation-delay: .30s; }
 
   .fw-footer {
-    padding: 9px 11px 11px; background: #FFFFFF;
-    border-top: 1px solid rgba(0,0,0,.07);
+    padding: 9px 11px 11px; background: hsl(var(--bg-surface));
+    border-top: 1px solid hsl(var(--border-subtle));
     display: flex; gap: 7px; align-items: flex-end; flex-shrink: 0;
     border-radius: 0 0 22px 22px;
   }
@@ -441,19 +441,19 @@ const CSS = `
     }
   }
   .fw-iwrap {
-    flex: 1; background: #F2F1EF; border-radius: 13px;
+    flex: 1; background: hsl(var(--bg-surface-2)); border-radius: 13px;
     border: 1.5px solid transparent; transition: border-color .15s, background .15s;
     display: flex; align-items: flex-end;
   }
-  .fw-iwrap:focus-within { border-color: rgba(180,30,12,.38); background: #FFF; }
+  .fw-iwrap:focus-within { border-color: hsl(var(--ring)); background: hsl(var(--bg-surface)); }
   .fw-ta {
     width: 100%; resize: none; border: none; background: transparent;
     padding: 8px 11px;
     font-family: 'DM Sans', system-ui, sans-serif;
-    font-size: 16px; line-height: 1.45; color: #1A1A1A; outline: none;
+    font-size: 16px; line-height: 1.45; color: hsl(var(--text-primary)); outline: none;
     max-height: 96px; min-height: 36px; overflow-y: auto;
   }
-  .fw-ta::placeholder { color: #B0ABA5; }
+  .fw-ta::placeholder { color: hsl(var(--text-muted)); }
   .fw-ta::-webkit-scrollbar { display: none; }
   .fw-ta:disabled { opacity: .5; }
   .fw-sbtn {
@@ -466,7 +466,7 @@ const CSS = `
   }
   .fw-sbtn:hover:not(:disabled) { opacity: .88; transform: scale(1.05); }
   .fw-sbtn:active:not(:disabled) { transform: scale(.95); }
-  .fw-sbtn:disabled { background: #DDDAD6; box-shadow: none; cursor: default; color: #aaa; }
+  .fw-sbtn:disabled { background: hsl(var(--bg-surface-2)); box-shadow: none; cursor: default; color: hsl(var(--text-disabled)); }
 
   .fw-vendedor-wrap { position: relative; }
   .fw-vendedor-btn {
@@ -480,7 +480,7 @@ const CSS = `
   .fw-vendedor-btn:hover { background: rgba(255,255,255,.22); }
   .fw-vendedor-menu {
     position: absolute; top: calc(100% + 6px); right: 0;
-    background: #fff; border: 1px solid rgba(0,0,0,.1);
+    background: hsl(var(--bg-surface)); border: 1px solid hsl(var(--border));
     border-radius: 10px; overflow: hidden;
     box-shadow: 0 4px 16px rgba(0,0,0,.18);
     min-width: 130px; z-index: 10001;
@@ -488,12 +488,12 @@ const CSS = `
   .fw-vendedor-item {
     display: block; width: 100%; text-align: left;
     padding: 9px 14px; font-size: 13px; font-family: inherit;
-    background: #fff; border: none; cursor: pointer;
-    color: #1A1A1A; transition: background .1s;
+    background: hsl(var(--bg-surface)); border: none; cursor: pointer;
+    color: hsl(var(--text-primary)); transition: background .1s;
     white-space: nowrap;
   }
-  .fw-vendedor-item:hover { background: #F5F5F5; }
-  .fw-vendedor-item.active { font-weight: 600; color: #B81D0C; background: rgba(184,29,12,.05); }
+  .fw-vendedor-item:hover { background: hsl(var(--bg-surface-2)); }
+  .fw-vendedor-item.active { font-weight: 600; color: hsl(var(--accent)); background: hsl(var(--accent) / 0.08); }
 
   @keyframes fw-rec-pulse {
     0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.5); }
@@ -503,9 +503,9 @@ const CSS = `
     width: 38px; height: 38px; border-radius: 11px;
     border: none; cursor: pointer; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
-    background: #F2F1EF; color: #888; transition: all .15s;
+    background: hsl(var(--bg-surface-2)); color: hsl(var(--text-muted)); transition: all .15s;
   }
-  .fw-mic-btn:hover:not(:disabled) { background: #E8E6E3; color: #555; }
+  .fw-mic-btn:hover:not(:disabled) { background: hsl(var(--border-subtle)); color: hsl(var(--text-secondary)); }
   .fw-mic-btn.recording {
     background: #EF4444; color: #fff;
     animation: fw-rec-pulse 1.2s ease infinite;
@@ -1103,14 +1103,16 @@ ${d.briefing}`,
   // ── FAB ──────────────────────────────────────────────────────────────────
   if (!open) return (
     <button
+      type="button"
       className={`fw-fab${dragging ? ' dragging' : ''}`}
       style={{ top: fabPos.y, left: fabPos.x }}
       onMouseDown={e => startDrag(e, 'fab')}
       onTouchStart={e => startDrag(e, 'fab')}
       title="Asistente IA"
+      aria-label="Abrir asistente IA"
     >
       <IcoFab />
-      <div className="fw-fab-dot" />
+      <div className="fw-fab-dot" aria-hidden="true" />
     </button>
   )
 
@@ -1119,6 +1121,8 @@ ${d.briefing}`,
     <div
       className={`fw-panel${dragging ? ' dragging' : ''}`}
       style={{ top: panelPos.y, left: panelPos.x }}
+      role="dialog"
+      aria-label="Asistente IA Ferretería"
     >
 
       {/* Header — arrastrable mouse + touch */}
@@ -1129,14 +1133,14 @@ ${d.briefing}`,
         onClick={() => menuOpen && setMenuOpen(false)}
       >
         {/* Grip icon */}
-        <div className="fw-drag-grip">
+        <div className="fw-drag-grip" aria-hidden="true">
           <svg width="12" height="14" viewBox="0 0 12 14" fill="rgba(255,255,255,0.9)">
             <circle cx="3" cy="2.5" r="1.3"/><circle cx="9" cy="2.5" r="1.3"/>
             <circle cx="3" cy="7"   r="1.3"/><circle cx="9" cy="7"   r="1.3"/>
             <circle cx="3" cy="11.5" r="1.3"/><circle cx="9" cy="11.5" r="1.3"/>
           </svg>
         </div>
-        <div className="fw-avatar"><IcoWrench s={20} /></div>
+        <div className="fw-avatar" aria-hidden="true"><IcoWrench s={20} /></div>
         <div style={{ flex: 1 }}>
           <div className="fw-hname">Asistente Ferretería</div>
           <div className="fw-hstatus">
@@ -1147,18 +1151,24 @@ ${d.briefing}`,
           </div>
         </div>
         {messages.length > 0 && (
-          <button className="fw-hbtn" onClick={limpiar}>Limpiar</button>
+          <button type="button" className="fw-hbtn" onClick={limpiar}
+                  aria-label="Limpiar conversación">Limpiar</button>
         )}
         <div className="fw-vendedor-wrap">
-          <button className="fw-vendedor-btn"
+          <button type="button" className="fw-vendedor-btn"
+            aria-label={`Vendedor: ${vendedor}. Cambiar`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
             onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}>
             {vendedor}
-            <span style={{ fontSize: 9, opacity: .7 }}>▾</span>
+            <span style={{ fontSize: 9, opacity: .7 }} aria-hidden="true">▾</span>
           </button>
           {menuOpen && (
-            <div className="fw-vendedor-menu">
+            <div className="fw-vendedor-menu" role="menu">
               {VENDEDORES.map(v => (
-                <button key={v} className={`fw-vendedor-item${v === vendedor ? ' active' : ''}`}
+                <button key={v} type="button" role="menuitemradio"
+                  aria-checked={v === vendedor}
+                  className={`fw-vendedor-item${v === vendedor ? ' active' : ''}`}
                   onClick={e => {
                     e.stopPropagation()
                     setVendedor(v)
@@ -1171,21 +1181,22 @@ ${d.briefing}`,
             </div>
           )}
         </div>
-        <button className="fw-xbtn" onClick={() => setOpen(false)}><IcoX /></button>
+        <button type="button" className="fw-xbtn" onClick={() => setOpen(false)}
+                aria-label="Cerrar asistente"><IcoX /></button>
       </div>
 
       {/* Mensajes */}
-      <div className="fw-msgs">
+      <div className="fw-msgs" role="log" aria-live="polite" aria-label="Conversación con asistente">
         {messages.length === 0 && !streaming ? (
           <div className="fw-welcome">
-            <div className="fw-wicon"><IcoWrench s={24} /></div>
+            <div className="fw-wicon" aria-hidden="true"><IcoWrench s={24} /></div>
             <div className="fw-wtitle">¿En qué te ayudo?</div>
             <div className="fw-wsub">
               Registra ventas, consulta inventario, revisa la caja, gestiona gastos y más.
             </div>
             <div className="fw-chips">
               {CHIPS.map(c => (
-                <button key={c} className="fw-chip" onClick={() => enviar(c)}>{c}</button>
+                <button key={c} type="button" className="fw-chip" onClick={() => enviar(c)}>{c}</button>
               ))}
             </div>
           </div>
@@ -1219,7 +1230,8 @@ ${d.briefing}`,
                     </div>
                   )}
                   {esError && (
-                    <button className="fw-retry-btn" onClick={reintentar}>
+                    <button type="button" className="fw-retry-btn" onClick={reintentar}
+                            aria-label="Reintentar enviar mensaje">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         <IcoRetry /> Reintentar
                       </span>
@@ -1228,7 +1240,7 @@ ${d.briefing}`,
                   {mostrarBotones && (
                     <div className="fw-pay-group">
                       {opcionesPago.map(op => (
-                        <button key={op.valor} className={`fw-pay-btn ${op.valor}`}
+                        <button key={op.valor} type="button" className={`fw-pay-btn ${op.valor}`}
                           onClick={() => confirmarPago(op)}>
                           {op.label}
                         </button>
@@ -1241,11 +1253,11 @@ ${d.briefing}`,
 
             {/* Burbuja de streaming */}
             {streaming && (
-              <div className="fw-row b">
+              <div className="fw-row b" role="status" aria-label="El asistente está respondiendo">
                 <div className={`fw-bbl b${streamText ? ' streaming' : ''}`}>
                   {streamText || ' '}
                   {!streamText && (
-                    <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    <span style={{ display: 'flex', gap: 4, alignItems: 'center' }} aria-hidden="true">
                       <span className="fw-td" /><span className="fw-td" /><span className="fw-td" />
                     </span>
                   )}
@@ -1258,10 +1270,14 @@ ${d.briefing}`,
       </div>
 
       {/* Model toggle */}
-      <div className="fw-model-bar">
+      <div className="fw-model-bar" role="radiogroup" aria-label="Seleccionar modelo de IA">
         {MODOS_MODELO.map(m => (
           <button
             key={m}
+            type="button"
+            role="radio"
+            aria-checked={modoModelo === m}
+            aria-label={`Modelo ${m}`}
             className={`fw-model-pill${modoModelo === m ? ` active-${m}` : ''}`}
             onClick={() => { setModoModelo(m); saveModoModelo(m) }}
           >
@@ -1276,6 +1292,7 @@ ${d.briefing}`,
           <textarea
             ref={inputRef}
             className="fw-ta"
+            aria-label="Mensaje al asistente"
             value={input}
             onChange={e => { setInput(e.target.value); resize(e.target) }}
             onKeyDown={onKey}
@@ -1297,10 +1314,13 @@ ${d.briefing}`,
             </div>
           )}
           <button
+            type="button"
             className={`fw-mic-btn${grabando ? ' recording' : ''}`}
             onClick={toggleGrabacion}
             disabled={isWorking || !!opcionesPago || transcribiendo}
             title={grabando ? 'Detener grabación' : 'Grabar voz'}
+            aria-label={grabando ? 'Detener grabación' : 'Grabar mensaje de voz'}
+            aria-pressed={grabando}
           >
             {grabando ? (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -1325,8 +1345,9 @@ ${d.briefing}`,
             )}
           </button>
         </div>
-        <button className="fw-sbtn" onClick={() => enviar()}
-          disabled={!input.trim() || isWorking || !!opcionesPago}>
+        <button type="button" className="fw-sbtn" onClick={() => enviar()}
+          disabled={!input.trim() || isWorking || !!opcionesPago}
+          aria-label="Enviar mensaje">
           <IcoSend />
         </button>
       </div>
