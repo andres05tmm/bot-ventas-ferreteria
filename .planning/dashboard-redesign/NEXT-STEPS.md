@@ -1,6 +1,6 @@
 # Próximos pasos — Dashboard Redesign
 
-**Última actualización**: 2026-05-24 — Wave 3.c COMPLETADA · Wave 4 1/6 (FacturasElectronicasRecibidas)
+**Última actualización**: 2026-05-24 — Wave 3.c COMPLETADA · Wave 4 2/6 (FacturasElectronicasRecibidas + TabLibroIVA)
 
 ## Estado actual
 
@@ -69,9 +69,10 @@
     - `ModalRegistrarGasto` reusado en `TabVentasRapidas`: nuevo botón "Registrar gasto" junto a "Venta miscelánea". SSE `gasto_registrado` dispara el refresh global, `onSaved` es no-op
     - `AppShell` ahora pasa `refreshKey` a `HeaderBar`
     - `npm run build` verde (9.47 KB css gzipped, 553.20 KB js gzipped)
-  - 🚧 **Wave 4 EN PROGRESO — Fiscal** (1/6 tabs migradas):
+  - 🚧 **Wave 4 EN PROGRESO — Fiscal** (2/6 tabs migradas):
     - ✅ **FacturasElectronicasRecibidas.jsx** (292 → 282 LOC, commit `6d2b38c`, 2026-05-24): tokens shadcn, `Card`/`Dialog`/`Label`/`Button`, iconos lucide (Mail/Clock/CheckCircle2/AlertTriangle/Inbox/Loader2), `BadgeEvento` con `bg-success`/`bg-border`, `ModalReclamo` con Dialog, toasts via sonner. Build: 9.51 KB css gz / 553.42 KB js gz
-    - ⏸️ Pendientes (orden sugerido): TabLibroIVA (582) → TabFacturacion (780) → TabCompras (859) → TabProveedores (866) → TabComprasFiscal (1697)
+    - ✅ **TabLibroIVA.jsx** (582 → 764 LOC, commit `f7a95e7`, 2026-05-24): banner RST + selector bimestral/custom con chips `bg-primary-soft+border-primary`, KPIs con `Card`+tonos primary/success/warning (Receipt/ShoppingCart/Scale lucide), `CuadroNeto` tokenizado (IVA generado primary, descontable success, resultado favor/pago), `HistorialCierres` con tabla tokenizada y `Button` shadcn (Lock/RefreshCw), `TablaVentasFE`/`TablaComprasIVA` con cabecera `bg-muted`, chips de tarifa `primary-soft`/`success/10`, `ModalCierre` migrado a `Dialog`+`Label`+`Input`, toasts via sonner. LOC subió por verbosidad de Tailwind classNames vs inline styles. Build: 9.64 KB css gz / 554.13 KB js gz
+    - ⏸️ Pendientes (orden sugerido): TabFacturacion (780) → TabCompras (859) → TabProveedores (866) → TabComprasFiscal (1697)
 
 ## Decisiones tomadas en Fase 1
 
