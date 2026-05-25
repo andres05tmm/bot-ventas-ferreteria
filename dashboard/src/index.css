@@ -128,6 +128,28 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  /* Aurora ferretera — gradient mesh fixed con orbes radiales ultra-sutiles.
+     Da identidad al body sin pegarle a Lighthouse (no blur, no animación). */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(circle 720px at 12% 15%,  hsl(var(--accent) / 0.05),  transparent 70%),
+      radial-gradient(circle 820px at 88% 85%,  hsl(var(--info)   / 0.035), transparent 70%),
+      radial-gradient(circle 560px at 50% 50%,  hsl(var(--warning)/ 0.022), transparent 70%);
+  }
+  [data-theme="dark"] body::before {
+    background:
+      radial-gradient(circle 720px at 12% 15%,  hsl(var(--accent) / 0.10), transparent 70%),
+      radial-gradient(circle 820px at 88% 85%,  hsl(var(--info)   / 0.07), transparent 70%),
+      radial-gradient(circle 560px at 50% 50%,  hsl(var(--warning)/ 0.05), transparent 70%);
+  }
+  /* Contenido por encima del background */
+  #root { position: relative; z-index: 1; }
+
   /* Cifras y métricas alinean dígitos */
   .tabular,
   [data-tabular] {

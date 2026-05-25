@@ -56,6 +56,14 @@ export default {
           DEFAULT:    'hsl(var(--warning) / <alpha-value>)',
           foreground: 'hsl(var(--accent-on) / <alpha-value>)',
         },
+        info: {
+          DEFAULT:    'hsl(var(--info) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-on) / <alpha-value>)',
+        },
+        danger: {
+          DEFAULT:    'hsl(var(--danger) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-on) / <alpha-value>)',
+        },
         accent: {
           DEFAULT:    'hsl(var(--bg-surface-2) / <alpha-value>)',
           foreground: 'hsl(var(--text-primary) / <alpha-value>)',

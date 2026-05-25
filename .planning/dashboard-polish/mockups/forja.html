@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Variante B — Forja Metálica · FerreBot</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-body: #FAFAFA;
+    --bg-surface: #FFFFFF;
+    --bg-surface-2: #F4F4F5;
+    --border: #E4E4E7;
+    --border-strong: #D4D4D8;
+    --text-primary: #18181B;
+    --text-secondary: #3F3F46;
+    --text-muted: #71717A;
+    --accent: #C8200E;
+    --success: #15803D;
+    --warning: #C2410C;
+    --info: #0284C7;
+  }
+  * { -webkit-font-smoothing: antialiased; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg-body);
+    color: var(--text-primary);
+  }
+  .geist { font-family: 'Geist', 'Inter', sans-serif; }
+  .tab-nums { font-variant-numeric: tabular-nums; }
+  .label-caps {
+    font-family: 'Geist', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;  /* tracking wider */
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .title-tracked {
+    font-family: 'Geist', sans-serif;
+    letter-spacing: -0.01em;
+  }
+
+  /* FORJA — doble borde arquitectónico: ring exterior + inset glint blanco */
+  .card, .kpi {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6);
+    border-radius: 8px;  /* más pequeño, más arquitectónico */
+  }
+  .kpi {
+    padding: 18px 20px;
+    height: 110px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 200ms;
+  }
+  .kpi:hover { border-color: #A1A1AA; }
+
+  /* Accent stripe 2px en TOP de cada KPI */
+  .kpi::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    transition: height 200ms;
+  }
+  .kpi:hover::before { height: 3px; }
+  .kpi-ventas::before { background: var(--success); }
+  .kpi-caja::before   { background: var(--info); }
+  .kpi-gastos::before { background: var(--warning); }
+
+  .card { padding: 20px; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;  /* más pequeño/arquitectónico */
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid;
+  }
+  .badge-efectivo { background: rgba(21,128,61,0.06);  color: var(--success); border-color: rgba(21,128,61,0.25); }
+  .badge-nequi    { background: rgba(200,32,14,0.06);  color: var(--accent);  border-color: rgba(200,32,14,0.25); }
+  .badge-tarjeta  { background: rgba(2,132,199,0.06);  color: var(--info);    border-color: rgba(2,132,199,0.25); }
+
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0   rgba(21,128,61,0.5); }
+    70%  { box-shadow: 0 0 0 8px rgba(21,128,61,0); }
+    100% { box-shadow: 0 0 0 0   rgba(21,128,61,0); }
+  }
+
+  .sidebar-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    position: relative;
+    transition: background 120ms;
+  }
+  .sidebar-item:hover { background: var(--bg-surface-2); }
+  /* FORJA sidebar activo: franja vertical roja 3px borde izquierdo (Linear-style) */
+  .sidebar-item.active {
+    color: var(--text-primary);
+    font-weight: 600;
+    background: var(--bg-surface-2);
+  }
+  .sidebar-item.active::before {
+    content: "";
+    position: absolute;
+    left: -12px;
+    top: 4px;
+    bottom: 4px;
+    width: 3px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+
+  .pill {
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    font-family: 'Geist', sans-serif;
+    letter-spacing: 0.03em;
+  }
+  .pill.active {
+    background: var(--bg-surface-2);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+  }
+
+  .qa-tile {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--bg-surface);
+    transition: all 180ms;
+    cursor: pointer;
+  }
+  .qa-tile:hover {
+    border-color: #18181B;
+    background: var(--bg-surface);
+  }
+  /* Divisores internos sutiles */
+  .feed-row { border-bottom: 1px solid #F4F4F5; padding: 8px 0; }
+  .feed-row:last-child { border-bottom: 0; }
+</style>
+</head>
+<body class="text-[14px]">
+<div class="flex min-h-screen">
+
+  <!-- ========= SIDEBAR ========= -->
+  <aside class="w-[240px] shrink-0 border-r border-[var(--border-strong)] bg-[var(--bg-surface)]">
+    <div class="p-5 border-b border-[var(--border-strong)]">
+      <div class="flex items-center gap-2.5">
+        <div class="size-8 rounded-sm bg-[var(--text-primary)] grid place-items-center text-white font-bold text-sm geist">F</div>
+        <div>
+          <div class="geist font-semibold text-[14px] leading-none" style="letter-spacing:-0.01em">FerreBot</div>
+          <div class="text-[10px] text-[var(--text-muted)] mt-0.5 label-caps" style="font-size:10px">Punto Rojo</div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="p-3 space-y-5">
+      <div>
+        <div class="label-caps mb-2 px-3">Operativa</div>
+        <div class="space-y-0.5">
+          <div class="sidebar-item active">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
+            Hoy
+          </div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Caja</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h4v4M14 10l6-6M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5"/></svg>Gastos</div>
+        </div>
+      </div>
+      <div>
+        <div class="label-caps mb-2 px-3">Ventas</div>
+        <div class="space-y-0.5">
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M12 7v5l3 3"/></svg>Historial</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Histórico</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Ventas rápidas</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>Top productos</div>
+        </div>
+      </div>
+      <div>
+        <div class="label-caps mb-2 px-3">Inventario</div>
+        <div class="space-y-0.5">
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7L12 3 4 7v10l8 4 8-4V7z"/></svg>Inventario</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg>Compras</div>
+        </div>
+      </div>
+      <div>
+        <div class="label-caps mb-2 px-3">Admin</div>
+        <div class="space-y-0.5">
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Clientes</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>Proveedores</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>Facturación</div>
+        </div>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- ========= MAIN ========= -->
+  <main class="flex-1 p-6 space-y-4">
+
+    <!-- HEADER BAR -->
+    <header class="flex items-end justify-between pb-4 border-b border-[var(--border)]">
+      <div>
+        <h1 class="title-tracked geist text-[28px] font-semibold leading-none">Hoy</h1>
+        <p class="label-caps mt-2.5" style="color: var(--text-muted)">Lunes 25 de mayo · 2026</p>
+      </div>
+      <button class="flex items-center gap-2 px-4 py-2 text-[12px] font-semibold uppercase tracking-wider border border-[var(--text-primary)] rounded-sm hover:bg-[var(--text-primary)] hover:text-white transition geist">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        Cerrar caja
+      </button>
+    </header>
+
+    <!-- KPI STRIP -->
+    <section class="grid grid-cols-3 gap-4">
+      <div class="kpi kpi-ventas">
+        <div class="flex items-start justify-between">
+          <div class="label-caps">Ventas hoy</div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.2"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>
+        </div>
+        <div class="mt-3 flex items-baseline gap-2">
+          <div class="geist text-[24px] font-semibold tab-nums leading-none title-tracked">$1,245,800</div>
+        </div>
+        <div class="flex items-center gap-2 mt-2">
+          <span class="text-[11px] font-semibold tab-nums" style="color: var(--success);">↗ +3.2%</span>
+          <span class="text-[11px] text-[var(--text-muted)]">vs ayer</span>
+        </div>
+        <div class="text-[10px] text-[var(--text-muted)] mt-1 label-caps" style="font-size:10px; letter-spacing:0.04em">12 ventas · ticket $103.8k</div>
+      </div>
+
+      <div class="kpi kpi-caja">
+        <div class="flex items-start justify-between">
+          <div class="label-caps">Caja</div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        </div>
+        <div class="mt-3 flex items-baseline gap-3">
+          <span class="badge badge-efectivo">● ABIERTA</span>
+          <span class="geist tab-nums text-[18px] font-semibold leading-none title-tracked">09:14</span>
+        </div>
+        <div class="text-[10px] text-[var(--text-muted)] mt-2.5 label-caps" style="font-size:10px; letter-spacing:0.04em">Base $200,000 · 8 movs</div>
+      </div>
+
+      <div class="kpi kpi-gastos">
+        <div class="flex items-start justify-between">
+          <div class="label-caps">Gastos hoy</div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+        </div>
+        <div class="mt-3 geist text-[24px] font-semibold tab-nums leading-none title-tracked">$45,200</div>
+        <div class="text-[10px] text-[var(--text-muted)] mt-2 label-caps" style="font-size:10px; letter-spacing:0.04em">3 registros</div>
+      </div>
+    </section>
+
+    <!-- HERO ZONE -->
+    <section class="grid grid-cols-3 gap-4">
+      <!-- CHART -->
+      <div class="card col-span-2">
+        <div class="flex items-start justify-between mb-4 pb-3 border-b border-[var(--border)]">
+          <div>
+            <div class="label-caps mb-1.5">Evolución de ventas</div>
+            <div class="geist text-[16px] font-semibold title-tracked">Últimos 7 días</div>
+          </div>
+          <div class="flex gap-1">
+            <div class="pill active">7D</div>
+            <div class="pill">30D</div>
+            <div class="pill">90D</div>
+          </div>
+        </div>
+        <svg viewBox="0 0 700 200" class="w-full h-[200px]" preserveAspectRatio="none">
+          <!-- gridlines horizontales sutiles -->
+          <line x1="0" y1="50"  x2="700" y2="50"  stroke="#F4F4F5"/>
+          <line x1="0" y1="100" x2="700" y2="100" stroke="#F4F4F5"/>
+          <line x1="0" y1="150" x2="700" y2="150" stroke="#F4F4F5"/>
+          <!-- línea sólida sin area fill (más arquitectónica) -->
+          <path d="M 0,68 L 117,47 L 233,23 L 350,60 L 467,1 L 583,10 L 700,0" stroke="#C8200E" stroke-width="2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          <!-- ticks vertical para cada punto -->
+          <line x1="0" y1="180" x2="0" y2="185" stroke="#D4D4D8"/>
+          <line x1="117" y1="180" x2="117" y2="185" stroke="#D4D4D8"/>
+          <line x1="233" y1="180" x2="233" y2="185" stroke="#D4D4D8"/>
+          <line x1="350" y1="180" x2="350" y2="185" stroke="#D4D4D8"/>
+          <line x1="467" y1="180" x2="467" y2="185" stroke="#D4D4D8"/>
+          <line x1="583" y1="180" x2="583" y2="185" stroke="#D4D4D8"/>
+          <line x1="700" y1="180" x2="700" y2="185" stroke="#D4D4D8"/>
+          <!-- punto destacado -->
+          <circle cx="467" cy="1" r="3" fill="#C8200E"/>
+        </svg>
+        <div class="flex justify-between mt-2 text-[10px] text-[var(--text-muted)] tab-nums px-1 label-caps" style="font-size:10px">
+          <span>LUN</span><span>MAR</span><span>MIÉ</span><span>JUE</span><span>VIE</span><span>SÁB</span><span>DOM</span>
+        </div>
+      </div>
+
+      <!-- FEED EN VIVO -->
+      <div class="card col-span-1">
+        <div class="flex items-center justify-between mb-3 pb-2.5 border-b border-[var(--border)]">
+          <div class="flex items-center gap-2">
+            <div class="label-caps">Últimas ventas</div>
+            <div class="pulse-dot"></div>
+          </div>
+          <span class="text-[10px] text-[var(--text-muted)] label-caps" style="font-size:10px">EN VIVO</span>
+        </div>
+        <div>
+          <div class="feed-row flex items-center justify-between">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums geist">10:24</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$45,000</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Drywall x2</div>
+            </div>
+            <span class="badge badge-efectivo">Efectivo</span>
+          </div>
+          <div class="feed-row flex items-center justify-between">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums geist">10:18</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$128,500</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Pintura blanca galón</div>
+            </div>
+            <span class="badge badge-nequi">Nequi</span>
+          </div>
+          <div class="feed-row flex items-center justify-between">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums geist">09:55</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$32,000</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Puntilla 2" libra</div>
+            </div>
+            <span class="badge badge-efectivo">Efectivo</span>
+          </div>
+          <div class="feed-row flex items-center justify-between">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums geist">09:41</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$215,000</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Tubería PVC 1/2"</div>
+            </div>
+            <span class="badge badge-tarjeta">Tarjeta</span>
+          </div>
+          <div class="feed-row flex items-center justify-between">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums geist">09:33</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$18,500</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Tornillos drywall</div>
+            </div>
+            <span class="badge badge-efectivo">Efectivo</span>
+          </div>
+          <div class="feed-row flex items-center justify-between">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums geist">09:20</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$87,200</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Cemento gris saco</div>
+            </div>
+            <span class="badge badge-nequi">Nequi</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECCIÓN SECUNDARIA -->
+    <section class="grid grid-cols-3 gap-4">
+      <!-- TOP PRODUCTOS -->
+      <div class="card">
+        <div class="label-caps mb-3 pb-2 border-b border-[var(--border)]">Top productos hoy</div>
+        <div class="space-y-3">
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <div class="flex items-center gap-2 text-[12px]">
+                <span class="geist text-[var(--text-muted)] tab-nums w-4 font-semibold">01</span>
+                <span class="font-medium">Drywall</span>
+              </div>
+              <span class="geist tab-nums text-[12px] font-semibold">$315k</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-[3px] bg-[var(--bg-surface-2)] overflow-hidden">
+                <div class="h-full" style="width:100%; background:var(--text-primary);"></div>
+              </div>
+              <span class="text-[10px] text-[var(--text-muted)] tab-nums">14 ud</span>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <div class="flex items-center gap-2 text-[12px]"><span class="geist text-[var(--text-muted)] tab-nums w-4 font-semibold">02</span><span class="font-medium">Puntilla 2"</span></div>
+              <span class="geist tab-nums text-[12px] font-semibold">$267k</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-[3px] bg-[var(--bg-surface-2)] overflow-hidden">
+                <div class="h-full" style="width:85%; background:var(--text-primary);"></div>
+              </div>
+              <span class="text-[10px] text-[var(--text-muted)] tab-nums">89 lb</span>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <div class="flex items-center gap-2 text-[12px]"><span class="geist text-[var(--text-muted)] tab-nums w-4 font-semibold">03</span><span class="font-medium">Cemento gris</span></div>
+              <span class="geist tab-nums text-[12px] font-semibold">$176k</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-[3px] bg-[var(--bg-surface-2)] overflow-hidden">
+                <div class="h-full" style="width:56%; background:var(--text-primary);"></div>
+              </div>
+              <span class="text-[10px] text-[var(--text-muted)] tab-nums">6 sacos</span>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <div class="flex items-center gap-2 text-[12px]"><span class="geist text-[var(--text-muted)] tab-nums w-4 font-semibold">04</span><span class="font-medium">Pintura blanca</span></div>
+              <span class="geist tab-nums text-[12px] font-semibold">$154k</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-[3px] bg-[var(--bg-surface-2)] overflow-hidden">
+                <div class="h-full" style="width:49%; background:var(--text-primary);"></div>
+              </div>
+              <span class="text-[10px] text-[var(--text-muted)] tab-nums">3 gal</span>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <div class="flex items-center gap-2 text-[12px]"><span class="geist text-[var(--text-muted)] tab-nums w-4 font-semibold">05</span><span class="font-medium">Tubería PVC 1/2"</span></div>
+              <span class="geist tab-nums text-[12px] font-semibold">$98k</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-[3px] bg-[var(--bg-surface-2)] overflow-hidden">
+                <div class="h-full" style="width:31%; background:var(--text-primary);"></div>
+              </div>
+              <span class="text-[10px] text-[var(--text-muted)] tab-nums">2 m</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STOCK BAJO -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-3 pb-2 border-b border-[var(--border)]">
+          <div class="label-caps">Stock bajo</div>
+          <span class="badge" style="background:rgba(194,65,12,0.06); color:var(--warning); border-color: rgba(194,65,12,0.25);">4 ALERTAS</span>
+        </div>
+        <div>
+          <div class="feed-row flex items-center justify-between">
+            <span class="text-[12px] truncate">Tornillo autoperforante #8</span>
+            <span class="geist tab-nums text-[12px] font-semibold" style="color:var(--warning);">12 ud</span>
+          </div>
+          <div class="feed-row flex items-center justify-between">
+            <span class="text-[12px] truncate">Cinta teflón rollo</span>
+            <span class="geist tab-nums text-[12px] font-semibold" style="color:var(--warning);">8 ud</span>
+          </div>
+          <div class="feed-row flex items-center justify-between">
+            <span class="text-[12px] truncate">Codo PVC 1/2"</span>
+            <span class="geist tab-nums text-[12px] font-semibold" style="color:var(--accent);">6 ud</span>
+          </div>
+          <div class="feed-row flex items-center justify-between">
+            <span class="text-[12px] truncate">Pegante PVC tarro</span>
+            <span class="geist tab-nums text-[12px] font-semibold" style="color:var(--accent);">4 ud</span>
+          </div>
+        </div>
+        <button class="w-full mt-3 text-[11px] font-semibold uppercase tracking-wider hover:underline geist" style="color:var(--accent); letter-spacing:0.06em">Ver todos →</button>
+      </div>
+
+      <!-- ACCIONES RÁPIDAS -->
+      <div class="card">
+        <div class="label-caps mb-3 pb-2 border-b border-[var(--border)]">Acciones rápidas</div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="qa-tile">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            <div class="text-[12px] font-semibold">Nueva venta</div>
+          </div>
+          <div class="qa-tile">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
+            <div class="text-[12px] font-semibold">Gasto</div>
+          </div>
+          <div class="qa-tile">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <div class="text-[12px] font-semibold">Cliente</div>
+          </div>
+          <div class="qa-tile">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"/></svg>
+            <div class="text-[12px] font-semibold">Caja</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- footer note -->
+    <div class="text-center label-caps py-4" style="font-size:10px">
+      Variante B · Forja Metálica · doble borde · accent stripes top · tracking wider · brand red en franja sidebar
+    </div>
+  </main>
+</div>
+</body>
+</html>

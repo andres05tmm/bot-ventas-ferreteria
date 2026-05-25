@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Variante A — Aurora Ferretera · FerreBot</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-body: #FAFAFA;
+    --bg-surface: #FFFFFF;
+    --bg-surface-2: #F4F4F5;
+    --border: #E4E4E7;
+    --border-strong: #D4D4D8;
+    --text-primary: #18181B;
+    --text-secondary: #3F3F46;
+    --text-muted: #71717A;
+    --accent: #C8200E;
+    --accent-hover: #A01808;
+    --success: #15803D;
+    --warning: #C2410C;
+    --info: #0284C7;
+  }
+  * { -webkit-font-smoothing: antialiased; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg-body);
+    color: var(--text-primary);
+    position: relative;
+    overflow-x: hidden;
+  }
+  /* AURORA — gradient mesh fixed con 2 orbes radiales sutiles */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(circle 600px at 15% 20%, rgba(200, 32, 14, 0.06), transparent 70%),
+      radial-gradient(circle 700px at 85% 80%, rgba(2, 132, 199, 0.04), transparent 70%),
+      radial-gradient(circle 500px at 50% 50%, rgba(194, 65, 12, 0.025), transparent 70%);
+  }
+  .geist { font-family: 'Geist', 'Inter', sans-serif; }
+  .mono  { font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; }
+  .tab-nums { font-variant-numeric: tabular-nums; }
+  .label-caps {
+    font-family: 'Geist', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .kpi {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    height: 110px;
+    position: relative;
+    transition: transform 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                border-color 180ms,
+                box-shadow 180ms;
+    overflow: hidden;
+  }
+  .kpi:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+  }
+  .kpi-ventas { background: linear-gradient(135deg, rgba(21,128,61,0.07), var(--bg-surface) 60%); border-color: rgba(21,128,61,0.22); }
+  .kpi-ventas:hover { border-color: rgba(21,128,61,0.4); }
+  .kpi-caja   { background: linear-gradient(135deg, rgba(2,132,199,0.06), var(--bg-surface) 60%); border-color: rgba(2,132,199,0.22); }
+  .kpi-caja:hover   { border-color: rgba(2,132,199,0.4); }
+  .kpi-gastos { background: linear-gradient(135deg, rgba(194,65,12,0.06), var(--bg-surface) 60%); border-color: rgba(194,65,12,0.22); }
+  .kpi-gastos:hover { border-color: rgba(194,65,12,0.4); }
+
+  .card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .badge-efectivo { background: rgba(21,128,61,0.1);  color: var(--success); }
+  .badge-nequi    { background: rgba(200,32,14,0.1);  color: var(--accent); }
+  .badge-tarjeta  { background: rgba(2,132,199,0.1);  color: var(--info); }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 0 rgba(21,128,61,0.6);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0   rgba(21,128,61,0.5); }
+    70%  { box-shadow: 0 0 0 8px rgba(21,128,61,0); }
+    100% { box-shadow: 0 0 0 0   rgba(21,128,61,0); }
+  }
+  .sidebar-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 120ms;
+  }
+  .sidebar-item:hover { background: var(--bg-surface-2); }
+  .sidebar-item.active {
+    background: rgba(200, 32, 14, 0.12);
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .pill {
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .pill.active {
+    background: var(--bg-surface-2);
+    color: var(--text-primary);
+  }
+  .qa-tile {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-surface);
+    transition: all 180ms;
+    cursor: pointer;
+  }
+  .qa-tile:hover {
+    border-color: rgba(200,32,14,0.3);
+    background: rgba(200,32,14,0.03);
+  }
+</style>
+</head>
+<body class="text-[14px]">
+<div class="relative z-10 flex min-h-screen">
+
+  <!-- ========= SIDEBAR ========= -->
+  <aside class="w-[240px] shrink-0 border-r border-[var(--border)] bg-[var(--bg-surface)]/80 backdrop-blur-sm">
+    <div class="p-5 border-b border-[var(--border)]">
+      <div class="flex items-center gap-2.5">
+        <div class="size-8 rounded-md bg-[var(--accent)] grid place-items-center text-white font-bold text-sm geist">F</div>
+        <div>
+          <div class="geist font-semibold text-[14px] leading-none">FerreBot</div>
+          <div class="text-[11px] text-[var(--text-muted)] mt-0.5">Punto Rojo</div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="p-3 space-y-5">
+      <div>
+        <div class="label-caps mb-2 px-2">Operativa</div>
+        <div class="space-y-0.5">
+          <div class="sidebar-item active">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
+            Hoy
+          </div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Caja</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h4v4M14 10l6-6M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5"/></svg>Gastos</div>
+        </div>
+      </div>
+      <div>
+        <div class="label-caps mb-2 px-2">Ventas</div>
+        <div class="space-y-0.5">
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M12 7v5l3 3"/></svg>Historial</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Histórico</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Ventas rápidas</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>Top productos</div>
+        </div>
+      </div>
+      <div>
+        <div class="label-caps mb-2 px-2">Inventario</div>
+        <div class="space-y-0.5">
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7L12 3 4 7v10l8 4 8-4V7z"/><path d="M4 7l8 4 8-4M12 11v10"/></svg>Inventario</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg>Compras</div>
+        </div>
+      </div>
+      <div>
+        <div class="label-caps mb-2 px-2">Admin</div>
+        <div class="space-y-0.5">
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Clientes</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg>Proveedores</div>
+          <div class="sidebar-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/></svg>Facturación</div>
+        </div>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- ========= MAIN ========= -->
+  <main class="flex-1 p-6 space-y-4">
+
+    <!-- HEADER BAR -->
+    <header class="flex items-center justify-between">
+      <div>
+        <h1 class="geist text-[28px] font-semibold leading-none">Hoy</h1>
+        <p class="text-[13px] text-[var(--text-muted)] mt-1.5">Lunes 25 de mayo, 2026</p>
+      </div>
+      <button class="flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium border border-[var(--border-strong)] rounded-lg hover:bg-[var(--bg-surface-2)] transition">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        Cerrar caja
+      </button>
+    </header>
+
+    <!-- KPI STRIP -->
+    <section class="grid grid-cols-3 gap-4">
+      <!-- VENTAS -->
+      <div class="kpi kpi-ventas">
+        <div class="flex items-start justify-between">
+          <div class="label-caps">Ventas hoy</div>
+          <div class="size-7 rounded-md grid place-items-center" style="background:rgba(21,128,61,0.12); color: var(--success);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>
+          </div>
+        </div>
+        <div class="mt-2.5 flex items-baseline gap-2">
+          <div class="geist text-[24px] font-semibold tab-nums leading-none">$1,245,800</div>
+          <span class="text-[11px] font-semibold" style="color: var(--success);">↗ +3.2%</span>
+        </div>
+        <div class="text-[11px] text-[var(--text-muted)] mt-1.5">12 ventas · ticket prom $103.8k</div>
+      </div>
+      <!-- CAJA -->
+      <div class="kpi kpi-caja">
+        <div class="flex items-start justify-between">
+          <div class="label-caps">Caja</div>
+          <div class="size-7 rounded-md grid place-items-center" style="background:rgba(2,132,199,0.12); color: var(--info);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+          </div>
+        </div>
+        <div class="mt-2.5 flex items-center gap-2">
+          <span class="badge" style="background:rgba(21,128,61,0.12); color: var(--success);">● ABIERTA</span>
+          <span class="geist tab-nums text-[14px] text-[var(--text-secondary)] font-medium">09:14</span>
+        </div>
+        <div class="text-[11px] text-[var(--text-muted)] mt-2">Base $200,000 · 8 movimientos</div>
+      </div>
+      <!-- GASTOS -->
+      <div class="kpi kpi-gastos">
+        <div class="flex items-start justify-between">
+          <div class="label-caps">Gastos hoy</div>
+          <div class="size-7 rounded-md grid place-items-center" style="background:rgba(194,65,12,0.12); color: var(--warning);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+          </div>
+        </div>
+        <div class="mt-2.5 geist text-[24px] font-semibold tab-nums leading-none">$45,200</div>
+        <div class="text-[11px] text-[var(--text-muted)] mt-1.5">3 registros hoy</div>
+      </div>
+    </section>
+
+    <!-- HERO ZONE -->
+    <section class="grid grid-cols-3 gap-4">
+      <!-- CHART -->
+      <div class="card col-span-2">
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <div class="label-caps mb-1">Evolución de ventas</div>
+            <div class="geist text-[18px] font-semibold">Últimos 7 días</div>
+          </div>
+          <div class="flex gap-1 p-1 rounded-lg bg-[var(--bg-surface-2)]">
+            <div class="pill active">7d</div>
+            <div class="pill">30d</div>
+            <div class="pill">90d</div>
+          </div>
+        </div>
+        <svg viewBox="0 0 700 200" class="w-full h-[200px]" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="auroraGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#C8200E" stop-opacity="0.22"/>
+              <stop offset="100%" stop-color="#C8200E" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <!-- gridlines -->
+          <line x1="0" y1="40"  x2="700" y2="40"  stroke="#E4E4E7" stroke-dasharray="2 4"/>
+          <line x1="0" y1="100" x2="700" y2="100" stroke="#E4E4E7" stroke-dasharray="2 4"/>
+          <line x1="0" y1="160" x2="700" y2="160" stroke="#E4E4E7" stroke-dasharray="2 4"/>
+          <!-- area -->
+          <path d="M 0,68 L 117,47 L 233,23 L 350,60 L 467,1 L 583,10 L 700,0 L 700,200 L 0,200 Z" fill="url(#auroraGrad)"/>
+          <!-- line -->
+          <path d="M 0,68 L 117,47 L 233,23 L 350,60 L 467,1 L 583,10 L 700,0" stroke="#C8200E" stroke-width="2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          <!-- highlighted point (V) -->
+          <circle cx="467" cy="1" r="4" fill="#FFFFFF" stroke="#C8200E" stroke-width="2"/>
+        </svg>
+        <div class="flex justify-between mt-2 text-[10px] text-[var(--text-muted)] tab-nums px-1">
+          <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
+        </div>
+      </div>
+
+      <!-- FEED EN VIVO -->
+      <div class="card col-span-1">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <div class="label-caps">Últimas ventas</div>
+            <div class="pulse-dot"></div>
+          </div>
+          <span class="text-[11px] text-[var(--text-muted)]">en vivo</span>
+        </div>
+        <div class="space-y-2.5">
+          <!-- item -->
+          <div class="flex items-center justify-between py-1.5 border-b border-[var(--border)] last:border-0">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums">10:24</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$45,000</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Drywall x2</div>
+            </div>
+            <span class="badge badge-efectivo">Efectivo</span>
+          </div>
+          <div class="flex items-center justify-between py-1.5 border-b border-[var(--border)]">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums">10:18</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$128,500</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Pintura blanca galón</div>
+            </div>
+            <span class="badge badge-nequi">Nequi</span>
+          </div>
+          <div class="flex items-center justify-between py-1.5 border-b border-[var(--border)]">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums">09:55</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$32,000</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Puntilla 2" libra</div>
+            </div>
+            <span class="badge badge-efectivo">Efectivo</span>
+          </div>
+          <div class="flex items-center justify-between py-1.5 border-b border-[var(--border)]">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums">09:41</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$215,000</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Tubería PVC 1/2"</div>
+            </div>
+            <span class="badge badge-tarjeta">Tarjeta</span>
+          </div>
+          <div class="flex items-center justify-between py-1.5 border-b border-[var(--border)]">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums">09:33</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$18,500</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Tornillos drywall</div>
+            </div>
+            <span class="badge badge-efectivo">Efectivo</span>
+          </div>
+          <div class="flex items-center justify-between py-1.5">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-[var(--text-muted)] tab-nums">09:20</span>
+                <span class="geist tab-nums text-[13px] font-semibold">$87,200</span>
+              </div>
+              <div class="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">Cemento gris saco</div>
+            </div>
+            <span class="badge badge-nequi">Nequi</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECCIÓN SECUNDARIA -->
+    <section class="grid grid-cols-3 gap-4">
+      <!-- TOP PRODUCTOS -->
+      <div class="card">
+        <div class="label-caps mb-3">Top productos hoy</div>
+        <div class="space-y-3">
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <div class="flex items-center gap-2 text-[12px]">
+                <span class="text-[var(--text-muted)] tab-nums w-4">1</span>
+                <span class="font-medium">Drywall</span>
+              </div>
+              <span class="geist tab-nums text-[12px] font-semibold">$315k</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-1 rounded-full bg-[var(--bg-surface-2)] overflow-hidden">
+                <div class="h-full rounded-full" style="width:100%; background:var(--accent);"></div>
+              </div>
+              <span class="text-[10px] text-[var(--text-muted)] tab-nums">14 ud</span>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <div class="flex items-center gap-2 text-[12px]"><span class="text-[var(--text-muted)] tab-nums w-4">2</span><span class="font-medium">Puntilla 2"</span></div>
+              <span class="geist tab-nums text-[12px] font-semibold">$267k</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-1 rounded-full bg-[var(--bg-surface-2)] overflow-hidden">
+                <div class="h-full rounded-full" style="width:85%; background:var(--accent);"></div>
+              </div>
+              <span class="text-[10px] text-[var(--text-muted)] tab-nums">89 lb</span>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <div class="flex items-center gap-2 text-[12px]"><span class="text-[var(--text-muted)] tab-nums w-4">3</span><span class="font-medium">Cemento gris</span></div>
+              <span class="geist tab-nums text-[12px] font-semibold">$176k</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-1 rounded-full bg-[var(--bg-surface-2)] overflow-hidden">
+                <div class="h-full rounded-full" style="width:56%; background:var(--accent);"></div>
+              </div>
+              <span class="text-[10px] text-[var(--text-muted)] tab-nums">6 sacos</span>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <div class="flex items-center gap-2 text-[12px]"><span class="text-[var(--text-muted)] tab-nums w-4">4</span><span class="font-medium">Pintura blanca</span></div>
+              <span class="geist tab-nums text-[12px] font-semibold">$154k</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-1 rounded-full bg-[var(--bg-surface-2)] overflow-hidden">
+                <div class="h-full rounded-full" style="width:49%; background:var(--accent);"></div>
+              </div>
+              <span class="text-[10px] text-[var(--text-muted)] tab-nums">3 gal</span>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <div class="flex items-center gap-2 text-[12px]"><span class="text-[var(--text-muted)] tab-nums w-4">5</span><span class="font-medium">Tubería PVC 1/2"</span></div>
+              <span class="geist tab-nums text-[12px] font-semibold">$98k</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-1 rounded-full bg-[var(--bg-surface-2)] overflow-hidden">
+                <div class="h-full rounded-full" style="width:31%; background:var(--accent);"></div>
+              </div>
+              <span class="text-[10px] text-[var(--text-muted)] tab-nums">2 m</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STOCK BAJO -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-3">
+          <div class="label-caps">Stock bajo</div>
+          <span class="badge" style="background:rgba(194,65,12,0.12); color:var(--warning);">4 alertas</span>
+        </div>
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-[12px] py-1.5 border-b border-[var(--border)]">
+            <span class="truncate">Tornillo autoperforante #8</span>
+            <span class="geist tab-nums font-semibold" style="color:var(--warning);">12 ud</span>
+          </div>
+          <div class="flex items-center justify-between text-[12px] py-1.5 border-b border-[var(--border)]">
+            <span class="truncate">Cinta teflón rollo</span>
+            <span class="geist tab-nums font-semibold" style="color:var(--warning);">8 ud</span>
+          </div>
+          <div class="flex items-center justify-between text-[12px] py-1.5 border-b border-[var(--border)]">
+            <span class="truncate">Codo PVC 1/2"</span>
+            <span class="geist tab-nums font-semibold" style="color:var(--accent);">6 ud</span>
+          </div>
+          <div class="flex items-center justify-between text-[12px] py-1.5">
+            <span class="truncate">Pegante PVC tarro</span>
+            <span class="geist tab-nums font-semibold" style="color:var(--accent);">4 ud</span>
+          </div>
+        </div>
+        <button class="w-full mt-3 text-[12px] text-[var(--accent)] hover:underline font-medium">Ver todos →</button>
+      </div>
+
+      <!-- ACCIONES RÁPIDAS -->
+      <div class="card">
+        <div class="label-caps mb-3">Acciones rápidas</div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="qa-tile">
+            <div class="size-8 rounded-md grid place-items-center" style="background:rgba(200,32,14,0.1); color:var(--accent);">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            </div>
+            <div>
+              <div class="text-[12px] font-semibold">Nueva venta</div>
+              <div class="text-[10px] text-[var(--text-muted)]">Registrar venta</div>
+            </div>
+          </div>
+          <div class="qa-tile">
+            <div class="size-8 rounded-md grid place-items-center" style="background:rgba(194,65,12,0.1); color:var(--warning);">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+            </div>
+            <div>
+              <div class="text-[12px] font-semibold">Gasto</div>
+              <div class="text-[10px] text-[var(--text-muted)]">Registrar</div>
+            </div>
+          </div>
+          <div class="qa-tile">
+            <div class="size-8 rounded-md grid place-items-center" style="background:rgba(2,132,199,0.1); color:var(--info);">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            </div>
+            <div>
+              <div class="text-[12px] font-semibold">Cliente</div>
+              <div class="text-[10px] text-[var(--text-muted)]">Buscar</div>
+            </div>
+          </div>
+          <div class="qa-tile">
+            <div class="size-8 rounded-md grid place-items-center" style="background:rgba(21,128,61,0.1); color:var(--success);">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"/></svg>
+            </div>
+            <div>
+              <div class="text-[12px] font-semibold">Caja</div>
+              <div class="text-[10px] text-[var(--text-muted)]">Ver detalle</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- footer note -->
+    <div class="text-center text-[10px] text-[var(--text-muted)] py-4">
+      Variante A · <span class="geist font-semibold">Aurora Ferretera</span> · gradient mesh fixed · tints semánticos · micro-motion · brand red como acento
+    </div>
+  </main>
+</div>
+</body>
+</html>

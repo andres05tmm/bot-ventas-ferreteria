@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Mockups Fase B — FerreBot Dashboard Polish</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; background: #FAFAFA; }
+  .geist { font-family: 'Geist', sans-serif; }
+  .card-link {
+    display: block;
+    padding: 28px;
+    background: white;
+    border: 1px solid #E4E4E7;
+    border-radius: 16px;
+    transition: all 200ms;
+    text-decoration: none;
+    color: inherit;
+  }
+  .card-link:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    border-color: #C8200E;
+  }
+</style>
+</head>
+<body class="min-h-screen p-12">
+<div class="max-w-5xl mx-auto">
+  <header class="mb-10">
+    <div class="geist text-[11px] uppercase tracking-wider text-[#71717A] mb-2 font-semibold">Fase B · Dashboard Polish</div>
+    <h1 class="geist text-[40px] font-semibold leading-tight" style="letter-spacing:-0.02em">3 direcciones visuales</h1>
+    <p class="text-[15px] text-[#71717A] mt-3 max-w-2xl">
+      Cada mockup muestra el tab <strong>Hoy</strong> con el layout decidido (KPIs pequeños, chart + feed live, sección secundaria abajo).
+      La diferencia entre los 3 es <em>identidad visual</em>: cómo se siente el fondo, las cards y la jerarquía.
+    </p>
+  </header>
+
+  <div class="grid grid-cols-3 gap-5">
+    <a href="aurora.html" class="card-link">
+      <div class="h-32 rounded-lg mb-4 relative overflow-hidden" style="background:
+        radial-gradient(circle 100px at 20% 30%, rgba(200,32,14,0.25), transparent 70%),
+        radial-gradient(circle 110px at 80% 80%, rgba(2,132,199,0.15), transparent 70%),
+        #FAFAFA;">
+        <div class="absolute inset-3 grid grid-cols-3 gap-1.5">
+          <div class="rounded bg-white border border-[rgba(21,128,61,0.3)] shadow-sm" style="background:linear-gradient(135deg, rgba(21,128,61,0.07), white 60%)"></div>
+          <div class="rounded bg-white border border-[rgba(2,132,199,0.3)] shadow-sm" style="background:linear-gradient(135deg, rgba(2,132,199,0.07), white 60%)"></div>
+          <div class="rounded bg-white border border-[rgba(194,65,12,0.3)] shadow-sm" style="background:linear-gradient(135deg, rgba(194,65,12,0.07), white 60%)"></div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 mb-1">
+        <span class="geist text-[11px] font-semibold text-[#C8200E] uppercase tracking-wider">A</span>
+        <h2 class="geist text-[20px] font-semibold">Aurora Ferretera</h2>
+      </div>
+      <p class="text-[13px] text-[#71717A] leading-relaxed">
+        Gradient mesh fixed con orbes radiales sutiles · KPIs con tints semánticos · micro-motion en hover.
+        Identidad cálida y suave sin perder densidad.
+      </p>
+    </a>
+
+    <a href="forja.html" class="card-link">
+      <div class="h-32 rounded-lg mb-4 relative overflow-hidden bg-[#FAFAFA]">
+        <div class="absolute inset-3 grid grid-cols-3 gap-1.5">
+          <div class="rounded-sm bg-white border border-[#D4D4D8] relative" style="box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6);">
+            <div class="absolute top-0 left-0 right-0 h-[2px]" style="background:#15803D"></div>
+          </div>
+          <div class="rounded-sm bg-white border border-[#D4D4D8] relative" style="box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6);">
+            <div class="absolute top-0 left-0 right-0 h-[2px]" style="background:#0284C7"></div>
+          </div>
+          <div class="rounded-sm bg-white border border-[#D4D4D8] relative" style="box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6);">
+            <div class="absolute top-0 left-0 right-0 h-[2px]" style="background:#C2410C"></div>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 mb-1">
+        <span class="geist text-[11px] font-semibold text-[#C8200E] uppercase tracking-wider">B</span>
+        <h2 class="geist text-[20px] font-semibold" style="letter-spacing:-0.01em">Forja Metálica</h2>
+      </div>
+      <p class="text-[13px] text-[#71717A] leading-relaxed">
+        Doble borde arquitectónico · accent stripes top en cards · label-caps con tracking wider · franja roja en sidebar activo.
+        Industrial premium tipo Stripe.
+      </p>
+    </a>
+
+    <a href="bento.html" class="card-link">
+      <div class="h-32 rounded-lg mb-4 relative overflow-hidden bg-[#FAFAFA]">
+        <div class="absolute inset-3 grid grid-cols-3 gap-1.5">
+          <div class="rounded-lg bg-white border border-[#E4E4E7] relative shadow-sm overflow-hidden">
+            <div class="absolute top-0 bottom-0 left-0 w-[3px]" style="background:#15803D"></div>
+            <svg viewBox="0 0 60 24" class="absolute bottom-1 right-1 w-10 h-4"><path d="M 0,16 L 20,8 L 40,4 L 60,2" stroke="#15803D" stroke-width="1.5" fill="none"/></svg>
+          </div>
+          <div class="rounded-lg bg-white border border-[#E4E4E7] relative shadow-sm overflow-hidden">
+            <div class="absolute top-0 bottom-0 left-0 w-[3px]" style="background:#0284C7"></div>
+          </div>
+          <div class="rounded-lg bg-white border border-[#E4E4E7] relative shadow-sm overflow-hidden">
+            <div class="absolute top-0 bottom-0 left-0 w-[3px]" style="background:#C2410C"></div>
+            <svg viewBox="0 0 60 24" class="absolute bottom-1 right-1 w-10 h-4"><path d="M 0,18 L 20,16 L 40,12 L 60,6" stroke="#C2410C" stroke-width="1.5" fill="none"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 mb-1">
+        <span class="geist text-[11px] font-semibold text-[#C8200E] uppercase tracking-wider">C</span>
+        <h2 class="geist text-[20px] font-semibold">Bento Card-Led</h2>
+      </div>
+      <p class="text-[13px] text-[#71717A] leading-relaxed">
+        Accent stripes laterales · sparklines en KPIs · dot-pattern en cards · bento asimétrico abajo.
+        Estilo Linear/Vercel puro, máxima energía en las cards.
+      </p>
+    </a>
+  </div>
+
+  <div class="mt-10 p-5 rounded-xl border border-[#E4E4E7] bg-[#F4F4F5]/40">
+    <div class="geist text-[11px] uppercase tracking-wider text-[#71717A] mb-2 font-semibold">Después de elegir</div>
+    <p class="text-[14px]">
+      Decime <strong>"voy con A"</strong> / <strong>"con B"</strong> / <strong>"con C"</strong> y la aplico al código (tokens CSS + componentes + layout de Hoy).
+      Si querés combinar elementos de varias (ej. <em>fondo de A + stripes de C</em>), también lo podemos hacer.
+    </p>
+  </div>
+</div>
+</body>
+</html>
