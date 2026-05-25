@@ -130,16 +130,6 @@ export default function TabHoy({ refreshKey }) {
 
   return (
     <div className="space-y-4">
-      {/* HEADER BAR */}
-      <header className="flex items-end justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight leading-none">Hoy</h1>
-          <p className="text-sm text-muted-foreground capitalize mt-1.5">
-            {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Bogota' })}
-          </p>
-        </div>
-      </header>
-
       {/* KPI STRIP — 3 cards compactos con tints semánticos */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <KpiCard

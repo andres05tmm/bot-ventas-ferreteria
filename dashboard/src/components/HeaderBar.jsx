@@ -14,11 +14,20 @@ export default function HeaderBar({ isMobile, onOpenCommand, onRefresh, lastRefr
   const location = useLocation()
   const route = findRoute(location.pathname)
   const title = route?.label || 'Hoy'
+  const isHoy = location.pathname === '/hoy' || location.pathname === '/'
+  const fechaHoy = isHoy
+    ? new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Bogota' })
+    : null
 
   return (
     <header className="sticky top-0 z-30 bg-surface/40 backdrop-blur-md border-b border-border/40">
       <div className="flex items-center gap-3 h-14 px-4 md:px-6">
         <h1 className="text-base md:text-lg font-semibold tracking-tight truncate">{title}</h1>
+        {fechaHoy && (
+          <span className="hidden md:inline text-xs text-muted-foreground capitalize truncate">
+            {fechaHoy}
+          </span>
+        )}
 
         <div className="flex-1" />
 
