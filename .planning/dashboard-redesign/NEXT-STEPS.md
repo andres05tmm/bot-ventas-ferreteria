@@ -1,6 +1,6 @@
 # Próximos pasos — Dashboard Redesign
 
-**Última actualización**: 2026-05-24 — Wave 3.b COMPLETADA (7/7 sub-tareas)
+**Última actualización**: 2026-05-24 — Wave 3.c COMPLETADA · Wave 4 (Fiscal) pendiente
 
 ## Estado actual
 
@@ -64,8 +64,12 @@
     - ✅ **7. Shell del tab + smoke test** (commit `cbdbc6d`): `TabVentasRapidas` sin `useTheme()`. Filtros y subcats como chips `bg-primary-soft+border-primary`, buscador con `Input` shadcn + icono `Search` lucide, vista vacía de favoritos con `Star` lucide `fill-current`. FAB móvil (barra fija inferior) y drawer del carrito a tokens (`bg-card`, `border-border`, `ShoppingCart`/`X`/`Loader2`); toggle calcular cambio conservado. Toasts via `bg-success`/`border-destructive` y animaciones movidas a `<style>` global del tab. Imports nuevos: `Search`, `Sparkles` (lucide), `Input` (ui). Claves storage intactas (`vr_favs_v2`/`vr_carrito_v1`/`vr_vendedor`). Modales internos (Fraccion/Cm/Mlt/Grm/Kg/Qty) heredan el shell Dialog ya migrado en sub-tarea 4 — sus internals con `useTheme()` quedan fuera del scope de Wave 3.b
     - Commit + build verde tras cada sub-tarea (último build: 9.39 KB css gzipped, 552.85 KB js gzipped)
     - Riesgo ALTO: tab crítico de operación diaria. Mantener mismas claves localStorage (`vr_favs_v2`) y sessionStorage (`vr_carrito_v1`) ✅ preservadas
-  - ⏸️ **Pendiente Wave 3.c**: atajos POS — `CajaStatusPill` widget en HeaderBar + reusar `ModalRegistrarGasto` desde `/ventas` (ya está exportado de `TabGastos.jsx`)
-  - ⏸️ **Pendiente Wave 4**: Fiscal — TabFacturacion, TabLibroIVA, TabComprasFiscal, TabCompras, TabProveedores, FacturasElectronicasRecibidas
+  - ✅ **Wave 3.c COMPLETADA** (2026-05-24, commit `f06b79e`): atajos POS
+    - `CajaStatusPill` en `HeaderBar.jsx`: fetch `/caja`, pill verde (`bg-success/10` + efectivo esperado en >=xl) o muted (cerrada). Click navega a `/caja`. Refresca con `refreshKey` global (ya disparado por SSE `caja_abierta`/`caja_cerrada`)
+    - `ModalRegistrarGasto` reusado en `TabVentasRapidas`: nuevo botón "Registrar gasto" junto a "Venta miscelánea". SSE `gasto_registrado` dispara el refresh global, `onSaved` es no-op
+    - `AppShell` ahora pasa `refreshKey` a `HeaderBar`
+    - `npm run build` verde (9.47 KB css gzipped, 553.20 KB js gzipped)
+  - ⏸️ **Pendiente Wave 4 — Fiscal** (~5076 LOC en 6 tabs, sesión multi-día): TabFacturacion (780), TabLibroIVA (582), TabComprasFiscal (1697), TabCompras (859), TabProveedores (866), FacturasElectronicasRecibidas (292). Orden sugerido: empezar por `FacturasElectronicasRecibidas` (más chico, validar patrones), luego `TabLibroIVA` → `TabFacturacion` → `TabCompras` → `TabProveedores` → `TabComprasFiscal` (el más grande, dejar al final)
 
 ## Decisiones tomadas en Fase 1
 
