@@ -34,7 +34,10 @@ export default {
         primary: {
           DEFAULT:    'hsl(var(--accent) / <alpha-value>)',
           hover:      'hsl(var(--accent-hover) / <alpha-value>)',
-          soft:       'hsl(var(--accent-soft) / <alpha-value>)',
+          // soft: alpha-tint del accent en lugar de --accent-soft (que en dark
+          // colapsaba a mismo H/L que --accent → "red on red" invisible).
+          // 0.15 alpha funciona en light (≈ pink) y dark (≈ red sutil sobre bg).
+          soft:       'hsl(var(--accent) / 0.15)',
           foreground: 'hsl(var(--accent-on) / <alpha-value>)',
         },
         secondary: {
