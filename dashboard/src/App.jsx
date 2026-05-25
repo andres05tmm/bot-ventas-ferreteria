@@ -2,36 +2,51 @@
  * App.jsx — entry point del dashboard.
  * Shell con sidebar + react-router. Cada tab vive en su propia ruta.
  */
-import React from 'react'
+import React, { Suspense, lazy } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate, useOutletContext } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import { ProtectedRoute } from './components/ProtectedRoute.jsx'
 import { Toaster } from './components/ui/sonner.jsx'
 import Login from './pages/Login.jsx'
 import AppShell from './components/AppShell.jsx'
 
-import TabHoy             from './tabs/TabHoy.jsx'
-import TabResumen         from './tabs/TabResumen.jsx'
-import TabTopProductos    from './tabs/TabTopProductos.jsx'
-import TabInventario      from './tabs/TabInventario.jsx'
-import TabHistorial       from './tabs/TabHistorial.jsx'
-import TabHistoricoVentas from './tabs/TabHistoricoVentas.jsx'
-import TabCaja            from './tabs/TabCaja.jsx'
-import TabGastos          from './tabs/TabGastos.jsx'
-import TabCompras         from './tabs/TabCompras.jsx'
-import TabComprasFiscal   from './tabs/TabComprasFiscal.jsx'
-import TabKardex          from './tabs/TabKardex.jsx'
-import TabResultados      from './tabs/TabResultados.jsx'
-import TabVentasRapidas   from './tabs/TabVentasRapidas.jsx'
-import TabProveedores     from './tabs/TabProveedores.jsx'
-import TabFacturacion     from './tabs/TabFacturacion.jsx'
-import TabLibroIVA        from './tabs/TabLibroIVA.jsx'
-import TabClientes        from './tabs/TabClientes.jsx'
-import FacturasElectronicasRecibidas from './tabs/FacturasElectronicasRecibidas.jsx'
+// Code-splitting por tab — cada ruta descarga su chunk on-demand.
+const TabHoy             = lazy(() => import('./tabs/TabHoy.jsx'))
+const TabResumen         = lazy(() => import('./tabs/TabResumen.jsx'))
+const TabTopProductos    = lazy(() => import('./tabs/TabTopProductos.jsx'))
+const TabInventario      = lazy(() => import('./tabs/TabInventario.jsx'))
+const TabHistorial       = lazy(() => import('./tabs/TabHistorial.jsx'))
+const TabHistoricoVentas = lazy(() => import('./tabs/TabHistoricoVentas.jsx'))
+const TabCaja            = lazy(() => import('./tabs/TabCaja.jsx'))
+const TabGastos          = lazy(() => import('./tabs/TabGastos.jsx'))
+const TabCompras         = lazy(() => import('./tabs/TabCompras.jsx'))
+const TabComprasFiscal   = lazy(() => import('./tabs/TabComprasFiscal.jsx'))
+const TabKardex          = lazy(() => import('./tabs/TabKardex.jsx'))
+const TabResultados      = lazy(() => import('./tabs/TabResultados.jsx'))
+const TabVentasRapidas   = lazy(() => import('./tabs/TabVentasRapidas.jsx'))
+const TabProveedores     = lazy(() => import('./tabs/TabProveedores.jsx'))
+const TabFacturacion     = lazy(() => import('./tabs/TabFacturacion.jsx'))
+const TabLibroIVA        = lazy(() => import('./tabs/TabLibroIVA.jsx'))
+const TabClientes        = lazy(() => import('./tabs/TabClientes.jsx'))
+const FacturasElectronicasRecibidas = lazy(() => import('./tabs/FacturasElectronicasRecibidas.jsx'))
+
+// Fallback durante la carga del chunk del tab.
+function TabFallback() {
+  return (
+    <div className="min-h-[50vh] grid place-items-center" role="status" aria-label="Cargando vista">
+      <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden="true" />
+    </div>
+  )
+}
 
 // ── Wrapper para pasar refreshKey del Outlet a cada tab ─────────────────────
 function R({ Component }) {
   const ctx = useOutletContext() || {}
-  return <Component refreshKey={ctx.refreshKey ?? 0} />
+  return (
+    <Suspense fallback={<TabFallback />}>
+      <Component refreshKey={ctx.refreshKey ?? 0} />
+    </Suspense>
+  )
 }
 
 // ── Error Boundary ─────────────────────────────────────────────────────────
