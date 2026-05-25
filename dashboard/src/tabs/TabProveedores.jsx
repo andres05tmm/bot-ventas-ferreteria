@@ -8,10 +8,9 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import {
   Banknote, Camera, CheckCircle2, ChevronDown, Circle, ClipboardList, Clock,
-  CreditCard, FileText, Image as ImageIcon, Landmark, Loader2, Paperclip,
+  CreditCard, FileText, Image as ImageIcon, Loader2, Paperclip,
   Plus, Upload, X,
 } from 'lucide-react'
-import FacturasElectronicasRecibidas from './FacturasElectronicasRecibidas'
 import { useFetch, cop, useIsMobile, API_BASE } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { Card } from '@/components/ui/card.jsx'
@@ -740,19 +739,17 @@ export default function TabProveedores({ refreshKey }) {
   const nParc       = data?.n_parciales  || 0
 
   return (
-    <div className={cn('mx-auto max-w-3xl', mobile ? 'px-2 py-3' : 'py-4')}>
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-2.5">
-        <div className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Landmark className="size-4 text-muted-foreground" />
-          Proveedores
-        </div>
+    <div className="space-y-4">
+      {/* Titulo lo provee HeaderBar global (lee de routes.jsx).
+          Aqui solo el CTA primario para la accion mas comun. */}
+      <div className="flex items-center justify-end">
         <Button size="sm" onClick={() => setModalFactura(true)}>
           <Plus className="size-3.5 mr-1.5" /> Nueva Factura
         </Button>
       </div>
 
       <div className={cn(
-        'grid gap-2.5 mb-5',
+        'grid gap-4',
         mobile ? 'grid-cols-2' : 'grid-cols-4',
       )}>
         <KpiCard label="Deuda total"  value={cop(totalDeuda)}  icon={CreditCard}   tone="primary" />
@@ -763,7 +760,7 @@ export default function TabProveedores({ refreshKey }) {
 
       <ResumenProveedores data={resumen} />
 
-      <div className="flex gap-1.5 mb-3.5 flex-wrap">
+      <div className="flex gap-1.5 flex-wrap">
         {[
           { k: 'pendientes', label: 'Pendientes', icon: Clock },
           { k: 'todas',      label: 'Todas',      icon: ClipboardList },
@@ -807,7 +804,7 @@ export default function TabProveedores({ refreshKey }) {
         ))
       )}
 
-      <div className="mt-4 px-3.5 py-2.5 rounded-md bg-primary-soft border border-primary/20 text-[11px] text-muted-foreground leading-relaxed">
+      <div className="px-3.5 py-2.5 rounded-md bg-primary-soft border border-primary/20 text-[11px] text-muted-foreground leading-relaxed">
         <strong className="text-foreground">Almacenamiento:</strong> Las fotos de facturas y comprobantes se guardan en Drive →{' '}
         <code className="text-primary">Facturas_Proveedores / Proveedor</code>{' '}
         · Los abonos se registran automáticamente en el histórico diario.
@@ -824,8 +821,6 @@ export default function TabProveedores({ refreshKey }) {
         onClose={() => setModalAbono(null)}
         onAbonado={() => reload()}
       />
-
-      <FacturasElectronicasRecibidas />
     </div>
   )
 }
