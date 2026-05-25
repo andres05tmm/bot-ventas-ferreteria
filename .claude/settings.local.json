@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node \"C:/Users/Dell/.claude/get-shit-done/bin/gsd-tools.cjs\" generate-claude-md)",
+      "Bash(node:*)",
+      "Bash(python:*)",
+      "Bash(python -c \":*)",
+      "Skill(gsd:execute-phase)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(pytest tests/ -x -q --tb=short)",
+      "Bash(npm run:*)",
+      "Bash(head -10 grep -rn \"StaticFiles\\\\|dashboard.*dist\\\\|dist.*dashboard\" /c/Users/Dell/Documents/GitHub/bot-ventas-ferreteria/*.py /c/Users/Dell/Documents/GitHub/bot-ventas-ferreteria/routers/*.py)",
+      "Bash(wc -l \"C:\\\\Users\\\\Dell\\\\Documents\\\\GitHub\\\\bot-ventas-ferreteria\\\\dashboard\\\\src\\\\tabs\"/*.jsx)",
+      "Bash(cmd /c \"python C:\\\\Users\\\\Dell\\\\.claude\\\\skills\\\\ui-ux-pro-max\\\\scripts\\\\search.py \"\"accounting analytics dashboard hardware store elegant\"\" --design-system -p \"\"FerreBot\"\" -f markdown\")",
+      "Bash(cmd /c \"py \\\\\"C:\\\\\\\\Users\\\\\\\\Dell\\\\\\\\.claude\\\\\\\\skills\\\\\\\\ui-ux-pro-max\\\\\\\\scripts\\\\\\\\search.py\\\\\" accounting --design-system 2>&1\")",
+      "Bash(PYTHONUTF8=1 python -m pytest tests/ -x -q --tb=short)",
+      "Bash(railway run:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:AEhLzbOurMUbRanRmSaPyMuokEwGdjcd@crossover.proxy.rlwy.net:21606/railway\" PYTHONIOENCODING=utf-8 python migrations/004_usuarios_auth.py)",
+      "Skill(gsd:quick)"
+    ]
+  }
+}

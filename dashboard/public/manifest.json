@@ -1,0 +1,27 @@
+{
+  "name": "Ferretería Punto Rojo",
+  "short_name": "Punto Rojo",
+  "description": "Dashboard de ventas y gestión — Ferretería Punto Rojo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#C8200E",
+  "theme_color": "#C8200E",
+  "orientation": "portrait",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "categories": ["business", "productivity"]
+}

@@ -1,8 +1,10 @@
 """
-Generacion de graficas de ventas con matplotlib.
+Generacion de graficas de ventas con matplotlib — fuente: PostgreSQL.
+Reemplaza la lectura de EXCEL_FILE por queries a `ventas` + `ventas_detalle`.
 """
 
 import asyncio
+import calendar
 from datetime import datetime
 
 import matplotlib
@@ -11,83 +13,80 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
 import config
-from excel import inicializar_excel, detectar_columnas
-from utils import obtener_nombre_hoja
-import openpyxl
+import db
 
 
-def _cargar_ws():
-    """Helper: carga y retorna (ws, cols, nombre_hoja) o None si no hay datos."""
-    inicializar_excel()
-    wb          = openpyxl.load_workbook(config.EXCEL_FILE, read_only=True)  # solo lectura
-    nombre_hoja = obtener_nombre_hoja()
-    if nombre_hoja not in wb.sheetnames:
-        return None, None, nombre_hoja
-    ws   = wb[nombre_hoja]
-    cols = detectar_columnas(ws)
-    return ws, cols, nombre_hoja
+# ── Helpers de periodo ────────────────────────────────────────────────────────
+
+def _periodo_label() -> str:
+    """Etiqueta legible del mes en curso para títulos de gráficas."""
+    ahora = datetime.now(config.COLOMBIA_TZ)
+    meses = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    ]
+    return f"{meses[ahora.month - 1]} {ahora.year}"
 
 
-def _col_total(cols: dict):
-    """
-    Busca la columna de totales de forma flexible:
-    acepta 'total' o 'subtotal' como encabezado.
-    """
-    for k, v in cols.items():
-        if k in ("total", "subtotal"):
-            return v
-    # Fallback: cualquier columna que contenga 'total'
-    for k, v in cols.items():
-        if "total" in k:
-            return v
-    return None
+def _rango_mes_actual() -> tuple[str, str]:
+    """Retorna (inicio, fin) del mes en curso como 'YYYY-MM-DD'."""
+    ahora     = datetime.now(config.COLOMBIA_TZ)
+    inicio    = ahora.replace(day=1).strftime("%Y-%m-%d")
+    ultimo    = calendar.monthrange(ahora.year, ahora.month)[1]
+    fin       = ahora.replace(day=ultimo).strftime("%Y-%m-%d")
+    return inicio, fin
 
+
+# ── Gráfica 1: ventas por día ─────────────────────────────────────────────────
 
 def generar_grafica_ventas_por_dia() -> str | None:
-    ws, cols, nombre_hoja = _cargar_ws()
-    if ws is None:
+    """
+    Barras: total vendido por día en el mes actual.
+    Fuente: tabla `ventas` (columnas fecha, total).
+    """
+    inicio, fin = _rango_mes_actual()
+    nombre_periodo = _periodo_label()
+
+    filas = db.query_all(
+        """
+        SELECT fecha::text AS fecha,
+               SUM(total)  AS total
+        FROM   ventas
+        WHERE  fecha BETWEEN %s AND %s
+        GROUP  BY fecha
+        ORDER  BY fecha
+        """,
+        (inicio, fin),
+    )
+    if not filas:
         return None
 
-    col_fecha = next((v for k, v in cols.items() if "fecha" in k), None)
-    col_total = _col_total(cols)
-    if not col_fecha or not col_total:
-        return None
-
-    ventas_por_dia: dict[str, float] = {}
-    for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
-        if not any(fila):
-            continue
-        fecha = fila[col_fecha - 1]
-        total = fila[col_total - 1]
-        if fecha and total:
-            try:
-                fecha_str = str(fecha)[:10]
-                ventas_por_dia[fecha_str] = ventas_por_dia.get(fecha_str, 0) + float(total)
-            except Exception:
-                pass
-
-    if not ventas_por_dia:
-        return None
-
+    ventas_por_dia: dict[str, float] = {
+        str(r["fecha"]): float(r["total"]) for r in filas
+    }
     fechas    = sorted(ventas_por_dia.keys())
     totales   = [ventas_por_dia[f] for f in fechas]
-    etiquetas = [f[-5:] for f in fechas]
+    etiquetas = [f[-5:] for f in fechas]          # MM-DD
 
     fig, ax = plt.subplots(figsize=(10, 5))
     bars = ax.bar(etiquetas, totales, color="#1A56DB", edgecolor="white", linewidth=0.5)
-    ax.set_title(f"Ventas por día — {nombre_hoja}", fontsize=14, fontweight="bold", pad=15)
+    ax.set_title(f"Ventas por día — {nombre_periodo}", fontsize=14, fontweight="bold", pad=15)
     ax.set_xlabel("Fecha", fontsize=11)
     ax.set_ylabel("Total ($)", fontsize=11)
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
     ax.grid(axis="y", linestyle="--", alpha=0.5)
     ax.set_facecolor("#F9FAFB")
     fig.patch.set_facecolor("#FFFFFF")
+
+    max_val = max(totales) if totales else 1
     for bar, valor in zip(bars, totales):
         ax.text(
             bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + max(totales) * 0.01,
-            f"${valor:,.0f}", ha="center", va="bottom", fontsize=8, color="#374151",
+            bar.get_height() + max_val * 0.01,
+            f"${valor:,.0f}",
+            ha="center", va="bottom", fontsize=8, color="#374151",
         )
+
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
 
@@ -97,55 +96,71 @@ def generar_grafica_ventas_por_dia() -> str | None:
     return ruta
 
 
+# ── Gráfica 2: productos más vendidos ────────────────────────────────────────
+
 def generar_grafica_productos() -> str | None:
-    ws, cols, nombre_hoja = _cargar_ws()
-    if ws is None:
+    """
+    Pie: top productos por monto vendido en el mes actual.
+    Fuente: `ventas_detalle` JOIN `ventas` (columnas producto_nombre, total, fecha).
+    """
+    inicio, fin = _rango_mes_actual()
+    nombre_periodo = _periodo_label()
+
+    filas = db.query_all(
+        """
+        SELECT vd.producto_nombre,
+               SUM(vd.total) AS total
+        FROM   ventas_detalle vd
+        JOIN   ventas v ON vd.venta_id = v.id
+        WHERE  v.fecha BETWEEN %s AND %s
+        GROUP  BY vd.producto_nombre
+        ORDER  BY total DESC
+        """,
+        (inicio, fin),
+    )
+    if not filas:
         return None
 
-    col_producto = next((v for k, v in cols.items() if "producto" in k), None)
-    col_total    = _col_total(cols)
-    if not col_producto or not col_total:
-        return None
-
-    ventas_por_producto: dict[str, float] = {}
-    for fila in ws.iter_rows(min_row=config.EXCEL_FILA_DATOS, values_only=True):
-        if not any(fila):
-            continue
-        producto = fila[col_producto - 1]
-        total    = fila[col_total - 1]
-        if producto and total:
-            try:
-                p = str(producto).strip()
-                ventas_por_producto[p] = ventas_por_producto.get(p, 0) + float(total)
-            except Exception:
-                pass
-
-    if not ventas_por_producto:
-        return None
-
-    sorted_items = sorted(ventas_por_producto.items(), key=lambda x: x[1], reverse=True)
-    top          = list(sorted_items[:7])
-    otros_total  = sum(v for _, v in sorted_items[7:])
+    items = [(str(r["producto_nombre"]).strip(), float(r["total"])) for r in filas]
+    top          = items[:7]
+    otros_total  = sum(v for _, v in items[7:])
     if otros_total > 0:
         top.append(("Otros", otros_total))
 
     etiquetas = [item[0] for item in top]
     valores   = [item[1] for item in top]
-    colores   = ["#1A56DB","#3B82F6","#60A5FA","#93C5FD","#BFDBFE","#DBEAFE","#EFF6FF","#CBD5E1"]
+    colores   = [
+        "#1A56DB", "#3B82F6", "#60A5FA", "#93C5FD",
+        "#BFDBFE", "#DBEAFE", "#EFF6FF", "#CBD5E1",
+    ]
 
     fig, ax = plt.subplots(figsize=(8, 6))
     wedges, _, autotexts = ax.pie(
-        valores, labels=None, autopct="%1.1f%%",
-        colors=colores[:len(valores)], startangle=90,
+        valores,
+        labels=None,
+        autopct="%1.1f%%",
+        colors=colores[: len(valores)],
+        startangle=90,
         wedgeprops={"edgecolor": "white", "linewidth": 1.5},
     )
     for at in autotexts:
         at.set_fontsize(9)
         at.set_color("white")
         at.set_fontweight("bold")
-    ax.legend(wedges, [f"{e} (${v:,.0f})" for e, v in zip(etiquetas, valores)],
-              loc="lower center", bbox_to_anchor=(0.5, -0.15), ncol=2, fontsize=8, frameon=False)
-    ax.set_title(f"Productos más vendidos — {nombre_hoja}", fontsize=13, fontweight="bold", pad=15)
+
+    ax.legend(
+        wedges,
+        [f"{e} (${v:,.0f})" for e, v in zip(etiquetas, valores)],
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.15),
+        ncol=2,
+        fontsize=8,
+        frameon=False,
+    )
+    ax.set_title(
+        f"Productos más vendidos — {nombre_periodo}",
+        fontsize=13, fontweight="bold", pad=15,
+    )
     plt.tight_layout()
 
     ruta = f"grafica_productos_{datetime.now(config.COLOMBIA_TZ).strftime('%Y%m%d_%H%M%S')}.png"
@@ -154,10 +169,12 @@ def generar_grafica_productos() -> str | None:
     return ruta
 
 
-# Wrappers async
+# ── Wrappers async ────────────────────────────────────────────────────────────
+
 async def generar_grafica_ventas_por_dia_async():
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, generar_grafica_ventas_por_dia)
+
 
 async def generar_grafica_productos_async():
     loop = asyncio.get_event_loop()

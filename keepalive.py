@@ -1,7 +1,7 @@
 """
 Keep-alive del prompt cache de Anthropic.
 
-Envía un ping a la API cada 4 minutos durante 8:00-11:00 (hora Colombia)
+Envía un ping a la API cada 4 minutos durante 7:00-17:00 (hora Colombia)
 para mantener el cache activo y reducir costos en las horas de mayor volumen.
 
 Control manual via Telegram:
@@ -20,14 +20,15 @@ import asyncio
 import logging
 from datetime import datetime, time
 
+import anthropic
 import config
 from memoria import cargar_memoria, guardar_memoria
 
 logger = logging.getLogger("ferrebot.keepalive")
 
-# Horario automático: 8:00 - 11:00 hora Colombia
-HORA_INICIO   = time(8, 0)
-HORA_FIN      = time(11, 0)
+# Horario automático: 7:00 - 17:00 hora Colombia
+HORA_INICIO   = time(7, 0)
+HORA_FIN      = time(17, 0)
 
 # Hora de cierre por día (apagado automático del modo manual)
 HORA_CIERRE_SEMANA  = time(17, 0)   # L-S: 5:00pm
@@ -54,7 +55,7 @@ def set_keepalive(activo: bool):
 
 
 def _en_horario_keepalive() -> bool:
-    """Retorna True si estamos en el horario automático (8:00-11:00 Colombia)."""
+    """Retorna True si estamos en el horario automático (7:00-17:00 Colombia)."""
     ahora = datetime.now(config.COLOMBIA_TZ).time()
     return HORA_INICIO <= ahora <= HORA_FIN
 
@@ -118,8 +119,17 @@ async def _ping_cache():
 
     except asyncio.TimeoutError:
         logger.warning("[KEEPALIVE] ⏱ Timeout en ping")
+    except anthropic.OverloadedError:
+        # 529 overloaded_error: transitorio, no reportar como error a Sentry
+        logger.warning(
+            f"[KEEPALIVE] ⚠️ API sobrecargada (transitorio) — "
+            f"se reintentará en {INTERVALO_SEG // 60} min"
+        )
+    except anthropic.APIStatusError as e:
+        # Otros errores HTTP del SDK de Anthropic (401, 500, etc.)
+        logger.error(f"[KEEPALIVE] Error API ({e.status_code}): {e.message}")
     except Exception as e:
-        logger.error(f"[KEEPALIVE] Error: {e}")
+        logger.error(f"[KEEPALIVE] Error inesperado: {e}")
 
 
 async def loop_keepalive():
@@ -131,7 +141,7 @@ async def loop_keepalive():
     - Modo manual (/keepalive on): pinguea fuera del horario automático,
       pero se apaga solo a las 5pm (L-S) o 1pm (D)
     """
-    logger.info("[KEEPALIVE] Iniciado. Horario automático: 08:00-11:00 Colombia.")
+    logger.info("[KEEPALIVE] Iniciado. Horario automático: 07:00-17:00 Colombia.")
     while True:
         await asyncio.sleep(INTERVALO_SEG)
 
