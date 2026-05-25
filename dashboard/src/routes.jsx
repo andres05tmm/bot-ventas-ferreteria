@@ -6,7 +6,7 @@
 import {
   LayoutDashboard, ShoppingCart, Wallet, Package,
   Users, Truck, Building2, Receipt,
-  BarChart3, History, TrendingUp, BookOpen,
+  History, TrendingUp, BookOpen,
   FileText, FileCheck, Calculator, FileCog,
 } from 'lucide-react'
 
@@ -26,7 +26,6 @@ export const ROUTES = [
   { path: '/gastos',              label: 'Gastos',              icon: Receipt,         group: 'gestion' },
 
   // Reportes
-  { path: '/resumen',             label: 'Resumen',             icon: BarChart3,       group: 'reportes' },
   { path: '/historial',           label: 'Historial',           icon: History,         group: 'reportes' },
   { path: '/resultados',          label: 'Resultados',          icon: TrendingUp,      group: 'reportes' },
   { path: '/kardex',              label: 'Kárdex',              icon: BookOpen,        group: 'reportes' },

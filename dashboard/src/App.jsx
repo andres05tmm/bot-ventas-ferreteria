@@ -12,7 +12,6 @@ import AppShell from './components/AppShell.jsx'
 
 // Code-splitting por tab — cada ruta descarga su chunk on-demand.
 const TabHoy             = lazy(() => import('./tabs/TabHoy.jsx'))
-const TabResumen         = lazy(() => import('./tabs/TabResumen.jsx'))
 const TabTopProductos    = lazy(() => import('./tabs/TabTopProductos.jsx'))
 const TabInventario      = lazy(() => import('./tabs/TabInventario.jsx'))
 const TabHistorial       = lazy(() => import('./tabs/TabHistorial.jsx'))
@@ -100,7 +99,8 @@ export default function App() {
             <Route path="/compras"             element={<R Component={TabCompras} />} />
             <Route path="/proveedores"         element={<R Component={TabProveedores} />} />
             <Route path="/gastos"              element={<R Component={TabGastos} />} />
-            <Route path="/resumen"             element={<R Component={TabResumen} />} />
+            {/* /resumen fue absorbido por /hoy en Fase C — mantenemos redirect para links guardados */}
+            <Route path="/resumen"             element={<Navigate to="/hoy" replace />} />
             <Route path="/historial"           element={<R Component={TabHistorial} />} />
             <Route path="/historico"           element={<R Component={TabHistoricoVentas} />} />
             <Route path="/resultados"          element={<R Component={TabResultados} />} />

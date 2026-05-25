@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 const GROUP_ICONS = {
   operacion: ROUTES.find(r => r.path === '/ventas')?.icon,
   gestion:   ROUTES.find(r => r.path === '/clientes')?.icon,
-  reportes:  ROUTES.find(r => r.path === '/resumen')?.icon,
+  reportes:  ROUTES.find(r => r.path === '/historial')?.icon,
   fiscal:    ROUTES.find(r => r.path === '/facturacion')?.icon,
 }
 
