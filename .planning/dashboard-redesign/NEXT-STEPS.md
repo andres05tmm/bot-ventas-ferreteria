@@ -1,6 +1,6 @@
 # Próximos pasos — Dashboard Redesign
 
-**Última actualización**: 2026-05-24 — **Fase 5 COMPLETADA** (componentes especiales) · Wave 4 COMPLETADA (6/6 tabs Fiscal)
+**Última actualización**: 2026-05-25 — **Limpieza legacy COMPLETADA** · modales internos de TabVentasRapidas tokenizados · shared.jsx adelgazado (651 → 142 LOC)
 
 ## Estado actual
 
@@ -86,20 +86,30 @@
   - **ChatWidget.jsx** auditado: 1342 LOC pero **no consume `useTheme`** (scoped CSS `.fw-*` con colores brand hardcoded). Refinement visual queda para una segunda pasada — no bloquea limpieza de `shared.jsx`.
   - Build: **10.17 KB css gz · 507.66 KB js gz** (-43 KB js gz vs Wave 4 por mejor tree-shake al eliminar useTheme en más archivos)
 
-## ⏸️ Pendiente
+✅ **Modales internos de TabVentasRapidas COMPLETADOS** (2026-05-25, commit `d24443a`):
+  - 6 modales tokenizados sin `useTheme()` ni inline styles: `ModalFraccion`, `ModalCm`, `ModalMlt`, `ModalGrm`, `ModalKg`, `ModalQty`
+  - Paleta hardcoded (`'#f8fafc'` / `'#111'` / `t.accent` / `t.border` / `t.green` / `t.blue`) reemplazada por clases Tailwind: `bg-muted`, `bg-card`, `bg-primary-soft`, `border-primary/40`, `text-foreground`, `text-muted-foreground`, `text-success`
+  - Indicador mayorista (antes `t.blue`) ahora tonos `success` con `bg-success/10` + `border-success/40`
+  - `TabVentasRapidas.jsx` queda 100% libre de `useTheme` — eliminado del import
+  - Build verde: 10.21 KB css gz · 506.99 KB js gz
 
-**Tabs aún no migrados**
-- `TabVentasRapidas.jsx` modales internos (Fraccion / Cm / Mlt / Grm / Kg / Qty) — declarados explícitamente "fuera de scope" en Wave 3.b. Sub-shell ya en Dialog; falta tokenizar el contenido interno.
+✅ **Limpieza shared.jsx COMPLETADA** (2026-05-25, commit `749e973`):
+  - Auditoría confirmó cero consumers externos para: `useCountUp`, `useTheme`, `Card`, `GlassCard`, `KpiCard`, `SectionTitle`, `EmptyState`, `Badge`, `PeriodBtn`, `StyledInput`, `Th`. `THEMES`/`ThemeContext` solo lo usaba `AppShell.jsx`.
+  - **Eliminados de `shared.jsx`**: los 4 temas legacy (caramelo/forja/brasa/ferrari), `ThemeContext`, `useTheme` y los 10 componentes inline-styles muertos
+  - **`AppShell.jsx`**: dejó de envolver el árbol con `ThemeContext.Provider`. Dashboard depende exclusivamente de tokens semantic en CSS vars (light/dark vía `data-theme`)
+  - **`shared.jsx` final** (651 → 142 LOC): solo helpers de datos — `cop`, `num`, `API_BASE`, `useFetch`, `useIsMobile` + componentes tokenizados transversales `Spinner`/`ErrorMsg`
+  - Build verde: 10.18 KB css gz · **506.16 KB js gz** (-0.83 KB)
+
+## ⏸️ Pendiente
 
 **Fase 6 — Polish y audit (2 días)**
 - `impeccable audit` 6 pilares (visual hierarchy, IA, accesibilidad, performance, responsive, motion)
 - WCAG AA · Lighthouse > 90
 - QA visual final tab por tab en light + dark
 
-**Limpieza shared.jsx (post-Fase 5)**
-- Auditar qué legacy consumers quedan de `THEMES`, `ThemeContext`, `useTheme`, `Card`, `KpiCard`, `GlassCard`, `Btn`, `PeriodBtn`, `StyledInput`, `Th`, `SectionTitle`, `Badge` — quedan refs en `TabVentasRapidas` y `shared.jsx` mismo.
-- Eliminar los 4 temas legacy (`caramelo` / `forja` / `brasa` / `ferrari`) cuando ya no haya consumers
-- Adelgazar `shared.jsx` a solo helpers de datos (`cop`, `num`, `API_BASE`, `useFetch`, `useIsMobile`, `useCountUp`)
+**ChatWidget visual refinement (post-Fase 5)**
+- 1342 LOC, no usa `useTheme` pero scoped CSS `.fw-*` con colores brand hardcoded
+- Revisar coherencia con tokens semantic — no bloqueante, queda fuera del scope de la limpieza
 
 **Fase 7 — opcional**: Walkthrough video con Remotion
 
