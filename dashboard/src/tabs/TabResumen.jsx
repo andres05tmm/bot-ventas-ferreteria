@@ -1,16 +1,30 @@
+/*
+ * TabResumen — KPIs históricos (degradado de landing a sub-tab en Fase 4).
+ * Wave 1.b: migrado a primitives shadcn + tokens semantic.
+ * Lógica de datos sin cambios (endpoints /ventas/resumen /ventas/hoy /ventas/top /inventario/bajo).
+ */
 import { useState, useEffect } from 'react'
-import { motion, useReducedMotion } from 'framer-motion'
 import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
-  useTheme, useFetch, Card, GlassCard, SectionTitle, Spinner, ErrorMsg,
-  PeriodBtn, EmptyState, cop, num, API_BASE,
-  useIsMobile, useCountUp,
+  useFetch, cop, num, API_BASE, useIsMobile,
 } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
+import { Card } from '@/components/ui/card.jsx'
+import { Button } from '@/components/ui/button.jsx'
+import {
+  Wallet, Receipt, AlertTriangle, Calculator, CalendarRange, CalendarDays,
+  TrendingUp, TrendingDown, Loader2,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+const KPI_ICONS = { Wallet, Receipt, AlertTriangle, Calculator, CalendarRange, CalendarDays }
+
+const METODO_COLORS = ['hsl(var(--accent))','hsl(var(--success))','#0284C7','#EA580C','#7c3aed','#71717A']
+const MEDALLAS      = ['🥇','🥈','🥉']
 
 function fmtFecha(s) {
   if (!s) return ''
@@ -46,211 +60,104 @@ function agruparVendedores(ventas) {
     .sort((a, b) => b.total - a.total)
 }
 
-const METODO_COLORS = ['#dc2626','#2563eb','#16a34a','#d97706','#7c3aed','#6b7280']
-const METODO_ICONS  = { Efectivo:'💵', Nequi:'📲', Billetera:'👛', Transferencia:'🏦', Tarjeta:'💳', 'Sin registrar':'❓', Otro:'💸' }
-const TOP_COLORS    = ['#dc2626','#ef4444','#f97316','#fb923c','#fbbf24']
-const MEDALLAS      = ['🥇','🥈','🥉']
-
-// ── KPI hover: glow borde agresivo + número que crece ────────────────────────
-function KpiBig({ label, value, sub, color, icon, pill }) {
-  const t          = useTheme()
-  const c          = color || t.accent
-  const isCaramelo = t.id === 'caramelo'
-
-  // Count-up: parse numeric from formatted string or raw number
-  const rawNum = (() => {
-    if (typeof value === 'number') return value
-    if (typeof value !== 'string') return null
-    const cleaned = value.replace(/\$/g, '').replace(/\./g, '').replace(/,.*$/, '').trim()
-    const n = parseInt(cleaned, 10)
-    return isNaN(n) ? null : n
-  })()
-  const animated   = useCountUp(rawNum ?? 0, 800)
-  const displayVal = rawNum !== null
-    ? (typeof value === 'string' && value.startsWith('$')
-        ? '$' + Math.round(animated).toLocaleString('es-CO')
-        : Math.round(animated).toLocaleString('es-CO'))
-    : value
-
-  return (
-    <motion.div
-      whileHover={{ scale: 1.02 }}
-      style={{
-        background: isCaramelo ? 'rgba(255,255,255,0.72)' : t.card,
-        backdropFilter:       isCaramelo ? 'blur(12px)' : undefined,
-        WebkitBackdropFilter: isCaramelo ? 'blur(12px)' : undefined,
-        border: isCaramelo
-          ? `0.5px solid rgba(200,32,14,0.14)`
-          : `1px solid ${t.border}`,
-        borderRadius: 16,
-        padding: '18px 20px',
-        flex: 1, minWidth: 150,
-        cursor: 'default',
-        transition: 'border-color .2s ease, box-shadow .2s ease',
-        boxShadow: isCaramelo
-          ? '0 2px 12px rgba(0,0,0,0.07), 0 0 0 0.5px rgba(200,32,14,0.08)'
-          : t.shadowCard,
-      }}
-    >
-      {/* Header: label + ícono */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase' }}>
-          {label}
-        </span>
-        <span style={{ fontSize: 18, opacity: .55, display: 'inline-block' }}>{icon}</span>
-      </div>
-
-      {/* Valor con count-up */}
-      <div style={{
-        fontSize: 24,
-        fontWeight: 700,
-        color: t.text,
-        letterSpacing: '-0.03em', lineHeight: 1,
-        fontVariantNumeric: 'tabular-nums',
-        marginBottom: 10,
-      }}>
-        {displayVal}
-      </div>
-
-      {/* Sub */}
-      {sub && <div style={{ fontSize: 11, color: t.textMuted }}>{sub}</div>}
-
-      {/* Pill */}
-      {pill && (
-        <div style={{
-          display: 'inline-block', marginTop: 8,
-          fontSize: 10, padding: '3px 9px', borderRadius: 99,
-          background: c + '1a', color: c,
-          border: `1px solid ${c}44`,
-          fontWeight: 600,
-        }}>
-          {pill}
-        </div>
-      )}
-    </motion.div>
-  )
-}
-
-function MetodoCard({ m, total, color, t }) {
-  const pct = total > 0 ? Math.round((m.value / total) * 100) : 0
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '10px 0',
-      borderBottom: `1px solid ${t.border}`,
-    }}>
-      <div style={{
-        width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-        background: color + '22',
-        border: `1px solid ${color}44`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 16,
-      }}>
-        {METODO_ICONS[m.name] || '💸'}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 12, color: t.text, fontWeight: 500 }}>{m.name}</span>
-          <span style={{ fontSize: 12, color: t.text, fontWeight: 700 }}>{cop(m.value)}</span>
-        </div>
-        <div style={{ height: 4, background: t.border, borderRadius: 2, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2, transition: 'width .5s' }} />
-        </div>
-      </div>
-      <span style={{ fontSize: 10, color: t.textMuted, minWidth: 28, textAlign: 'right' }}>{pct}%</span>
-    </div>
-  )
-}
-
-function VendedorRow({ v, i, maxTotal, t }) {
-  const pct = maxTotal > 0 ? Math.round((v.total / maxTotal) * 100) : 0
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: `1px solid ${t.border}` }}>
-      <span style={{ fontSize: 18, minWidth: 24, textAlign: 'center' }}>
-        {i < 3 ? MEDALLAS[i] : <span style={{ fontSize: 11, color: t.textMuted }}>#{i+1}</span>}
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 12, color: t.text, fontWeight: 500 }}>{v.nombre}</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: i === 0 ? t.accent : t.text }}>{cop(v.total)}</span>
-        </div>
-        <div style={{ height: 4, background: t.border, borderRadius: 2, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${pct}%`, background: i === 0 ? t.accent : t.textMuted, borderRadius: 2 }} />
-        </div>
-      </div>
-      <span style={{ fontSize: 10, color: t.textMuted, minWidth: 28, textAlign: 'right' }}>{pct}%</span>
-    </div>
-  )
-}
-
-// Formatea cantidad + unidad de forma inteligente:
-// gramos → muestra en kg si ≥1000, si no en g
-// resto   → muestra con la etiqueta correcta (galón, mts, kg, uds…)
 function formatCantidadTop(unidades, unidad_medida) {
   const u = (unidad_medida || 'Unidad').toLowerCase().replace('ó', 'o')
-  const esGramos = u === 'gramos' || u === 'grm' || u === 'g'
-  const esKg     = u === 'kg'
-  const esMts    = u === 'mts' || u === 'cms'
-  const esGalon  = u === 'galón' || u === 'galon' || u === 'lt' || u === 'lts'
-
-  if (esGramos) {
+  if (u === 'gramos' || u === 'grm' || u === 'g') {
     if (unidades >= 1000) return `${(unidades / 1000).toFixed(1).replace(/\.0$/, '')} kg`
     return `${num(unidades)} g`
   }
-  if (esKg)    return `${num(unidades)} kg`
-  if (esMts)   return `${num(unidades)} ${u}`
-  if (esGalon) return `${num(unidades)} gal`
+  if (u === 'kg')                                return `${num(unidades)} kg`
+  if (u === 'mts' || u === 'cms')                return `${num(unidades)} ${u}`
+  if (u === 'galon' || u === 'lt' || u === 'lts') return `${num(unidades)} gal`
   return `${num(unidades)} uds`
 }
 
-function TopRow({ p, i, max, t }) {
-  const pct = max > 0 ? Math.round((p.ingresos / max) * 100) : 0
-  const color = TOP_COLORS[i] || t.textMuted
-  const cantLabel = formatCantidadTop(p.unidades, p.unidad_medida)
+// ────────────────────────────────────────────────────────────────────────────
+
+function KpiCard({ label, value, sub, pill, pillTone = 'neutral', icon }) {
+  const Icon = KPI_ICONS[icon]
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: `1px solid ${t.border}` }}>
-      <div style={{
-        width: 24, height: 24, borderRadius: 6, background: color + '22',
-        border: `1px solid ${color}44`, display: 'flex', alignItems: 'center',
-        justifyContent: 'center', fontSize: 10, fontWeight: 800, color, flexShrink: 0,
-      }}>
-        {i + 1}
+    <Card className="p-4">
+      <div className="flex items-start justify-between mb-3">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+        {Icon && <Icon className="size-4 text-muted-foreground" />}
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 11, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }}>
-            {p.producto}
-          </span>
-          <span style={{ fontSize: 11, color, fontWeight: 700 }}>{cop(p.ingresos)}</span>
-        </div>
-        <div style={{ height: 3, background: t.border, borderRadius: 2, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2 }} />
-        </div>
+      <div className="text-xl font-semibold tracking-tight tabular leading-none">{value}</div>
+      {sub && <p className="mt-2 text-xs text-muted-foreground">{sub}</p>}
+      {pill && (
+        <span className={cn(
+          'inline-block mt-2 text-[10px] px-2 py-0.5 rounded-full font-medium',
+          pillTone === 'success' && 'bg-success/10 text-success border border-success/30',
+          pillTone === 'warning' && 'bg-warning/10 text-warning border border-warning/30',
+          pillTone === 'accent'  && 'bg-primary-soft text-primary border border-primary/30',
+          pillTone === 'neutral' && 'bg-surface-2 text-muted-foreground border border-border',
+        )}>
+          {pill}
+        </span>
+      )}
+    </Card>
+  )
+}
+
+function MetodoRow({ m, total, color }) {
+  const pct = total > 0 ? Math.round((m.value / total) * 100) : 0
+  return (
+    <div className="flex items-center gap-3 py-2 text-sm border-b border-border-subtle last:border-0">
+      <span className="flex-1 truncate text-foreground">{m.name}</span>
+      <div className="w-24 h-1.5 bg-surface-2 rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-base" style={{ width: `${pct}%`, background: color }} />
       </div>
-      <span style={{ fontSize: 10, color: t.textMuted, minWidth: 40, textAlign: 'right' }}>
-        {cantLabel}
-      </span>
+      <span className="w-10 text-right text-xs text-muted-foreground tabular">{pct}%</span>
+      <span className="w-24 text-right tabular font-medium">{cop(m.value)}</span>
     </div>
   )
 }
 
-const kpiVariants = {
-  hidden:  { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
+function VendedorRow({ v, i, maxTotal }) {
+  const pct = maxTotal > 0 ? Math.round((v.total / maxTotal) * 100) : 0
+  return (
+    <div className="flex items-center gap-3 py-2 text-sm border-b border-border-subtle last:border-0">
+      <span className="w-7 text-center">
+        {i < 3 ? <span className="text-base">{MEDALLAS[i]}</span> : <span className="text-xs text-muted-foreground">#{i+1}</span>}
+      </span>
+      <span className="flex-1 truncate">{v.nombre}</span>
+      <div className="w-24 h-1.5 bg-surface-2 rounded-full overflow-hidden">
+        <div className={cn('h-full rounded-full transition-all duration-base', i === 0 ? 'bg-primary' : 'bg-muted-foreground/60')} style={{ width: `${pct}%` }} />
+      </div>
+      <span className={cn('w-24 text-right tabular font-medium', i === 0 && 'text-primary')}>{cop(v.total)}</span>
+    </div>
+  )
 }
 
+function TopProductoRow({ p, i, max }) {
+  const pct = max > 0 ? Math.round((p.ingresos / max) * 100) : 0
+  return (
+    <div className="flex items-center gap-3 py-2 text-sm border-b border-border-subtle last:border-0">
+      <span className="size-6 rounded-md bg-primary-soft text-primary text-xs font-bold grid place-items-center shrink-0">
+        {i + 1}
+      </span>
+      <span className="flex-1 truncate">{p.producto}</span>
+      <span className="w-24 text-right text-xs text-muted-foreground tabular">{formatCantidadTop(p.unidades, p.unidad_medida)}</span>
+      <div className="w-20 h-1.5 bg-surface-2 rounded-full overflow-hidden hidden md:block">
+        <div className="h-full bg-primary/70 rounded-full" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-24 text-right tabular font-medium">{cop(p.ingresos)}</span>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
 export default function TabResumen({ refreshKey }) {
-  const t = useTheme()
   const isMobile = useIsMobile()
-  const prefersReducedMotion = useReducedMotion()
   const [periodo, setPeriodo] = useState('semana')
   const { authFetch } = useAuth()
   const { selectedVendor } = useVendorFilter()
-
   const vendorParam = selectedVendor ? `?vendor_id=${selectedVendor}` : ''
+
   const { data: resumen, loading: lRes, error: eRes } = useFetch(`/ventas/resumen${vendorParam}`, [refreshKey, selectedVendor])
   const { data: alertasData } = useFetch('/inventario/bajo', [refreshKey])
-  const { data: ventasHoy }   = useFetch(`/ventas/hoy${vendorParam}`,     [refreshKey, selectedVendor])
+  const { data: ventasHoy }   = useFetch(`/ventas/hoy${vendorParam}`, [refreshKey, selectedVendor])
 
   const [top5, setTop5] = useState(null)
   useEffect(() => {
@@ -263,8 +170,20 @@ export default function TabResumen({ refreshKey }) {
     return () => { cancelled = true }
   }, [refreshKey, selectedVendor]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (lRes) return <Spinner />
-  if (eRes) return <ErrorMsg msg={`Error cargando resumen: ${eRes}`} />
+  if (lRes) {
+    return (
+      <div className="flex items-center justify-center py-16 text-muted-foreground">
+        <Loader2 className="size-5 animate-spin mr-2" /> Cargando resumen…
+      </div>
+    )
+  }
+  if (eRes) {
+    return (
+      <Card className="p-4 border-destructive/40 bg-destructive/5 text-destructive text-sm">
+        Error cargando resumen: {eRes}
+      </Card>
+    )
+  }
 
   const r          = resumen || {}
   const rawHist    = periodo === 'semana' ? (r.historico_7d || []) : (r.historico_mes || [])
@@ -272,8 +191,9 @@ export default function TabResumen({ refreshKey }) {
   const totalChart = chartData.reduce((a, d) => a + d.ventas, 0)
   const maxTop5Ing = top5?.[0]?.ingresos || 1
 
-  const metodosData    = agruparMetodos(ventasHoy?.ventas)
-  const vendedoresData = agruparVendedores(ventasHoy?.ventas)
+  const ventasHoyArr   = Array.isArray(ventasHoy?.ventas) ? ventasHoy.ventas : []
+  const metodosData    = agruparMetodos(ventasHoyArr)
+  const vendedoresData = agruparVendedores(ventasHoyArr)
   const totalMetodos   = metodosData.reduce((a, m) => a + m.value, 0)
   const maxVendedor    = vendedoresData[0]?.total || 1
 
@@ -283,196 +203,168 @@ export default function TabResumen({ refreshKey }) {
   const tendencia = promAntes > 0
     ? Math.round(((r.total_hoy - promAntes) / promAntes) * 100)
     : null
+  const stockAlertas = alertasData?.total ?? 0
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
+    <div className="space-y-5">
       {/* KPIs */}
-      <motion.div
-        style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}
-        initial={prefersReducedMotion ? false : 'hidden'}
-        animate="visible"
-        variants={{ visible: { transition: { staggerChildren: 0.08 } } }}
-      >
-        <motion.div variants={kpiVariants}><KpiBig
+      <div className={cn('grid gap-3', isMobile ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-6')}>
+        <KpiCard
           label="Ventas hoy"
           value={cop(r.total_hoy)}
           sub="Acumulado del día"
-          pill={tendencia != null
-            ? (tendencia >= 0 ? `▲ ${tendencia}% vs promedio` : `▼ ${Math.abs(tendencia)}% vs promedio`)
-            : 'Sin comparativa aún'}
-          icon="💰"
-          color={t.green}
-        /></motion.div>
-        <motion.div variants={kpiVariants}><KpiBig
-          label="Pedidos hoy"
-          value={r.pedidos_hoy ?? 0}
-          sub="Transacciones"
-          pill={r.pedidos_hoy > 0 ? `Ticket prom: ${cop(r.ticket_prom)}` : 'Sin ventas aún'}
-          icon="🧾"
-          color={t.accent}
-        /></motion.div>
-        <motion.div variants={kpiVariants}><KpiBig
-          label="Stock con alerta"
-          value={alertasData?.total ?? '—'}
-          sub={alertasData?.total > 0 ? 'Sin precio o agotados' : 'Sin alertas'}
-          pill={alertasData?.total > 0 ? 'Ver en Inventario' : 'Todo en orden'}
-          icon="⚠️"
-          color={alertasData?.total > 0 ? t.yellow : t.green}
-        /></motion.div>
-        <motion.div variants={kpiVariants}><KpiBig
-          label="Ticket promedio"
-          value={cop(r.ticket_prom)}
-          sub="Últimos 7 días"
-          pill="Promedio por venta"
-          icon="🧮"
-          color={t.textSub}
-        /></motion.div>
-        <motion.div variants={kpiVariants}><KpiBig
-          label="Total semana"
-          value={cop(r.total_semana)}
-          sub="Últimos 7 días"
-          pill="Ver gráfica abajo"
-          icon="📅"
-          color={t.blue}
-        /></motion.div>
-        <motion.div variants={kpiVariants}><KpiBig
-          label="Total mes"
-          value={cop(r.total_mes)}
-          sub="Mes en curso"
-          pill="Acumulado mensual"
-          icon="🗓️"
-          color={t.textSub}
-        /></motion.div>
-      </motion.div>
+          icon="Wallet"
+          pill={tendencia != null ? (tendencia >= 0 ? `▲ ${tendencia}% vs prom.` : `▼ ${Math.abs(tendencia)}% vs prom.`) : 'Sin comparativa'}
+          pillTone={tendencia != null ? (tendencia >= 0 ? 'success' : 'warning') : 'neutral'}
+        />
+        <KpiCard label="Pedidos hoy" value={r.pedidos_hoy ?? 0} sub="Transacciones" icon="Receipt"
+          pill={r.pedidos_hoy > 0 ? `Ticket prom: ${cop(r.ticket_prom)}` : 'Sin ventas aún'} pillTone="accent" />
+        <KpiCard label="Stock con alerta" value={stockAlertas || '—'}
+          sub={stockAlertas > 0 ? 'Sin precio o agotados' : 'Sin alertas'}
+          icon="AlertTriangle"
+          pill={stockAlertas > 0 ? 'Ver inventario' : 'Todo en orden'}
+          pillTone={stockAlertas > 0 ? 'warning' : 'success'} />
+        <KpiCard label="Ticket promedio" value={cop(r.ticket_prom)} sub="Últimos 7 días" icon="Calculator" />
+        <KpiCard label="Total semana" value={cop(r.total_semana)} sub="Últimos 7 días" icon="CalendarRange" />
+        <KpiCard label="Total mes"    value={cop(r.total_mes)}    sub="Mes en curso"   icon="CalendarDays" />
+      </div>
 
       {/* Gráfica */}
-      <GlassCard>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <Card className="p-5">
+        <div className="flex items-end justify-between mb-4">
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
-              Evolución de Ventas
-            </div>
-            <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
-              Total del período:{' '}
-              <span style={{ color: t.accent, fontWeight: 700, fontSize: 14 }}>{cop(totalChart)}</span>
-            </div>
+            <h2 className="text-sm font-semibold">Evolución de ventas</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Total del período <span className="text-primary font-semibold tabular">{cop(totalChart)}</span>
+            </p>
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <PeriodBtn active={periodo === 'semana'} onClick={() => setPeriodo('semana')}>7 días</PeriodBtn>
-            <PeriodBtn active={periodo === 'mes'}    onClick={() => setPeriodo('mes')}>Mes</PeriodBtn>
+          <div className="flex gap-1 bg-surface-2 p-1 rounded-md">
+            <PeriodToggle active={periodo === 'semana'} onClick={() => setPeriodo('semana')}>7 días</PeriodToggle>
+            <PeriodToggle active={periodo === 'mes'}    onClick={() => setPeriodo('mes')}>Mes</PeriodToggle>
           </div>
         </div>
-        {chartData.length === 0
-          ? <EmptyState msg="Sin datos para este período." />
-          : (
-            <ResponsiveContainer width="100%" height={isMobile ? 160 : 200}>
-              <AreaChart data={chartData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={t.accent} stopOpacity={.25} />
-                    <stop offset="95%" stopColor={t.accent} stopOpacity={0}   />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={t.border} vertical={false} />
-                <XAxis dataKey="dia" tick={{ fill: t.textMuted, fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis
-                  tick={{ fill: t.textMuted, fontSize: 9 }} axisLine={false} tickLine={false}
-                  tickFormatter={v => v >= 1e6 ? `${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `${(v/1e3).toFixed(0)}k` : v}
-                />
-                <Tooltip
-                  contentStyle={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 8, color: t.text, fontSize: 11 }}
-                  formatter={v => [cop(v), 'Ventas']}
-                  cursor={{ stroke: t.accent, strokeWidth: 1, strokeDasharray: '4 4' }}
-                />
-                <Area
-                  type="monotone" dataKey="ventas" stroke={t.accent} strokeWidth={2.5}
-                  fill="url(#gradArea)" dot={{ fill: t.accent, r: 3, strokeWidth: 0 }}
-                  activeDot={{ r: 5, fill: t.accent }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-      </GlassCard>
+        {chartData.length === 0 ? (
+          <p className="py-12 text-center text-sm text-muted-foreground">Sin datos para este período.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={isMobile ? 180 : 220}>
+            <AreaChart data={chartData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="hsl(var(--accent))" stopOpacity={.25} />
+                  <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0}   />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border-subtle))" vertical={false} />
+              <XAxis dataKey="dia" tick={{ fill: 'hsl(var(--text-muted))', fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis
+                tick={{ fill: 'hsl(var(--text-muted))', fontSize: 9 }} axisLine={false} tickLine={false}
+                tickFormatter={v => v >= 1e6 ? `${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `${(v/1e3).toFixed(0)}k` : v}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: 'hsl(var(--bg-surface))',
+                  border: '1px solid hsl(var(--border))',
+                  borderRadius: 8,
+                  color: 'hsl(var(--text-primary))',
+                  fontSize: 11,
+                }}
+                formatter={v => [cop(v), 'Ventas']}
+                cursor={{ stroke: 'hsl(var(--accent))', strokeWidth: 1, strokeDasharray: '4 4' }}
+              />
+              <Area type="monotone" dataKey="ventas" stroke="hsl(var(--accent))" strokeWidth={2}
+                fill="url(#gradArea)" dot={{ fill: 'hsl(var(--accent))', r: 2.5, strokeWidth: 0 }}
+                activeDot={{ r: 4, fill: 'hsl(var(--accent))' }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </Card>
 
       {/* Métodos + Top 5 */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
-        <GlassCard>
-          <SectionTitle>Métodos de Pago · Hoy</SectionTitle>
-          {!ventasHoy
-            ? <Spinner />
-            : metodosData.length === 0
-            ? <EmptyState msg="Sin ventas hoy." />
-            : (
-              <>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14 }}>
-                  <ResponsiveContainer width={90} height={90}>
-                    <PieChart>
-                      <Pie data={metodosData} dataKey="value" cx="50%" cy="50%" innerRadius={26} outerRadius={42} paddingAngle={2} startAngle={90} endAngle={-270}>
-                        {metodosData.map((_, i) => <Cell key={i} fill={METODO_COLORS[i % METODO_COLORS.length]} />)}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: t.text }}>{cop(totalMetodos)}</div>
-                    <div style={{ fontSize: 10, color: t.textMuted, marginTop: 2 }}>Total del día</div>
-                    <div style={{ fontSize: 11, color: t.textSub, marginTop: 4 }}>
-                      {metodosData.length} método{metodosData.length > 1 ? 's' : ''}
-                    </div>
+      <div className={cn('grid gap-4', isMobile ? 'grid-cols-1' : 'grid-cols-2')}>
+        <Card className="p-5">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">Métodos de pago · Hoy</h2>
+          {!ventasHoy ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Cargando…</p>
+          ) : metodosData.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Sin ventas hoy.</p>
+          ) : (
+            <>
+              <div className="flex items-center gap-4 mb-4">
+                <ResponsiveContainer width={88} height={88}>
+                  <PieChart>
+                    <Pie data={metodosData} dataKey="value" cx="50%" cy="50%" innerRadius={26} outerRadius={42} paddingAngle={2} startAngle={90} endAngle={-270}>
+                      {metodosData.map((_, i) => <Cell key={i} fill={METODO_COLORS[i % METODO_COLORS.length]} />)}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div>
+                  <div className="text-2xl font-semibold tracking-tight tabular">{cop(totalMetodos)}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {metodosData.length} método{metodosData.length > 1 ? 's' : ''}
                   </div>
                 </div>
+              </div>
+              <div>
                 {metodosData.map((m, i) => (
-                  <MetodoCard key={i} m={m} total={totalMetodos} color={METODO_COLORS[i % METODO_COLORS.length]} t={t} />
+                  <MetodoRow key={i} m={m} total={totalMetodos} color={METODO_COLORS[i % METODO_COLORS.length]} />
                 ))}
-              </>
-            )
-          }
-        </GlassCard>
+              </div>
+            </>
+          )}
+        </Card>
 
-        <GlassCard>
-          <SectionTitle>Top 5 Productos · Esta Semana</SectionTitle>
-          {!top5
-            ? <Spinner />
-            : top5.length === 0
-            ? <EmptyState msg="Sin ventas esta semana." />
-            : (
-              <>
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  marginBottom: 12, padding: '8px 12px',
-                  background: t.tableAlt, borderRadius: 8,
-                }}>
-                  <span style={{ fontSize: 11, color: t.textMuted }}>Ingresos top 5</span>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: t.accent }}>
-                    {cop(top5.reduce((a, p) => a + (p.ingresos || 0), 0))}
-                  </span>
-                </div>
-                {top5.map((p, i) => (
-                  <TopRow key={i} p={p} i={i} max={maxTop5Ing} t={t} />
-                ))}
-              </>
-            )
-          }
-        </GlassCard>
+        <Card className="p-5">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">Top 5 productos · Semana</h2>
+          {!top5 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Cargando…</p>
+          ) : top5.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Sin ventas esta semana.</p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-3 px-3 py-2 bg-surface-2 rounded-md">
+                <span className="text-xs text-muted-foreground">Ingresos top 5</span>
+                <span className="text-sm font-semibold text-primary tabular">
+                  {cop(top5.reduce((a, p) => a + (p.ingresos || 0), 0))}
+                </span>
+              </div>
+              <div>
+                {top5.map((p, i) => <TopProductoRow key={i} p={p} i={i} max={maxTop5Ing} />)}
+              </div>
+            </>
+          )}
+        </Card>
       </div>
 
       {/* Vendedores */}
       {vendedoresData.length > 0 && (
-        <GlassCard>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, paddingBottom: 10, borderBottom: `1px solid ${t.border}` }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Vendedores · Hoy</span>
-            <span style={{ fontSize: 11, color: t.textMuted }}>
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Vendedores · Hoy</h2>
+            <span className="text-xs text-muted-foreground">
               {vendedoresData.length} vendedor{vendedoresData.length > 1 ? 'es' : ''}
             </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {vendedoresData.map((v, i) => (
-              <VendedorRow key={i} v={v} i={i} maxTotal={maxVendedor} t={t} />
-            ))}
+          <div>
+            {vendedoresData.map((v, i) => <VendedorRow key={i} v={v} i={i} maxTotal={maxVendedor} />)}
           </div>
-        </GlassCard>
+        </Card>
       )}
-
     </div>
+  )
+}
+
+function PeriodToggle({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'px-3 py-1 text-xs rounded transition-colors',
+        active
+          ? 'bg-surface text-foreground shadow-xs font-medium'
+          : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {children}
+    </button>
   )
 }

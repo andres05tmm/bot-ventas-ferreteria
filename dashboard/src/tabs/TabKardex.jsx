@@ -1,223 +1,219 @@
+/*
+ * TabKardex — kárdex por producto, método promedio ponderado.
+ * Wave 2: migrado a primitives shadcn + tokens.
+ */
 import { useState } from 'react'
+import { useFetch, cop, num } from '../components/shared.jsx'
+import { Card } from '@/components/ui/card.jsx'
+import { Input } from '@/components/ui/input.jsx'
 import {
-  useTheme, useFetch, GlassCard, SectionTitle, KpiCard,
-  Spinner, ErrorMsg, StyledInput, EmptyState, cop, num,
-} from '../components/shared.jsx'
+  Search, Package, ChevronRight, ArrowUp, ArrowDown,
+  Loader2, FileText,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 
-function MovRow({ m, t }) {
-  const esEntrada = m.tipo === 'entrada'
+function MovRow({ m }) {
+  const entrada = m.tipo === 'entrada'
   return (
-    <tr style={{ borderBottom: `1px solid ${t.border}` }}
-      onMouseEnter={e => { e.currentTarget.style.background = t.cardHover; e.currentTarget.style.transform = 'translateX(2px)' }}
-      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.transform = 'translateX(0)' }}>
-      <td style={{ padding: '8px 12px', color: t.textMuted, fontSize: 11, whiteSpace: 'nowrap' }}>{m.fecha}</td>
-      <td style={{ padding: '8px 12px', color: t.textMuted, fontSize: 10 }}>{m.hora}</td>
-      <td style={{ padding: '8px 12px' }}>
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', gap: 5,
-          background: esEntrada ? (t.id === 'caramelo' ? '#f0fdf4' : '#052e1650') : (t.id === 'caramelo' ? '#fff7ed' : '#431a0850'),
-          color: esEntrada ? t.green : t.yellow,
-          border: `1px solid ${esEntrada ? t.green : t.yellow}33`,
-          padding: '2px 8px', borderRadius: 99, fontSize: 10, fontWeight: 600,
-        }}>
-          {esEntrada ? '▲ Entrada' : '▼ Salida'}
+    <tr className="border-b border-border-subtle hover:bg-surface-2/40">
+      <td className="px-3 py-2 text-muted-foreground text-xs whitespace-nowrap">{m.fecha}</td>
+      <td className="px-3 py-2 text-muted-foreground text-xs">{m.hora}</td>
+      <td className="px-3 py-2">
+        <span className={cn(
+          'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border',
+          entrada
+            ? 'bg-success/10 text-success border-success/30'
+            : 'bg-warning/10 text-warning border-warning/30',
+        )}>
+          {entrada ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
+          {entrada ? 'Entrada' : 'Salida'}
         </span>
       </td>
-      <td style={{ padding: '8px 12px', color: t.textSub, fontSize: 11 }}>{m.concepto}</td>
-      <td style={{ padding: '8px 12px', textAlign: 'right', color: esEntrada ? t.green : 'transparent', fontWeight: 600 }}>
-        {esEntrada ? `+${num(m.entrada)}` : ''}
+      <td className="px-3 py-2 text-secondary-foreground text-xs">{m.concepto}</td>
+      <td className={cn('px-3 py-2 text-right font-semibold tabular', entrada ? 'text-success' : 'text-transparent')}>
+        {entrada ? `+${num(m.entrada)}` : ''}
       </td>
-      <td style={{ padding: '8px 12px', textAlign: 'right', color: t.yellow, fontWeight: 600 }}>
-        {!esEntrada && m.salida > 0 ? `-${num(m.salida)}` : ''}
+      <td className="px-3 py-2 text-right font-semibold tabular text-warning">
+        {!entrada && m.salida > 0 ? `-${num(m.salida)}` : ''}
       </td>
-      <td style={{ padding: '8px 12px', textAlign: 'right', color: t.text, fontWeight: 600 }}>{num(m.saldo)}</td>
-      <td style={{ padding: '8px 12px', textAlign: 'right', color: t.textMuted, fontSize: 11 }}>{cop(m.costo_unitario)}</td>
-      <td style={{ padding: '8px 12px', textAlign: 'right', color: t.accent, fontWeight: 600 }}>{cop(m.costo_promedio)}</td>
-      <td style={{ padding: '8px 12px', textAlign: 'right', color: t.blue }}>{cop(m.valor_total)}</td>
+      <td className="px-3 py-2 text-right font-semibold tabular">{num(m.saldo)}</td>
+      <td className="px-3 py-2 text-right text-muted-foreground tabular">{cop(m.costo_unitario)}</td>
+      <td className="px-3 py-2 text-right text-primary font-semibold tabular">{cop(m.costo_promedio)}</td>
+      <td className="px-3 py-2 text-right text-foreground tabular">{cop(m.valor_total)}</td>
     </tr>
   )
 }
 
-function ProductoKardex({ item, t }) {
-  const [abierto, setAbierto] = useState(false)
+function ProductoKardex({ item }) {
+  const [open, setOpen] = useState(false)
   const movs = item.movimientos || []
-  const margen = item.costo_promedio && item.costo_promedio > 0 ? item : null
 
   return (
-    <div style={{
-      background: t.card, border: `1px solid ${t.border}`,
-      borderRadius: 10, overflow: 'hidden', marginBottom: 10,
-    }}>
-      {/* Header producto */}
-      <div
-        onClick={() => setAbierto(p => !p)}
-        style={{
-          padding: '12px 16px', display: 'flex', alignItems: 'center',
-          justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.background = t.cardHover; e.currentTarget.style.transform = 'translateX(2px)' }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.transform = 'translateX(0)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <span style={{ fontSize: 16 }}>📦</span>
-          <div>
-            <div style={{ fontWeight: 600, color: t.text }}>{item.producto}</div>
-            <div style={{ fontSize: 10, color: t.textMuted, marginTop: 2 }}>
+    <Card className="overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between gap-4 px-4 py-3 hover:bg-surface-2/50 transition-colors"
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <Package className="size-4 text-muted-foreground shrink-0" />
+          <div className="text-left min-w-0">
+            <div className="font-semibold text-sm truncate">{item.producto}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">
               {movs.length} movimiento{movs.length !== 1 ? 's' : ''}
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: t.textMuted }}>Entradas</div>
-            <div style={{ color: t.green, fontWeight: 600 }}>{num(item.total_entradas)}</div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: t.textMuted }}>Stock actual</div>
-            <div style={{ color: item.stock_actual > 0 ? t.text : '#f87171', fontWeight: 600 }}>
-              {num(item.stock_actual)}
-            </div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: t.textMuted }}>Costo prom.</div>
-            <div style={{ color: t.accent, fontWeight: 600 }}>{cop(item.costo_promedio)}</div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: t.textMuted }}>Valor inv.</div>
-            <div style={{ color: t.blue, fontWeight: 700 }}>{cop(item.valor_inventario)}</div>
-          </div>
-          <span style={{ color: t.textMuted, fontSize: 11, transition: 'transform .2s', transform: abierto ? 'rotate(90deg)' : 'rotate(0deg)', display: 'inline-block' }}>▶</span>
+        <div className="hidden md:flex items-center gap-6 text-right shrink-0">
+          <MiniStat label="Entradas" value={num(item.total_entradas)} tone="success" />
+          <MiniStat label="Stock"    value={num(item.stock_actual)}    tone={item.stock_actual > 0 ? 'foreground' : 'danger'} />
+          <MiniStat label="Costo prom." value={cop(item.costo_promedio)} tone="accent" />
+          <MiniStat label="Valor inv."  value={cop(item.valor_inventario)} tone="foreground" />
         </div>
-      </div>
+        <ChevronRight className={cn('size-4 text-muted-foreground transition-transform shrink-0', open && 'rotate-90')} />
+      </button>
 
-      {/* Tabla de movimientos */}
-      {abierto && (
-        <div style={{ borderTop: `1px solid ${t.border}`, overflowX: 'auto' }}>
+      {open && (
+        <div className="border-t border-border overflow-x-auto">
           {item.salidas_est > 0 && (
-            <div style={{
-              padding: '8px 16px', background: t.tableAlt,
-              fontSize: 11, color: t.textMuted,
-              borderBottom: `1px solid ${t.border}`,
-            }}>
-              ℹ️ Salidas estimadas: <strong style={{ color: t.yellow }}>{num(item.salidas_est)}</strong> unidades
-              (total entradas − stock actual). Para salidas exactas por venta, el sistema requiere cruze de nombres con Excel.
+            <div className="px-4 py-2 bg-surface-2/50 border-b border-border-subtle text-xs text-muted-foreground">
+              Salidas estimadas: <strong className="text-warning">{num(item.salidas_est)}</strong> unidades
+              (total entradas − stock actual).
             </div>
           )}
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+          <table className="w-full text-sm">
             <thead>
-              <tr style={{ background: t.tableAlt }}>
-                {['Fecha', 'Hora', 'Tipo', 'Concepto', 'Entrada', 'Salida', 'Saldo', 'Costo Unit.', 'C. Prom.', 'Valor'].map((h, i) => (
-                  <th key={i} style={{
-                    padding: '7px 12px',
-                    textAlign: [4,5,6,7,8,9].includes(i) ? 'right' : 'left',
-                    fontSize: 9, color: t.textMuted, textTransform: 'uppercase',
-                    letterSpacing: '.07em', fontWeight: 500,
-                    borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap',
-                  }}>{h}</th>
+              <tr className="bg-surface-2/50">
+                {['Fecha','Hora','Tipo','Concepto','Entrada','Salida','Saldo','Costo Unit.','C. Prom.','Valor'].map((h, i) => (
+                  <th key={i} className={cn(
+                    'px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border whitespace-nowrap',
+                    [4,5,6,7,8,9].includes(i) ? 'text-right' : 'text-left',
+                  )}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {movs.map((m, i) => <MovRow key={i} m={m} t={t} />)}
+              {movs.map((m, i) => <MovRow key={i} m={m} />)}
             </tbody>
             <tfoot>
-              <tr style={{ background: t.tableFoot, borderTop: `1px solid ${t.border}` }}>
-                <td colSpan={4} style={{ padding: '8px 12px', fontSize: 9, color: t.textMuted, fontWeight: 600 }}>TOTALES</td>
-                <td style={{ padding: '8px 12px', textAlign: 'right', color: t.green, fontWeight: 700 }}>{num(item.total_entradas)}</td>
-                <td style={{ padding: '8px 12px', textAlign: 'right', color: t.yellow, fontWeight: 700 }}>{num(item.salidas_est)}</td>
-                <td style={{ padding: '8px 12px', textAlign: 'right', color: t.text, fontWeight: 700 }}>{num(item.stock_actual)}</td>
+              <tr className="bg-surface-2/30 border-t border-border">
+                <td colSpan={4} className="px-3 py-2 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Totales</td>
+                <td className="px-3 py-2 text-right text-success font-bold tabular">{num(item.total_entradas)}</td>
+                <td className="px-3 py-2 text-right text-warning font-bold tabular">{num(item.salidas_est)}</td>
+                <td className="px-3 py-2 text-right font-bold tabular">{num(item.stock_actual)}</td>
                 <td colSpan={2} />
-                <td style={{ padding: '8px 12px', textAlign: 'right', color: t.blue, fontWeight: 700 }}>{cop(item.valor_inventario)}</td>
+                <td className="px-3 py-2 text-right font-bold tabular">{cop(item.valor_inventario)}</td>
               </tr>
             </tfoot>
           </table>
         </div>
       )}
+    </Card>
+  )
+}
+
+function MiniStat({ label, value, tone = 'foreground' }) {
+  return (
+    <div className="text-right">
+      <div className="text-[10px] text-muted-foreground">{label}</div>
+      <div className={cn('font-semibold text-sm tabular',
+        tone === 'success' && 'text-success',
+        tone === 'danger'  && 'text-danger',
+        tone === 'accent'  && 'text-primary',
+      )}>
+        {value}
+      </div>
     </div>
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function TabKardex({ refreshKey }) {
-  const t = useTheme()
   const [busqueda, setBusqueda] = useState('')
-  const [query,    setQuery]    = useState('')
+  const [query, setQuery] = useState('')
 
   const { data, loading, error } = useFetch(
     query ? `/kardex?producto=${encodeURIComponent(query)}` : '/kardex',
     [query, refreshKey]
   )
 
-  const handleSearch = (v) => {
+  function handleSearch(v) {
     setBusqueda(v)
     clearTimeout(window._kardexTimer)
     window._kardexTimer = setTimeout(() => setQuery(v), 300)
   }
 
-  const items        = data?.kardex || []
-  const totalValor   = data?.valor_inventario_total || 0
-  const tieneDatos   = data?.tiene_datos
+  const items      = data?.kardex || []
+  const totalValor = data?.valor_inventario_total || 0
+  const tieneDatos = data?.tiene_datos
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+    <div className="space-y-5">
+      <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: t.text }}>Kárdex de Inventario</div>
-          <div style={{ fontSize: 11, color: t.textMuted, marginTop: 3 }}>
-            Movimientos por producto · Método promedio ponderado (NIIF pymes)
-          </div>
+          <h1 className="text-xl font-semibold tracking-tight">Kárdex de inventario</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Movimientos por producto · método promedio ponderado (NIIF pymes)
+          </p>
         </div>
-        <StyledInput
-          value={busqueda}
-          onChange={e => handleSearch(e.target.value)}
-          placeholder="🔍  Buscar producto..."
-          style={{ width: 260 }}
-        />
-      </div>
+        <div className="relative w-full sm:w-64">
+          <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={busqueda}
+            onChange={e => handleSearch(e.target.value)}
+            placeholder="Buscar producto..."
+            className="pl-9"
+          />
+        </div>
+      </header>
 
-      {loading && <Spinner />}
-      {error   && <ErrorMsg msg={`Error: ${error}`} />}
+      {loading && (
+        <div className="flex items-center justify-center py-16 text-muted-foreground">
+          <Loader2 className="size-5 animate-spin mr-2" /> Cargando…
+        </div>
+      )}
+      {error && (
+        <Card className="p-4 border-destructive/40 bg-destructive/5 text-destructive text-sm">
+          Error: {error}
+        </Card>
+      )}
 
-      {!loading && !error && (
+      {!loading && !error && !tieneDatos && (
+        <Card className="p-8 text-center">
+          <FileText className="size-10 text-muted-foreground mx-auto mb-3" />
+          <h2 className="font-semibold text-base mb-2">El Kárdex se construye automáticamente</h2>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4 leading-relaxed">
+            Cada vez que registres una compra de mercancía en Telegram, el sistema construye el kárdex con promedio ponderado.
+          </p>
+          <code className="inline-block bg-surface-2 text-primary border border-border px-3 py-1.5 rounded-md text-xs">
+            /compra 20 brocha 2" a 2500 de Ferrisariato
+          </code>
+        </Card>
+      )}
+
+      {!loading && !error && tieneDatos && (
         <>
-          {!tieneDatos ? (
-            <GlassCard>
-              <div style={{ padding: '32px 24px', textAlign: 'center' }}>
-                <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
-                <div style={{ color: t.text, fontWeight: 600, fontSize: 14, marginBottom: 10 }}>
-                  El Kárdex se construye automáticamente
-                </div>
-                <div style={{ color: t.textMuted, fontSize: 12, maxWidth: 400, margin: '0 auto', lineHeight: 1.7 }}>
-                  Cada vez que registres una compra de mercancía en Telegram, el sistema construirá el kárdex con el método de promedio ponderado.
-                </div>
-                <code style={{
-                  display: 'inline-block', marginTop: 14,
-                  background: t.tableAlt, color: t.accent,
-                  border: `1px solid ${t.border}`,
-                  padding: '8px 16px', borderRadius: 8, fontSize: 12,
-                }}>
-                  /compra 20 brocha 2" a 2500 de Ferrisariato
-                </code>
-                <div style={{ color: t.textMuted, fontSize: 11, marginTop: 10 }}>
-                  Una vez registres compras, aquí verás entradas, salidas, saldos y costo promedio por producto.
-                </div>
-              </div>
-            </GlassCard>
-          ) : (
-            <>
-              {/* KPIs */}
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <KpiCard label="Productos" value={items.length} sub="Con historial de compras" icon="📦" color={t.textSub} />
-                <KpiCard label="Valor inventario" value={cop(totalValor)} sub="Costo promedio × stock" icon="💰" color={t.blue} />
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Card className="p-4">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 font-semibold">Productos</div>
+              <div className="text-xl font-semibold tabular leading-none">{items.length}</div>
+              <p className="text-xs text-muted-foreground mt-1.5">Con historial de compras</p>
+            </Card>
+            <Card className="p-4">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 font-semibold">Valor inventario</div>
+              <div className="text-xl font-semibold tabular leading-none text-primary">{cop(totalValor)}</div>
+              <p className="text-xs text-muted-foreground mt-1.5">Costo promedio × stock</p>
+            </Card>
+          </div>
 
-              {/* Lista productos */}
-              {items.length === 0 ? (
-                <GlassCard><EmptyState msg="Sin resultados para la búsqueda." /></GlassCard>
-              ) : (
-                items.map(item => <ProductoKardex key={item.producto} item={item} t={t} />)
-              )}
-            </>
+          {items.length === 0 ? (
+            <Card className="p-8 text-center text-sm text-muted-foreground">
+              Sin resultados para la búsqueda.
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {items.map(item => <ProductoKardex key={item.producto} item={item} />)}
+            </div>
           )}
         </>
       )}

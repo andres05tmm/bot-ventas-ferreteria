@@ -1,335 +1,195 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
-import { createPortal } from 'react-dom'
-import {
-  useTheme, useFetch, Card, GlassCard, SectionTitle, Spinner, ErrorMsg,
-  PeriodBtn, StyledInput, EmptyState, Th, cop, API_BASE,
-  useIsMobile,
-} from '../components/shared.jsx'
+/*
+ * TabHistorial — ventas del día con edición y eliminación.
+ * Wave 2: migrado a primitives shadcn + tokens.
+ * Nota: la fusión con TabHistoricoVentas (calendario mensual) se difiere a
+ * Wave 3 — por ahora ambas tabs conviven (/historial y /historico). El cmd+K
+ * solo apunta a /historial.
+ */
+import { useState, useMemo } from 'react'
+import { useFetch, cop, API_BASE, useIsMobile } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
-
-function metodoBadge(metodo, t) {
-  const raw = (metodo || '').toLowerCase()
-  const light = t.id === 'caramelo'
-  if (raw.includes('efect'))  return { bg: light ? '#dcfce7' : '#052e16', color: light ? '#166534' : '#4ade80', border: light ? '#86efac44' : '#4ade8033' }
-  if (raw.includes('nequi'))  return { bg: light ? '#dbeafe' : '#172554', color: light ? '#1d4ed8' : '#93c5fd', border: light ? '#93c5fd44' : '#93c5fd33' }
-  if (raw.includes('billet')) return { bg: light ? '#ede9fe' : '#172554', color: light ? '#6d28d9' : '#818cf8', border: light ? '#818cf844' : '#818cf833' }
-  if (raw.includes('transf')) return { bg: light ? '#fef9c3' : '#1c1917', color: light ? '#a16207' : '#d4d4aa', border: light ? '#fde04744' : '#d4d4aa33' }
-  if (raw.includes('tarjet')) return { bg: light ? '#e0e7ff' : '#1e1b4b', color: light ? '#4338ca' : '#a5b4fc', border: light ? '#a5b4fc44' : '#a5b4fc33' }
-  return { bg: t.card, color: t.textMuted, border: t.border }
-}
+import { Card } from '@/components/ui/card.jsx'
+import { Button } from '@/components/ui/button.jsx'
+import { Input } from '@/components/ui/input.jsx'
+import { Label } from '@/components/ui/label.jsx'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog.jsx'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from '@/components/ui/dropdown-menu.jsx'
+import {
+  Search, Download, Pencil, Trash2, Loader2, X, AlertCircle, ChevronDown,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 const FRACS = [
   [3/4,'3/4'],[1/2,'1/2'],[1/4,'1/4'],[1/3,'1/3'],[2/3,'2/3'],
   [1/8,'1/8'],[1/10,'1/10'],[1/16,'1/16'],[3/8,'3/8'],[7/8,'7/8'],
 ]
-// Unidades que SIEMPRE se muestran en decimal (nunca fracciones)
 const UNIDADES_DECIMAL = ['grm','gramos','kg','cms','mts','lt','lts','25 kg','mlt']
+const METODOS = ['efectivo','transferencia','nequi','daviplata','datafono','otro']
 
 function cantidadLegible(val, unidad) {
   if (val === null || val === undefined || val === '') return '—'
   const s = String(val).trim()
-
-  // Si la unidad es decimal (gramos, kg, cms...), parsear a número y mostrar decimal
-  const uKey = (unidad || '').toLowerCase().replace('ó','o')
-  const esDecimal = UNIDADES_DECIMAL.includes(uKey)
-
-  if (esDecimal) {
-    // Parsear "133 y 3/10" → 133.3, o "1/2" → 0.5, o "10" → 10
+  const u = (unidad || '').toLowerCase().replace('ó','o')
+  if (UNIDADES_DECIMAL.includes(u)) {
     let n = parseFloat(s.replace(',','.'))
     if (isNaN(n)) {
-      // Intentar parsear fracciones tipo "133 y 3/10"
-      const mixto = s.match(/^(\d+)\s*y\s*(\d+)\/(\d+)$/)
-      if (mixto) n = parseFloat(mixto[1]) + parseFloat(mixto[2]) / parseFloat(mixto[3])
-      const simple = s.match(/^(\d+)\/(\d+)$/)
-      if (simple) n = parseFloat(simple[1]) / parseFloat(simple[2])
+      const mx = s.match(/^(\d+)\s*y\s*(\d+)\/(\d+)$/)
+      if (mx) n = parseFloat(mx[1]) + parseFloat(mx[2])/parseFloat(mx[3])
+      const sm = s.match(/^(\d+)\/(\d+)$/)
+      if (sm) n = parseFloat(sm[1])/parseFloat(sm[2])
     }
-    if (!isNaN(n)) {
-      return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, '')
-    }
+    if (!isNaN(n)) return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, '')
     return s
   }
-
-  // Para galones y unidades: mostrar fracciones legibles
   if (/[\/y]/.test(s) && !/^\d+$/.test(s)) return s
   const n = parseFloat(s.replace(',','.'))
   if (isNaN(n)) return s
   if (Number.isInteger(n)) return String(n)
-  const entero = Math.floor(n)
-  const frac   = n - entero
+  const entero = Math.floor(n), frac = n - entero
   for (const [dec, label] of FRACS) {
     if (Math.abs(frac - dec) < 0.005) return entero > 0 ? `${entero} ${label}` : label
   }
   return n.toFixed(2).replace(/\.?0+$/, '')
 }
 
-const UNIDAD_ESTILOS = {
-  'galón': { color:'#a16207', bg:'#fef9c320' },
-  'galon': { color:'#a16207', bg:'#fef9c320' },
-  'kg':    { color:'#166534', bg:'#dcfce720' },
-  'gramos':{ color:'#166534', bg:'#dcfce720' },
-  'grm':   { color:'#166534', bg:'#dcfce720' },
-  'mts':   { color:'#1d4ed8', bg:'#dbeafe20' },
-  'cms':   { color:'#6d28d9', bg:'#ede9fe20' },
-  'lt':    { color:'#0369a1', bg:'#e0f2fe20' },
-  'lts':   { color:'#0369a1', bg:'#e0f2fe20' },
-}
-function UnidadBadge({ unidad, t }) {
-  if (!unidad || unidad.toLowerCase() === 'unidad') return null
-  const key = unidad.toLowerCase().replace('ó','o')
-  const est = UNIDAD_ESTILOS[key] || { color: t.textMuted, bg: 'transparent' }
-  return (
-    <span style={{
-      fontSize:9, fontWeight:600, padding:'1px 5px', borderRadius:4,
-      color: est.color, background: est.bg, marginLeft:4, whiteSpace:'nowrap',
-    }}>{unidad}</span>
-  )
+function metodoTone(m) {
+  const r = (m || '').toLowerCase()
+  if (r.includes('efect'))  return 'bg-success/10 text-success border-success/30'
+  if (r.includes('transf')) return 'bg-warning/10 text-warning border-warning/30'
+  if (r.includes('nequi') || r.includes('davi')) return 'bg-info/10 text-info border-info/30'
+  if (r.includes('tarjet') || r.includes('datafono')) return 'bg-info/10 text-info border-info/30'
+  return 'bg-surface-2 text-muted-foreground border-border'
 }
 
-function ExportDropdown({ disabled, authFetch }) {
-  const t = useTheme()
-  const [open,       setOpen]       = useState(false)
-  const [descargando, setDescargando] = useState(null) // periodo en curso
-  const [errMsg,     setErrMsg]     = useState('')
-  const ref = useRef(null)
-
-  const opciones = [
-    { label: '📅 Hoy',         periodo: 'hoy'    },
-    { label: '📆 Esta semana', periodo: 'semana' },
-    { label: '🗓️ Este mes',   periodo: 'mes'    },
-    { label: '📦 Todo',        periodo: 'todo'   },
-  ]
-
-  const descargar = async (periodo) => {
-    setOpen(false)
-    setErrMsg('')
-    setDescargando(periodo)
-    try {
-      // Usar authFetch para enviar el JWT — descarga autenticada
-      const r = await authFetch(`${API_BASE}/export/ventas.xlsx?periodo=${periodo}`)
-      if (!r.ok) {
-        const detail = await r.text()
-        throw new Error(detail || `Error ${r.status}`)
-      }
-      const blob = await r.blob()
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href     = url
-      a.download = `ventas_${periodo}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    } catch (e) {
-      setErrMsg(e.message || 'Error al descargar')
-      setTimeout(() => setErrMsg(''), 4000)
-    } finally {
-      setDescargando(null)
-    }
-  }
-
-  // Cerrar al hacer clic fuera
-  useEffect(() => {
-    if (!open) return
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  const ocupado = disabled || descargando !== null
-
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button
-        disabled={ocupado}
-        onClick={() => setOpen(o => !o)}
-        style={{
-          background: t.accentSub, border: `1px solid ${t.accent}55`, color: t.accent,
-          borderRadius: 7, padding: '7px 13px', fontSize: 11, fontWeight: 600,
-          fontFamily: 'inherit', whiteSpace: 'nowrap', cursor: ocupado ? 'not-allowed' : 'pointer',
-          display: 'flex', alignItems: 'center', gap: 5, opacity: ocupado ? 0.6 : 1,
-        }}
-      >
-        {descargando ? `⏳ Descargando…` : <>↓ Exportar Excel <span style={{ fontSize: 9 }}>{open ? '▲' : '▼'}</span></>}
-      </button>
-
-      {errMsg && (
-        <div style={{
-          position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 50,
-          background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 7,
-          padding: '7px 11px', fontSize: 11, color: '#dc2626', whiteSpace: 'nowrap',
-        }}>
-          ✗ {errMsg}
-        </div>
-      )}
-
-      {open && !errMsg && (
-        <div style={{
-          position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 50,
-          background: t.card, border: `1px solid ${t.border}`, borderRadius: 8,
-          boxShadow: '0 4px 16px #0002', minWidth: 160, overflow: 'hidden',
-        }}>
-          {opciones.map(op => (
-            <button
-              key={op.periodo}
-              onClick={() => descargar(op.periodo)}
-              style={{
-                display: 'block', width: '100%', textAlign: 'left',
-                padding: '9px 14px', fontSize: 12, fontWeight: 500,
-                background: 'none', border: 'none', color: t.text,
-                cursor: 'pointer', fontFamily: 'inherit',
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = t.accentSub}
-              onMouseLeave={e => e.currentTarget.style.background = 'none'}
-            >
-              {op.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Modal Editar Venta (edita UNA línea) ─────────────────────────────────────
-const METODOS = ['efectivo','transferencia','nequi','daviplata','datafono','otro']
+// ─────────────────────────────────────────────────────────────────────────────
 
 function ModalEditarVenta({ venta, onClose, onGuardado }) {
-  const t = useTheme()
   const { authFetch } = useAuth()
   const [form, setForm] = useState({
-    producto:        venta.producto       || '',
-    cantidad:        venta.cantidad       || '',
-    precio_unitario: venta.precio_unitario|| '',
-    total:           venta.total          || '',
-    metodo_pago:     venta.metodo         || 'efectivo',
-    cliente:         venta.cliente        || '',
-    vendedor:        venta.vendedor       || '',
+    producto:        venta.producto || '',
+    cantidad:        venta.cantidad || '',
+    precio_unitario: venta.precio_unitario || '',
+    total:           venta.total || '',
+    metodo_pago:     venta.metodo || 'efectivo',
+    cliente:         venta.cliente || '',
+    vendedor:        venta.vendedor || '',
   })
   const [estado, setEstado] = useState('idle')
-  const [err,    setErr]    = useState('')
-  const set = (k,v) => setForm(f=>({...f,[k]:v}))
+  const [err, setErr] = useState('')
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const guardar = async () => {
+  async function guardar() {
     setEstado('saving'); setErr('')
     try {
       const body = {}
-      if (form.producto         !== venta.producto)                         body.producto        = form.producto
-      if (String(form.cantidad) !== String(venta.cantidad))                 body.cantidad        = Number(form.cantidad)
-      if (String(form.precio_unitario) !== String(venta.precio_unitario))   body.precio_unitario = Number(form.precio_unitario)
-      if (String(form.total)    !== String(venta.total))                    body.total           = Number(form.total)
-      if (form.metodo_pago      !== venta.metodo)                           body.metodo_pago     = form.metodo_pago
-      if (form.cliente          !== venta.cliente)                          body.cliente         = form.cliente
-      if (form.vendedor         !== venta.vendedor)                         body.vendedor        = form.vendedor
+      if (form.producto !== venta.producto) body.producto = form.producto
+      if (String(form.cantidad) !== String(venta.cantidad)) body.cantidad = Number(form.cantidad)
+      if (String(form.precio_unitario) !== String(venta.precio_unitario)) body.precio_unitario = Number(form.precio_unitario)
+      if (String(form.total) !== String(venta.total)) body.total = Number(form.total)
+      if (form.metodo_pago !== venta.metodo) body.metodo_pago = form.metodo_pago
+      if (form.cliente !== venta.cliente) body.cliente = form.cliente
+      if (form.vendedor !== venta.vendedor) body.vendedor = form.vendedor
       if (!Object.keys(body).length) { onClose(); return }
-      // Enviar producto_original para identificar la fila en ventas multi-producto
       body.producto_original = venta.producto
       const r = await authFetch(`${API_BASE}/ventas/${venta.num}`, {
-        method:'PATCH', headers:{'Content-Type':'application/json'},
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
       const d = await r.json()
-      if (!r.ok) throw new Error(d.detail||'Error')
+      if (!r.ok) throw new Error(d.detail || 'Error')
       setEstado('ok')
-      setTimeout(() => { onGuardado(); onClose() }, 700)
-    } catch(e) { setErr(e.message); setEstado('err') }
+      setTimeout(() => { onGuardado(); onClose() }, 600)
+    } catch (e) { setErr(e.message); setEstado('err') }
   }
 
-  const inp = {
-    width:'100%', boxSizing:'border-box',
-    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-    border:`1px solid ${t.border}`, borderRadius:7,
-    color:t.text, fontSize:12, padding:'7px 10px',
-    outline:'none', fontFamily:'inherit',
-  }
-  const lbl = { fontSize:10, color:t.textMuted, textTransform:'uppercase', letterSpacing:'.07em', marginBottom:3, display:'block' }
-
-  return createPortal(
-    <div onMouseDown={e=>e.target===e.currentTarget&&onClose()} style={{
-      position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,.6)',
-      display:'flex',alignItems:'center',justifyContent:'center',padding:16,
-    }}>
-      <div style={{
-        background:t.bg, border:`1px solid ${t.border}`, borderRadius:14,
-        width:'100%', maxWidth:440, maxHeight:'90vh', overflowY:'auto',
-        boxShadow:'0 24px 64px rgba(0,0,0,.4)',
-      }}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 20px 0'}}>
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Editar venta #{venta.num}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
           <div>
-            <div style={{fontWeight:700,fontSize:14,color:t.text}}>✏️ Editar venta #{venta.num}</div>
-            <div style={{fontSize:11,color:t.textMuted,marginTop:2}}>Solo se actualizan los campos que cambies</div>
+            <Label>Producto</Label>
+            <Input value={form.producto} onChange={e => set('producto', e.target.value)} />
           </div>
-          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:7,color:t.textMuted,width:28,height:28,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label>Cantidad</Label>
+              <Input type="number" value={form.cantidad} onChange={e => set('cantidad', e.target.value)} />
+            </div>
+            <div>
+              <Label>V. Unitario</Label>
+              <Input type="number" value={form.precio_unitario} onChange={e => set('precio_unitario', e.target.value)} />
+            </div>
+            <div>
+              <Label>Total</Label>
+              <Input type="number" value={form.total} onChange={e => set('total', e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Método</Label>
+              <select
+                value={form.metodo_pago}
+                onChange={e => set('metodo_pago', e.target.value)}
+                className="w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm"
+              >
+                {METODOS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label>Vendedor</Label>
+              <Input value={form.vendedor} onChange={e => set('vendedor', e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <Label>Cliente</Label>
+            <Input value={form.cliente} onChange={e => set('cliente', e.target.value)} placeholder="Consumidor Final" />
+          </div>
+          {err && (
+            <div className="flex items-center gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+              <AlertCircle className="size-3.5" /> {err}
+            </div>
+          )}
         </div>
-        <div style={{padding:'16px 20px 20px',display:'flex',flexDirection:'column',gap:11}}>
-
-          <div><label style={lbl}>Producto</label>
-            <input style={inp} value={form.producto} onChange={e=>set('producto',e.target.value)}/></div>
-
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
-            <div><label style={lbl}>Cantidad</label>
-              <input style={inp} type="number" value={form.cantidad} onChange={e=>set('cantidad',e.target.value)}/></div>
-            <div><label style={lbl}>V. Unitario</label>
-              <input style={inp} type="number" value={form.precio_unitario} onChange={e=>set('precio_unitario',e.target.value)}/></div>
-            <div><label style={lbl}>Total</label>
-              <input style={inp} type="number" value={form.total} onChange={e=>set('total',e.target.value)}/></div>
-          </div>
-
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <div><label style={lbl}>Método de pago</label>
-              <select style={inp} value={form.metodo_pago} onChange={e=>set('metodo_pago',e.target.value)}>
-                {METODOS.map(m=><option key={m} value={m}>{m}</option>)}
-              </select></div>
-            <div><label style={lbl}>Vendedor</label>
-              <input style={inp} value={form.vendedor} onChange={e=>set('vendedor',e.target.value)}/></div>
-          </div>
-
-          <div><label style={lbl}>Cliente</label>
-            <input style={inp} value={form.cliente} onChange={e=>set('cliente',e.target.value)} placeholder="Consumidor Final"/></div>
-
-          {err && <div style={{padding:'7px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626'}}>⚠ {err}</div>}
-
-          <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:4}}>
-            <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>Cancelar</button>
-            <button onClick={guardar} disabled={estado==='saving'} style={{
-              background:estado==='ok'?t.green:estado==='err'?'#dc2626':t.accent,
-              border:'none',borderRadius:8,color:'#fff',padding:'8px 20px',
-              cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
-              opacity:estado==='saving'?.7:1,transition:'background .2s',
-            }}>
-              {estado==='saving'?'Guardando…':estado==='ok'?'✓ Guardado':estado==='err'?'✗ Error':'Guardar cambios'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={guardar} disabled={estado === 'saving'}>
+            {estado === 'saving' ? 'Guardando…' : estado === 'ok' ? '✓ Guardado' : 'Guardar cambios'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-// ── Modal Confirmar Eliminar — agrupa TODOS los productos del consecutivo ─────
-function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
-  const t = useTheme()
+function ModalEliminar({ grupo, onClose, onEliminado }) {
   const { authFetch } = useAuth()
   const [estado, setEstado] = useState('idle')
-  const [err,    setErr]    = useState('')
-  const [borrando, setBorrando] = useState(null) // null = nada, 'todo' = consecutivo, index = producto individual
+  const [err, setErr] = useState('')
+  const [borrando, setBorrando] = useState(null)
 
   const consecutivo = grupo[0]?.num
-  const totalGrupo  = grupo.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
-  const esMultiple  = grupo.length > 1
+  const totalGrupo = grupo.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
+  const esMultiple = grupo.length > 1
 
-  const eliminarTodo = async () => {
+  async function eliminarTodo() {
     setEstado('saving'); setBorrando('todo')
     try {
       const r = await authFetch(`${API_BASE}/ventas/${consecutivo}`, { method: 'DELETE' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error')
       setEstado('ok')
-      setTimeout(() => { onEliminado(); onClose() }, 600)
-    } catch(e) { setErr(e.message); setEstado('err'); setBorrando(null) }
+      setTimeout(() => { onEliminado(); onClose() }, 500)
+    } catch (e) { setErr(e.message); setEstado('err'); setBorrando(null) }
   }
 
-  const eliminarLinea = async (v, idx) => {
+  async function eliminarLinea(v, idx) {
     setEstado('saving'); setBorrando(idx)
     try {
       const r = await authFetch(
@@ -339,167 +199,152 @@ function ModalConfirmarEliminar({ grupo, onClose, onEliminado }) {
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error')
       setEstado('ok')
-      setTimeout(() => { onEliminado(); onClose() }, 600)
-    } catch(e) { setErr(e.message); setEstado('err'); setBorrando(null) }
+      setTimeout(() => { onEliminado(); onClose() }, 500)
+    } catch (e) { setErr(e.message); setEstado('err'); setBorrando(null) }
   }
 
-  return createPortal(
-    <div onMouseDown={e=>e.target===e.currentTarget&&onClose()} style={{
-      position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,.6)',
-      display:'flex',alignItems:'center',justifyContent:'center',padding:16,
-    }}>
-      <div style={{background:t.bg,border:`1px solid ${t.border}`,borderRadius:14,width:'100%',maxWidth:440,padding:24,boxShadow:'0 24px 64px rgba(0,0,0,.4)'}}>
-        <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:10}}>
-          🗑 Eliminar {esMultiple ? `consecutivo #${consecutivo}` : `venta #${consecutivo}`}
-        </div>
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Eliminar {esMultiple ? `consecutivo #${consecutivo}` : `venta #${consecutivo}`}</DialogTitle>
+        </DialogHeader>
 
-        {/* Lista de productos — con botón individual si es multi-producto */}
-        <div style={{
-          background:t.tableAlt, border:`1px solid ${t.border}`,
-          borderRadius:8, marginBottom:14, overflow:'hidden',
-        }}>
+        <div className="border border-border rounded-md overflow-hidden">
           {grupo.map((v, i) => (
-            <div key={i} style={{
-              display:'flex', justifyContent:'space-between', alignItems:'center',
-              padding:'8px 12px',
-              borderBottom: i < grupo.length - 1 ? `1px solid ${t.border}` : 'none',
-            }}>
-              <div style={{flex:1, minWidth:0}}>
-                <span style={{color:t.text,fontSize:12}}>{v.producto}</span>
-                <span style={{color:t.textMuted,fontSize:10,marginLeft:8}}>
+            <div
+              key={i}
+              className={cn('flex items-center justify-between px-3 py-2 text-sm', i < grupo.length - 1 && 'border-b border-border-subtle')}
+            >
+              <div className="flex-1 min-w-0">
+                <span>{v.producto}</span>
+                <span className="ml-2 text-xs text-muted-foreground">
                   ×{cantidadLegible(v.cantidad, v.unidad_medida)}
                 </span>
               </div>
-              <div style={{display:'flex',alignItems:'center',gap:8}}>
-                <span style={{color:t.green,fontWeight:600,fontSize:12}}>{cop(v.total)}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-success font-semibold tabular">{cop(v.total)}</span>
                 {esMultiple && (
                   <button
                     onClick={() => eliminarLinea(v, i)}
                     disabled={estado === 'saving'}
                     title={`Eliminar solo "${v.producto}"`}
-                    style={{
-                      background:'transparent', border:`1px solid #dc262644`,
-                      borderRadius:6, width:26, height:26, cursor:'pointer',
-                      fontSize:11, color:'#dc2626',
-                      display:'flex',alignItems:'center',justifyContent:'center',
-                      opacity: estado === 'saving' && borrando === i ? 0.5 : 1,
-                    }}
+                    className="size-7 rounded-md border border-destructive/30 bg-destructive/5 text-destructive grid place-items-center hover:bg-destructive/10 disabled:opacity-50"
                   >
-                    {estado === 'saving' && borrando === i ? '…' : '✕'}
+                    {estado === 'saving' && borrando === i ? <Loader2 className="size-3 animate-spin" /> : <X className="size-3" />}
                   </button>
                 )}
               </div>
             </div>
           ))}
-          {/* Total del grupo */}
-          <div style={{
-            display:'flex', justifyContent:'space-between', alignItems:'center',
-            padding:'9px 12px',
-            background: t.tableFoot,
-            borderTop:`1px solid ${t.border}`,
-          }}>
-            <span style={{fontSize:11,color:t.textMuted,fontWeight:600}}>
-              TOTAL {esMultiple ? `(${grupo.length} productos)` : ''}
+          <div className="flex items-center justify-between px-3 py-2 bg-surface-2/50 border-t border-border">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+              Total {esMultiple ? `(${grupo.length} productos)` : ''}
             </span>
-            <span style={{color:t.accent,fontWeight:700,fontSize:14}}>{cop(totalGrupo)}</span>
+            <span className="text-primary font-bold tabular">{cop(totalGrupo)}</span>
           </div>
         </div>
 
-        {/* Info método y vendedor */}
-        <div style={{fontSize:12,color:t.textMuted,marginBottom:14,display:'flex',gap:16}}>
-          <span>Método: <strong style={{color:t.text}}>{grupo[0]?.metodo || '—'}</strong></span>
-          <span>Vendedor: <strong style={{color:t.text}}>{grupo[0]?.vendedor || '—'}</strong></span>
+        <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+          <AlertCircle className="size-3.5 shrink-0 mt-0.5" />
+          <span>Se elimina del Excel/Google Sheets y se descuenta de la caja.</span>
         </div>
 
-        {esMultiple && (
-          <div style={{
-            padding:'8px 12px', borderRadius:8, marginBottom:12,
-            background: `${t.blue}12`, border:`1px solid ${t.blue}33`,
-            fontSize:11, color:t.blue,
-          }}>
-            💡 Usá el botón ✕ de cada producto para eliminar solo uno, o "Eliminar todo" para borrar el consecutivo completo.
-          </div>
+        {err && (
+          <div className="text-xs text-destructive">{err}</div>
         )}
 
-        <div style={{padding:'10px 12px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,fontSize:11,color:'#dc2626',marginBottom:16}}>
-          ⚠ Se elimina del Excel y Google Sheets, y se descuenta de la caja.
-        </div>
-
-        {err && <div style={{padding:'6px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626',marginBottom:12}}>✗ {err}</div>}
-
-        <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>Cancelar</button>
-          <button onClick={eliminarTodo} disabled={estado==='saving'} style={{
-            background:estado==='ok'?t.green:'#dc2626',
-            border:'none',borderRadius:8,color:'#fff',padding:'8px 18px',
-            cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
-            opacity:estado==='saving' && borrando==='todo' ?.7:1,
-          }}>
-            {estado==='saving' && borrando==='todo' ?'Eliminando…':estado==='ok'?'✓ Eliminado': esMultiple ? 'Eliminar todo' : 'Sí, eliminar'}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="destructive" onClick={eliminarTodo} disabled={estado === 'saving'}>
+            {estado === 'saving' && borrando === 'todo' ? 'Eliminando…' :
+             estado === 'ok' ? '✓ Eliminado' :
+             esMultiple ? 'Eliminar todo' : 'Sí, eliminar'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-// ── Tab principal ─────────────────────────────────────────────────────────────
-function KpiHistorial({ label, value, color }) {
-  const t = useTheme()
-  const [hov, setHov] = useState(false)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ExportButton() {
+  const { authFetch } = useAuth()
+  const [descargando, setDescargando] = useState(null)
+
+  async function descargar(periodo) {
+    setDescargando(periodo)
+    try {
+      const r = await authFetch(`${API_BASE}/export/ventas.xlsx?periodo=${periodo}`)
+      if (!r.ok) throw new Error(`Error ${r.status}`)
+      const blob = await r.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ventas_${periodo}.xlsx`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error(e)
+    } finally { setDescargando(null) }
+  }
+
   return (
-    <div
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        background: t.card,
-        border: `1px solid ${hov ? color : t.border}`,
-        borderRadius: 12, padding: '14px 18px',
-        flex: 1, minWidth: 120, cursor: 'default',
-        transition: 'border-color .2s ease, box-shadow .25s ease',
-        boxShadow: hov ? `0 0 0 3px ${color}44, 0 0 16px ${color}22` : 'none',
-      }}
-    >
-      <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>
-        {label}
-      </div>
-      <div style={{
-        fontSize: hov ? 22 : 18, fontWeight: 700, color: hov ? color : color,
-        transition: 'font-size .2s ease',
-        fontVariantNumeric: 'tabular-nums',
-      }}>
-        {value}
-      </div>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" disabled={descargando !== null}>
+          {descargando ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+          {descargando ? 'Descargando…' : 'Exportar'}
+          <ChevronDown className="size-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => descargar('hoy')}>Hoy</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => descargar('semana')}>Esta semana</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => descargar('mes')}>Este mes</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => descargar('todo')}>Todo</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
+
+function FiltroBtn({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'px-3 py-1 text-xs rounded transition-colors',
+        active ? 'bg-surface text-foreground shadow-xs font-medium' : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function TabHistorial({ refreshKey }) {
-  const t = useTheme()
   const isMobile = useIsMobile()
-  const { authFetch } = useAuth()
-  const [refresh,    setRefresh]    = useState(0)
-  const { data, loading, error }    = useFetch('/ventas/hoy', [refreshKey, refresh])
-  const [busqueda,   setBusqueda]   = useState('')
-  const [filtro,     setFiltro]     = useState('todos')
-  const [editando,   setEditando]   = useState(null)
-  // eliminando ahora es el GRUPO completo (array), no una sola venta
+  const [refresh, setRefresh] = useState(0)
+  const { data, loading, error } = useFetch('/ventas/hoy', [refreshKey, refresh])
+  const [busqueda, setBusqueda] = useState('')
+  const [filtro, setFiltro]   = useState('todos')
+  const [editando, setEditando]     = useState(null)
   const [eliminando, setEliminando] = useState(null)
 
-  // Filas planas con estado calculado
   const todasVentas = useMemo(() => (data?.ventas || []).map(v => ({
     ...v,
     estado: (v.metodo && v.metodo.trim() && v.metodo !== '—') ? 'pagado' : 'pendiente',
   })), [data])
 
-  // Agrupar por consecutivo para el botón de eliminar
   const gruposPorConsecutivo = useMemo(() => {
     const mapa = {}
     for (const v of todasVentas) {
-      const key = String(v.num)
-      if (!mapa[key]) mapa[key] = []
-      mapa[key].push(v)
+      const k = String(v.num)
+      if (!mapa[k]) mapa[k] = []
+      mapa[k].push(v)
     }
     return mapa
   }, [todasVentas])
@@ -510,167 +355,182 @@ export default function TabHistorial({ refreshKey }) {
       const q = busqueda.toLowerCase()
       res = res.filter(v =>
         String(v.producto).toLowerCase().includes(q) ||
-        String(v.cliente ).toLowerCase().includes(q) ||
+        String(v.cliente).toLowerCase().includes(q) ||
         String(v.vendedor).toLowerCase().includes(q) ||
-        String(v.num     ).includes(q)
+        String(v.num).includes(q)
       )
     }
     return res
   }, [todasVentas, filtro, busqueda])
 
-  const total      = ventas.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
-  const totalTodo  = todasVentas.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
-  const pagados    = todasVentas.filter(v => v.estado === 'pagado').length
+  const total = ventas.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
+  const totalTodo = todasVentas.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
+  const pagados = todasVentas.filter(v => v.estado === 'pagado').length
   const pendientes = todasVentas.filter(v => v.estado === 'pendiente').length
 
-  if (loading) return <Spinner />
-  if (error)   return <ErrorMsg msg={`Error: ${error}`} />
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-muted-foreground">
+        <Loader2 className="size-5 animate-spin mr-2" /> Cargando…
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <Card className="p-4 border-destructive/40 bg-destructive/5 text-destructive text-sm">
+        Error: {error}
+      </Card>
+    )
+  }
 
   return (
-    <div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div className="space-y-4">
+      {editando && (
+        <ModalEditarVenta venta={editando} onClose={() => setEditando(null)} onGuardado={() => setRefresh(r => r + 1)} />
+      )}
+      {eliminando && (
+        <ModalEliminar grupo={eliminando} onClose={() => setEliminando(null)} onEliminado={() => setRefresh(r => r + 1)} />
+      )}
 
-      {editando   && <ModalEditarVenta       venta={editando}   onClose={()=>setEditando(null)}    onGuardado={()=>setRefresh(r=>r+1)}/>}
-      {eliminando && <ModalConfirmarEliminar grupo={eliminando} onClose={()=>setEliminando(null)} onEliminado={()=>setRefresh(r=>r+1)}/>}
+      <header className="flex items-end justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Historial de ventas</h1>
+          <p className="text-xs text-muted-foreground mt-0.5 capitalize">
+            {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })}
+          </p>
+        </div>
+        <ExportButton />
+      </header>
 
       {/* KPIs */}
-      <div style={{display:'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap:10}}>
-        {[
-          {label:'Total hoy',     value:cop(totalTodo),     color:t.accent},
-          {label:'Registros',     value:todasVentas.length, color:t.text},
-          {label:'✅ Pagados',    value:pagados,            color:t.green},
-          {label:'⏳ Sin método', value:pendientes,         color:t.yellow},
-        ].map(item=>(
-          <KpiHistorial key={item.label} label={item.label} value={item.value} color={item.color}/>
-        ))}
+      <div className={cn('grid gap-3', isMobile ? 'grid-cols-2' : 'grid-cols-4')}>
+        <KpiSmall label="Total hoy"   value={cop(totalTodo)} tone="accent" />
+        <KpiSmall label="Registros"   value={todasVentas.length} />
+        <KpiSmall label="Pagados"     value={pagados}    tone="success" />
+        <KpiSmall label="Sin método"  value={pendientes} tone="warning" />
       </div>
 
       {/* Filtros */}
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
-        <div style={{display:'flex',gap:6}}>
-          {['todos','pagado','pendiente'].map(f=>(
-            <PeriodBtn key={f} active={filtro===f} onClick={()=>setFiltro(f)}>
-              {f==='todos'?'Todos':f==='pagado'?'✅ Pagados':'⏳ Pendientes'}
-            </PeriodBtn>
-          ))}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="inline-flex bg-surface-2 p-1 rounded-md">
+          <FiltroBtn active={filtro === 'todos'}     onClick={() => setFiltro('todos')}>Todos</FiltroBtn>
+          <FiltroBtn active={filtro === 'pagado'}    onClick={() => setFiltro('pagado')}>Pagados</FiltroBtn>
+          <FiltroBtn active={filtro === 'pendiente'} onClick={() => setFiltro('pendiente')}>Pendientes</FiltroBtn>
         </div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          <StyledInput value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar..." style={{width:200}}/>
-          <ExportDropdown disabled={false} authFetch={authFetch} />
+        <div className="relative w-full sm:w-64">
+          <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar..." className="pl-9" />
         </div>
       </div>
 
       {/* Tabla */}
-      <GlassCard style={{padding:0}}>
-        <div style={{padding:'14px 18px',borderBottom:`1px solid ${t.border}`}}>
-          <SectionTitle>
-            Ventas del Día — {new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}
-          </SectionTitle>
-        </div>
-        <div style={{overflowX:'auto'}}>
-          {ventas.length===0
-            ? <EmptyState msg={busqueda?'Sin resultados.':'No hay ventas registradas hoy.'}/>
-            : (
-              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-                <thead>
-                  <tr style={{background:t.tableAlt}}>
-                    <Th>#</Th><Th>Hora</Th><Th>Producto</Th><Th>Cliente</Th>
-                    <Th center>Cant.</Th><Th right>V. Unit.</Th><Th right>Total</Th>
-                    <Th>Vendedor</Th><Th center>Método</Th><Th center>Estado</Th>
-                    <Th center>Acciones</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ventas.map((v, i) => {
-                    const badge        = metodoBadge(v.metodo, t)
-                    const grupoConsec  = gruposPorConsecutivo[String(v.num)] || [v]
-                    const esMultiple   = grupoConsec.length > 1
-                    // Saber si esta fila es la primera de su consecutivo (para no repetir el icono)
-                    const primeraDelGrupo = grupoConsec[0] === v ||
-                      ventas.findIndex(x => String(x.num) === String(v.num)) === i
-
-                    return (
-                      <tr key={i} style={{
-                        borderBottom:`1px solid ${t.border}`,
-                        background: esMultiple ? (t.id==='caramelo' ? '#fefce810' : `${t.yellow}08`) : 'transparent',
-                        transition: 'background .15s ease',
-                      }}
-                        onMouseEnter={e=>{ e.currentTarget.style.background = t.cardHover }}
-                        onMouseLeave={e=>{ e.currentTarget.style.background = esMultiple ? (t.id==='caramelo' ? '#fefce810' : `${t.yellow}08`) : 'transparent' }}
-                      >
-                        <td style={{padding: isMobile ? '7px 8px' : '8px 14px',color:t.accent,fontWeight:700}}>
-                          {v.num}
-                          {esMultiple && (
-                            <span style={{
-                              fontSize:8,fontWeight:700,marginLeft:4,
-                              background:t.yellow,color:'#000',
-                              padding:'1px 4px',borderRadius:3,
-                            }} title={`Venta con ${grupoConsec.length} productos`}>
-                              ×{grupoConsec.length}
-                            </span>
-                          )}
-                        </td>
-                        <td style={{padding:'8px 14px',color:t.textMuted,fontStyle:'italic',whiteSpace:'nowrap'}}>{v.hora}</td>
-                        <td style={{padding:'8px 14px',color:t.text,maxWidth:180}}>{v.producto}</td>
-                        <td style={{padding:'8px 14px',color:t.textMuted,fontSize:11}}>{v.cliente||'Consumidor Final'}</td>
-                        <td style={{padding:'8px 14px',textAlign:'center',color:t.textMuted}}>
-                          <span style={{fontFamily:'monospace'}}>{cantidadLegible(v.cantidad, v.unidad_medida)}</span>
-                          <UnidadBadge unidad={v.unidad_medida} t={t}/>
-                        </td>
-                        <td style={{padding:'8px 14px',textAlign:'right',color:t.textMuted}}>{v.precio_unitario?cop(v.precio_unitario):'—'}</td>
-                        <td style={{padding:'8px 14px',textAlign:'right',color:t.green,fontWeight:600}}>{cop(v.total)}</td>
-                        <td style={{padding:'8px 14px',color:t.textMuted,fontSize:11}}>{v.vendedor||'—'}</td>
-                        <td style={{padding:'8px 14px',textAlign:'center'}}>
-                          <span style={{display:'inline-block',padding:'2px 9px',borderRadius:99,background:badge.bg,color:badge.color,border:`1px solid ${badge.border}`,fontSize:10,fontWeight:500,whiteSpace:'nowrap'}}>
-                            {v.metodo||'—'}
+      <Card className="overflow-hidden">
+        {ventas.length === 0 ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            {busqueda ? 'Sin resultados.' : 'No hay ventas registradas hoy.'}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface-2/50">
+                  {['#','Hora','Producto','Cliente','Cant.','V. Unit.','Total','Vendedor','Método','Estado',''].map((h, i) => (
+                    <th key={i} className={cn(
+                      'px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold whitespace-nowrap',
+                      [4,8,9,10].includes(i) ? 'text-center' : [5,6].includes(i) ? 'text-right' : 'text-left',
+                    )}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ventas.map((v, i) => {
+                  const grupo = gruposPorConsecutivo[String(v.num)] || [v]
+                  const esMultiple = grupo.length > 1
+                  return (
+                    <tr key={i} className={cn(
+                      'border-b border-border-subtle hover:bg-surface-2/40',
+                      esMultiple && 'bg-warning/5',
+                    )}>
+                      <td className="px-3 py-2 text-primary font-semibold tabular whitespace-nowrap">
+                        {v.num}
+                        {esMultiple && (
+                          <span className="ml-1.5 inline-block bg-warning text-warning-foreground text-[9px] font-bold px-1 rounded">
+                            ×{grupo.length}
                           </span>
-                        </td>
-                        <td style={{padding:'8px 14px',textAlign:'center'}}>
-                          <span style={{display:'inline-block',padding:'2px 9px',borderRadius:99,fontSize:10,fontWeight:600,
-                            background:v.estado==='pagado' ? `${t.green}18` : `${t.yellow}18`,
-                            color:v.estado==='pagado' ? t.green : t.yellow,
-                            border:`1px solid ${v.estado==='pagado' ? t.green : t.yellow}33`,
-                          }}>{v.estado}</span>
-                        </td>
-                        <td style={{padding:'8px 10px',textAlign:'center'}}>
-                          <div style={{display:'flex',gap:5,justifyContent:'center'}}>
-                            <button
-                              onClick={()=>setEditando(v)}
-                              title="Editar esta línea"
-                              style={{
-                                background:t.accentSub,border:`1px solid ${t.accent}44`,color:t.accent,
-                                borderRadius:6,width:28,height:28,cursor:'pointer',fontSize:13,
-                                display:'flex',alignItems:'center',justifyContent:'center',
-                              }}>✏</button>
-                            <button
-                              onClick={()=>setEliminando(grupoConsec)}
-                              title={esMultiple
-                                ? `Eliminar consecutivo #${v.num} (${grupoConsec.length} productos)`
-                                : `Eliminar venta #${v.num}`}
-                              style={{
-                                background:'#fef2f2',border:'1px solid #fca5a544',color:'#dc2626',
-                                borderRadius:6,width:28,height:28,cursor:'pointer',fontSize:13,
-                                display:'flex',alignItems:'center',justifyContent:'center',
-                              }}>🗑</button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr style={{borderTop:`1px solid ${t.border}`,background:t.tableFoot}}>
-                    <td colSpan={6} style={{padding:'10px 14px',fontSize:10,color:t.textMuted,fontWeight:600,textAlign:'right'}}>
-                      SUBTOTAL ({ventas.length} registros)
-                    </td>
-                    <td style={{padding:'10px 14px',textAlign:'right',color:t.accent,fontWeight:700,fontSize:14}}>{cop(total)}</td>
-                    <td colSpan={4}/>
-                  </tr>
-                </tfoot>
-              </table>
-            )
-          }
-        </div>
-      </GlassCard>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground tabular whitespace-nowrap">{v.hora}</td>
+                      <td className="px-3 py-2 max-w-44 truncate">{v.producto}</td>
+                      <td className="px-3 py-2 text-muted-foreground text-xs">{v.cliente || 'Consumidor Final'}</td>
+                      <td className="px-3 py-2 text-center tabular text-muted-foreground">
+                        {cantidadLegible(v.cantidad, v.unidad_medida)}
+                        {v.unidad_medida && v.unidad_medida.toLowerCase() !== 'unidad' && (
+                          <span className="ml-1 text-[9px] text-muted-foreground">{v.unidad_medida}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular text-muted-foreground">
+                        {v.precio_unitario ? cop(v.precio_unitario) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular text-success font-semibold">{cop(v.total)}</td>
+                      <td className="px-3 py-2 text-muted-foreground text-xs">{v.vendedor || '—'}</td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={cn('inline-block px-2 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap',
+                          metodoTone(v.metodo))}>
+                          {v.metodo || '—'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={cn(
+                          'inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold border',
+                          v.estado === 'pagado'
+                            ? 'bg-success/10 text-success border-success/30'
+                            : 'bg-warning/10 text-warning border-warning/30',
+                        )}>
+                          {v.estado}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-1 justify-center">
+                          <button onClick={() => setEditando(v)} className="size-7 rounded-md hover:bg-surface-2 text-primary grid place-items-center" title="Editar">
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button onClick={() => setEliminando(grupo)} className="size-7 rounded-md hover:bg-destructive/10 text-destructive grid place-items-center" title="Eliminar">
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-border bg-surface-2/30">
+                  <td colSpan={6} className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                    Subtotal ({ventas.length} registros)
+                  </td>
+                  <td className="px-3 py-2 text-right text-primary font-bold tabular text-base">{cop(total)}</td>
+                  <td colSpan={4} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
+  )
+}
+
+function KpiSmall({ label, value, tone = 'foreground' }) {
+  return (
+    <Card className="p-3">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">{label}</div>
+      <div className={cn('text-lg font-semibold tabular leading-none',
+        tone === 'success' && 'text-success',
+        tone === 'warning' && 'text-warning',
+        tone === 'accent'  && 'text-primary',
+      )}>
+        {value}
+      </div>
+    </Card>
   )
 }

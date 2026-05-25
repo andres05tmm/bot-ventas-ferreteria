@@ -1,0 +1,139 @@
+import animate from 'tailwindcss-animate'
+
+/** @type {import('tailwindcss').Config} */
+// Tokens derivados de .planning/dashboard-redesign/DESIGN.md (Fase 2 locked).
+// Capa primitive aquí; capa semantic vive como CSS vars en src/index.css.
+export default {
+  darkMode: ['class', '[data-theme="dark"]'],
+  content: ['./index.html', './src/**/*.{js,jsx,ts,tsx}'],
+  theme: {
+    container: {
+      center: true,
+      padding: '1.5rem',
+      screens: { '2xl': '1440px' },
+    },
+    extend: {
+      colors: {
+        // ── capa semantic vía CSS vars ─────────────────────────────────────
+        border:          'hsl(var(--border) / <alpha-value>)',
+        'border-subtle': 'hsl(var(--border-subtle) / <alpha-value>)',
+        'border-strong': 'hsl(var(--border-strong) / <alpha-value>)',
+        input:           'hsl(var(--input) / <alpha-value>)',
+        ring:            'hsl(var(--ring) / <alpha-value>)',
+        background:      'hsl(var(--bg-body) / <alpha-value>)',
+        foreground:      'hsl(var(--text-primary) / <alpha-value>)',
+        surface: {
+          DEFAULT:  'hsl(var(--bg-surface) / <alpha-value>)',
+          2:        'hsl(var(--bg-surface-2) / <alpha-value>)',
+          sidebar:  'hsl(var(--bg-sidebar) / <alpha-value>)',
+        },
+        muted: {
+          DEFAULT:    'hsl(var(--bg-surface-2) / <alpha-value>)',
+          foreground: 'hsl(var(--text-muted) / <alpha-value>)',
+        },
+        primary: {
+          DEFAULT:    'hsl(var(--accent) / <alpha-value>)',
+          hover:      'hsl(var(--accent-hover) / <alpha-value>)',
+          soft:       'hsl(var(--accent-soft) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-on) / <alpha-value>)',
+        },
+        secondary: {
+          DEFAULT:    'hsl(var(--bg-surface-2) / <alpha-value>)',
+          foreground: 'hsl(var(--text-secondary) / <alpha-value>)',
+        },
+        destructive: {
+          DEFAULT:    'hsl(var(--danger) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-on) / <alpha-value>)',
+        },
+        success: {
+          DEFAULT:    'hsl(var(--success) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-on) / <alpha-value>)',
+        },
+        warning: {
+          DEFAULT:    'hsl(var(--warning) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-on) / <alpha-value>)',
+        },
+        accent: {
+          DEFAULT:    'hsl(var(--bg-surface-2) / <alpha-value>)',
+          foreground: 'hsl(var(--text-primary) / <alpha-value>)',
+        },
+        popover: {
+          DEFAULT:    'hsl(var(--bg-surface) / <alpha-value>)',
+          foreground: 'hsl(var(--text-primary) / <alpha-value>)',
+        },
+        card: {
+          DEFAULT:    'hsl(var(--bg-surface) / <alpha-value>)',
+          foreground: 'hsl(var(--text-primary) / <alpha-value>)',
+        },
+        // ── capa primitive (brand red) — uso puntual ──────────────────────
+        brand: {
+          50:  '#FEF1EF',
+          100: '#FCDBD6',
+          200: '#F8B5AB',
+          300: '#F08879',
+          400: '#E25A47',
+          500: '#C8200E',
+          600: '#A01808',
+          700: '#7A1206',
+          800: '#570D04',
+          900: '#3A0903',
+        },
+      },
+      borderRadius: {
+        sm: '6px',
+        md: '10px',
+        lg: '12px',
+        xl: '16px',
+      },
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
+      fontSize: {
+        // calibrado vs Stitch — ver DESIGN.md §4
+        xs:    ['11px', { lineHeight: '1.4' }],
+        sm:    ['13px', { lineHeight: '1.45' }],
+        base:  ['14px', { lineHeight: '1.5' }],
+        md:    ['16px', { lineHeight: '1.5' }],
+        lg:    ['18px', { lineHeight: '1.4' }],
+        xl:    ['22px', { lineHeight: '1.3' }],
+        '2xl': ['28px', { lineHeight: '1.25' }],
+        '3xl': ['32px', { lineHeight: '1.2' }],
+        '4xl': ['40px', { lineHeight: '1.15', letterSpacing: '-0.02em' }],
+      },
+      letterSpacing: {
+        tight:  '-0.02em',
+        wide:   '0.06em',
+        wider:  '0.12em',
+      },
+      boxShadow: {
+        xs: '0 1px 2px rgba(0,0,0,0.04)',
+        sm: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+        md: '0 4px 8px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.04)',
+      },
+      transitionTimingFunction: {
+        'out-quad': 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+      },
+      transitionDuration: {
+        fast: '120ms',
+        base: '180ms',
+        slow: '280ms',
+      },
+      keyframes: {
+        'accordion-down': {
+          from: { height: '0' },
+          to:   { height: 'var(--radix-accordion-content-height)' },
+        },
+        'accordion-up': {
+          from: { height: 'var(--radix-accordion-content-height)' },
+          to:   { height: '0' },
+        },
+      },
+      animation: {
+        'accordion-down': 'accordion-down 180ms ease-out',
+        'accordion-up':   'accordion-up 180ms ease-out',
+      },
+    },
+  },
+  plugins: [animate],
+}

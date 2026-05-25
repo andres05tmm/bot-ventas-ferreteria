@@ -1,18 +1,32 @@
+/*
+ * TabInventario — catálogo navegable con edición inline de precio, stock,
+ * fracciones y mayorista; modales crear/editar/eliminar.
+ * Wave 2.b: migrado a primitives shadcn + tokens semantic.
+ */
 import { useState, useRef, useCallback, useMemo } from 'react'
-import { createPortal } from 'react-dom'
-import {
-  useTheme, useFetch, Spinner, ErrorMsg,
-  StyledInput, Badge, EmptyState, cop, API_BASE,
-  useIsMobile,
-} from '../components/shared.jsx'
+import { useFetch, API_BASE } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
+import { useIsMobile } from '../components/shared.jsx'
+import { Card } from '@/components/ui/card.jsx'
+import { Button } from '@/components/ui/button.jsx'
+import { Input } from '@/components/ui/input.jsx'
+import { Label } from '@/components/ui/label.jsx'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog.jsx'
+import {
+  Search, Plus, Pencil, Trash2, ChevronDown, ChevronUp, Check, X,
+  AlertCircle, Package, Loader2,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 
-// ── Utilidades ────────────────────────────────────────────────────────────────
+// ─── helpers ──────────────────────────────────────────────────────────────────
 const nl = s => (s || '').toLowerCase()
+const cop = v => v == null || isNaN(v) ? '$0' : '$' + Math.round(v).toLocaleString('es-CO')
 
 function catIcon(cat) {
   const c = nl(cat)
-  if (c.includes('pint') || c.includes('disol'))                               return '🎨'
+  if (c.includes('pint') || c.includes('disol'))                              return '🎨'
   if (c.includes('thinner') || c.includes('varsol'))                          return '🧪'
   if (c.includes('lija') || c.includes('esmeril'))                            return '🪚'
   if (c.includes('tornill') || c.includes('clav') || c.includes('puntilla'))  return '🔩'
@@ -23,20 +37,22 @@ function catIcon(cat) {
   return '📦'
 }
 
-const UNIDAD_COLORES = {
-  'galón': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
-  'galon': { bg: '#fef9c3', color: '#a16207', border: '#fde047' },
-  'kg':    { bg: '#dcfce7', color: '#166534', border: '#86efac' },
-  'gramos':{ bg: '#dcfce7', color: '#166534', border: '#86efac' },
-  'grm':   { bg: '#dcfce7', color: '#166534', border: '#86efac' },
-  'mts':   { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
-  'cms':   { bg: '#ede9fe', color: '#6d28d9', border: '#c4b5fd' },
-  'lts':   { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
-  'lt':    { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
-  'mlt':   { bg: '#eff6ff', color: '#1e40af', border: '#93c5fd' },
+// Clases tokenizadas por unidad de medida — solo si no es "Unidad" genérica
+const UNIDAD_CLASS = {
+  'galón':  'bg-warning/10 text-warning border-warning/30',
+  'galon':  'bg-warning/10 text-warning border-warning/30',
+  'kg':     'bg-success/10 text-success border-success/30',
+  'gramos': 'bg-success/10 text-success border-success/30',
+  'grm':    'bg-success/10 text-success border-success/30',
+  'mts':    'bg-primary/10 text-primary border-primary/30',
+  'cms':    'bg-primary/10 text-primary border-primary/30',
+  'lts':    'bg-primary/10 text-primary border-primary/30',
+  'lt':     'bg-primary/10 text-primary border-primary/30',
+  'mlt':    'bg-primary/10 text-primary border-primary/30',
 }
+const unidadClass = u => UNIDAD_CLASS[nl(u).replace('ó', 'o')] || 'bg-muted text-muted-foreground border-border'
 
-// ── Subcategorías ─────────────────────────────────────────────────────────────
+// ─── subcategorías ────────────────────────────────────────────────────────────
 const SUBCATS = {
   '1 artículos de ferreteria': [
     { key: 'ferr_brochas',    icono: '🖌️', label: 'Brochas / Rodillos', fn: p => nl(p.nombre).includes('brocha') || nl(p.nombre).includes('rodillo') },
@@ -78,8 +94,7 @@ const SUBCATS = {
     { key: 'elec_otros',    icono: '⚡', label: 'Otros',         fn: () => true },
   ],
 }
-
-function getSubcats(catKey) { return SUBCATS[catKey.toLowerCase()] || [] }
+const getSubcats = k => SUBCATS[k.toLowerCase()] || []
 
 function filtrarPorSubcat(prods, subcats, subcatKey) {
   const idx = subcats.findIndex(s => s.key === subcatKey)
@@ -93,7 +108,7 @@ function filtrarPorSubcat(prods, subcats, subcatKey) {
   return prods.filter(sc.fn)
 }
 
-// ── Fracciones ────────────────────────────────────────────────────────────────
+// ─── fracciones ───────────────────────────────────────────────────────────────
 function parseFraccion(str) {
   if (!str) return null
   str = String(str).trim().replace(',', '.')
@@ -109,7 +124,6 @@ const FRACS_CONOCIDAS = [
   [1/16,'1/16'],[1/8,'1/8'],[1/4,'1/4'],[1/3,'1/3'],[3/8,'3/8'],
   [1/2,'1/2'],[5/8,'5/8'],[2/3,'2/3'],[3/4,'3/4'],[7/8,'7/8'],[1/10,'1/10'],
 ]
-
 function decimalAFrac(val) {
   if (val === null || val === undefined) return null
   val = parseFloat(val)
@@ -122,16 +136,16 @@ function decimalAFrac(val) {
   }
   return val.toFixed(2).replace(/\.?0+$/, '')
 }
+const FRACS_ORDEN = ['3/4','1/2','1/4','1/8','1/10','1/16']
 
-// ── Editor de precio inline ───────────────────────────────────────────────────
+// ─── editor precio inline ─────────────────────────────────────────────────────
 function PrecioInline({ value, prodKey, onSaved, authFetch }) {
-  const t = useTheme()
   const [editando, setEditando] = useState(false)
   const [val,      setVal]      = useState(value || 0)
-  const [estado,   setEstado]   = useState('idle') // idle | saving | ok | err
+  const [estado,   setEstado]   = useState('idle')
   const ref = useRef()
 
-  const abrir = (e) => { e.stopPropagation(); setVal(value || 0); setEstado('idle'); setEditando(true); setTimeout(() => ref.current?.select(), 20) }
+  const abrir  = (e) => { e.stopPropagation(); setVal(value || 0); setEstado('idle'); setEditando(true); setTimeout(() => ref.current?.select(), 20) }
   const cerrar = () => { setEditando(false); setEstado('idle') }
 
   const guardar = async () => {
@@ -144,54 +158,55 @@ function PrecioInline({ value, prodKey, onSaved, authFetch }) {
       })
       if (!r.ok) throw new Error()
       setEstado('ok'); onSaved(Number(val))
-      setTimeout(cerrar, 1200)
-    } catch { setEstado('err'); setTimeout(cerrar, 1500) }
+      setTimeout(cerrar, 1000)
+    } catch { setEstado('err'); setTimeout(cerrar, 1200) }
   }
 
   if (editando) return (
-    <div style={{ display:'flex', alignItems:'center', gap:5 }} onClick={e => e.stopPropagation()}>
-      <span style={{ color:t.textMuted, fontSize:11 }}>$</span>
+    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+      <span className="text-[10px] text-muted-foreground">$</span>
       <input
         ref={ref} type="number" min="0" value={val}
-        onChange={e => setVal(parseInt(e.target.value)||0)}
-        onKeyDown={e => { if(e.key==='Enter') guardar(); if(e.key==='Escape') cerrar() }}
-        style={{
-          width:90, background:t.id==='caramelo'?'#f8fafc':'#111',
-          border:`1px solid ${t.accent}88`, borderRadius:6,
-          color:t.accent, fontSize:12, fontFamily:'monospace', fontWeight:700,
-          padding:'3px 7px', outline:'none', MozAppearance:'textfield', appearance:'textfield',
-        }}
+        onChange={e => setVal(parseInt(e.target.value) || 0)}
+        onKeyDown={e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') cerrar() }}
+        className="w-24 h-7 px-2 text-xs font-mono font-bold text-primary bg-surface border border-primary/50 rounded outline-none focus:border-primary"
       />
-      <button onClick={guardar} style={{ background:t.accent, border:'none', borderRadius:5, color:'#fff', width:22, height:22, cursor:'pointer', fontSize:12, display:'flex', alignItems:'center', justifyContent:'center' }}>
-        {estado==='saving'?'…':'✓'}
-      </button>
-      <button onClick={cerrar} style={{ background:'transparent', border:`1px solid ${t.border}`, borderRadius:5, color:t.textMuted, width:22, height:22, cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+      <Button size="icon" className="size-7" onClick={guardar}>
+        {estado === 'saving' ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3.5" />}
+      </Button>
+      <Button size="icon" variant="outline" className="size-7" onClick={cerrar}>
+        <X className="size-3.5" />
+      </Button>
     </div>
   )
 
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }} onClick={abrir} title="Clic para editar precio">
-      {value
-        ? <span style={{ color: estado==='ok'?t.green : estado==='err'?'#f87171' : t.green, fontWeight:600, transition:'color .3s' }}>
-            {cop(value)}
-            {estado==='ok'  && <span style={{ fontSize:9, marginLeft:5, color:t.green }}>✓</span>}
-            {estado==='err' && <span style={{ fontSize:9, marginLeft:5, color:'#f87171' }}>✗</span>}
-          </span>
-        : <Badge color={t.yellow}>Sin precio</Badge>
-      }
-      <span style={{ fontSize:10, color:t.textMuted, opacity:.45 }}>✏</span>
-    </div>
+    <button onClick={abrir} className="group flex items-center gap-1.5 cursor-pointer" title="Clic para editar precio">
+      {value ? (
+        <span className={cn(
+          'font-semibold tabular transition-colors',
+          estado === 'err' ? 'text-destructive' : 'text-success',
+        )}>
+          {cop(value)}
+          {estado === 'ok' && <Check className="inline size-3 ml-1 text-success" />}
+        </span>
+      ) : (
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning border border-warning/30 font-semibold">
+          Sin precio
+        </span>
+      )}
+      <Pencil className="size-2.5 text-muted-foreground opacity-30 group-hover:opacity-100 transition-opacity" />
+    </button>
   )
 }
 
-// ── Editor de stock inline (con fracciones para fraccionables) ────────────────
+// ─── editor stock inline ──────────────────────────────────────────────────────
 function StockInline({ value, prodKey, fracciones, onSaved, authFetch }) {
-  const t       = useTheme()
-  const esFracc = !!(fracciones && Object.keys(fracciones).filter(k=>k!=='unidad_suelta').length > 0)
+  const esFracc = !!(fracciones && Object.keys(fracciones).filter(k => k !== 'unidad_suelta').length > 0)
   const fracBtns = useMemo(() => {
     if (!esFracc) return []
-    return Object.keys(fracciones).filter(k=>k!=='unidad_suelta')
-      .sort((a,b) => (parseFraccion(b)||0) - (parseFraccion(a)||0))
+    return Object.keys(fracciones).filter(k => k !== 'unidad_suelta')
+      .sort((a, b) => (parseFraccion(b) || 0) - (parseFraccion(a) || 0))
   }, [fracciones, esFracc])
 
   const [editando, setEditando] = useState(false)
@@ -199,110 +214,105 @@ function StockInline({ value, prodKey, fracciones, onSaved, authFetch }) {
   const [estado,   setEstado]   = useState('idle')
   const ref = useRef()
 
-  const display = esFracc ? decimalAFrac(value) : (value!==null&&value!==undefined ? String(value) : null)
+  const display = esFracc ? decimalAFrac(value) : (value !== null && value !== undefined ? String(value) : null)
 
-  const abrir = (e) => { e.stopPropagation(); setVal(display||''); setEstado('idle'); setEditando(true); setTimeout(()=>{ref.current?.focus();ref.current?.select()},20) }
+  const abrir  = (e) => { e.stopPropagation(); setVal(display || ''); setEstado('idle'); setEditando(true); setTimeout(() => { ref.current?.focus(); ref.current?.select() }, 20) }
   const cerrar = () => { setEditando(false); setEstado('idle') }
 
   const guardar = useCallback(async (strVal) => {
     const src = strVal !== undefined ? strVal : val
-    const num = esFracc ? parseFraccion(String(src)) : parseFloat(String(src).replace(',','.'))
-    if (num===null||isNaN(num)||num<0) { cerrar(); return }
+    const num = esFracc ? parseFraccion(String(src)) : parseFloat(String(src).replace(',', '.'))
+    if (num === null || isNaN(num) || num < 0) { cerrar(); return }
     setEstado('saving')
     try {
       const r = await authFetch(`${API_BASE}/inventario/${encodeURIComponent(prodKey)}/stock`, {
-        method:'PATCH', headers:{'Content-Type':'application/json'},
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stock: num }),
       })
       if (!r.ok) throw new Error()
       setEstado('ok'); onSaved(num)
-      setTimeout(cerrar, 700)
-    } catch { setEstado('err'); setTimeout(cerrar, 900) }
+      setTimeout(cerrar, 600)
+    } catch { setEstado('err'); setTimeout(cerrar, 800) }
   }, [val, prodKey, esFracc, onSaved])
 
-  const onKey = e => { if(e.key==='Enter') guardar(); if(e.key==='Escape') cerrar() }
-  const sumar  = frac => { const b=parseFraccion(val)||0; setVal(decimalAFrac(b+(parseFraccion(frac)||0))||'') }
-  const restar = frac => { const b=parseFraccion(val)||0; setVal(decimalAFrac(Math.max(0,b-(parseFraccion(frac)||0)))||'0') }
+  const onKey  = e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') cerrar() }
+  const sumar  = frac => { const b = parseFraccion(val) || 0; setVal(decimalAFrac(b + (parseFraccion(frac) || 0)) || '') }
+  const restar = frac => { const b = parseFraccion(val) || 0; setVal(decimalAFrac(Math.max(0, b - (parseFraccion(frac) || 0))) || '0') }
 
   if (editando) return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:5 }} onClick={e=>e.stopPropagation()}>
-      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+    <div className="flex flex-col items-center gap-1.5" onClick={e => e.stopPropagation()}>
+      <div className="flex items-center gap-1">
         <input
-          ref={ref} value={val} onChange={e=>setVal(e.target.value)} onKeyDown={onKey} onBlur={guardar}
-          placeholder={esFracc?'ej: 2 3/4':'0'} inputMode="decimal"
-          style={{
-            width:esFracc?88:68, background:t.id==='caramelo'?'#f8fafc':'#111',
-            border:`1.5px solid ${estado==='err'?t.accent:t.green}`,
-            borderRadius:6, padding:'3px 8px', fontSize:12, color:t.text,
-            fontFamily:'monospace', outline:'none', textAlign:'center',
-          }}
+          ref={ref} value={val} onChange={e => setVal(e.target.value)} onKeyDown={onKey} onBlur={() => guardar()}
+          placeholder={esFracc ? 'ej: 2 3/4' : '0'} inputMode="decimal"
+          className={cn(
+            'h-7 px-2 text-xs text-center font-mono bg-surface border rounded outline-none',
+            esFracc ? 'w-24' : 'w-20',
+            estado === 'err' ? 'border-destructive' : 'border-success',
+          )}
         />
-        <button onClick={()=>guardar()} style={{ background:t.green+'22', border:`1px solid ${t.green}44`, color:t.green, borderRadius:5, padding:'3px 7px', fontSize:11, cursor:'pointer' }}>✓</button>
-        <button onClick={cerrar} style={{ background:'none', border:`1px solid ${t.border}`, color:t.textMuted, borderRadius:5, padding:'3px 7px', fontSize:11, cursor:'pointer' }}>✕</button>
+        <Button size="icon" variant="ghost" className="size-7 text-success hover:text-success" onClick={() => guardar()}><Check className="size-3.5" /></Button>
+        <Button size="icon" variant="outline" className="size-7" onClick={cerrar}><X className="size-3.5" /></Button>
       </div>
       {esFracc && fracBtns.length > 0 && (
-        <div style={{ display:'flex', flexWrap:'wrap', gap:3, justifyContent:'center' }}>
+        <div className="flex flex-wrap justify-center gap-1">
           {fracBtns.map(frac => (
-            <div key={frac} style={{ display:'flex', gap:1 }}>
-              <button onClick={()=>restar(frac)} style={{ background:t.accentSub, border:`1px solid ${t.accent}33`, color:t.accent, borderRadius:'4px 0 0 4px', padding:'2px 5px', fontSize:10, cursor:'pointer', fontWeight:700 }}>−</button>
-              <span style={{ background:t.card, border:`1px solid ${t.border}`, borderLeft:'none', borderRight:'none', padding:'2px 6px', fontSize:10, color:t.text, display:'flex', alignItems:'center' }}>{frac}</span>
-              <button onClick={()=>sumar(frac)} style={{ background:t.green+'22', border:`1px solid ${t.green}33`, color:t.green, borderRadius:'0 4px 4px 0', padding:'2px 5px', fontSize:10, cursor:'pointer', fontWeight:700 }}>+</button>
+            <div key={frac} className="flex items-stretch">
+              <button onClick={() => restar(frac)} className="px-1.5 text-[10px] font-bold text-primary bg-primary-soft border border-primary/30 rounded-l">−</button>
+              <span className="px-1.5 text-[10px] bg-surface border-y border-border flex items-center">{frac}</span>
+              <button onClick={() => sumar(frac)} className="px-1.5 text-[10px] font-bold text-success bg-success/10 border border-success/30 rounded-r">+</button>
             </div>
           ))}
         </div>
       )}
-      {estado==='saving'&&<span style={{fontSize:9,color:t.textMuted}}>Guardando…</span>}
-      {estado==='ok'    &&<span style={{fontSize:10,color:t.green}}>✓</span>}
-      {estado==='err'   &&<span style={{fontSize:10,color:t.accent}}>✗</span>}
+      {estado === 'saving' && <span className="text-[10px] text-muted-foreground">Guardando…</span>}
+      {estado === 'err'    && <span className="text-[10px] text-destructive">Error</span>}
     </div>
   )
 
-  const hay     = value!==null&&value!==undefined
+  const hay     = value !== null && value !== undefined
   const esFracV = esFracc && hay && !Number.isInteger(parseFloat(value))
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:5, cursor:'pointer', justifyContent:'center' }} onClick={abrir} title="Clic para editar stock">
-      {hay
-        ? <span style={{ color:esFracV?t.yellow:t.blue, fontWeight:esFracV?600:400, fontFamily:'monospace', fontSize:12 }}>
-            {display}{esFracc&&<span style={{fontSize:9,opacity:.5,marginLeft:2}}>gal</span>}
-          </span>
-        : <span style={{ color:t.textMuted, fontSize:11, opacity:.6 }}>—</span>
-      }
-      <span style={{ fontSize:9, color:t.textMuted, opacity:.35 }}>✏</span>
-    </div>
+    <button onClick={abrir} className="group flex items-center justify-center gap-1 cursor-pointer mx-auto" title="Clic para editar stock">
+      {hay ? (
+        <span className={cn('font-mono text-xs tabular', esFracV ? 'font-semibold text-warning' : 'text-foreground')}>
+          {display}{esFracc && <span className="text-[9px] opacity-50 ml-0.5">gal</span>}
+        </span>
+      ) : (
+        <span className="text-[11px] text-muted-foreground opacity-60">—</span>
+      )}
+      <Pencil className="size-2.5 text-muted-foreground opacity-30 group-hover:opacity-100 transition-opacity" />
+    </button>
   )
 }
 
-// ── Editor de fracciones inline ───────────────────────────────────────────────
-const FRACS_ORDEN = ['3/4','1/2','1/4','1/8','1/10','1/16']
-
+// ─── editor fracciones ────────────────────────────────────────────────────────
 function FraccionesEditor({ fracciones, prodKey, onSaved, authFetch }) {
-  const t = useTheme()
-  const isMobile = useIsMobile()
   const [editando, setEditando] = useState(false)
   const [vals,     setVals]     = useState({})
   const [estado,   setEstado]   = useState('idle')
 
   const abrir = (e) => {
-    e.stopPropagation()
+    e?.stopPropagation()
     const init = {}
-    FRACS_ORDEN.forEach(f => { const v=fracciones?.[f]; init[f]=v?(typeof v==='object'?v.precio:v):'' })
+    FRACS_ORDEN.forEach(f => { const v = fracciones?.[f]; init[f] = v ? (typeof v === 'object' ? v.precio : v) : '' })
     setVals(init); setEditando(true)
   }
 
   const guardar = async (e) => {
-    e.stopPropagation()
+    e?.stopPropagation()
     setEstado('saving')
     const fracs = {}
-    FRACS_ORDEN.forEach(f => { if (vals[f]>0) fracs[f]=parseInt(vals[f]) })
+    FRACS_ORDEN.forEach(f => { if (vals[f] > 0) fracs[f] = parseInt(vals[f]) })
     try {
       const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/fracciones`, {
-        method:'PATCH', headers:{'Content-Type':'application/json'},
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fracciones: fracs }),
       })
       if (!r.ok) throw new Error()
       setEstado('ok'); onSaved(fracs)
-      setTimeout(()=>{ setEstado('idle'); setEditando(false) }, 1000)
-    } catch { setEstado('err'); setTimeout(()=>setEstado('idle'), 2000) }
+      setTimeout(() => { setEstado('idle'); setEditando(false) }, 800)
+    } catch { setEstado('err'); setTimeout(() => setEstado('idle'), 1500) }
   }
 
   const hasFracs = fracciones && Object.keys(fracciones).length > 0
@@ -310,257 +320,191 @@ function FraccionesEditor({ fracciones, prodKey, onSaved, authFetch }) {
   if (!editando) return (
     <div>
       {hasFracs && (
-        <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:7 }}>
-          {FRACS_ORDEN.filter(f=>fracciones[f]).map(f => {
-            const precio = typeof fracciones[f]==='object' ? fracciones[f].precio : fracciones[f]
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {FRACS_ORDEN.filter(f => fracciones[f]).map(f => {
+            const precio = typeof fracciones[f] === 'object' ? fracciones[f].precio : fracciones[f]
             return (
-              <div key={f} style={{ background:t.card, border:`1px solid ${t.border}`, borderRadius:7, padding:'4px 9px' }}>
-                <div style={{ fontSize:9, color:t.textMuted, marginBottom:1 }}>{f}</div>
-                <div style={{ color:t.accent, fontWeight:600, fontSize:11 }}>{cop(precio)}</div>
+              <div key={f} className="bg-surface border border-border rounded-md px-2 py-1">
+                <div className="text-[9px] text-muted-foreground leading-none">{f}</div>
+                <div className="text-xs font-semibold text-primary tabular leading-tight mt-0.5">{cop(precio)}</div>
               </div>
             )
           })}
         </div>
       )}
-      <button onClick={abrir} style={{
-        fontSize:10, color:t.accent, background:t.accentSub,
-        border:`1px solid ${t.accent}44`, borderRadius:6, padding:'4px 10px',
-        cursor:'pointer', fontFamily:'inherit',
-      }}>
-        ✏ {hasFracs ? 'Editar fracciones' : 'Agregar fracciones'}
-      </button>
+      <Button size="sm" variant="outline" onClick={abrir} className="h-7 text-xs border-primary/40 text-primary hover:bg-primary-soft">
+        <Pencil className="size-3 mr-1" /> {hasFracs ? 'Editar fracciones' : 'Agregar fracciones'}
+      </Button>
     </div>
   )
 
   return (
-    <div onClick={e=>e.stopPropagation()}>
-      <div style={{ display:'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr 1fr' : 'repeat(3,1fr)', gap:6, marginBottom:10 }}>
+    <div onClick={e => e.stopPropagation()} className="space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         {FRACS_ORDEN.map(f => (
           <div key={f}>
-            <div style={{ fontSize:9, color:t.textMuted, marginBottom:3 }}>{f}</div>
-            <div style={{ display:'flex', alignItems:'center', gap:3 }}>
-              <span style={{ fontSize:10, color:t.textMuted }}>$</span>
-              <input type="number" min="0" value={vals[f]||''} placeholder="—"
-                onChange={e=>setVals(v=>({...v,[f]:parseInt(e.target.value)||0}))}
-                style={{
-                  width:'100%', background:t.id==='caramelo'?'#f8fafc':'#111',
-                  border:`1px solid ${vals[f]>0?t.accent+'88':t.border}`, borderRadius:6,
-                  color:t.text, fontSize:11, fontFamily:'monospace', padding:'4px 6px',
-                  outline:'none', MozAppearance:'textfield', appearance:'textfield',
-                }}
+            <Label className="text-[9px] text-muted-foreground uppercase tracking-wide">{f}</Label>
+            <div className="flex items-center gap-1 mt-1">
+              <span className="text-[10px] text-muted-foreground">$</span>
+              <input type="number" min="0" value={vals[f] || ''} placeholder="—"
+                onChange={e => setVals(v => ({ ...v, [f]: parseInt(e.target.value) || 0 }))}
+                className={cn(
+                  'w-full h-7 px-2 text-xs font-mono tabular bg-surface border rounded outline-none',
+                  vals[f] > 0 ? 'border-primary/50' : 'border-input',
+                )}
               />
             </div>
           </div>
         ))}
       </div>
-      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-        <button onClick={guardar} style={{
-          background: estado==='ok'?t.green:t.accent, border:'none', borderRadius:6,
-          color:'#fff', padding:'5px 14px', cursor:'pointer', fontFamily:'inherit', fontSize:11, fontWeight:600,
-        }}>
-          {estado==='saving'?'Guardando…':estado==='ok'?'✓ Guardado':'Guardar fracciones'}
-        </button>
-        <button onClick={e=>{e.stopPropagation();setEditando(false)}} style={{
-          background:'transparent', border:`1px solid ${t.border}`, borderRadius:6,
-          color:t.textMuted, padding:'5px 12px', cursor:'pointer', fontFamily:'inherit', fontSize:11,
-        }}>Cancelar</button>
-        {estado==='err'&&<span style={{fontSize:10,color:'#f87171'}}>✗ Error</span>}
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={guardar} className={cn('h-8 text-xs', estado === 'ok' && 'bg-success hover:bg-success/90')}>
+          {estado === 'saving' ? <><Loader2 className="size-3 mr-1 animate-spin" /> Guardando…</> :
+           estado === 'ok'     ? <><Check className="size-3 mr-1" /> Guardado</> :
+                                 'Guardar fracciones'}
+        </Button>
+        <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setEditando(false) }} className="h-8 text-xs">Cancelar</Button>
+        {estado === 'err' && <span className="text-[10px] text-destructive">Error</span>}
       </div>
     </div>
   )
 }
 
-// ── Fila de producto ──────────────────────────────────────────────────────────
-// ── Editor de precio mayorista inline ────────────────────────────────────────
+// ─── editor mayorista ─────────────────────────────────────────────────────────
 function MayoristaInline({ mayorista, prodKey, onSaved, topSpacing, authFetch }) {
-  const t = useTheme()
   const [editando, setEditando] = useState(false)
   const [precio,   setPrecio]   = useState('')
   const [umbral,   setUmbral]   = useState('')
   const [estado,   setEstado]   = useState('idle')
 
-  const abrir = () => {
-    setPrecio(String(mayorista.precio))
-    setUmbral(String(mayorista.umbral))
-    setEstado('idle')
-    setEditando(true)
-  }
+  const abrir  = () => { setPrecio(String(mayorista.precio)); setUmbral(String(mayorista.umbral)); setEstado('idle'); setEditando(true) }
   const cerrar = () => { setEditando(false); setEstado('idle') }
 
   const guardar = async () => {
-    const p = parseInt(precio)
-    const u = parseInt(umbral)
+    const p = parseInt(precio), u = parseInt(umbral)
     if (isNaN(p) || p <= 0) { cerrar(); return }
     setEstado('saving')
     try {
       const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prodKey)}/mayorista`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ precio: p, umbral: isNaN(u) ? mayorista.umbral : u }),
       })
       if (!r.ok) throw new Error()
       setEstado('ok')
       onSaved({ ...mayorista, precio: p, umbral: isNaN(u) ? mayorista.umbral : u })
-      setTimeout(cerrar, 800)
-    } catch { setEstado('err'); setTimeout(cerrar, 1200) }
-  }
-
-  const inputStyle = {
-    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-    border: `1px solid ${t.blue}66`,
-    borderRadius: 6, padding: '4px 8px',
-    fontSize: 12, color: t.text, fontFamily: 'monospace',
-    outline: 'none', MozAppearance: 'textfield', appearance: 'textfield',
+      setTimeout(cerrar, 700)
+    } catch { setEstado('err'); setTimeout(cerrar, 1000) }
   }
 
   return (
-    <div style={{ marginTop: topSpacing ? 14 : 0 }}>
-      <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>
-        Precio mayorista
-      </div>
-
+    <div className={cn(topSpacing && 'mt-4')}>
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-2">Precio mayorista</div>
       {editando ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, color: t.textMuted }}>Desde</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-muted-foreground">Desde</span>
             <input type="number" min="1" value={umbral} onChange={e => setUmbral(e.target.value)}
-              style={{ ...inputStyle, width: 60, textAlign: 'center' }}
-            />
-            <span style={{ fontSize: 10, color: t.textMuted }}>uds →</span>
-            <span style={{ fontSize: 10, color: t.textMuted }}>$</span>
+              className="w-14 h-7 px-2 text-xs text-center font-mono bg-surface border border-input rounded outline-none focus:border-primary" />
+            <span className="text-[10px] text-muted-foreground">uds →</span>
+            <span className="text-[10px] text-muted-foreground">$</span>
             <input type="number" min="0" value={precio} onChange={e => setPrecio(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') cerrar() }}
-              autoFocus style={{ ...inputStyle, width: 90 }}
-            />
-            <span style={{ fontSize: 10, color: t.textMuted }}>c/u</span>
+              autoFocus
+              className="w-24 h-7 px-2 text-xs font-mono bg-surface border border-input rounded outline-none focus:border-primary" />
+            <span className="text-[10px] text-muted-foreground">c/u</span>
           </div>
-          <button onClick={guardar} style={{
-            background: estado === 'ok' ? t.green : t.blue, border: 'none', borderRadius: 6,
-            color: '#fff', padding: '5px 14px', cursor: 'pointer', fontFamily: 'inherit',
-            fontSize: 11, fontWeight: 600,
-          }}>
-            {estado === 'saving' ? 'Guardando…' : estado === 'ok' ? '✓ Guardado' : 'Guardar'}
-          </button>
-          <button onClick={cerrar} style={{
-            background: 'transparent', border: `1px solid ${t.border}`, borderRadius: 6,
-            color: t.textMuted, padding: '5px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11,
-          }}>Cancelar</button>
-          {estado === 'err' && <span style={{ fontSize: 10, color: t.accent }}>✗ Error</span>}
+          <Button size="sm" onClick={guardar} className={cn('h-8 text-xs', estado === 'ok' && 'bg-success hover:bg-success/90')}>
+            {estado === 'saving' ? 'Guardando…' : estado === 'ok' ? <><Check className="size-3 mr-1" /> Guardado</> : 'Guardar'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={cerrar} className="h-8 text-xs">Cancelar</Button>
+          {estado === 'err' && <span className="text-[10px] text-destructive">Error</span>}
         </div>
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            background: t.card, border: `1px solid ${t.blue}33`,
-            borderRadius: 7, padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 6,
-          }}>
-            <span style={{ color: t.textMuted, fontSize: 10 }}>Desde {mayorista.umbral} uds:</span>
-            <span style={{ color: t.blue, fontWeight: 700, fontSize: 13, fontFamily: 'monospace' }}>{cop(mayorista.precio)}</span>
-            <span style={{ color: t.textMuted, fontSize: 10 }}>c/u</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 bg-surface border border-primary/30 rounded-md px-3 py-1.5">
+            <span className="text-[10px] text-muted-foreground">Desde {mayorista.umbral} uds:</span>
+            <span className="text-sm font-bold text-primary font-mono tabular">{cop(mayorista.precio)}</span>
+            <span className="text-[10px] text-muted-foreground">c/u</span>
           </div>
-          <button onClick={abrir} style={{
-            fontSize: 10, color: t.blue, background: t.id === 'caramelo' ? '#eff6ff' : '#172554',
-            border: `1px solid ${t.blue}44`, borderRadius: 6, padding: '4px 10px',
-            cursor: 'pointer', fontFamily: 'inherit',
-          }}>✏ Editar</button>
+          <Button size="sm" variant="outline" onClick={abrir} className="h-8 text-xs border-primary/40 text-primary hover:bg-primary-soft">
+            <Pencil className="size-3 mr-1" /> Editar
+          </Button>
         </div>
       )}
     </div>
   )
 }
 
+// ─── fila desktop ─────────────────────────────────────────────────────────────
 function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete, authFetch }) {
-  const t = useTheme()
   const [p, setP] = useState(pInit)
   const hasFracs   = p.fracciones && Object.keys(p.fracciones).length > 0
   const expandible = hasFracs || p.mayorista
 
-  // Badge de unidad de medida — solo si no es "Unidad" genérica
   const unidad = p.unidad_medida || 'Unidad'
-  const esUnidadEspecial = unidad && unidad.toLowerCase() !== 'unidad'
-  const unidadKey = unidad.toLowerCase().replace('ó','o')
-  const unidadColor = UNIDAD_COLORES[unidadKey] || { bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db' }
+  const esUnidadEspecial = unidad && nl(unidad) !== 'unidad'
 
   return (
     <>
       <tr
-        style={{ borderBottom:`1px solid ${t.border}`, cursor: expandible?'pointer':'default' }}
+        className={cn('border-b border-border-subtle hover:bg-surface-2/40', expandible && 'cursor-pointer')}
         onClick={() => expandible && onToggle()}
-        onMouseEnter={e => e.currentTarget.style.background = t.cardHover}
-        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
       >
-        <td style={{ padding:'8px 14px', color:t.textMuted, fontFamily:'monospace', fontSize:10 }}>{p.codigo||'—'}</td>
-        <td style={{ padding:'8px 14px', color:t.text }}>
+        <td className="px-3 py-2 text-[10px] font-mono text-muted-foreground">{p.codigo || '—'}</td>
+        <td className="px-3 py-2 text-sm">
           {p.nombre}
-          <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginTop:3 }}>
+          <div className="flex gap-1 flex-wrap mt-1">
             {hasFracs && (
-              <span style={{ background:t.accentSub, color:t.accent, border:`1px solid ${t.accent}33`, padding:'1px 7px', borderRadius:99, fontSize:9 }}>fracciones</span>
+              <span className="text-[9px] px-1.5 py-px rounded-full bg-primary-soft text-primary border border-primary/30">fracciones</span>
             )}
             {p.mayorista && (
-              <span style={{ background:t.id==='caramelo'?'#eff6ff':'#172554', color:t.blue, border:`1px solid ${t.blue}33`, padding:'1px 7px', borderRadius:99, fontSize:9 }}>mayorista ×{p.mayorista.umbral}</span>
+              <span className="text-[9px] px-1.5 py-px rounded-full bg-surface-2 text-secondary-foreground border border-border">mayorista ×{p.mayorista.umbral}</span>
             )}
           </div>
         </td>
-        <td style={{ padding:'8px 14px' }} onClick={e=>e.stopPropagation()}>
-          <PrecioInline value={p.precio} prodKey={p.key} onSaved={v=>setP(prev=>({...prev,precio:v}))} authFetch={authFetch}/>
+        <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
+          <PrecioInline value={p.precio} prodKey={p.key} onSaved={v => setP(prev => ({ ...prev, precio: v }))} authFetch={authFetch} />
         </td>
-        <td style={{ padding:'8px 10px', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
+        <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
           <StockInline
-            value={p.stock!==null&&p.stock!==undefined ? p.stock : null}
-            prodKey={p.key}
-            fracciones={p.fracciones||null}
-            onSaved={v=>setP(prev=>({...prev,stock:v}))}
+            value={p.stock !== null && p.stock !== undefined ? p.stock : null}
+            prodKey={p.key} fracciones={p.fracciones || null}
+            onSaved={v => setP(prev => ({ ...prev, stock: v }))}
             authFetch={authFetch}
           />
         </td>
-        <td style={{ padding:'8px 10px', textAlign:'center' }}>
-          {esUnidadEspecial
-            ? <span style={{
-                background: t.id==='caramelo' ? unidadColor.bg : unidadColor.bg+'33',
-                color: t.id==='caramelo' ? unidadColor.color : unidadColor.border,
-                border: `1px solid ${unidadColor.border}55`,
-                padding:'2px 8px', borderRadius:99, fontSize:9, fontWeight:600,
-              }}>{unidad}</span>
-            : <span style={{ color:t.textMuted, fontSize:10, opacity:.4 }}>und</span>
-          }
+        <td className="px-3 py-2 text-center">
+          {esUnidadEspecial ? (
+            <span className={cn('text-[9px] font-semibold px-2 py-0.5 rounded-full border', unidadClass(unidad))}>{unidad}</span>
+          ) : (
+            <span className="text-[10px] text-muted-foreground opacity-40">und</span>
+          )}
         </td>
-        <td style={{ padding:'8px 10px', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
-          <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
-            <button onClick={onEdit} title="Editar producto" style={{
-              background:t.accentSub, border:`1px solid ${t.accent}44`, color:t.accent,
-              borderRadius:6, width:26, height:26, cursor:'pointer', fontSize:12,
-              display:'flex', alignItems:'center', justifyContent:'center',
-            }}>✏</button>
-            <button onClick={onDelete} title="Eliminar producto" style={{
-              background:'#fef2f2', border:'1px solid #fca5a544', color:'#dc2626',
-              borderRadius:6, width:26, height:26, cursor:'pointer', fontSize:12,
-              display:'flex', alignItems:'center', justifyContent:'center',
-            }}>🗑</button>
+        <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
+          <div className="flex gap-1 justify-center">
+            <button onClick={onEdit} className="size-7 rounded-md bg-primary-soft border border-primary/30 text-primary grid place-items-center" title="Editar">
+              <Pencil className="size-3.5" />
+            </button>
+            <button onClick={onDelete} className="size-7 rounded-md bg-destructive/10 border border-destructive/30 text-destructive grid place-items-center" title="Eliminar">
+              <Trash2 className="size-3.5" />
+            </button>
           </div>
         </td>
-        <td style={{ padding:'8px 14px', textAlign:'center', color:t.textMuted, fontSize:11 }}>
-          {expandible ? (expanded?'▲':'▼') : ''}
+        <td className="px-3 py-2 text-center text-muted-foreground">
+          {expandible && (expanded ? <ChevronUp className="size-3.5 inline" /> : <ChevronDown className="size-3.5 inline" />)}
         </td>
       </tr>
       {expanded && (
-        <tr style={{ background:t.tableAlt }}>
-          <td colSpan={7} style={{ padding:'10px 24px 14px' }}>
-            {/* Fracciones SOLO para productos fraccionables */}
+        <tr className="bg-surface-2/40">
+          <td colSpan={7} className="px-6 py-3">
             {hasFracs && (
-              <FraccionesEditor
-                fracciones={p.fracciones} prodKey={p.key}
-                onSaved={v=>setP(prev=>({...prev,fracciones:v}))}
-                authFetch={authFetch}
-              />
+              <FraccionesEditor fracciones={p.fracciones} prodKey={p.key}
+                onSaved={v => setP(prev => ({ ...prev, fracciones: v }))} authFetch={authFetch} />
             )}
-            {/* Precio mayorista editable */}
             {p.mayorista && (
-              <MayoristaInline
-                mayorista={p.mayorista}
-                prodKey={p.key}
-                onSaved={v=>setP(prev=>({...prev,mayorista:v}))}
-                topSpacing={hasFracs}
-                authFetch={authFetch}
-              />
+              <MayoristaInline mayorista={p.mayorista} prodKey={p.key}
+                onSaved={v => setP(prev => ({ ...prev, mayorista: v }))}
+                topSpacing={hasFracs} authFetch={authFetch} />
             )}
           </td>
         </tr>
@@ -569,39 +513,120 @@ function ProductoRow({ p: pInit, expanded, onToggle, onEdit, onDelete, authFetch
   )
 }
 
-// ── Tabla / Cards ────────────────────────────────────────────────────────────
+// ─── card móvil ───────────────────────────────────────────────────────────────
+function MobileProductCard({ p: pInit, expanded, onToggle, onEdit, onDelete, authFetch }) {
+  const [p, setP] = useState(pInit)
+  const hasFracs   = p.fracciones && Object.keys(p.fracciones).length > 0
+  const expandible = hasFracs || p.mayorista
+  const unidad = p.unidad_medida || 'Unidad'
+  const esUnidadEspecial = unidad && nl(unidad) !== 'unidad'
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="p-3 space-y-2.5">
+        <div className="flex justify-between items-start gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold leading-tight">{p.nombre}</div>
+            {p.codigo && <span className="text-[10px] text-muted-foreground font-mono">{p.codigo}</span>}
+            <div className="flex gap-1 flex-wrap mt-1.5">
+              {esUnidadEspecial && (
+                <span className={cn('text-[9px] font-semibold px-2 py-0.5 rounded-full border', unidadClass(unidad))}>{unidad}</span>
+              )}
+              {hasFracs   && <span className="text-[9px] px-2 py-0.5 rounded-full bg-primary-soft text-primary border border-primary/30">fracciones</span>}
+              {p.mayorista && <span className="text-[9px] px-2 py-0.5 rounded-full bg-surface-2 text-secondary-foreground border border-border">mayorista</span>}
+            </div>
+          </div>
+          <div className="flex gap-1.5 shrink-0">
+            <button onClick={(e) => { e.stopPropagation(); onEdit() }} className="size-9 rounded-md bg-primary-soft border border-primary/30 text-primary grid place-items-center">
+              <Pencil className="size-4" />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); onDelete() }} className="size-9 rounded-md bg-destructive/10 border border-destructive/30 text-destructive grid place-items-center">
+              <Trash2 className="size-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-surface-2/60 rounded-md px-2.5 py-2">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide">Precio</div>
+            <div className="mt-0.5" onClick={e => e.stopPropagation()}>
+              <PrecioInline value={p.precio} prodKey={p.key} onSaved={v => setP(prev => ({ ...prev, precio: v }))} authFetch={authFetch} />
+            </div>
+          </div>
+          <div className="bg-surface-2/60 rounded-md px-2.5 py-2">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide">Stock</div>
+            <div className="mt-0.5" onClick={e => e.stopPropagation()}>
+              <StockInline value={p.stock !== null && p.stock !== undefined ? p.stock : null}
+                prodKey={p.key} fracciones={p.fracciones || null}
+                onSaved={v => setP(prev => ({ ...prev, stock: v }))} authFetch={authFetch} />
+            </div>
+          </div>
+        </div>
+
+        {expandible && (
+          <Button variant="outline" size="sm" onClick={onToggle} className="w-full h-8 text-xs">
+            {expanded ? <><ChevronUp className="size-3 mr-1.5" /> Cerrar detalles</> :
+                        <><ChevronDown className="size-3 mr-1.5" /> Ver fracciones / mayorista</>}
+          </Button>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="border-t border-border-subtle bg-surface-2/40 p-3 space-y-3">
+          {hasFracs && (
+            <FraccionesEditor fracciones={p.fracciones} prodKey={p.key}
+              onSaved={v => setP(prev => ({ ...prev, fracciones: v }))} authFetch={authFetch} />
+          )}
+          {p.mayorista && (
+            <MayoristaInline mayorista={p.mayorista} prodKey={p.key}
+              onSaved={v => setP(prev => ({ ...prev, mayorista: v }))}
+              topSpacing={hasFracs} authFetch={authFetch} />
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ─── tabla por categoría ──────────────────────────────────────────────────────
 function TablaCat({ prods, onEdit, onDelete, isMobile, authFetch }) {
-  const t = useTheme()
   const [expanded, setExpanded] = useState({})
-  const toggle = useCallback(k => setExpanded(p=>({...p,[k]:!p[k]})), [])
+  const toggle = useCallback(k => setExpanded(p => ({ ...p, [k]: !p[k] })), [])
 
   if (isMobile) return (
-    <div style={{ borderTop:`1px solid ${t.border}`, padding:'8px 10px', display:'flex', flexDirection:'column', gap:8 }}>
+    <div className="border-t border-border-subtle p-2.5 flex flex-col gap-2">
       {prods.map(p => (
-        <MobileProductCard key={p.key} p={p} expanded={!!expanded[p.key]} onToggle={()=>toggle(p.key)}
-          onEdit={()=>onEdit(p)} onDelete={()=>onDelete(p)} authFetch={authFetch} />
+        <MobileProductCard key={p.key} p={p} expanded={!!expanded[p.key]} onToggle={() => toggle(p.key)}
+          onEdit={() => onEdit(p)} onDelete={() => onDelete(p)} authFetch={authFetch} />
       ))}
     </div>
   )
 
   return (
-    <div style={{ borderTop:`1px solid ${t.border}`, overflowX:'auto' }}>
-      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+    <div className="border-t border-border-subtle overflow-x-auto">
+      <table className="w-full text-sm">
         <thead>
-          <tr style={{ background:t.tableAlt }}>
-            {['Código','Nombre','Precio','Stock','Unidad','Acciones'].map((h,i)=>(
-              <th key={i} style={{
-                padding:'8px 14px', textAlign: (i===2||i===3||i===4||i===5)?'center':'left',
-                fontSize:9, color:t.textMuted, textTransform:'uppercase',
-                letterSpacing:'.08em', fontWeight:500, borderBottom:`1px solid ${t.border}`,
-              }}>{h}</th>
+          <tr className="bg-surface-2/60">
+            {[
+              { h: 'Código',   align: 'left' },
+              { h: 'Nombre',   align: 'left' },
+              { h: 'Precio',   align: 'left' },
+              { h: 'Stock',    align: 'center' },
+              { h: 'Unidad',   align: 'center' },
+              { h: 'Acciones', align: 'center' },
+              { h: '',         align: 'center' },
+            ].map((c, i) => (
+              <th key={i} className={cn(
+                'px-3 py-2 text-[9px] text-muted-foreground uppercase tracking-wide font-medium border-b border-border-subtle',
+                c.align === 'center' ? 'text-center' : 'text-left',
+              )}>{c.h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {prods.map(p => (
-            <ProductoRow key={p.key} p={p} expanded={!!expanded[p.key]} onToggle={()=>toggle(p.key)}
-              onEdit={()=>onEdit(p)} onDelete={()=>onDelete(p)} authFetch={authFetch}/>
+            <ProductoRow key={p.key} p={p} expanded={!!expanded[p.key]} onToggle={() => toggle(p.key)}
+              onEdit={() => onEdit(p)} onDelete={() => onDelete(p)} authFetch={authFetch} />
           ))}
         </tbody>
       </table>
@@ -609,344 +634,174 @@ function TablaCat({ prods, onEdit, onDelete, isMobile, authFetch }) {
   )
 }
 
-// ── Card de producto para móvil ──────────────────────────────────────────────
-function MobileProductCard({ p: pInit, expanded, onToggle, onEdit, onDelete, authFetch }) {
-  const t = useTheme()
-  const [p, setP] = useState(pInit)
-  const hasFracs   = p.fracciones && Object.keys(p.fracciones).length > 0
-  const expandible = hasFracs || p.mayorista
-
-  const unidad = p.unidad_medida || 'Unidad'
-  const esUnidadEspecial = unidad && unidad.toLowerCase() !== 'unidad'
-  const unidadKey = unidad.toLowerCase().replace('ó','o')
-  const unidadColor = UNIDAD_COLORES[unidadKey] || { bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db' }
-
-  return (
-    <div style={{
-      background: t.card, border: `1px solid ${t.border}`,
-      borderRadius: 10, overflow: 'hidden',
-    }}>
-      {/* Header del card */}
-      <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-
-        {/* Nombre + badges */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, fontSize: 13, color: t.text, lineHeight: 1.3 }}>
-              {p.nombre}
-            </div>
-            {p.codigo && (
-              <span style={{ fontSize: 10, color: t.textMuted, fontFamily: 'monospace' }}>{p.codigo}</span>
-            )}
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-              {esUnidadEspecial && (
-                <span style={{
-                  background: t.id==='caramelo' ? unidadColor.bg : unidadColor.bg+'33',
-                  color: t.id==='caramelo' ? unidadColor.color : unidadColor.border,
-                  border: `1px solid ${unidadColor.border}55`,
-                  padding: '1px 7px', borderRadius: 99, fontSize: 9, fontWeight: 600,
-                }}>{unidad}</span>
-              )}
-              {hasFracs && (
-                <span style={{ background: t.accentSub, color: t.accent, border: `1px solid ${t.accent}33`, padding: '1px 7px', borderRadius: 99, fontSize: 9 }}>fracciones</span>
-              )}
-              {p.mayorista && (
-                <span style={{ background: t.id==='caramelo'?'#eff6ff':'#172554', color: t.blue, border: `1px solid ${t.blue}33`, padding: '1px 7px', borderRadius: 99, fontSize: 9 }}>mayorista</span>
-              )}
-            </div>
-          </div>
-
-          {/* Acciones */}
-          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-            <button onClick={e => { e.stopPropagation(); onEdit() }} title="Editar" style={{
-              background: t.accentSub, border: `1px solid ${t.accent}44`, color: t.accent,
-              borderRadius: 8, width: 34, height: 34, cursor: 'pointer', fontSize: 14,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>✏</button>
-            <button onClick={e => { e.stopPropagation(); onDelete() }} title="Eliminar" style={{
-              background: '#fef2f2', border: '1px solid #fca5a544', color: '#dc2626',
-              borderRadius: 8, width: 34, height: 34, cursor: 'pointer', fontSize: 14,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>🗑</button>
-          </div>
-        </div>
-
-        {/* Precio + Stock en fila */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
-        }}>
-          <div style={{
-            background: t.tableAlt, borderRadius: 8, padding: '8px 10px',
-            display: 'flex', flexDirection: 'column', gap: 2,
-          }}>
-            <span style={{ fontSize: 9, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em' }}>Precio</span>
-            <div onClick={e => e.stopPropagation()}>
-              <PrecioInline value={p.precio} prodKey={p.key} onSaved={v => setP(prev => ({...prev, precio: v}))} authFetch={authFetch} />
-            </div>
-          </div>
-          <div style={{
-            background: t.tableAlt, borderRadius: 8, padding: '8px 10px',
-            display: 'flex', flexDirection: 'column', gap: 2,
-          }}>
-            <span style={{ fontSize: 9, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.06em' }}>Stock</span>
-            <div onClick={e => e.stopPropagation()}>
-              <StockInline
-                value={p.stock !== null && p.stock !== undefined ? p.stock : null}
-                prodKey={p.key}
-                fracciones={p.fracciones || null}
-                onSaved={v => setP(prev => ({...prev, stock: v}))}
-                authFetch={authFetch}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Expandir fracciones/mayorista */}
-        {expandible && (
-          <button onClick={onToggle} style={{
-            background: 'transparent', border: `1px solid ${t.border}`,
-            borderRadius: 7, padding: '6px 0', cursor: 'pointer',
-            color: t.textMuted, fontSize: 11, fontFamily: 'inherit',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          }}>
-            {expanded ? '▲ Cerrar detalles' : '▼ Ver fracciones / mayorista'}
-          </button>
-        )}
-      </div>
-
-      {/* Expandido: fracciones y mayorista */}
-      {expanded && (
-        <div style={{ borderTop: `1px solid ${t.border}`, padding: '10px 12px', background: t.tableAlt }}>
-          {hasFracs && (
-            <FraccionesEditor
-              fracciones={p.fracciones} prodKey={p.key}
-              onSaved={v => setP(prev => ({...prev, fracciones: v}))}
-              authFetch={authFetch}
-            />
-          )}
-          {p.mayorista && (
-            <MayoristaInline
-              mayorista={p.mayorista} prodKey={p.key}
-              onSaved={v => setP(prev => ({...prev, mayorista: v}))}
-              topSpacing={hasFracs}
-              authFetch={authFetch}
-            />
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Modal Editar Producto ─────────────────────────────────────────────────────
-const CATEGORIAS_EDITAR = [
+// ─── modales ──────────────────────────────────────────────────────────────────
+const CATEGORIAS = [
   '1 Artículos de Ferreteria',
   '2 Pinturas y Disolventes',
   '3 Tornilleria',
   '4 Impermeabilizantes y Materiales de Construcción',
   '5 Materiales Electricos',
 ]
-const UNIDADES_EDITAR = ['Unidad','Galón','Kg','Gramos','MLT','Mts','Cms','Lt','Lts','25 kg']
+const UNIDADES = ['Unidad', 'Galón', 'Kg', 'Gramos', 'MLT', 'Mts', 'Cms', 'Lt', 'Lts', '25 kg']
+
+const selectClass = 'w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-ring/40'
 
 function ModalEditarProducto({ prod, onClose, onGuardado, authFetch }) {
-  const t = useTheme()
   const [form, setForm] = useState({
     nombre:        prod.nombre        || '',
-    categoria:     prod.categoria     || CATEGORIAS_EDITAR[0],
+    categoria:     prod.categoria     || CATEGORIAS[0],
     precio_unidad: prod.precio        || '',
     unidad_medida: prod.unidad_medida || 'Unidad',
     codigo:        prod.codigo        || '',
   })
   const [estado, setEstado] = useState('idle')
   const [err,    setErr]    = useState('')
-  const set = (k,v) => setForm(f=>({...f,[k]:v}))
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const guardar = async () => {
     if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); return }
     setEstado('saving'); setErr('')
     try {
       const body = {}
-      if (form.nombre        !== prod.nombre)        body.nombre        = form.nombre.trim()
-      if (form.categoria     !== prod.categoria)     body.categoria     = form.categoria
-      if (String(form.precio_unidad) !== String(prod.precio)) body.precio_unidad = Number(form.precio_unidad)
-      if (form.unidad_medida !== prod.unidad_medida) body.unidad_medida = form.unidad_medida
-      if (form.codigo        !== prod.codigo)        body.codigo        = form.codigo.trim()
+      if (form.nombre        !== prod.nombre)                  body.nombre        = form.nombre.trim()
+      if (form.categoria     !== prod.categoria)               body.categoria     = form.categoria
+      if (String(form.precio_unidad) !== String(prod.precio))  body.precio_unidad = Number(form.precio_unidad)
+      if (form.unidad_medida !== prod.unidad_medida)           body.unidad_medida = form.unidad_medida
+      if (form.codigo        !== prod.codigo)                  body.codigo        = form.codigo.trim()
       if (!Object.keys(body).length) { onClose(); return }
       const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prod.key)}`, {
-        method:'PATCH', headers:{'Content-Type':'application/json'},
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
       const d = await r.json()
-      if (!r.ok) throw new Error(d.detail||'Error')
+      if (!r.ok) throw new Error(d.detail || 'Error')
       setEstado('ok')
-      setTimeout(() => { onGuardado(); onClose() }, 700)
-    } catch(e) { setErr(e.message); setEstado('err') }
+      setTimeout(() => { onGuardado(); onClose() }, 500)
+    } catch (e) { setErr(e.message); setEstado('err') }
   }
 
-  const inp = {
-    width:'100%', boxSizing:'border-box',
-    background:t.id==='caramelo'?'#f8fafc':'#111',
-    border:`1px solid ${t.border}`, borderRadius:7,
-    color:t.text, fontSize:12, padding:'7px 10px',
-    outline:'none', fontFamily:'inherit',
-  }
-  const lbl = { fontSize:10, color:t.textMuted, textTransform:'uppercase', letterSpacing:'.07em', marginBottom:3, display:'block' }
-
-  return createPortal(
-    <div onMouseDown={e=>e.target===e.currentTarget&&onClose()} style={{
-      position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,.6)',
-      display:'flex',alignItems:'center',justifyContent:'center',padding:16,
-    }}>
-      <div style={{
-        background:t.bg, border:`1px solid ${t.border}`, borderRadius:14,
-        width:'100%', maxWidth:440, maxHeight:'90vh', overflowY:'auto',
-        boxShadow:'0 24px 64px rgba(0,0,0,.4)',
-      }}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 20px 0'}}>
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editar producto</DialogTitle>
+          <p className="text-xs text-muted-foreground">{prod.nombre}</p>
+        </DialogHeader>
+        <div className="space-y-3.5">
           <div>
-            <div style={{fontWeight:700,fontSize:14,color:t.text}}>✏️ Editar producto</div>
-            <div style={{fontSize:11,color:t.textMuted,marginTop:2}}>{prod.nombre}</div>
+            <Label>Nombre *</Label>
+            <Input value={form.nombre} onChange={e => set('nombre', e.target.value)} />
           </div>
-          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:7,color:t.textMuted,width:28,height:28,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
-        </div>
-        <div style={{padding:'16px 20px 20px',display:'flex',flexDirection:'column',gap:11}}>
-          <div><label style={lbl}>Nombre *</label>
-            <input style={inp} value={form.nombre} onChange={e=>set('nombre',e.target.value)}/></div>
-          <div><label style={lbl}>Categoría</label>
-            <select style={inp} value={form.categoria} onChange={e=>set('categoria',e.target.value)}>
-              {CATEGORIAS_EDITAR.map(c=><option key={c} value={c}>{c}</option>)}
-            </select></div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <div><label style={lbl}>Precio unitario (COP)</label>
-              <div style={{position:'relative'}}>
-                <span style={{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',color:t.textMuted,fontSize:11}}>$</span>
-                <input style={{...inp,paddingLeft:22}} type="number" min="0" value={form.precio_unidad} onChange={e=>set('precio_unidad',e.target.value)}/>
-              </div></div>
-            <div><label style={lbl}>Unidad DIAN</label>
-              <select style={inp} value={form.unidad_medida} onChange={e=>set('unidad_medida',e.target.value)}>
-                {UNIDADES_EDITAR.map(u=><option key={u} value={u}>{u}</option>)}
-              </select></div>
+          <div>
+            <Label>Categoría</Label>
+            <select className={selectClass} value={form.categoria} onChange={e => set('categoria', e.target.value)}>
+              {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
-          <div><label style={lbl}>Código (opcional)</label>
-            <input style={inp} value={form.codigo} onChange={e=>set('codigo',e.target.value)}/></div>
-          {err && <div style={{padding:'7px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626'}}>⚠ {err}</div>}
-          <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:4}}>
-            <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>Cancelar</button>
-            <button onClick={guardar} disabled={estado==='saving'} style={{
-              background:estado==='ok'?t.green:estado==='err'?'#dc2626':t.accent,
-              border:'none',borderRadius:8,color:'#fff',padding:'8px 20px',
-              cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
-              opacity:estado==='saving'?.7:1,transition:'background .2s',
-            }}>
-              {estado==='saving'?'Guardando…':estado==='ok'?'✓ Guardado':estado==='err'?'✗ Error':'Guardar cambios'}
-            </button>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Precio unitario (COP)</Label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                <Input type="number" min="0" className="pl-6" value={form.precio_unidad}
+                  onChange={e => set('precio_unidad', e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <Label>Unidad DIAN</Label>
+              <select className={selectClass} value={form.unidad_medida} onChange={e => set('unidad_medida', e.target.value)}>
+                {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <Label>Código (opcional)</Label>
+            <Input value={form.codigo} onChange={e => set('codigo', e.target.value)} />
           </div>
         </div>
-      </div>
-    </div>,
-    document.body
+        {err && (
+          <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+            <AlertCircle className="size-3.5 shrink-0" /> {err}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={guardar} disabled={estado === 'saving' || estado === 'ok'}
+            className={cn(estado === 'ok' && 'bg-success hover:bg-success/90')}>
+            {estado === 'saving' ? <><Loader2 className="size-3.5 mr-1.5 animate-spin" /> Guardando…</> :
+             estado === 'ok'     ? <><Check className="size-3.5 mr-1.5" /> Guardado</> :
+                                    'Guardar cambios'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function ModalEliminarProducto({ prod, onClose, onEliminado, authFetch }) {
-  const t = useTheme()
   const [estado,    setEstado]    = useState('idle')
   const [err,       setErr]       = useState('')
   const [archivado, setArchivado] = useState(false)
 
   const eliminar = async () => {
-    setEstado('saving')
-    setErr('')
+    setEstado('saving'); setErr('')
     try {
-      const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prod.key)}`, { method:'DELETE' })
+      const r = await authFetch(`${API_BASE}/catalogo/${encodeURIComponent(prod.key)}`, { method: 'DELETE' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error al eliminar')
-      setArchivado(!!d.archivado)
-      setEstado('ok')
-      setTimeout(() => { onEliminado(); onClose() }, 1200)
-    } catch(e) { setErr(e.message); setEstado('err') }
+      setArchivado(!!d.archivado); setEstado('ok')
+      setTimeout(() => { onEliminado(); onClose() }, 1000)
+    } catch (e) { setErr(e.message); setEstado('err') }
   }
 
-  return createPortal(
-    <div onMouseDown={e=>e.target===e.currentTarget&&onClose()} style={{
-      position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,.6)',
-      display:'flex',alignItems:'center',justifyContent:'center',padding:16,
-    }}>
-      <div style={{background:t.bg,border:`1px solid ${t.border}`,borderRadius:14,width:'100%',maxWidth:380,padding:24,boxShadow:'0 24px 64px rgba(0,0,0,.4)'}}>
-        <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:6}}>🗑 Eliminar producto</div>
-        <div style={{fontSize:13,color:t.text,fontWeight:500,marginBottom:4}}>{prod.nombre}</div>
-        <div style={{fontSize:11,color:t.textMuted,marginBottom:14}}>{prod.categoria}</div>
-
-        {/* Aviso según estado */}
-        {estado !== 'ok' && (
-          <div style={{padding:'10px 12px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,fontSize:11,color:'#dc2626',marginBottom:16}}>
-            ⚠ Se elimina del catálogo y del inventario. Si el producto tiene historial de ventas, se desactivará en su lugar (no aparecerá en el catálogo pero las ventas previas quedan intactas).
-          </div>
-        )}
-
-        {/* Resultado exitoso */}
-        {estado === 'ok' && (
-          <div style={{padding:'10px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:8,fontSize:11,color:'#166534',marginBottom:16}}>
-            {archivado
-              ? '📦 Producto desactivado — tiene ventas previas y se conserva en el historial.'
-              : '✅ Producto eliminado del catálogo correctamente.'}
-          </div>
-        )}
-
-        {/* Error */}
-        {err && <div style={{padding:'6px 10px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:7,fontSize:11,color:'#dc2626',marginBottom:10}}>✗ {err}</div>}
-
-        <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,borderRadius:8,color:t.textMuted,padding:'8px 16px',cursor:'pointer',fontFamily:'inherit',fontSize:12}}>
-            {estado === 'ok' ? 'Cerrar' : 'Cancelar'}
-          </button>
-          {estado !== 'ok' && (
-            <button onClick={eliminar} disabled={estado==='saving'} style={{
-              background:'#dc2626',
-              border:'none',borderRadius:8,color:'#fff',padding:'8px 18px',
-              cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,
-              opacity:estado==='saving'?.7:1,
-            }}>
-              {estado === 'saving' ? 'Eliminando…' : 'Sí, eliminar'}
-            </button>
-          )}
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Eliminar producto</DialogTitle>
+        </DialogHeader>
+        <div>
+          <div className="text-sm font-medium">{prod.nombre}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">{prod.categoria}</div>
         </div>
-      </div>
-    </div>,
-    document.body
+        {estado !== 'ok' ? (
+          <div className="flex items-start gap-2 p-3 rounded-md bg-warning/10 border border-warning/30 text-warning text-xs">
+            <AlertCircle className="size-3.5 shrink-0 mt-0.5" />
+            <span>Se elimina del catálogo y del inventario. Si tiene historial de ventas, se desactivará (no aparecerá en el catálogo pero las ventas previas quedan intactas).</span>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2 p-3 rounded-md bg-success/10 border border-success/30 text-success text-xs">
+            <Check className="size-3.5 shrink-0 mt-0.5" />
+            <span>{archivado
+              ? 'Producto desactivado — tiene ventas previas y se conserva en el historial.'
+              : 'Producto eliminado del catálogo correctamente.'}</span>
+          </div>
+        )}
+        {err && <div className="text-xs text-destructive">{err}</div>}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{estado === 'ok' ? 'Cerrar' : 'Cancelar'}</Button>
+          {estado !== 'ok' && (
+            <Button variant="destructive" onClick={eliminar} disabled={estado === 'saving'}>
+              {estado === 'saving' ? 'Eliminando…' : 'Sí, eliminar'}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-// ── Modal Crear Producto ──────────────────────────────────────────────────────
-const CATEGORIAS_DISPONIBLES = [
-  '1 Artículos de Ferreteria',
-  '2 Pinturas y Disolventes',
-  '3 Tornilleria',
-  '4 Impermeabilizantes y Materiales de Construcción',
-  '5 Materiales Electricos',
-]
-
-const UNIDADES_DISPONIBLES = [
-  'Unidad','Galón','Kg','Gramos','MLT','Mts','Cms','Lt','Lts','25 kg',
-]
-
 function ModalCrearProducto({ onClose, onCreado, authFetch }) {
-  const t = useTheme()
   const [form, setForm] = useState({
-    nombre:        '',
-    categoria:     CATEGORIAS_DISPONIBLES[0],
-    precio_unidad: '',
-    unidad_medida: 'Unidad',
-    codigo:        '',
-    stock_inicial: '',
+    nombre: '', categoria: CATEGORIAS[0], precio_unidad: '',
+    unidad_medida: 'Unidad', codigo: '', stock_inicial: '',
   })
   const [estado, setEstado] = useState('idle')
   const [errMsg, setErrMsg] = useState('')
-
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const guardar = async () => {
-    if (!form.nombre.trim())                              { setErrMsg('El nombre es obligatorio'); return }
+    if (!form.nombre.trim())                                      { setErrMsg('El nombre es obligatorio'); return }
     if (!form.precio_unidad || isNaN(Number(form.precio_unidad))) { setErrMsg('El precio debe ser un número'); return }
     setErrMsg(''); setEstado('saving')
     try {
@@ -966,189 +821,93 @@ function ModalCrearProducto({ onClose, onCreado, authFetch }) {
       })
       const data = await r.json()
       if (!r.ok) throw new Error(data.detail || 'Error desconocido')
-      // Si Drive falló, advertir pero no bloquear — el producto quedó en disco
       if (data.drive_guardado === false) {
         setErrMsg('⚠️ Producto creado localmente pero no se pudo sincronizar con Drive. Se guardará en el próximo reinicio.')
       }
-      if (!data.excel_guardado) {
-        console.warn('Excel no actualizado:', data.excel_detalle)
-      }
       setEstado('ok')
-      setTimeout(() => { onCreado(data); onClose() }, data.drive_guardado === false ? 2500 : 800)
-    } catch(e) {
-      setErrMsg(e.message || 'Error al crear el producto')
-      setEstado('err')
-    }
+      setTimeout(() => { onCreado(data); onClose() }, data.drive_guardado === false ? 2200 : 600)
+    } catch (e) { setErrMsg(e.message || 'Error al crear el producto'); setEstado('err') }
   }
 
-  const inp = {
-    width: '100%', boxSizing: 'border-box',
-    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-    border: `1px solid ${t.border}`, borderRadius: 7,
-    color: t.text, fontSize: 12, padding: '8px 11px',
-    outline: 'none', fontFamily: 'inherit',
-  }
-  const lbl = {
-    fontSize: 10, color: t.textMuted, textTransform: 'uppercase',
-    letterSpacing: '.07em', marginBottom: 4, display: 'block',
-  }
-
-  // Renderizar via Portal directo al body — inmune a scroll/overflow del tab
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 9999,
-        background: 'rgba(0,0,0,.6)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 20,
-      }}
-      onMouseDown={e => e.target === e.currentTarget && onClose()}
-    >
-      <div style={{
-        background: t.bg, border: `1px solid ${t.border}`,
-        borderRadius: 14, width: '100%', maxWidth: 460,
-        maxHeight: '90vh', overflowY: 'auto',
-        boxShadow: '0 24px 64px rgba(0,0,0,.45)',
-        display: 'flex', flexDirection: 'column',
-      }}>
-        {/* Header */}
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-          padding: '20px 22px 0', marginBottom: 18,
-        }}>
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Crear producto</DialogTitle>
+          <p className="text-xs text-muted-foreground">Se guardará en catálogo y en el Excel de productos</p>
+        </DialogHeader>
+        <div className="space-y-3.5">
           <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: t.text }}>➕ Crear producto</div>
-            <div style={{ fontSize: 11, color: t.textMuted, marginTop: 3 }}>
-              Se guardará en catálogo y en el Excel de productos
-            </div>
-          </div>
-          <button onClick={onClose} style={{
-            background: 'transparent', border: `1px solid ${t.border}`,
-            borderRadius: 7, color: t.textMuted,
-            width: 28, height: 28, cursor: 'pointer', fontSize: 14, flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            marginLeft: 12,
-          }}>✕</button>
-        </div>
-
-        {/* Cuerpo */}
-        <div style={{ padding: '0 22px 22px', display: 'flex', flexDirection: 'column', gap: 13 }}>
-
-          {/* Nombre */}
-          <div>
-            <label style={lbl}>Nombre del producto *</label>
-            <input style={inp} value={form.nombre} autoFocus
+            <Label>Nombre del producto *</Label>
+            <Input autoFocus value={form.nombre} placeholder='Ej: Brocha de 2"'
               onChange={e => set('nombre', e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && guardar()}
-              placeholder='Ej: Brocha de 2"' />
+              onKeyDown={e => e.key === 'Enter' && guardar()} />
           </div>
-
-          {/* Categoría */}
           <div>
-            <label style={lbl}>Categoría *</label>
-            <select style={inp} value={form.categoria} onChange={e => set('categoria', e.target.value)}>
-              {CATEGORIAS_DISPONIBLES.map(c => <option key={c} value={c}>{c}</option>)}
+            <Label>Categoría *</Label>
+            <select className={selectClass} value={form.categoria} onChange={e => set('categoria', e.target.value)}>
+              {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-
-          {/* Precio + Unidad */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label style={lbl}>Precio unitario (COP) *</label>
-              <div style={{ position: 'relative' }}>
-                <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: t.textMuted, fontSize: 11 }}>$</span>
-                <input style={{ ...inp, paddingLeft: 22 }} type="number" min="0"
-                  value={form.precio_unidad}
-                  onChange={e => set('precio_unidad', e.target.value)}
-                  placeholder="0" />
+              <Label>Precio unitario (COP) *</Label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                <Input type="number" min="0" className="pl-6" value={form.precio_unidad}
+                  onChange={e => set('precio_unidad', e.target.value)} placeholder="0" />
               </div>
             </div>
             <div>
-              <label style={lbl}>Unidad de medida (DIAN)</label>
-              <select style={inp} value={form.unidad_medida} onChange={e => set('unidad_medida', e.target.value)}>
-                {UNIDADES_DISPONIBLES.map(u => <option key={u} value={u}>{u}</option>)}
+              <Label>Unidad (DIAN)</Label>
+              <select className={selectClass} value={form.unidad_medida} onChange={e => set('unidad_medida', e.target.value)}>
+                {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
           </div>
-
-          {/* Código + Stock */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label style={lbl}>Código (opcional)</label>
-              <input style={inp} value={form.codigo}
-                onChange={e => set('codigo', e.target.value)}
-                placeholder="Ej: 1brocha2" />
+              <Label>Código (opcional)</Label>
+              <Input value={form.codigo} placeholder="Ej: 1brocha2" onChange={e => set('codigo', e.target.value)} />
             </div>
             <div>
-              <label style={lbl}>Stock inicial (opcional)</label>
-              <input style={inp} type="number" min="0" step="0.01"
-                value={form.stock_inicial}
-                onChange={e => set('stock_inicial', e.target.value)}
-                placeholder="0" />
+              <Label>Stock inicial (opcional)</Label>
+              <Input type="number" min="0" step="0.01" value={form.stock_inicial} placeholder="0"
+                onChange={e => set('stock_inicial', e.target.value)} />
             </div>
           </div>
-
-          {/* Nota */}
-          <div style={{
-            padding: '8px 11px',
-            background: t.accentSub, border: `1px solid ${t.accent}22`, borderRadius: 7,
-          }}>
-            <span style={{ fontSize: 10, color: t.accent }}>
-              💡 Galón → pinturas · Kg → productos por peso · Mts/Cms → cables y telas · Unidad → resto
-            </span>
-          </div>
-
-          {/* Error */}
-          {errMsg && (
-            <div style={{
-              padding: '7px 11px', background: '#fef2f2',
-              border: '1px solid #fca5a5', borderRadius: 7,
-              fontSize: 11, color: '#dc2626',
-            }}>⚠ {errMsg}</div>
-          )}
-
-          {/* Botones */}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 2 }}>
-            <button onClick={onClose} style={{
-              background: 'transparent', border: `1px solid ${t.border}`,
-              borderRadius: 8, color: t.textMuted, padding: '8px 18px',
-              cursor: 'pointer', fontFamily: 'inherit', fontSize: 12,
-            }}>Cancelar</button>
-            <button onClick={guardar} disabled={estado === 'saving'} style={{
-              background: estado === 'ok' ? t.green : estado === 'err' ? '#dc2626' : t.accent,
-              border: 'none', borderRadius: 8, color: '#fff',
-              padding: '8px 22px', cursor: estado === 'saving' ? 'wait' : 'pointer',
-              fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
-              display: 'flex', alignItems: 'center', gap: 7,
-              opacity: estado === 'saving' ? .75 : 1, transition: 'background .2s',
-            }}>
-              {estado === 'saving' && (
-                <span style={{
-                  width: 12, height: 12, border: '2px solid #ffffff55',
-                  borderTop: '2px solid #fff', borderRadius: '50%',
-                  display: 'inline-block', animation: 'spin .7s linear infinite',
-                }} />
-              )}
-              {estado === 'ok' ? '✓ Creado' : estado === 'err' ? '✗ Error' : 'Crear producto'}
-            </button>
+          <div className="p-2.5 rounded-md bg-primary-soft border border-primary/20 text-[11px] text-primary">
+            💡 Galón → pinturas · Kg → productos por peso · Mts/Cms → cables y telas · Unidad → resto
           </div>
         </div>
-      </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-    </div>,
-    document.body   // ← Portal: se monta directamente en <body>, fuera del scroll del tab
+        {errMsg && (
+          <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+            <AlertCircle className="size-3.5 shrink-0" /> {errMsg}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={guardar} disabled={estado === 'saving' || estado === 'ok'}
+            className={cn(estado === 'ok' && 'bg-success hover:bg-success/90')}>
+            {estado === 'saving' ? <><Loader2 className="size-3.5 mr-1.5 animate-spin" /> Creando…</> :
+             estado === 'ok'     ? <><Check className="size-3.5 mr-1.5" /> Creado</> :
+                                    'Crear producto'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-// ── Tab principal ─────────────────────────────────────────────────────────────
+// ─── tab principal ────────────────────────────────────────────────────────────
 export default function TabInventario({ refreshKey }) {
-  const t = useTheme()
   const isMobile = useIsMobile()
   const { authFetch } = useAuth()
+
   const [busqueda,     setBusqueda]     = useState('')
+  const [queryActivo,  setQueryActivo]  = useState('')
   const [abierta,      setAbierta]      = useState(null)
   const [subcatActiva, setSubcatActiva] = useState({})
-  const [queryActivo,  setQueryActivo]  = useState('')
   const [modalCrear,   setModalCrear]   = useState(false)
   const [localRefresh, setLocalRefresh] = useState(0)
   const [editandoProd,   setEditandoProd]   = useState(null)
@@ -1157,170 +916,159 @@ export default function TabInventario({ refreshKey }) {
   const url = queryActivo ? `/catalogo/nav?q=${encodeURIComponent(queryActivo)}` : '/catalogo/nav'
   const { data, loading, error } = useFetch(url, [queryActivo, refreshKey, localRefresh])
 
-  const categorias  = data?.categorias || {}
-  const total       = data?.total || 0
-  const catEntries  = Object.entries(categorias)
+  const categorias = data?.categorias || {}
+  const total      = data?.total || 0
+  const catEntries = Object.entries(categorias)
 
   const handleBuscar = val => {
     setBusqueda(val)
     clearTimeout(window._invTimer)
     window._invTimer = setTimeout(() => setQueryActivo(val), 300)
   }
-
-  const handleCreado  = () => setLocalRefresh(r => r + 1)
-  const handleGuardado= () => setLocalRefresh(r => r + 1)
-  const handleEliminado=() => setLocalRefresh(r => r + 1)
+  const bumpRefresh = () => setLocalRefresh(r => r + 1)
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-
+    <div className="flex flex-col gap-3.5">
       {modalCrear && (
-        <ModalCrearProducto
-          onClose={() => setModalCrear(false)}
-          onCreado={handleCreado}
-          authFetch={authFetch}
-        />
+        <ModalCrearProducto onClose={() => setModalCrear(false)} onCreado={bumpRefresh} authFetch={authFetch} />
       )}
       {editandoProd && (
-        <ModalEditarProducto
-          prod={editandoProd}
-          onClose={() => setEditandoProd(null)}
-          onGuardado={handleGuardado}
-          authFetch={authFetch}
-        />
+        <ModalEditarProducto prod={editandoProd} onClose={() => setEditandoProd(null)} onGuardado={bumpRefresh} authFetch={authFetch} />
       )}
       {eliminandoProd && (
-        <ModalEliminarProducto
-          prod={eliminandoProd}
-          onClose={() => setEliminandoProd(null)}
-          onEliminado={handleEliminado}
-          authFetch={authFetch}
-        />
+        <ModalEliminarProducto prod={eliminandoProd} onClose={() => setEliminandoProd(null)} onEliminado={bumpRefresh} authFetch={authFetch} />
       )}
 
       {/* Header */}
-      <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent:'space-between', alignItems: isMobile ? 'stretch' : 'center', gap:10 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-          <div style={{ fontSize:11, color:t.textMuted }}>
-            📦 <strong style={{color:t.text}}>{total}</strong> productos ·{' '}
-            <strong style={{color:t.text}}>{catEntries.length}</strong> categorías
-            {!isMobile && <span style={{ marginLeft:10, opacity:.6 }}>· Clic en precio o stock para editar ✏</span>}
+      <div className={cn('flex justify-between items-center gap-3', isMobile && 'flex-col items-stretch')}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Package className="size-3.5" />
+            <strong className="text-foreground">{total}</strong> productos ·{' '}
+            <strong className="text-foreground">{catEntries.length}</strong> categorías
+            {!isMobile && <span className="ml-2 opacity-60">· Clic en precio o stock para editar</span>}
           </div>
-          <button
-            onClick={() => setModalCrear(true)}
-            style={{
-              background: t.accent, border: 'none', borderRadius: 8,
-              color: '#fff', padding: isMobile ? '10px 16px' : '6px 14px', cursor: 'pointer',
-              fontFamily: 'inherit', fontSize: isMobile ? 13 : 11, fontWeight: 700,
-              display: 'flex', alignItems: 'center', gap: 5,
-              boxShadow: `0 2px 8px ${t.accent}44`,
-              width: isMobile ? '100%' : 'auto', justifyContent: 'center',
-            }}
-          >
-            ➕ Nuevo producto
-          </button>
+          <Button onClick={() => setModalCrear(true)} className={cn(isMobile && 'w-full')}>
+            <Plus className="size-3.5 mr-1.5" /> Nuevo producto
+          </Button>
         </div>
-        <StyledInput
-          value={busqueda} onChange={e=>handleBuscar(e.target.value)}
-          placeholder="🔍  Buscar producto o código..."
-          style={{ width: isMobile ? '100%' : 280, fontSize: isMobile ? 14 : 11, padding: isMobile ? '10px 12px' : '7px 12px' }}
-        />
+        <div className="relative">
+          <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={busqueda} onChange={e => handleBuscar(e.target.value)}
+            placeholder="Buscar producto o código…"
+            className={cn('pl-9', isMobile ? 'w-full' : 'w-72')}
+          />
+        </div>
       </div>
 
-      {loading && <Spinner />}
-      {error   && <ErrorMsg msg={`Error: ${error}`} />}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+          <Loader2 className="size-6 animate-spin text-primary" />
+          <span className="text-xs">Cargando…</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+          <AlertCircle className="size-4 shrink-0" /> Error: {error}
+        </div>
+      )}
 
       {!loading && !error && (
         <>
-          {catEntries.length === 0
-            ? <EmptyState msg={busqueda?'Sin resultados.':'Sin productos.'} />
-            : catEntries.map(([cat, prods]) => {
-              const catKey     = cat.toLowerCase()
-              const label      = cat.replace(/^\d+\s*/,'')
-              const expandida  = busqueda ? true : abierta === cat
-              const subcats    = getSubcats(catKey)
-              const subcatSel  = subcatActiva[cat] || null
-              const conFracs   = prods.filter(p=>p.fracciones&&Object.keys(p.fracciones).length>0).length
-              const sinPrecio  = prods.filter(p=>!p.precio).length
-              const sinStock   = prods.filter(p=>p.stock===null||p.stock===undefined).length
-              const prodsVisibles = subcatSel ? filtrarPorSubcat(prods, subcats, subcatSel) : prods
+          {catEntries.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground">
+              <Package className="size-8 mx-auto opacity-40 mb-2" />
+              <span className="text-sm">{busqueda ? 'Sin resultados.' : 'Sin productos.'}</span>
+            </div>
+          ) : catEntries.map(([cat, prods]) => {
+            const catKey     = cat.toLowerCase()
+            const label      = cat.replace(/^\d+\s*/, '')
+            const expandida  = busqueda ? true : abierta === cat
+            const subcats    = getSubcats(catKey)
+            const subcatSel  = subcatActiva[cat] || null
+            const conFracs   = prods.filter(p => p.fracciones && Object.keys(p.fracciones).length > 0).length
+            const sinPrecio  = prods.filter(p => !p.precio).length
+            const sinStock   = prods.filter(p => p.stock === null || p.stock === undefined).length
+            const prodsVisibles = subcatSel ? filtrarPorSubcat(prods, subcats, subcatSel) : prods
 
-              return (
-                <div key={cat} style={{
-                  background:t.card,
-                  border:`1px solid ${expandida?t.accent+'44':t.border}`,
-                  borderRadius:10, overflow:'hidden', transition:'border-color .2s',
-                }}>
-                  {/* Header categoría */}
-                  <div
-                    onClick={() => !busqueda && setAbierta(p=>p===cat?null:cat)}
-                    style={{ padding: isMobile ? '14px 12px' : '13px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:busqueda?'default':'pointer', userSelect:'none', minHeight: isMobile ? 52 : 'auto' }}
-                    onMouseEnter={e=>{ if(!busqueda) e.currentTarget.style.background=t.cardHover }}
-                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}
-                  >
-                    <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-                      <span style={{fontSize:18}}>{catIcon(label)}</span>
-                      <span style={{fontWeight:700, fontSize:13, color:t.text}}>{label}</span>
-                      <span style={{fontSize:10, color:t.textMuted}}>{prods.length} productos</span>
-                      {conFracs>0  && <span style={{fontSize:10,color:t.accent,background:t.accentSub,padding:'1px 7px',borderRadius:99}}>{conFracs} fraccionables</span>}
-                      {sinPrecio>0 && <span style={{fontSize:10,color:t.yellow}}>⚠️ {sinPrecio} sin precio</span>}
-                      {sinStock>0  && <span style={{fontSize:10,color:t.textMuted}}>📦 {sinStock} sin stock</span>}
-                    </div>
-                    {!busqueda && (
-                      <span style={{ color:t.textMuted, fontSize:11, transition:'transform .2s', transform:expandida?'rotate(90deg)':'rotate(0deg)', display:'inline-block' }}>▶</span>
-                    )}
+            return (
+              <Card key={cat} className={cn('overflow-hidden p-0 gap-0', expandida && 'border-primary/40')}>
+                {/* Header categoría */}
+                <button
+                  onClick={() => !busqueda && setAbierta(p => p === cat ? null : cat)}
+                  className={cn(
+                    'w-full flex items-center justify-between gap-3 px-4 py-3 text-left',
+                    !busqueda && 'cursor-pointer hover:bg-surface-2/40',
+                    isMobile && 'py-3.5',
+                  )}
+                >
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-lg">{catIcon(label)}</span>
+                    <span className="font-bold text-sm">{label}</span>
+                    <span className="text-[11px] text-muted-foreground">{prods.length} productos</span>
+                    {conFracs > 0  && <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary-soft text-primary">{conFracs} fraccionables</span>}
+                    {sinPrecio > 0 && <span className="text-[10px] text-warning">⚠ {sinPrecio} sin precio</span>}
+                    {sinStock > 0  && <span className="text-[10px] text-muted-foreground">📦 {sinStock} sin stock</span>}
                   </div>
-
-                  {/* Subcategorías */}
-                  {expandida && subcats.length>0 && (
-                    <div style={{ padding:'8px 16px', borderTop:`1px solid ${t.border}`, display:'flex', gap:6, flexWrap: isMobile ? 'nowrap' : 'wrap', background:t.tableAlt, overflowX: isMobile ? 'auto' : 'visible', WebkitOverflowScrolling: 'touch' }}>
-                      <button
-                        onClick={()=>setSubcatActiva(prev=>({...prev,[cat]:null}))}
-                        style={{
-                          background:!subcatSel?t.accent:'transparent',
-                          border:`1px solid ${!subcatSel?t.accent:t.border}`,
-                          color:!subcatSel?'#fff':t.textMuted,
-                          fontSize:11, padding: isMobile ? '6px 14px' : '4px 12px', borderRadius:20,
-                          cursor:'pointer', fontFamily:'inherit', fontWeight:!subcatSel?600:400, transition:'all .15s',
-                          whiteSpace:'nowrap', flexShrink:0,
-                        }}
-                      >Todos ({prods.length})</button>
-
-                      {subcats.map(sc => {
-                        const cnt    = filtrarPorSubcat(prods,subcats,sc.key).length
-                        const active = subcatSel===sc.key
-                        if (cnt===0) return null
-                        return (
-                          <button key={sc.key}
-                            onClick={()=>setSubcatActiva(prev=>({...prev,[cat]:sc.key}))}
-                            style={{
-                              background:active?t.accent:'transparent',
-                              border:`1px solid ${active?t.accent:t.border}`,
-                              color:active?'#fff':t.textMuted,
-                              fontSize:11, padding: isMobile ? '6px 14px' : '4px 12px', borderRadius:20,
-                              cursor:'pointer', fontFamily:'inherit', fontWeight:active?600:400,
-                              display:'flex', alignItems:'center', gap:5, transition:'all .15s',
-                              whiteSpace:'nowrap', flexShrink:0,
-                            }}
-                          >
-                            <span>{sc.icono}</span><span>{sc.label}</span>
-                            <span style={{fontSize:10,opacity:.7}}>({cnt})</span>
-                          </button>
-                        )
-                      })}
-                    </div>
+                  {!busqueda && (
+                    expandida
+                      ? <ChevronUp className="size-4 text-muted-foreground shrink-0" />
+                      : <ChevronDown className="size-4 text-muted-foreground shrink-0" />
                   )}
+                </button>
 
-                  {/* Tabla */}
-                  {expandida && (
-                    prodsVisibles.length===0
-                      ? <div style={{padding:'20px',textAlign:'center',color:t.textMuted,fontSize:12}}>Sin productos en esta subcategoría.</div>
-                      : <TablaCat prods={prodsVisibles} onEdit={setEditandoProd} onDelete={setEliminandoProd} isMobile={isMobile} authFetch={authFetch}/>
-                  )}
-                </div>
-              )
-            })
-          }
+                {/* Subcategorías */}
+                {expandida && subcats.length > 0 && (
+                  <div className={cn(
+                    'px-3 py-2 border-t border-border-subtle flex gap-1.5 bg-surface-2/40',
+                    isMobile ? 'overflow-x-auto flex-nowrap' : 'flex-wrap',
+                  )}>
+                    <button
+                      onClick={() => setSubcatActiva(prev => ({ ...prev, [cat]: null }))}
+                      className={cn(
+                        'text-xs px-3 py-1 rounded-full whitespace-nowrap shrink-0 transition-colors border',
+                        !subcatSel
+                          ? 'bg-primary text-primary-foreground border-primary font-semibold'
+                          : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40',
+                      )}
+                    >
+                      Todos ({prods.length})
+                    </button>
+                    {subcats.map(sc => {
+                      const cnt = filtrarPorSubcat(prods, subcats, sc.key).length
+                      if (cnt === 0) return null
+                      const active = subcatSel === sc.key
+                      return (
+                        <button key={sc.key}
+                          onClick={() => setSubcatActiva(prev => ({ ...prev, [cat]: sc.key }))}
+                          className={cn(
+                            'text-xs px-3 py-1 rounded-full whitespace-nowrap shrink-0 transition-colors border flex items-center gap-1.5',
+                            active
+                              ? 'bg-primary text-primary-foreground border-primary font-semibold'
+                              : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40',
+                          )}
+                        >
+                          <span>{sc.icono}</span>
+                          <span>{sc.label}</span>
+                          <span className="text-[10px] opacity-70">({cnt})</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* Tabla */}
+                {expandida && (
+                  prodsVisibles.length === 0
+                    ? <div className="py-5 text-center text-xs text-muted-foreground">Sin productos en esta subcategoría.</div>
+                    : <TablaCat prods={prodsVisibles} onEdit={setEditandoProd} onDelete={setEliminandoProd}
+                        isMobile={isMobile} authFetch={authFetch} />
+                )}
+              </Card>
+            )
+          })}
         </>
       )}
     </div>

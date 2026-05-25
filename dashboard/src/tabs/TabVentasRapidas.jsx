@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Star, Trash2, ShoppingCart, User, X, Plus, Loader2, Search, Sparkles, Receipt } from 'lucide-react'
-import { useTheme, useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
+import { useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
 import { Card } from '@/components/ui/card.jsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog.jsx'
 import { Button } from '@/components/ui/button.jsx'
@@ -232,7 +232,6 @@ function PrecioEditor({ precioCalc, precioFinal, onChange, desc }) {
 // MODAL FRACCIÓN
 // ══════════════════════════════════════════════════════════════════════════════
 function ModalFraccion({ prod, onClose, onConfirm }) {
-  const t = useTheme()
   const [unidades, setUnidades] = useState(0)
   const [fracKey,  setFracKey]  = useState(null)
   const [precioCustom, setPrecioCustom] = useState(null)
@@ -257,52 +256,60 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
   const setFrac = (k) => { setFracKey(k); setPrecioCustom(null) }
   const setUnid = (fn) => { setUnidades(fn); setPrecioCustom(null) }
 
+  const colsFrac = Math.min(fracsOrdenadas.length + 1, 3)
+
   return (
     <Modal show title={prod.nombre} subtitle={`Precio unidad: ${cop(prod.precio)}`}
       onClose={onClose} onConfirm={() => onConfirm({ unidades, fracKey, total: precioFinal, desc })} okDisabled={!valid}>
 
       {/* Unidades */}
-      <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">
         Unidades completas
       </div>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-        border: `1px solid ${t.border}`, borderRadius: 8,
-        padding: '9px 13px', marginBottom: 14,
-      }}>
-        <span style={{ flex: 1, fontSize: 12, color: t.textMuted }}>Galones / unidades</span>
-        <button onClick={() => setUnid(u => Math.max(0, u - 1))} style={{ width: 26, height: 26, background: t.card, border: `1px solid ${t.border}`, borderRadius: 5, color: t.text, cursor: 'pointer', fontSize: 16 }}>−</button>
-        <span style={{ fontFamily: 'monospace', fontSize: 17, color: t.text, minWidth: 22, textAlign: 'center' }}>{unidades}</span>
-        <button onClick={() => setUnid(u => u + 1)} style={{ width: 26, height: 26, background: t.card, border: `1px solid ${t.border}`, borderRadius: 5, color: t.text, cursor: 'pointer', fontSize: 16 }}>+</button>
+      <div className="flex items-center gap-2.5 bg-muted border border-border rounded-md px-3 py-2 mb-3.5">
+        <span className="flex-1 text-xs text-muted-foreground">Galones / unidades</span>
+        <button
+          type="button"
+          onClick={() => setUnid(u => Math.max(0, u - 1))}
+          className="w-6 h-6 bg-card border border-border rounded text-foreground text-base hover:border-primary/40 transition-colors"
+        >−</button>
+        <span className="font-mono text-[17px] text-foreground min-w-[22px] text-center">{unidades}</span>
+        <button
+          type="button"
+          onClick={() => setUnid(u => u + 1)}
+          className="w-6 h-6 bg-card border border-border rounded text-foreground text-base hover:border-primary/40 transition-colors"
+        >+</button>
       </div>
 
       {/* Fracciones */}
-      <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">
         Fracción adicional
       </div>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: `repeat(${Math.min(fracsOrdenadas.length + 1, 3)}, 1fr)`,
-        gap: 6, marginBottom: 14,
-      }}>
-        <div onClick={() => setFrac(null)} style={{
-          padding: '8px 4px', borderRadius: 7, cursor: 'pointer', textAlign: 'center',
-          background: !fracKey ? t.accentSub : (t.id === 'caramelo' ? '#f8fafc' : '#111'),
-          border: `1px solid ${!fracKey ? t.accent : t.border}`, transition: 'all .15s',
-        }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: !fracKey ? t.accent : t.textMuted }}>Ninguna</div>
-          <div style={{ fontSize: 9, color: t.textMuted, marginTop: 1 }}>sólo unidades</div>
-        </div>
+      <div className="grid gap-1.5 mb-3.5" style={{ gridTemplateColumns: `repeat(${colsFrac}, minmax(0, 1fr))` }}>
+        <button
+          type="button"
+          onClick={() => setFrac(null)}
+          className={cn(
+            'px-1 py-2 rounded-md text-center transition-colors border',
+            !fracKey ? 'bg-primary-soft border-primary' : 'bg-muted border-border hover:border-primary/40',
+          )}
+        >
+          <div className={cn('text-xs font-semibold', !fracKey ? 'text-primary' : 'text-muted-foreground')}>Ninguna</div>
+          <div className="text-[9px] text-muted-foreground mt-px">sólo unidades</div>
+        </button>
         {fracsOrdenadas.map(([k, v]) => (
-          <div key={k} onClick={() => setFrac(k)} style={{
-            padding: '8px 4px', borderRadius: 7, cursor: 'pointer', textAlign: 'center',
-            background: fracKey === k ? t.accentSub : (t.id === 'caramelo' ? '#f8fafc' : '#111'),
-            border: `1px solid ${fracKey === k ? t.accent : t.border}`, transition: 'all .15s',
-          }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: fracKey === k ? t.accent : t.text }}>{k}</div>
-            <div style={{ fontSize: 10, color: t.green, fontFamily: 'monospace', marginTop: 1 }}>{cop(v.precio)}</div>
-          </div>
+          <button
+            key={k}
+            type="button"
+            onClick={() => setFrac(k)}
+            className={cn(
+              'px-1 py-2 rounded-md text-center transition-colors border',
+              fracKey === k ? 'bg-primary-soft border-primary' : 'bg-muted border-border hover:border-primary/40',
+            )}
+          >
+            <div className={cn('text-sm font-bold', fracKey === k ? 'text-primary' : 'text-foreground')}>{k}</div>
+            <div className="text-[10px] font-mono text-success mt-px">{cop(v.precio)}</div>
+          </button>
         ))}
       </div>
       <PrecioEditor precioCalc={totalCalc} precioFinal={precioFinal} onChange={setPrecioCustom} desc={desc} />
@@ -314,7 +321,6 @@ function ModalFraccion({ prod, onClose, onConfirm }) {
 // MODAL CM
 // ══════════════════════════════════════════════════════════════════════════════
 function ModalCm({ prod, onClose, onConfirm }) {
-  const t = useTheme()
   const [cm, setCm] = useState('')
   const [precioCustom, setPrecioCustom] = useState(null)
   if (!prod) return null
@@ -325,24 +331,20 @@ function ModalCm({ prod, onClose, onConfirm }) {
   return (
     <Modal show title={prod.nombre} subtitle={`Pliego: ${cop(prod.precio)} · ${cop(pxcm)}/cm`}
       onClose={onClose} onConfirm={() => onConfirm({ cm: cmNum, total: precioFinal, desc: `${cmNum} cm` })} okDisabled={cmNum <= 0}>
-      <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">
         Cantidad en centímetros
       </div>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-        border: `1px solid ${t.accent}66`, borderRadius: 8,
-        padding: '10px 14px', marginBottom: 8,
-      }}>
-        <input autoFocus type="number" min="1" value={cm}
+      <div className="flex items-center gap-2 bg-muted border border-primary/40 rounded-md px-3.5 py-2.5 mb-2">
+        <input
+          autoFocus type="number" min="1" value={cm}
           onChange={e => setCm(e.target.value)}
-          style={{ flex: 1, background: 'transparent', border: 'none', color: t.text, fontSize: 24, fontFamily: 'monospace', outline: 'none', textAlign: 'center', MozAppearance: 'textfield', appearance: 'textfield' }}
           placeholder="0"
+          className="flex-1 bg-transparent border-0 text-foreground text-2xl font-mono outline-none text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
         />
-        <span style={{ fontSize: 13, color: t.textMuted }}>cm</span>
+        <span className="text-sm text-muted-foreground">cm</span>
       </div>
-      <div style={{ fontSize: 11, color: t.textMuted, textAlign: 'center', marginBottom: 14 }}>
-        Precio por cm: <span style={{ color: t.green, fontFamily: 'monospace' }}>{cop(pxcm)}</span>
+      <div className="text-[11px] text-muted-foreground text-center mb-3.5">
+        Precio por cm: <span className="text-success font-mono">{cop(pxcm)}</span>
       </div>
       <PrecioEditor precioCalc={totalCalc} precioFinal={precioFinal} onChange={(v) => { setPrecioCustom(v) }} desc={`${cmNum} cm`} />
     </Modal>
@@ -354,7 +356,6 @@ function ModalCm({ prod, onClose, onConfirm }) {
 // MODAL MLT — Tintes y productos por mililitro
 // ══════════════════════════════════════════════════════════════════════════════
 function ModalMlt({ prod, onClose, onConfirm }) {
-  const t = useTheme()
   const [modo,    setModo]    = useState('pesos')  // 'pesos' | 'ml'
   const [valor,   setValor]   = useState('')
   if (!prod) return null
@@ -399,87 +400,80 @@ function ModalMlt({ prod, onClose, onConfirm }) {
       okLabel="Agregar al carrito">
 
       {/* Accesos rápidos */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-        {ACCESOS_RAPIDOS.map(a => (
-          <button key={a.ml} onClick={() => aplicarAcceso(a.ml)} style={{
-            flex: 1, padding: '8px 4px', borderRadius: 8, cursor: 'pointer', textAlign: 'center',
-            background: (modo === 'ml' && parseFloat(valor) === a.ml) ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#111'),
-            border: `1px solid ${(modo === 'ml' && parseFloat(valor) === a.ml) ? t.accent : t.border}`,
-            color: (modo === 'ml' && parseFloat(valor) === a.ml) ? t.accent : t.text,
-            fontSize: 11, fontFamily: 'inherit', transition: 'all .15s',
-          }}>
-            <div style={{ fontSize: 16, marginBottom: 3 }}>{a.icon}</div>
-            <div style={{ fontWeight: 600 }}>{a.label}</div>
-            <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>{cop(Math.round(a.ml * precioMl))}</div>
-          </button>
-        ))}
+      <div className="flex gap-1.5 mb-4">
+        {ACCESOS_RAPIDOS.map(a => {
+          const activo = modo === 'ml' && parseFloat(valor) === a.ml
+          return (
+            <button
+              key={a.ml}
+              type="button"
+              onClick={() => aplicarAcceso(a.ml)}
+              className={cn(
+                'flex-1 px-1 py-2 rounded-md text-center text-[11px] border transition-colors',
+                activo
+                  ? 'bg-primary-soft border-primary text-primary'
+                  : 'bg-muted border-border text-foreground hover:border-primary/40',
+              )}
+            >
+              <div className="text-base mb-0.5">{a.icon}</div>
+              <div className="font-semibold">{a.label}</div>
+              <div className="text-[10px] text-muted-foreground mt-px">{cop(Math.round(a.ml * precioMl))}</div>
+            </button>
+          )
+        })}
       </div>
 
       {/* Toggle modo */}
-      <div style={{
-        display: 'flex', background: t.id === 'caramelo' ? '#f1f5f9' : '#111',
-        border: `1px solid ${t.border}`, borderRadius: 8, padding: 3, marginBottom: 12, gap: 3,
-      }}>
+      <div className="flex bg-muted border border-border rounded-md p-[3px] mb-3 gap-[3px]">
         {[
-          { key: 'pesos', label: '$ Pesos',       hint: 'El cliente dice cuánto plata' },
-          { key: 'ml',    label: 'ml Mililitros',  hint: 'Sabes exactamente cuántos ml' },
+          { key: 'pesos', label: '$ Pesos' },
+          { key: 'ml',    label: 'ml Mililitros' },
         ].map(m => (
-          <button key={m.key} onClick={() => { setModo(m.key); setValor('') }} style={{
-            flex: 1, padding: '7px 6px', borderRadius: 6, cursor: 'pointer',
-            background: modo === m.key ? t.card : 'transparent',
-            border: `1px solid ${modo === m.key ? t.accent + '55' : 'transparent'}`,
-            color: modo === m.key ? t.accent : t.textMuted,
-            fontSize: 11, fontFamily: 'inherit', fontWeight: modo === m.key ? 600 : 400,
-            transition: 'all .15s',
-          }}>
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => { setModo(m.key); setValor('') }}
+            className={cn(
+              'flex-1 px-1.5 py-1.5 rounded text-[11px] transition-colors border',
+              modo === m.key
+                ? 'bg-card border-primary/40 text-primary font-semibold'
+                : 'bg-transparent border-transparent text-muted-foreground',
+            )}
+          >
             {m.label}
           </button>
         ))}
       </div>
 
       {/* Input */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-        border: `1px solid ${t.accent}66`, borderRadius: 8,
-        padding: '10px 14px', marginBottom: 10,
-      }}>
-        <span style={{ fontSize: 16, color: t.textMuted, minWidth: 20 }}>
+      <div className="flex items-center gap-2 bg-muted border border-primary/40 rounded-md px-3.5 py-2.5 mb-2.5">
+        <span className="text-base text-muted-foreground min-w-[20px]">
           {modo === 'pesos' ? '$' : 'ml'}
         </span>
         <input
           autoFocus type="number" min="1" value={valor}
           onChange={e => setValor(e.target.value)}
           placeholder={modo === 'pesos' ? 'ej: 2000' : 'ej: 500'}
-          style={{
-            flex: 1, background: 'transparent', border: 'none',
-            color: t.text, fontSize: 26, fontFamily: 'monospace',
-            outline: 'none', textAlign: 'center',
-            MozAppearance: 'textfield', appearance: 'textfield',
-          }}
+          className="flex-1 bg-transparent border-0 text-foreground text-[26px] font-mono outline-none text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
         />
       </div>
 
       {/* Resultado calculado */}
       {valido && (
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          background: t.accentSub, border: `1px solid ${t.accent}33`,
-          borderRadius: 8, padding: '10px 14px', marginBottom: 4,
-        }}>
+        <div className="flex justify-between items-center bg-primary-soft border border-primary/30 rounded-md px-3.5 py-2.5 mb-1">
           <div>
-            <div style={{ fontSize: 10, color: t.textMuted, marginBottom: 2 }}>
+            <div className="text-[10px] text-muted-foreground mb-0.5">
               {modo === 'pesos' ? 'Cantidad en ml' : 'Total a cobrar'}
             </div>
-            <div style={{ fontSize: 18, fontFamily: 'monospace', fontWeight: 700, color: t.accent }}>
+            <div className="text-lg font-mono font-bold text-primary">
               {modo === 'pesos' ? `${mlCalc} ml` : cop(totalCalc)}
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: t.textMuted, marginBottom: 2 }}>
+          <div className="text-right">
+            <div className="text-[10px] text-muted-foreground mb-0.5">
               {modo === 'pesos' ? 'Total' : 'Mililitros'}
             </div>
-            <div style={{ fontSize: 13, color: t.text, fontFamily: 'monospace' }}>
+            <div className="text-[13px] text-foreground font-mono">
               {modo === 'pesos' ? cop(totalCalc) : `${mlCalc} ml`}
             </div>
           </div>
@@ -496,7 +490,6 @@ function ModalMlt({ prod, onClose, onConfirm }) {
 const PESO_CAJA_GR = 500
 
 function ModalGrm({ prod, onClose, onConfirm }) {
-  const t = useTheme()
   const [modo,  setModo]  = useState('pesos')  // 'pesos' | 'gramos'
   const [valor, setValor] = useState('')
   if (!prod) return null
@@ -535,21 +528,24 @@ function ModalGrm({ prod, onClose, onConfirm }) {
       okLabel="Agregar al carrito">
 
       {/* Accesos rápidos */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+      <div className="flex gap-1.5 mb-4">
         {ACCESOS.map(a => {
           const activo = modo === 'gramos' && parseFloat(valor) === a.gr
           return (
-            <button key={a.gr} onClick={() => { setModo('gramos'); setValor(String(a.gr)) }}
-              style={{
-                flex: 1, padding: '8px 4px', borderRadius: 8, cursor: 'pointer', textAlign: 'center',
-                background: activo ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#111'),
-                border: `1px solid ${activo ? t.accent : t.border}`,
-                color: activo ? t.accent : t.text,
-                fontSize: 11, fontFamily: 'inherit', transition: 'all .15s',
-              }}>
-              <div style={{ fontSize: 16, marginBottom: 3 }}>{a.icon}</div>
-              <div style={{ fontWeight: 600 }}>{a.label}</div>
-              <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>
+            <button
+              key={a.gr}
+              type="button"
+              onClick={() => { setModo('gramos'); setValor(String(a.gr)) }}
+              className={cn(
+                'flex-1 px-1 py-2 rounded-md text-center text-[11px] border transition-colors',
+                activo
+                  ? 'bg-primary-soft border-primary text-primary'
+                  : 'bg-muted border-border text-foreground hover:border-primary/40',
+              )}
+            >
+              <div className="text-base mb-0.5">{a.icon}</div>
+              <div className="font-semibold">{a.label}</div>
+              <div className="text-[10px] text-muted-foreground mt-px">
                 {cop(Math.round(a.gr * precioGr))}
               </div>
             </button>
@@ -558,68 +554,54 @@ function ModalGrm({ prod, onClose, onConfirm }) {
       </div>
 
       {/* Toggle modo */}
-      <div style={{
-        display: 'flex', background: t.id === 'caramelo' ? '#f1f5f9' : '#111',
-        border: `1px solid ${t.border}`, borderRadius: 8, padding: 3, marginBottom: 12, gap: 3,
-      }}>
+      <div className="flex bg-muted border border-border rounded-md p-[3px] mb-3 gap-[3px]">
         {[
-          { key: 'pesos',  label: '$ Pesos',    hint: 'El cliente dice cuánto plata' },
-          { key: 'gramos', label: 'gr Gramos',  hint: 'Sabes exactamente cuántos gramos' },
+          { key: 'pesos',  label: '$ Pesos' },
+          { key: 'gramos', label: 'gr Gramos' },
         ].map(m => (
-          <button key={m.key} onClick={() => { setModo(m.key); setValor('') }} style={{
-            flex: 1, padding: '7px 6px', borderRadius: 6, cursor: 'pointer',
-            background: modo === m.key ? t.card : 'transparent',
-            border: `1px solid ${modo === m.key ? t.accent + '55' : 'transparent'}`,
-            color: modo === m.key ? t.accent : t.textMuted,
-            fontSize: 11, fontFamily: 'inherit', fontWeight: modo === m.key ? 600 : 400,
-            transition: 'all .15s',
-          }}>{m.label}</button>
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => { setModo(m.key); setValor('') }}
+            className={cn(
+              'flex-1 px-1.5 py-1.5 rounded text-[11px] transition-colors border',
+              modo === m.key
+                ? 'bg-card border-primary/40 text-primary font-semibold'
+                : 'bg-transparent border-transparent text-muted-foreground',
+            )}
+          >{m.label}</button>
         ))}
       </div>
 
       {/* Input */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-        border: `1px solid ${t.accent}66`, borderRadius: 8,
-        padding: '10px 14px', marginBottom: 10,
-      }}>
-        <span style={{ fontSize: 16, color: t.textMuted, minWidth: 20 }}>
+      <div className="flex items-center gap-2 bg-muted border border-primary/40 rounded-md px-3.5 py-2.5 mb-2.5">
+        <span className="text-base text-muted-foreground min-w-[20px]">
           {modo === 'pesos' ? '$' : 'gr'}
         </span>
         <input
           autoFocus type="number" min="1" value={valor}
           onChange={e => setValor(e.target.value)}
           placeholder={modo === 'pesos' ? 'ej: 2000' : 'ej: 250'}
-          style={{
-            flex: 1, background: 'transparent', border: 'none',
-            color: t.text, fontSize: 26, fontFamily: 'monospace',
-            outline: 'none', textAlign: 'center',
-            MozAppearance: 'textfield', appearance: 'textfield',
-          }}
+          className="flex-1 bg-transparent border-0 text-foreground text-[26px] font-mono outline-none text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
         />
       </div>
 
       {/* Resultado */}
       {valido && (
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          background: t.accentSub, border: `1px solid ${t.accent}33`,
-          borderRadius: 8, padding: '10px 14px', marginBottom: 4,
-        }}>
+        <div className="flex justify-between items-center bg-primary-soft border border-primary/30 rounded-md px-3.5 py-2.5 mb-1">
           <div>
-            <div style={{ fontSize: 10, color: t.textMuted, marginBottom: 2 }}>
+            <div className="text-[10px] text-muted-foreground mb-0.5">
               {modo === 'pesos' ? 'Gramos a entregar' : 'Total a cobrar'}
             </div>
-            <div style={{ fontSize: 18, fontFamily: 'monospace', fontWeight: 700, color: t.accent }}>
+            <div className="text-lg font-mono font-bold text-primary">
               {modo === 'pesos' ? `${gramosCalc} gr` : cop(totalCalc)}
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: t.textMuted, marginBottom: 2 }}>
+          <div className="text-right">
+            <div className="text-[10px] text-muted-foreground mb-0.5">
               {modo === 'pesos' ? 'Total' : 'Gramos'}
             </div>
-            <div style={{ fontSize: 13, color: t.text, fontFamily: 'monospace' }}>
+            <div className="text-[13px] text-foreground font-mono">
               {modo === 'pesos' ? cop(totalCalc) : `${gramosCalc} gr`}
             </div>
           </div>
@@ -633,7 +615,6 @@ function ModalGrm({ prod, onClose, onConfirm }) {
 // MODAL KG — Productos por kilo (Acronal, Yeso, Cemento Blanco, etc.)
 // ══════════════════════════════════════════════════════════════════════════════
 function ModalKg({ prod, onClose, onConfirm }) {
-  const t = useTheme()
   const [kg, setKg] = useState('')
   const [precioCustom, setPrecioCustom] = useState(null)
   if (!prod) return null
@@ -691,20 +672,23 @@ function ModalKg({ prod, onClose, onConfirm }) {
       okLabel="Agregar al carrito">
 
       {/* Accesos rápidos */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 16 }}>
+      <div className="grid grid-cols-3 gap-1.5 mb-4">
         {ACCESOS.map(a => {
           const activo = parseFloat(kg) === a.kg
           return (
-            <button key={a.kg} onClick={() => { setKg(String(a.kg)); setPrecioCustom(null) }}
-              style={{
-                padding: '8px 4px', borderRadius: 8, cursor: 'pointer', textAlign: 'center',
-                background: activo ? t.accentSub : (t.id === 'caramelo' ? '#f1f5f9' : '#111'),
-                border: `1px solid ${activo ? t.accent : t.border}`,
-                color: activo ? t.accent : t.text,
-                fontSize: 12, fontFamily: 'inherit', transition: 'all .15s',
-              }}>
-              <div style={{ fontWeight: 600 }}>{a.label}</div>
-              <div style={{ fontSize: 10, color: t.textMuted, marginTop: 2 }}>
+            <button
+              key={a.kg}
+              type="button"
+              onClick={() => { setKg(String(a.kg)); setPrecioCustom(null) }}
+              className={cn(
+                'px-1 py-2 rounded-md text-center text-xs border transition-colors',
+                activo
+                  ? 'bg-primary-soft border-primary text-primary'
+                  : 'bg-muted border-border text-foreground hover:border-primary/40',
+              )}
+            >
+              <div className="font-semibold">{a.label}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">
                 {cop(calcPrecioKg(a.kg))}
               </div>
             </button>
@@ -713,26 +697,17 @@ function ModalKg({ prod, onClose, onConfirm }) {
       </div>
 
       {/* Input personalizado */}
-      <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">
         Cantidad personalizada (kg)
       </div>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-        border: `1px solid ${t.accent}66`, borderRadius: 8,
-        padding: '10px 14px', marginBottom: 8,
-      }}>
-        <input autoFocus type="number" min="0.5" step="0.5" value={kg}
+      <div className="flex items-center gap-2 bg-muted border border-primary/40 rounded-md px-3.5 py-2.5 mb-2">
+        <input
+          autoFocus type="number" min="0.5" step="0.5" value={kg}
           onChange={e => { setKg(e.target.value); setPrecioCustom(null) }}
-          style={{
-            flex: 1, background: 'transparent', border: 'none',
-            color: t.text, fontSize: 26, fontFamily: 'monospace',
-            outline: 'none', textAlign: 'center',
-            MozAppearance: 'textfield', appearance: 'textfield',
-          }}
           placeholder="0"
+          className="flex-1 bg-transparent border-0 text-foreground text-[26px] font-mono outline-none text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
         />
-        <span style={{ fontSize: 13, color: t.textMuted }}>kg</span>
+        <span className="text-sm text-muted-foreground">kg</span>
       </div>
       <PrecioEditor precioCalc={totalCalc} precioFinal={precioFinal} onChange={setPrecioCustom} desc={kgDesc(kgNum)} />
     </Modal>
@@ -743,7 +718,6 @@ function ModalKg({ prod, onClose, onConfirm }) {
 // MODAL QTY SIMPLE
 // ══════════════════════════════════════════════════════════════════════════════
 function ModalQty({ prod, onClose, onConfirm }) {
-  const t = useTheme()
   const [qtyStr, setQtyStr] = useState('1')  // string para permitir borrar el campo
   const [precioCustom, setPrecioCustom] = useState(null)
   if (!prod) return null
@@ -767,43 +741,48 @@ function ModalQty({ prod, onClose, onConfirm }) {
       onClose={onClose}
       onConfirm={() => valido && onConfirm({ qty, total: precioFinal, desc })}
       okDisabled={!valido}>
-      <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 7 }}>
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">
         Cantidad
       </div>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
-        background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-        border: `1px solid ${esMayorista ? t.blue : t.accent}66`, borderRadius: 8,
-        padding: 14, marginBottom: 14,
-      }}>
-        <button onClick={() => cambiarQtyNum(q => Math.max(1, q - 1))} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>−</button>
+      <div
+        className={cn(
+          'flex items-center justify-center gap-3.5 bg-muted rounded-md p-3.5 mb-3.5 border',
+          esMayorista ? 'border-success/40' : 'border-primary/40',
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => cambiarQtyNum(q => Math.max(1, q - 1))}
+          className="w-[34px] h-[34px] bg-card border border-border rounded-md text-foreground text-xl hover:border-primary/40 transition-colors"
+        >−</button>
         <input
           autoFocus
           type="number" min="1"
           value={qtyStr}
           onChange={e => { setQtyStr(e.target.value); setPrecioCustom(null) }}
           onBlur={e => { if (!parseInt(e.target.value) || parseInt(e.target.value) < 1) setQtyStr('1') }}
-          style={{
-            width: 60, background: 'transparent', border: 'none',
-            borderBottom: `1px solid ${esMayorista ? t.blue : t.accent}66`,
-            color: t.text, fontSize: 26, fontFamily: 'monospace',
-            outline: 'none', textAlign: 'center', padding: '2px 0',
-            MozAppearance: 'textfield', appearance: 'textfield',
-          }}
+          className={cn(
+            'w-[60px] bg-transparent border-0 border-b text-foreground text-[26px] font-mono outline-none text-center py-0.5 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none',
+            esMayorista ? 'border-success/40' : 'border-primary/40',
+          )}
         />
-        <button onClick={() => cambiarQtyNum(q => q + 1)} style={{ width: 34, height: 34, background: t.card, border: `1px solid ${t.border}`, borderRadius: 7, color: t.text, cursor: 'pointer', fontSize: 20 }}>+</button>
+        <button
+          type="button"
+          onClick={() => cambiarQtyNum(q => q + 1)}
+          className="w-[34px] h-[34px] bg-card border border-border rounded-md text-foreground text-xl hover:border-primary/40 transition-colors"
+        >+</button>
       </div>
 
       {/* Indicador mayorista */}
       {may && (
-        <div style={{
-          padding: '6px 10px', borderRadius: 7, marginBottom: 10, fontSize: 11,
-          background: esMayorista ? `${t.blue}18` : t.tableAlt,
-          border: `1px solid ${esMayorista ? t.blue + '44' : t.border}`,
-          color: esMayorista ? t.blue : t.textMuted,
-          textAlign: 'center', fontWeight: esMayorista ? 600 : 400,
-          transition: 'all .2s',
-        }}>
+        <div
+          className={cn(
+            'px-2.5 py-1.5 rounded-md mb-2.5 text-[11px] text-center border transition-colors',
+            esMayorista
+              ? 'bg-success/10 border-success/40 text-success font-semibold'
+              : 'bg-muted border-border text-muted-foreground',
+          )}
+        >
           {esMayorista
             ? `✓ Precio mayorista: ${cop(may.precio)} c/u (desde ${may.umbral} uds)`
             : `Mayorista desde ${may.umbral} uds → ${cop(may.precio)} c/u`
