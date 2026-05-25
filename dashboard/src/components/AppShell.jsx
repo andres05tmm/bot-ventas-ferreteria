@@ -1,12 +1,11 @@
 /*
  * AppShell — layout principal: sidebar (desktop) o bottom-nav (móvil) + outlet.
  * Tema light/dark vía data-theme en <html>. Persiste en localStorage.
- * ThemeContext legacy (THEMES) sigue envolviendo para tabs aún no migradas.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { findRoute } from '@/routes.jsx'
-import { ThemeContext, THEMES, useIsMobile } from './shared.jsx'
+import { useIsMobile } from './shared.jsx'
 import { VendorProvider } from '../hooks/useVendorFilter.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { useRealtime } from '../hooks/useRealtime.js'
@@ -78,13 +77,8 @@ function ShellInner() {
   const activeRoute = findRoute(location.pathname)
   const activeTabName = activeRoute?.label || 'Hoy'
 
-  // ThemeContext legacy: el tema "caramelo" para light, "forja" para dark.
-  // Permite que tabs aún no migradas sigan renderizando coherentemente.
-  const legacyTheme = colorScheme === 'dark' ? THEMES.forja : THEMES.caramelo
-
   return (
-    <ThemeContext.Provider value={legacyTheme}>
-      <div className="min-h-dvh bg-background text-foreground flex">
+    <div className="min-h-dvh bg-background text-foreground flex">
         {!isMobile && (
           <Sidebar
             collapsed={collapsed}
@@ -122,7 +116,6 @@ function ShellInner() {
         <CommandPalette open={cmdOpen} setOpen={setCmdOpen} onRefresh={doRefresh} />
         <ChatWidget onRefresh={doRefresh} activeTab={activeTabName} />
       </div>
-    </ThemeContext.Provider>
   )
 }
 

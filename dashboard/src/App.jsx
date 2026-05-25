@@ -1,8 +1,6 @@
 /*
  * App.jsx — entry point del dashboard.
- * Fase 4 (Wave 1): nuevo shell con sidebar + react-router rutas reales.
- * Cada tab vive en su propia ruta; ThemeContext legacy se mantiene para tabs
- * aún no migradas a tokens shadcn (waves 2-4).
+ * Shell con sidebar + react-router. Cada tab vive en su propia ruta.
  */
 import React from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate, useOutletContext } from 'react-router-dom'
