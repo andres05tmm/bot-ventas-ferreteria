@@ -1,18 +1,28 @@
 /**
  * TabCompras.jsx — Compras a Proveedores (Almacén)
  * - Registro operativo: actualiza inventario + kárdex
- * - Botón ✏️ Editar por fila
- * - Botón 📊 Fiscal por fila (duplica a compras_fiscal para el Libro IVA)
- *   Si la compra ya tiene entrada fiscal el botón se muestra en verde bloqueado.
+ * - Editar por fila / Enviar a Fiscal por fila
+ *
+ * Migrado a tokens shadcn + sonner (Wave 4 — Fiscal).
  */
 import { useState, useRef, useEffect } from 'react'
+import { toast } from 'sonner'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import {
-  useTheme, useFetch, Card, GlassCard, SectionTitle, KpiCard, Spinner, ErrorMsg,
-  PeriodBtn, EmptyState, cop, num, API_BASE,
-} from '../components/shared.jsx'
+  BarChart3, ChevronRight, DollarSign, FileBarChart, Hash, Loader2, Package,
+  Pencil, Plus, ShoppingCart, Truck, X,
+} from 'lucide-react'
+import { useFetch, cop, num, API_BASE } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
+import { Card } from '@/components/ui/card.jsx'
+import { Button } from '@/components/ui/button.jsx'
+import { Input } from '@/components/ui/input.jsx'
+import { Label } from '@/components/ui/label.jsx'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog.jsx'
+import { cn } from '@/lib/utils'
 
 const DIAS_OPTIONS = [
   { label: '7 días',  value: 7  },
@@ -20,7 +30,17 @@ const DIAS_OPTIONS = [
   { label: '30 días', value: 30 },
   { label: '90 días', value: 90 },
 ]
-const PROV_COLORS = ['#60a5fa','#4ade80','#fbbf24','#f87171','#a78bfa','#fb923c','#94a3b8']
+
+// Paleta de colores para PieChart (tokens semantic via HSL CSS vars + tonos fijos para diversidad)
+const PROV_COLORS = [
+  'hsl(var(--accent))',
+  'hsl(var(--success))',
+  'hsl(var(--warning))',
+  'hsl(var(--danger))',
+  'hsl(var(--text-muted))',
+  '#a78bfa',
+  '#94a3b8',
+]
 const TARIFAS_IVA = [5, 19]
 
 function calcIVA(total, tarifa) {
@@ -30,9 +50,6 @@ function calcIVA(total, tarifa) {
   return { base, iva }
 }
 
-// Agrupa compras por proveedor + fecha (día).
-// Pedidos de un mismo proveedor en el mismo día → acordeón.
-// Compras sueltas (proveedor "Sin proveedor" o días distintos) → card individual.
 function agruparCompras(lista) {
   const map = new Map()
   lista.forEach(c => {
@@ -48,9 +65,53 @@ function agruparCompras(lista) {
   }))
 }
 
-// ── Buscador de productos del catálogo ─────────────────────────────────────────
-function ProductoSearchInput({ value, onChange, style, placeholder }) {
-  const t = useTheme()
+// ── Helpers UI tokenizados ────────────────────────────────────────────────────
+
+function SectionTitle({ icon: Icon, children }) {
+  return (
+    <div className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+      {Icon && <Icon className="size-4 text-muted-foreground" />}
+      {children}
+    </div>
+  )
+}
+
+function PeriodChip({ active, children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'px-3 py-1 rounded-md text-[11px] border transition-colors',
+        active
+          ? 'bg-primary-soft border-primary text-primary font-bold'
+          : 'bg-transparent border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function Spinner() {
+  return (
+    <div className="flex items-center justify-center py-10">
+      <Loader2 className="size-5 animate-spin text-muted-foreground" />
+    </div>
+  )
+}
+
+function ErrorMsg({ msg }) {
+  return (
+    <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2">
+      {msg}
+    </div>
+  )
+}
+
+// ── Buscador de productos ─────────────────────────────────────────────────────
+
+function ProductoSearchInput({ value, onChange, placeholder }) {
   const { authFetch } = useAuth()
   const [todos, setTodos] = useState([])
   const [open, setOpen] = useState(false)
@@ -76,70 +137,108 @@ function ProductoSearchInput({ value, onChange, style, placeholder }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const dropdownBg = t.id === 'caramelo' ? '#fff' : '#1a1a1a'
-
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <input
+    <div ref={ref} className="relative">
+      <Input
         value={value}
         onChange={e => { onChange(e.target.value); setOpen(true) }}
         onFocus={() => { cargar(); setOpen(true) }}
-        style={style}
         placeholder={placeholder || 'Buscar producto del catálogo…'}
         autoComplete="off"
       />
       {open && filtrados.length > 0 && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0,
-          zIndex: 9999, maxHeight: 220, overflowY: 'auto',
-          background: dropdownBg, border: `1px solid ${t.border}`,
-          borderRadius: 8, boxShadow: '0 6px 24px rgba(0,0,0,.28)',
-        }}>
-          {filtrados.map(n => (
-            <div
-              key={n}
-              onMouseDown={e => { e.preventDefault(); onChange(n); setOpen(false) }}
-              style={{
-                padding: '7px 12px', cursor: 'pointer', fontSize: 12,
-                color: n.toLowerCase() === value.toLowerCase() ? t.blue : t.text,
-                fontWeight: n.toLowerCase() === value.toLowerCase() ? 700 : 400,
-                borderBottom: `1px solid ${t.border}20`,
-                transition: 'background .1s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = `${t.blue}18` }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-            >
-              {n}
-            </div>
-          ))}
+        <div className="absolute top-[calc(100%+3px)] left-0 right-0 z-50 max-h-56 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
+          {filtrados.map(n => {
+            const selected = n.toLowerCase() === value.toLowerCase()
+            return (
+              <div
+                key={n}
+                onMouseDown={e => { e.preventDefault(); onChange(n); setOpen(false) }}
+                className={cn(
+                  'px-3 py-1.5 cursor-pointer text-xs hover:bg-primary-soft transition-colors border-b border-border/40 last:border-0',
+                  selected ? 'text-primary font-bold' : 'text-foreground',
+                )}
+              >
+                {n}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
   )
 }
 
+// ── Toggle IVA ────────────────────────────────────────────────────────────────
+
+function IvaToggle({ incluye, tarifa, onIncluyeChange, onTarifaChange }) {
+  return (
+    <div className="flex items-center gap-2.5 flex-wrap">
+      <button
+        type="button"
+        onClick={() => onIncluyeChange(!incluye)}
+        className={cn(
+          'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-md text-[11px] font-semibold border transition-colors',
+          incluye
+            ? 'bg-success/10 border-success/40 text-success'
+            : 'bg-muted border-border text-muted-foreground',
+        )}
+      >
+        <span className={cn(
+          'w-7 h-4 rounded-full relative flex-shrink-0 transition-colors',
+          incluye ? 'bg-success' : 'bg-border',
+        )}>
+          <span className={cn(
+            'absolute top-0.5 size-3 rounded-full bg-white transition-[left] duration-150',
+            incluye ? 'left-[14px]' : 'left-0.5',
+          )} />
+        </span>
+        {incluye ? 'Incluye IVA' : 'Sin IVA'}
+      </button>
+      {incluye && TARIFAS_IVA.map(tv => (
+        <button
+          key={tv}
+          type="button"
+          onClick={() => onTarifaChange(tv)}
+          className={cn(
+            'px-3.5 py-1.5 rounded-md text-[11px] font-bold border transition-colors',
+            tarifa === tv
+              ? 'bg-primary-soft border-primary text-primary'
+              : 'bg-transparent border-border text-muted-foreground hover:border-primary/40',
+          )}
+        >
+          {tv}%
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ── Modal Editar ──────────────────────────────────────────────────────────────
-function ModalEditar({ compra, onClose, onSaved, authFetch, t }) {
-  const [producto,   setProducto]   = useState(compra.producto)
-  const [cantidad,   setCantidad]   = useState(String(compra.cantidad))
-  const [costoUnit,  setCostoUnit]  = useState(String(compra.costo_unitario))
-  const [proveedor,  setProveedor]  = useState(compra.proveedor === 'Sin proveedor' ? '' : compra.proveedor)
-  const [incluyeIva, setIncluyeIva] = useState(compra.incluye_iva)
-  const [tarifaIva,  setTarifaIva]  = useState(compra.tarifa_iva || 19)
+
+function ModalEditar({ compra, open, onClose, onSaved, authFetch }) {
+  const [producto,   setProducto]   = useState(compra?.producto || '')
+  const [cantidad,   setCantidad]   = useState(String(compra?.cantidad || ''))
+  const [costoUnit,  setCostoUnit]  = useState(String(compra?.costo_unitario || ''))
+  const [proveedor,  setProveedor]  = useState(compra?.proveedor === 'Sin proveedor' ? '' : (compra?.proveedor || ''))
+  const [incluyeIva, setIncluyeIva] = useState(compra?.incluye_iva || false)
+  const [tarifaIva,  setTarifaIva]  = useState(compra?.tarifa_iva || 19)
   const [guardando,  setGuardando]  = useState(false)
   const [err,        setErr]        = useState(null)
 
-  const inpStyle = {
-    width: '100%', boxSizing: 'border-box',
-    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-    border: `1px solid ${t.border}`, borderRadius: 7,
-    color: t.text, fontSize: 12, padding: '8px 10px',
-    outline: 'none', fontFamily: 'inherit',
-  }
-  const lblStyle = {
-    fontSize: 10, color: t.textMuted, textTransform: 'uppercase',
-    letterSpacing: '.06em', display: 'block', marginBottom: 4,
-  }
+  useEffect(() => {
+    if (compra) {
+      setProducto(compra.producto || '')
+      setCantidad(String(compra.cantidad || ''))
+      setCostoUnit(String(compra.costo_unitario || ''))
+      setProveedor(compra.proveedor === 'Sin proveedor' ? '' : (compra.proveedor || ''))
+      setIncluyeIva(compra.incluye_iva || false)
+      setTarifaIva(compra.tarifa_iva || 19)
+      setErr(null)
+    }
+  }, [compra])
+
+  if (!compra) return null
 
   const guardar = async () => {
     if (!producto.trim())              { setErr('El producto es obligatorio'); return }
@@ -167,104 +266,58 @@ function ModalEditar({ compra, onClose, onSaved, authFetch, t }) {
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 1000,
-      background: 'rgba(0,0,0,.55)', display: 'flex',
-      alignItems: 'center', justifyContent: 'center', padding: 16,
-    }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{
-        background: t.card, border: `1px solid ${t.border}`,
-        borderRadius: 14, padding: 24, width: '100%', maxWidth: 440,
-        boxShadow: '0 20px 60px rgba(0,0,0,.4)',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>Editar Compra</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: 18, cursor: 'pointer' }}>✕</button>
-        </div>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="inline-flex items-center gap-2">
+            <Pencil className="size-4 text-primary" />
+            Editar Compra
+          </DialogTitle>
+        </DialogHeader>
 
-        {err && (
-          <div style={{ padding: '8px 12px', borderRadius: 7, marginBottom: 12,
-            background: `${t.accent}14`, border: `1px solid ${t.accent}44`,
-            color: t.accent, fontSize: 12 }}>✕ {err}</div>
-        )}
+        {err && <ErrorMsg msg={err} />}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label style={lblStyle}>Producto *</label>
-            <ProductoSearchInput value={producto} onChange={setProducto} style={inpStyle}/>
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="col-span-2 space-y-1">
+            <Label htmlFor="ed-prod" className="text-[10px] uppercase tracking-wider text-muted-foreground">Producto *</Label>
+            <ProductoSearchInput value={producto} onChange={setProducto} />
           </div>
-          <div>
-            <label style={lblStyle}>Cantidad *</label>
-            <input type="number" min="0" step="0.01" value={cantidad}
-              onChange={e => setCantidad(e.target.value)} style={inpStyle}/>
+          <div className="space-y-1">
+            <Label htmlFor="ed-cant" className="text-[10px] uppercase tracking-wider text-muted-foreground">Cantidad *</Label>
+            <Input id="ed-cant" type="number" min="0" step="0.01" value={cantidad} onChange={e => setCantidad(e.target.value)} />
           </div>
-          <div>
-            <label style={lblStyle}>Costo unitario *</label>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: t.textMuted, fontSize: 11 }}>$</span>
-              <input type="number" min="0" value={costoUnit}
-                onChange={e => setCostoUnit(e.target.value)}
-                style={{ ...inpStyle, paddingLeft: 22 }}/>
+          <div className="space-y-1">
+            <Label htmlFor="ed-cost" className="text-[10px] uppercase tracking-wider text-muted-foreground">Costo unitario *</Label>
+            <div className="relative">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">$</span>
+              <Input id="ed-cost" type="number" min="0" value={costoUnit} onChange={e => setCostoUnit(e.target.value)} className="pl-6" />
             </div>
           </div>
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label style={lblStyle}>Proveedor</label>
-            <input value={proveedor} onChange={e => setProveedor(e.target.value)} style={inpStyle}/>
+          <div className="col-span-2 space-y-1">
+            <Label htmlFor="ed-prov" className="text-[10px] uppercase tracking-wider text-muted-foreground">Proveedor</Label>
+            <Input id="ed-prov" value={proveedor} onChange={e => setProveedor(e.target.value)} />
           </div>
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label style={lblStyle}>IVA</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <button onClick={() => setIncluyeIva(v => !v)} style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                background: incluyeIva ? `${t.green}18` : t.tableAlt,
-                border: `1px solid ${incluyeIva ? t.green : t.border}`,
-                borderRadius: 8, padding: '7px 14px', cursor: 'pointer',
-                fontFamily: 'inherit', fontSize: 11, fontWeight: 600,
-                color: incluyeIva ? t.green : t.textMuted,
-              }}>
-                <span style={{ width: 28, height: 16, borderRadius: 99,
-                  background: incluyeIva ? t.green : t.border,
-                  position: 'relative', flexShrink: 0 }}>
-                  <span style={{ position: 'absolute', top: 2,
-                    left: incluyeIva ? 14 : 2, width: 12, height: 12,
-                    borderRadius: '50%', background: '#fff', transition: 'left .15s' }}/>
-                </span>
-                {incluyeIva ? 'Incluye IVA' : 'Sin IVA'}
-              </button>
-              {incluyeIva && TARIFAS_IVA.map(tv => (
-                <button key={tv} onClick={() => setTarifaIva(tv)} style={{
-                  background: tarifaIva === tv ? t.accent : t.accentSub,
-                  border: `1px solid ${tarifaIva === tv ? t.accent : t.border}`,
-                  color: tarifaIva === tv ? '#fff' : t.textMuted,
-                  borderRadius: 7, padding: '6px 14px', cursor: 'pointer',
-                  fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
-                }}>{tv}%</button>
-              ))}
-            </div>
+          <div className="col-span-2 space-y-1">
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">IVA</Label>
+            <IvaToggle incluye={incluyeIva} tarifa={tarifaIva} onIncluyeChange={setIncluyeIva} onTarifaChange={setTarifaIva} />
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{
-            background: t.tableAlt, border: `1px solid ${t.border}`,
-            borderRadius: 8, color: t.textMuted, padding: '9px 20px',
-            fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
-          }}>Cancelar</button>
-          <button onClick={guardar} disabled={guardando} style={{
-            background: t.blue, border: 'none', borderRadius: 8,
-            color: '#fff', padding: '9px 20px', fontSize: 12,
-            fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-            opacity: guardando ? 0.7 : 1,
-          }}>{guardando ? 'Guardando…' : 'Guardar'}</button>
+        <div className="flex gap-2 justify-end">
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={guardar} disabled={guardando}>
+            {guardando && <Loader2 className="size-4 mr-1.5 animate-spin" />}
+            {guardando ? 'Guardando…' : 'Guardar'}
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 // ── Tab principal ─────────────────────────────────────────────────────────────
+
 export default function TabCompras({ refreshKey }) {
-  const t = useTheme()
   const { authFetch } = useAuth()
   const { selectedVendor } = useVendorFilter()
   const [dias, setDias] = useState(30)
@@ -275,7 +328,6 @@ export default function TabCompras({ refreshKey }) {
     [dias, refreshKey, localRefresh, selectedVendor]
   )
 
-  // Form nueva compra
   const [formOpen,   setFormOpen]   = useState(false)
   const [producto,   setProducto]   = useState('')
   const [cantidad,   setCantidad]   = useState('')
@@ -284,32 +336,20 @@ export default function TabCompras({ refreshKey }) {
   const [incluyeIva, setIncluyeIva] = useState(true)
   const [tarifaIva,  setTarifaIva]  = useState(19)
   const [guardando,  setGuardando]  = useState(false)
-  const [msg,        setMsg]        = useState(null)
 
-  // Editar
   const [editando, setEditando] = useState(null)
-
-  // Enviando a fiscal por id de compra
   const [enviandoFiscal, setEnviandoFiscal] = useState({})
-
-  // Acordeón: qué grupos están expandidos (key = "proveedor__fecha")
   const [expandedGroups, setExpandedGroups] = useState({})
 
-  const mostrarMsg = (tipo, texto) => {
-    setMsg({ tipo, texto })
-    setTimeout(() => setMsg(null), 4000)
-  }
-
-  const totalBruto = cantidad && costoUnit
-    ? parseFloat(cantidad) * parseFloat(costoUnit) : 0
+  const totalBruto = cantidad && costoUnit ? parseFloat(cantidad) * parseFloat(costoUnit) : 0
   const { base: baseCalc, iva: ivaCalc } = incluyeIva
     ? calcIVA(totalBruto, tarifaIva)
     : { base: totalBruto, iva: 0 }
 
   const registrarCompra = async () => {
-    if (!producto.trim())                         { mostrarMsg('err', 'El producto es obligatorio'); return }
-    if (!cantidad || parseFloat(cantidad) <= 0)   { mostrarMsg('err', 'La cantidad debe ser mayor a 0'); return }
-    if (!costoUnit || parseFloat(costoUnit) <= 0) { mostrarMsg('err', 'El costo unitario debe ser mayor a 0'); return }
+    if (!producto.trim())                         { toast.error('El producto es obligatorio'); return }
+    if (!cantidad || parseFloat(cantidad) <= 0)   { toast.error('La cantidad debe ser mayor a 0'); return }
+    if (!costoUnit || parseFloat(costoUnit) <= 0) { toast.error('El costo unitario debe ser mayor a 0'); return }
     setGuardando(true)
     try {
       const r = await authFetch(`${API_BASE}/compras`, {
@@ -327,11 +367,11 @@ export default function TabCompras({ refreshKey }) {
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error')
       const ivaMsg = incluyeIva ? ` · IVA ${tarifaIva}%: ${cop(ivaCalc)}` : ''
-      mostrarMsg('ok', `Compra registrada: ${cantidad} ${producto.trim()} — Total: ${cop(totalBruto)}${ivaMsg}`)
+      toast.success(`${cantidad} ${producto.trim()} — Total: ${cop(totalBruto)}${ivaMsg}`)
       setProducto(''); setCantidad(''); setCostoUnit(''); setProveedor('')
       setIncluyeIva(false); setTarifaIva(19); setFormOpen(false)
       setLocalRefresh(r => r + 1)
-    } catch (e) { mostrarMsg('err', e.message) }
+    } catch (e) { toast.error(e.message) }
     finally { setGuardando(false) }
   }
 
@@ -341,177 +381,118 @@ export default function TabCompras({ refreshKey }) {
       const r = await authFetch(`${API_BASE}/compras/${compra.id}/to-fiscal`, { method: 'POST' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error')
-      mostrarMsg('ok', d.ya_existia
+      toast.success(d.ya_existia
         ? 'Esta compra ya estaba en Compras Fiscal'
-        : 'Compra enviada a Contabilidad Fiscal'
-      )
+        : 'Compra enviada a Contabilidad Fiscal')
       setLocalRefresh(r => r + 1)
-    } catch (e) { mostrarMsg('err', e.message) }
+    } catch (e) { toast.error(e.message) }
     finally { setEnviandoFiscal(prev => ({ ...prev, [compra.id]: false })) }
   }
 
   if (loading) return <Spinner />
   if (error)   return <ErrorMsg msg={`Error: ${error}`} />
 
-  const d        = data || {}
-  const compras  = d.compras || []
-  const porProv  = Object.entries(d.por_proveedor || {}).sort((a, b) => b[1] - a[1])
-  const porProd  = Object.entries(d.por_producto  || {}).slice(0, 10)
-  const total    = d.total_invertido || 0
-  const pieData  = porProv.map(([name, value]) => ({ name, value }))
-  const sinDatos = compras.length === 0
+  const d         = data || {}
+  const compras   = d.compras || []
+  const porProv   = Object.entries(d.por_proveedor || {}).sort((a, b) => b[1] - a[1])
+  const porProd   = Object.entries(d.por_producto  || {}).slice(0, 10)
+  const total     = d.total_invertido || 0
+  const pieData   = porProv.map(([name, value]) => ({ name, value }))
+  const sinDatos  = compras.length === 0
   const agrupados = agruparCompras(compras)
 
-  const inpStyle = {
-    width: '100%', boxSizing: 'border-box',
-    background: t.id === 'caramelo' ? '#f8fafc' : '#111',
-    border: `1px solid ${t.border}`, borderRadius: 7,
-    color: t.text, fontSize: 12, padding: '8px 10px',
-    outline: 'none', fontFamily: 'inherit',
-  }
-  const lblStyle = {
-    fontSize: 10, color: t.textMuted, textTransform: 'uppercase',
-    letterSpacing: '.06em', display: 'block', marginBottom: 4,
-  }
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-      {/* Modal editar */}
-      {editando && (
-        <ModalEditar
-          compra={editando}
-          onClose={() => setEditando(null)}
-          onSaved={() => {
-            setEditando(null)
-            mostrarMsg('ok', 'Compra actualizada')
-            setLocalRefresh(r => r + 1)
-          }}
-          authFetch={authFetch}
-          t={t}
-        />
-      )}
-
-      {msg && (
-        <div style={{
-          padding: '10px 16px', borderRadius: 8,
-          background: msg.tipo === 'ok' ? `${t.green}14` : `${t.accent}14`,
-          border: `1px solid ${msg.tipo === 'ok' ? t.green : t.accent}44`,
-          color: msg.tipo === 'ok' ? t.green : t.accent,
-          fontSize: 12, fontWeight: 500,
-        }}>{msg.tipo === 'ok' ? '✓' : '✕'} {msg.texto}</div>
-      )}
+    <div className="flex flex-col gap-4">
+      <ModalEditar
+        open={editando != null}
+        compra={editando}
+        onClose={() => setEditando(null)}
+        onSaved={() => {
+          setEditando(null)
+          toast.success('Compra actualizada')
+          setLocalRefresh(r => r + 1)
+        }}
+        authFetch={authFetch}
+      />
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+      <div className="flex justify-between items-center flex-wrap gap-2.5">
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: t.text }}>Compras a Proveedores</div>
-          <div style={{ fontSize: 11, color: t.textMuted, marginTop: 3 }}>
+          <div className="text-sm font-bold text-foreground inline-flex items-center gap-2">
+            <ShoppingCart className="size-4 text-muted-foreground" />
+            Compras a Proveedores
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">
             Historial de mercancía comprada · últimos {dias} días
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="flex gap-1.5 items-center flex-wrap">
           {DIAS_OPTIONS.map(o => (
-            <PeriodBtn key={o.value} active={dias === o.value} onClick={() => setDias(o.value)}>
+            <PeriodChip key={o.value} active={dias === o.value} onClick={() => setDias(o.value)}>
               {o.label}
-            </PeriodBtn>
+            </PeriodChip>
           ))}
-          <button onClick={() => setFormOpen(f => !f)} style={{
-            background: formOpen ? t.blue : `${t.blue}18`,
-            border: `1px solid ${t.blue}55`, borderRadius: 8,
-            color: formOpen ? '#fff' : t.blue,
-            padding: '6px 14px', fontSize: 11, fontWeight: 700,
-            cursor: 'pointer', fontFamily: 'inherit',
-          }}>
-            {formOpen ? '✕ Cerrar' : '➕ Nueva compra'}
-          </button>
+          <Button
+            size="sm"
+            variant={formOpen ? 'default' : 'outline'}
+            onClick={() => setFormOpen(f => !f)}
+            className="h-7 text-[11px]"
+          >
+            {formOpen
+              ? <><X className="size-3 mr-1" /> Cerrar</>
+              : <><Plus className="size-3 mr-1" /> Nueva compra</>}
+          </Button>
         </div>
       </div>
 
-      {/* Formulario nueva compra */}
+      {/* Form */}
       {formOpen && (
-        <GlassCard>
-          <SectionTitle>Registrar Compra</SectionTitle>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={lblStyle}>Producto *</label>
-              <ProductoSearchInput value={producto} onChange={setProducto}
-                style={inpStyle} placeholder="Buscar o escribir nombre del producto…"/>
+        <Card className="p-5">
+          <SectionTitle icon={Plus}>Registrar Compra</SectionTitle>
+          <div className="grid grid-cols-2 gap-2.5 mt-3 mb-3">
+            <div className="col-span-2 space-y-1">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Producto *</Label>
+              <ProductoSearchInput value={producto} onChange={setProducto} placeholder="Buscar o escribir nombre del producto…" />
             </div>
-            <div>
-              <label style={lblStyle}>Cantidad *</label>
-              <input type="number" min="0" step="0.01" value={cantidad}
-                onChange={e => setCantidad(e.target.value)} placeholder="0" style={inpStyle}/>
+            <div className="space-y-1">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Cantidad *</Label>
+              <Input type="number" min="0" step="0.01" value={cantidad} onChange={e => setCantidad(e.target.value)} placeholder="0" />
             </div>
-            <div>
-              <label style={lblStyle}>Costo unitario *</label>
-              <div style={{ position: 'relative' }}>
-                <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: t.textMuted, fontSize: 11 }}>$</span>
-                <input type="number" min="0" value={costoUnit}
+            <div className="space-y-1">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Costo unitario *</Label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">$</span>
+                <Input
+                  type="number" min="0" value={costoUnit}
                   onChange={e => setCostoUnit(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && registrarCompra()}
-                  placeholder="0" style={{ ...inpStyle, paddingLeft: 22 }}/>
+                  placeholder="0" className="pl-6"
+                />
               </div>
             </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={lblStyle}>Proveedor (opcional)</label>
-              <input value={proveedor} onChange={e => setProveedor(e.target.value)}
-                placeholder="Ej: Ferrisariato, Distribuidora Central..." style={inpStyle}/>
+            <div className="col-span-2 space-y-1">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Proveedor (opcional)</Label>
+              <Input value={proveedor} onChange={e => setProveedor(e.target.value)}
+                placeholder="Ej: Ferrisariato, Distribuidora Central..." />
             </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={lblStyle}>IVA en esta compra</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <button onClick={() => setIncluyeIva(v => !v)} style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  background: incluyeIva ? `${t.green}18` : t.tableAlt,
-                  border: `1px solid ${incluyeIva ? t.green : t.border}`,
-                  borderRadius: 8, padding: '7px 14px', cursor: 'pointer',
-                  fontFamily: 'inherit', fontSize: 11, fontWeight: 600,
-                  color: incluyeIva ? t.green : t.textMuted, transition: 'all .15s',
-                }}>
-                  <span style={{ width: 28, height: 16, borderRadius: 99,
-                    background: incluyeIva ? t.green : t.border,
-                    position: 'relative', transition: 'background .15s', flexShrink: 0 }}>
-                    <span style={{ position: 'absolute', top: 2,
-                      left: incluyeIva ? 14 : 2, width: 12, height: 12,
-                      borderRadius: '50%', background: '#fff', transition: 'left .15s' }}/>
-                  </span>
-                  {incluyeIva ? 'Precio incluye IVA' : 'Sin IVA'}
-                </button>
-                {incluyeIva && (
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    {TARIFAS_IVA.map(tv => (
-                      <button key={tv} onClick={() => setTarifaIva(tv)} style={{
-                        background: tarifaIva === tv ? t.accent : t.accentSub,
-                        border: `1px solid ${tarifaIva === tv ? t.accent : t.border}`,
-                        color: tarifaIva === tv ? '#fff' : t.textMuted,
-                        borderRadius: 7, padding: '6px 14px', cursor: 'pointer',
-                        fontFamily: 'inherit', fontSize: 11, fontWeight: 700, transition: 'all .15s',
-                      }}>{tv}%</button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            <div className="col-span-2 space-y-1">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">IVA en esta compra</Label>
+              <IvaToggle incluye={incluyeIva} tarifa={tarifaIva} onIncluyeChange={setIncluyeIva} onTarifaChange={setTarifaIva} />
             </div>
           </div>
 
           {cantidad && costoUnit && (
-            <div style={{
-              display: 'flex', gap: 16, flexWrap: 'wrap',
-              padding: '10px 14px', borderRadius: 8,
-              background: t.tableAlt, border: `1px solid ${t.border}`,
-              marginBottom: 12, fontSize: 12,
-            }}>
-              <span style={{ color: t.textMuted }}>
-                Total bruto: <strong style={{ color: t.blue }}>{cop(totalBruto)}</strong>
+            <div className="flex gap-4 flex-wrap px-3.5 py-2.5 rounded-md bg-muted/60 border border-border mb-3 text-xs">
+              <span className="text-muted-foreground">
+                Total bruto: <strong className="text-primary">{cop(totalBruto)}</strong>
               </span>
               {incluyeIva && (
                 <>
-                  <span style={{ color: t.textMuted }}>
-                    Base (sin IVA): <strong style={{ color: t.text }}>{cop(baseCalc)}</strong>
+                  <span className="text-muted-foreground">
+                    Base (sin IVA): <strong className="text-foreground">{cop(baseCalc)}</strong>
                   </span>
-                  <span style={{ color: t.textMuted }}>
-                    IVA {tarifaIva}%: <strong style={{ color: t.green }}>{cop(ivaCalc)}</strong>
+                  <span className="text-muted-foreground">
+                    IVA {tarifaIva}%: <strong className="text-success">{cop(ivaCalc)}</strong>
                   </span>
                 </>
               )}
@@ -519,272 +500,234 @@ export default function TabCompras({ refreshKey }) {
           )}
 
           {incluyeIva && (
-            <div style={{
-              padding: '8px 12px', borderRadius: 7, marginBottom: 12,
-              background: `${t.green}10`, border: `1px solid ${t.green}33`,
-              fontSize: 11, color: t.green,
-            }}>
-              ✅ Al enviar esta compra a Compras Fiscal, el IVA ({cop(ivaCalc)}) se registrará como crédito descontable en el Libro IVA
+            <div className="px-3.5 py-2 rounded-md mb-3 bg-success/10 border border-success/30 text-[11px] text-success">
+              Al enviar esta compra a Compras Fiscal, el IVA ({cop(ivaCalc)}) se registrará como crédito descontable en el Libro IVA.
             </div>
           )}
 
-          <button onClick={registrarCompra} disabled={guardando} style={{
-            background: t.blue, border: 'none', borderRadius: 8,
-            color: '#fff', padding: '10px 24px', fontSize: 12,
-            fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-            opacity: guardando ? 0.7 : 1,
-          }}>
-            {guardando ? 'Guardando…' : '📦 Registrar compra'}
-          </button>
-        </GlassCard>
+          <Button onClick={registrarCompra} disabled={guardando}>
+            {guardando
+              ? <><Loader2 className="size-4 mr-1.5 animate-spin" /> Guardando…</>
+              : <><Package className="size-4 mr-1.5" /> Registrar compra</>}
+          </Button>
+        </Card>
       )}
 
       {sinDatos ? (
-        <GlassCard>
-          <div style={{ padding: '32px 24px', textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
-            <div style={{ color: t.text, fontWeight: 600, marginBottom: 8 }}>Sin compras registradas</div>
-            <div style={{ color: t.textMuted, fontSize: 12, maxWidth: 340, margin: '0 auto' }}>
-              Las compras también se pueden registrar en Telegram:
-            </div>
-            <code style={{
-              display: 'inline-block', marginTop: 10,
-              background: t.tableAlt, color: t.accent,
-              border: `1px solid ${t.border}`,
-              padding: '6px 14px', borderRadius: 7, fontSize: 12,
-            }}>
-              /compra 20 brocha 2" a 2500
-            </code>
+        <Card className="p-8 text-center">
+          <Package className="size-8 mx-auto mb-3 text-muted-foreground" />
+          <div className="text-foreground font-semibold mb-2">Sin compras registradas</div>
+          <div className="text-muted-foreground text-xs max-w-sm mx-auto">
+            Las compras también se pueden registrar en Telegram:
           </div>
-        </GlassCard>
+          <code className="inline-block mt-2.5 bg-muted text-primary border border-border px-3.5 py-1.5 rounded-md text-xs">
+            /compra 20 brocha 2" a 2500
+          </code>
+        </Card>
       ) : (
         <>
           {/* KPIs */}
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <KpiCard label="Total invertido"  value={cop(total)}     sub={`Últimos ${dias} días`}  icon="💰" color={t.blue}/>
-            <KpiCard label="Compras"          value={compras.length} sub="Registros"               icon="📦" color={t.textSub}/>
-            <KpiCard label="Proveedores"      value={porProv.length} sub="Distintos"               icon="🏭" color={t.textSub}/>
-            <KpiCard label="Productos"        value={Object.keys(d.por_producto||{}).length} sub="Artículos" icon="🔢" color={t.textSub}/>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+            <KpiCard label="Total invertido" value={cop(total)}     sub={`Últimos ${dias} días`} icon={DollarSign} tone="primary" />
+            <KpiCard label="Compras"          value={compras.length} sub="Registros"              icon={Package}    tone="muted" />
+            <KpiCard label="Proveedores"      value={porProv.length} sub="Distintos"              icon={Truck}      tone="muted" />
+            <KpiCard label="Productos"        value={Object.keys(d.por_producto||{}).length} sub="Artículos" icon={Hash} tone="muted" />
           </div>
 
-          {/* Gráficas — columna única para móvil */}
-          <GlassCard>
-            <SectionTitle>Por Proveedor</SectionTitle>
-            {porProv.length === 0 ? <EmptyState/> : (
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Por proveedor */}
+          <Card className="p-5">
+            <SectionTitle icon={Truck}>Por Proveedor</SectionTitle>
+            {porProv.length === 0 ? (
+              <div className="text-xs text-muted-foreground py-4">Sin datos para este período.</div>
+            ) : (
+              <div className="flex gap-3 items-center flex-wrap mt-3">
                 <ResponsiveContainer width={120} height={120}>
                   <PieChart>
                     <Pie data={pieData} dataKey="value" cx="50%" cy="50%" innerRadius={30} outerRadius={55} paddingAngle={2}>
-                      {pieData.map((_, i) => <Cell key={i} fill={PROV_COLORS[i % PROV_COLORS.length]}/>)}
+                      {pieData.map((_, i) => <Cell key={i} fill={PROV_COLORS[i % PROV_COLORS.length]} />)}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 8, color: t.text, fontSize: 11 }}
-                      formatter={v => [cop(v)]}/>
+                      contentStyle={{
+                        background: 'hsl(var(--bg-surface))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: 8,
+                        color: 'hsl(var(--text-primary))',
+                        fontSize: 11,
+                      }}
+                      formatter={v => [cop(v)]} />
                   </PieChart>
                 </ResponsiveContainer>
-                <div style={{ flex: 1, minWidth: 140, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <div className="flex-1 min-w-[140px] flex flex-col gap-1.5">
                   {porProv.map(([prov, val], i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: PROV_COLORS[i % PROV_COLORS.length], flexShrink: 0, display: 'inline-block' }}/>
-                        <span style={{ fontSize: 11, color: t.textSub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prov}</span>
+                    <div key={i} className="flex justify-between items-center gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span
+                          className="size-2 rounded-full flex-shrink-0"
+                          style={{ background: PROV_COLORS[i % PROV_COLORS.length] }}
+                        />
+                        <span className="text-[11px] text-muted-foreground truncate">{prov}</span>
                       </div>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: t.text, flexShrink: 0 }}>{cop(val)}</span>
+                      <span className="text-[11px] font-bold text-foreground flex-shrink-0 tabular-nums">{cop(val)}</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-          </GlassCard>
+          </Card>
 
-          <GlassCard>
-            <SectionTitle>Productos más Comprados</SectionTitle>
-            {porProd.length === 0 ? <EmptyState/> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {/* Productos más comprados */}
+          <Card className="p-5">
+            <SectionTitle icon={BarChart3}>Productos más Comprados</SectionTitle>
+            {porProd.length === 0 ? (
+              <div className="text-xs text-muted-foreground py-4">Sin datos para este período.</div>
+            ) : (
+              <div className="flex flex-col gap-2.5 mt-3">
                 {porProd.map(([prod, val], i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ color: t.textMuted, fontSize: 11, minWidth: 22, textAlign: 'right', fontWeight: 700 }}>#{i+1}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prod}</span>
-                        <span style={{ fontSize: 12, color: t.blue, fontWeight: 700, flexShrink: 0 }}>{cop(val)}</span>
+                  <div key={i} className="flex items-center gap-2.5">
+                    <span className="text-muted-foreground text-[11px] min-w-[22px] text-right font-bold">#{i+1}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-baseline gap-2 mb-1">
+                        <span className="text-[11px] text-foreground truncate">{prod}</span>
+                        <span className="text-xs text-primary font-bold flex-shrink-0 tabular-nums">{cop(val)}</span>
                       </div>
-                      <div style={{ height: 3, background: t.border, borderRadius: 2 }}>
-                        <div style={{ height: '100%', width: `${(val / (porProd[0]?.[1] || 1)) * 100}%`, background: t.blue, borderRadius: 2 }}/>
+                      <div className="h-[3px] bg-border rounded-sm">
+                        <div
+                          className="h-full bg-primary rounded-sm"
+                          style={{ width: `${(val / (porProd[0]?.[1] || 1)) * 100}%` }}
+                        />
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </GlassCard>
+          </Card>
 
-          {/* Detalle — cards en lugar de tabla para móvil */}
-          <GlassCard style={{ padding: 0 }}>
-            <div style={{ padding: '14px 18px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-              <SectionTitle>Detalle de Compras</SectionTitle>
-              <span style={{ fontSize: 11, color: t.textMuted }}>{agrupados.length} entradas · {compras.length} ítems</span>
+          {/* Detalle */}
+          <Card className="overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-border flex justify-between items-center flex-wrap gap-2">
+              <SectionTitle icon={FileBarChart}>Detalle de Compras</SectionTitle>
+              <span className="text-[11px] text-muted-foreground">
+                {agrupados.length} entradas · {compras.length} ítems
+              </span>
             </div>
 
-            {/* Totales compactos */}
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '10px 18px', background: t.tableAlt,
-              borderBottom: `1px solid ${t.border}`,
-            }}>
-              <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em' }}>Total Invertido</span>
-              <span style={{ fontSize: 13, color: t.blue, fontWeight: 700 }}>{cop(total)}</span>
+            <div className="flex justify-between items-center px-5 py-2.5 bg-muted/40 border-b border-border">
+              <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider">Total Invertido</span>
+              <span className="text-sm text-primary font-bold tabular-nums">{cop(total)}</span>
             </div>
 
-            {/* Cards */}
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="flex flex-col">
               {agrupados.map((grupo, gi) => {
                 const isLast = gi === agrupados.length - 1
 
-                // ── Grupo / acordeón (mismo proveedor + mismo día, ≥2 ítems) ──
+                // ── Grupo / acordeón ──
                 if (grupo.isGroup) {
-                  const key          = `${grupo.prov}__${grupo.fecha}`
-                  const expanded     = !!expandedGroups[key]
-                  const items        = grupo.items
-                  const totalGrupo   = items.reduce((s, x) => s + (x.costo_total || 0), 0)
-                  const tieneIva     = items.some(x => x.incluye_iva && x.tarifa_iva > 0)
-                  const yaEnFiscal   = items.filter(x => !!x.compra_fiscal_id).length
-                  const todosEnFisc  = yaEnFiscal === items.length
-                  const toggle       = () =>
-                    setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }))
+                  const key         = `${grupo.prov}__${grupo.fecha}`
+                  const expanded    = !!expandedGroups[key]
+                  const items       = grupo.items
+                  const totalGrupo  = items.reduce((s, x) => s + (x.costo_total || 0), 0)
+                  const tieneIva    = items.some(x => x.incluye_iva && x.tarifa_iva > 0)
+                  const yaEnFiscal  = items.filter(x => !!x.compra_fiscal_id).length
+                  const todosEnFisc = yaEnFiscal === items.length
+                  const toggle      = () => setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }))
 
                   return (
-                    <div key={key} style={{ borderBottom: !isLast ? `1px solid ${t.border}` : 'none' }}>
-                      {/* Cabecera acordeón */}
-                      <div
-                        style={{ padding: '12px 18px', cursor: 'pointer', userSelect: 'none',
-                          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}
+                    <div key={key} className={cn(!isLast && 'border-b border-border')}>
+                      <button
+                        type="button"
+                        className="w-full text-left px-5 py-3 flex items-center gap-2.5 flex-wrap hover:bg-muted/40 transition-colors"
                         onClick={toggle}
                       >
-                        <span style={{
-                          fontSize: 10, color: t.textMuted, flexShrink: 0,
-                          display: 'inline-block',
-                          transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                          transition: 'transform .15s',
-                        }}>▶</span>
-
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
-                              {grupo.prov}
+                        <ChevronRight className={cn(
+                          'size-3.5 text-muted-foreground flex-shrink-0 transition-transform',
+                          expanded && 'rotate-90',
+                        )} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="text-sm font-bold text-foreground">{grupo.prov}</span>
+                            <span className="text-[11px] text-muted-foreground">{grupo.fecha}</span>
+                            <span className="text-[10px] text-muted-foreground bg-muted rounded px-2 py-0.5 border border-border">
+                              {items.length} ítems
                             </span>
-                            <span style={{ fontSize: 11, color: t.textMuted }}>{grupo.fecha}</span>
-                            <span style={{
-                              fontSize: 10, color: t.textMuted,
-                              background: t.tableAlt, borderRadius: 5,
-                              padding: '2px 8px', border: `1px solid ${t.border}`,
-                            }}>{items.length} ítems</span>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: 13, color: t.blue, fontWeight: 700 }}>{cop(totalGrupo)}</span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm text-primary font-bold tabular-nums">{cop(totalGrupo)}</span>
                             {tieneIva && (
-                              <span style={{
-                                fontSize: 10, color: t.green, fontWeight: 600,
-                                background: `${t.green}12`, borderRadius: 5,
-                                padding: '2px 8px', border: `1px solid ${t.green}30`,
-                              }}>IVA</span>
+                              <span className="text-[10px] text-success font-semibold bg-success/10 border border-success/30 rounded px-2 py-0.5">
+                                IVA
+                              </span>
                             )}
                             {todosEnFisc ? (
-                              <span style={{
-                                fontSize: 10, color: t.green, fontWeight: 600,
-                                background: `${t.green}12`, borderRadius: 5,
-                                padding: '2px 8px', border: `1px solid ${t.green}30`,
-                              }}>✓ Todo en Fiscal</span>
+                              <span className="text-[10px] text-success font-semibold bg-success/10 border border-success/30 rounded px-2 py-0.5">
+                                Todo en Fiscal
+                              </span>
                             ) : yaEnFiscal > 0 ? (
-                              <span style={{
-                                fontSize: 10, color: t.accent, fontWeight: 600,
-                                background: `${t.accent}12`, borderRadius: 5,
-                                padding: '2px 8px', border: `1px solid ${t.accent}30`,
-                              }}>{yaEnFiscal} de {items.length} en fiscal</span>
+                              <span className="text-[10px] text-primary font-semibold bg-primary-soft border border-primary/30 rounded px-2 py-0.5">
+                                {yaEnFiscal} de {items.length} en fiscal
+                              </span>
                             ) : null}
                           </div>
                         </div>
-                      </div>
+                      </button>
 
-                      {/* Cuerpo expandible */}
                       {expanded && (
-                        <div style={{ borderTop: `1px solid ${t.border}` }}>
-                          {/* Cabecera tabla */}
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: '2fr 70px 90px 90px 60px 36px',
-                            gap: 4, padding: '6px 18px',
-                            background: t.tableAlt,
-                            fontSize: 10, color: t.textMuted,
-                            fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em',
-                            alignItems: 'center',
-                          }}>
+                        <div className="border-t border-border">
+                          <div className="grid items-center gap-1 px-5 py-1.5 bg-muted/40 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider"
+                            style={{ gridTemplateColumns: '2fr 70px 90px 90px 60px 80px' }}
+                          >
                             <span>Producto</span>
                             <span>Cant.</span>
                             <span>Costo unit.</span>
                             <span>Total</span>
                             <span>Fiscal</span>
-                            <span/>
+                            <span />
                           </div>
-                          {/* Filas */}
                           {items.map(c => {
                             const yaEnFiscalFila = !!c.compra_fiscal_id
-                            const cargando       = !!enviandoFiscal[c.id]
+                            const cargando = !!enviandoFiscal[c.id]
                             return (
-                              <div key={c.id} style={{
-                                display: 'grid',
-                                gridTemplateColumns: '2fr 70px 90px 90px 60px 36px',
-                                gap: 4, padding: '8px 18px',
-                                alignItems: 'center',
-                                borderTop: `1px solid ${t.border}30`,
-                                fontSize: 12,
-                              }}>
-                                <span style={{
-                                  color: t.text, fontWeight: 500,
-                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                }}>{c.producto}</span>
-                                <span style={{ color: t.textSub }}>{num(c.cantidad)}</span>
-                                <span style={{ color: t.textMuted }}>{cop(c.costo_unitario)}</span>
-                                <span style={{ color: t.blue, fontWeight: 700 }}>{cop(c.costo_total)}</span>
-                                <span style={{ color: yaEnFiscalFila ? t.green : t.textMuted }}>
+                              <div
+                                key={c.id}
+                                className="grid items-center gap-1 px-5 py-2 border-t border-border/40 text-xs"
+                                style={{ gridTemplateColumns: '2fr 70px 90px 90px 60px 80px' }}
+                              >
+                                <span className="text-foreground font-medium truncate">{c.producto}</span>
+                                <span className="text-muted-foreground tabular-nums">{num(c.cantidad)}</span>
+                                <span className="text-muted-foreground tabular-nums">{cop(c.costo_unitario)}</span>
+                                <span className="text-primary font-bold tabular-nums">{cop(c.costo_total)}</span>
+                                <span className={cn(yaEnFiscalFila ? 'text-success' : 'text-muted-foreground')}>
                                   {yaEnFiscalFila ? '✓' : '—'}
                                 </span>
-                                <div style={{ display: 'flex', gap: 4 }}>
-                                  <button
+                                <div className="flex gap-1">
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
                                     onClick={() => setEditando(c)}
-                                    style={{
-                                      background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
-                                      borderRadius: 6, color: t.blue, padding: '4px 6px',
-                                      fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
-                                    }}>✏️</button>
-                                  <button
+                                    className="h-7 w-7"
+                                    title="Editar"
+                                  >
+                                    <Pencil className="size-3" />
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
                                     onClick={() => !yaEnFiscalFila && !cargando && enviarAFiscal(c)}
-                                    title={yaEnFiscalFila ? 'Ya en Fiscal' : '→ Fiscal'}
-                                    style={{
-                                      background: yaEnFiscalFila ? `${t.green}14` : `${t.accent}14`,
-                                      border: `1px solid ${yaEnFiscalFila ? t.green : t.accent}40`,
-                                      borderRadius: 6,
-                                      color: yaEnFiscalFila ? t.green : t.accent,
-                                      padding: '4px 6px', fontSize: 11,
-                                      cursor: yaEnFiscalFila ? 'default' : 'pointer',
-                                      fontFamily: 'inherit', opacity: cargando ? 0.6 : 1,
-                                    }}>
-                                    {cargando ? '…' : yaEnFiscalFila ? '✓' : '📊'}
-                                  </button>
+                                    disabled={yaEnFiscalFila || cargando}
+                                    title={yaEnFiscalFila ? 'Ya en Fiscal' : 'Enviar a Fiscal'}
+                                    className={cn(
+                                      'h-7 w-7',
+                                      yaEnFiscalFila && 'border-success/40 text-success',
+                                    )}
+                                  >
+                                    {cargando ? <Loader2 className="size-3 animate-spin" /> : <FileBarChart className="size-3" />}
+                                  </Button>
                                 </div>
                               </div>
                             )
                           })}
-                          {/* Pie del grupo */}
-                          <div style={{
-                            display: 'flex', justifyContent: 'flex-end',
-                            padding: '8px 18px', background: t.tableAlt,
-                            borderTop: `1px solid ${t.border}`,
-                            fontSize: 12,
-                          }}>
-                            <span style={{ color: t.blue, fontWeight: 700 }}>
-                              Total pedido: {cop(totalGrupo)}
-                            </span>
+                          <div className="flex justify-end px-5 py-2 bg-muted/40 border-t border-border text-xs">
+                            <span className="text-primary font-bold tabular-nums">Total pedido: {cop(totalGrupo)}</span>
                           </div>
                         </div>
                       )}
@@ -792,68 +735,95 @@ export default function TabCompras({ refreshKey }) {
                   )
                 }
 
-                // ── Individual ────────────────────────────────────────────────
-                const c          = grupo.items[0]
-                const { iva }    = c.incluye_iva && c.tarifa_iva ? calcIVA(c.costo_total, c.tarifa_iva) : { iva: 0 }
+                // ── Individual ──
+                const c = grupo.items[0]
+                const { iva } = c.incluye_iva && c.tarifa_iva ? calcIVA(c.costo_total, c.tarifa_iva) : { iva: 0 }
                 const yaEnFiscal = !!c.compra_fiscal_id
-                const cargando   = !!enviandoFiscal[c.id]
+                const cargando = !!enviandoFiscal[c.id]
 
                 return (
-                  <div key={c.id} style={{
-                    padding: '12px 18px',
-                    borderBottom: !isLast ? `1px solid ${t.border}` : 'none',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                      <span style={{ fontSize: 11, color: t.textMuted }}>{String(c.fecha||'').slice(0,10)}</span>
-                      <span style={{ fontSize: 11, color: t.textMuted, fontStyle: 'italic' }}>{c.proveedor||'Sin proveedor'}</span>
+                  <div key={c.id} className={cn('px-5 py-3', !isLast && 'border-b border-border')}>
+                    <div className="flex justify-between mb-1.5">
+                      <span className="text-[11px] text-muted-foreground">{String(c.fecha || '').slice(0, 10)}</span>
+                      <span className="text-[11px] text-muted-foreground italic">{c.proveedor || 'Sin proveedor'}</span>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8, lineHeight: 1.35 }}>
-                      {c.producto||'—'}
+                    <div className="text-sm font-semibold text-foreground mb-2 leading-snug">
+                      {c.producto || '—'}
                     </div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-                      <span style={{
-                        fontSize: 11, color: t.textMuted, background: t.tableAlt,
-                        borderRadius: 5, padding: '2px 8px', border: `1px solid ${t.border}`,
-                      }}>{num(c.cantidad)} uds × {cop(c.costo_unitario)}</span>
-                      <span style={{ fontSize: 12, color: t.blue, fontWeight: 700 }}>{cop(c.costo_total)}</span>
+                    <div className="flex gap-1.5 flex-wrap items-center mb-2">
+                      <span className="text-[11px] text-muted-foreground bg-muted rounded px-2 py-0.5 border border-border">
+                        {num(c.cantidad)} uds × {cop(c.costo_unitario)}
+                      </span>
+                      <span className="text-xs text-primary font-bold tabular-nums">{cop(c.costo_total)}</span>
                       {c.incluye_iva && c.tarifa_iva > 0 && (
-                        <span style={{
-                          fontSize: 11, color: t.green, fontWeight: 600,
-                          background: `${t.green}12`, borderRadius: 5, padding: '2px 8px',
-                          border: `1px solid ${t.green}30`,
-                        }}>IVA {cop(iva)} ({c.tarifa_iva}%)</span>
+                        <span className="text-[11px] text-success font-semibold bg-success/10 border border-success/30 rounded px-2 py-0.5">
+                          IVA {cop(iva)} ({c.tarifa_iva}%)
+                        </span>
                       )}
                     </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button
+                    <div className="flex gap-1.5">
+                      <Button
+                        variant="outline" size="sm"
                         onClick={() => setEditando(c)}
-                        style={{
-                          flex: 1, background: `${t.blue}14`, border: `1px solid ${t.blue}40`,
-                          borderRadius: 7, color: t.blue, padding: '7px 0',
-                          fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
-                        }}>✏️ Editar</button>
-                      <button
+                        className="flex-1 h-8 text-xs"
+                      >
+                        <Pencil className="size-3 mr-1" /> Editar
+                      </Button>
+                      <Button
+                        variant="outline" size="sm"
                         onClick={() => !yaEnFiscal && !cargando && enviarAFiscal(c)}
-                        style={{
-                          flex: 1,
-                          background: yaEnFiscal ? `${t.green}14` : `${t.accent}14`,
-                          border: `1px solid ${yaEnFiscal ? t.green : t.accent}40`,
-                          borderRadius: 7, color: yaEnFiscal ? t.green : t.accent,
-                          padding: '7px 0', fontSize: 12,
-                          cursor: yaEnFiscal ? 'default' : 'pointer',
-                          fontFamily: 'inherit', fontWeight: 600,
-                          opacity: cargando ? 0.6 : 1,
-                        }}>
-                        {cargando ? '…' : yaEnFiscal ? '✓ En Fiscal' : '📊 → Fiscal'}
-                      </button>
+                        disabled={yaEnFiscal || cargando}
+                        className={cn(
+                          'flex-1 h-8 text-xs',
+                          yaEnFiscal && 'border-success/40 text-success',
+                        )}
+                      >
+                        {cargando
+                          ? <Loader2 className="size-3 mr-1 animate-spin" />
+                          : <FileBarChart className="size-3 mr-1" />}
+                        {yaEnFiscal ? 'En Fiscal' : '→ Fiscal'}
+                      </Button>
                     </div>
                   </div>
                 )
               })}
             </div>
-          </GlassCard>
+          </Card>
         </>
       )}
     </div>
+  )
+}
+
+// ── KPI Card ──────────────────────────────────────────────────────────────────
+
+function KpiCard({ label, value, sub, icon: Icon, tone = 'primary' }) {
+  const toneCls = {
+    primary: 'text-primary',
+    success: 'text-success',
+    muted:   'text-muted-foreground',
+  }[tone] || 'text-primary'
+  const bgIcon = {
+    primary: 'bg-primary-soft',
+    success: 'bg-success/10',
+    muted:   'bg-muted',
+  }[tone] || 'bg-primary-soft'
+  return (
+    <Card className="p-4">
+      <div className="flex justify-between items-start gap-2">
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+            {label}
+          </div>
+          <div className="text-xl font-bold text-foreground tabular-nums truncate">{value}</div>
+          {sub && <div className="text-[11px] text-muted-foreground mt-1 truncate">{sub}</div>}
+        </div>
+        {Icon && (
+          <div className={cn('size-8 rounded-md inline-flex items-center justify-center flex-shrink-0', bgIcon)}>
+            <Icon className={cn('size-4', toneCls)} />
+          </div>
+        )}
+      </div>
+    </Card>
   )
 }
