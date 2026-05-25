@@ -20,7 +20,7 @@ import {
 import {
   TrendingUp, TrendingDown, ArrowRight, Plus, AlertTriangle,
   ShoppingCart, Wallet, Receipt, Package, Search, Activity,
-  CreditCard,
+  CreditCard, Calculator, CalendarRange, CalendarDays, ListOrdered,
 } from 'lucide-react'
 import { useFetch, cop, num } from '@/components/shared.jsx'
 import { useVendorFilter } from '@/hooks/useVendorFilter.jsx'
@@ -193,13 +193,25 @@ export default function TabHoy({ refreshKey }) {
         />
       </div>
 
-      {/* MINI METRIC STRIP — recupera datos de Resumen (4 métricas inline) */}
-      <Card className="p-0 overflow-hidden">
-        <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-border-subtle">
-          <MiniMetric label="Pedidos hoy"   value={num(pedidosHoy)}    sub={pedidosHoy > 0 ? `Ticket prom. ${cop(ticketProm)}` : 'sin ventas'} />
-          <MiniMetric label="Ticket prom."  value={cop(ticketProm)}    sub="últimos 7 días" />
-          <MiniMetric label="Total semana"  value={cop(totalSemana)}   sub="últimos 7 días" />
-          <MiniMetric label="Total mes"     value={cop(totalMes)}      sub="mes en curso" />
+      {/* MINI METRIC STRIP — recupera datos de Resumen.
+          Card con gradiente diagonal sutil + borde tintado (estilo KPIs). */}
+      <Card
+        className="p-0 overflow-hidden border-primary/20 hover:border-primary/30 transition-colors duration-base"
+        style={{
+          backgroundImage:
+            'linear-gradient(135deg, ' +
+              'hsl(var(--accent) / 0.05)  0%, ' +
+              'hsl(var(--accent) / 0.015) 25%, ' +
+              'transparent                55%, ' +
+              'hsl(var(--info)   / 0.02)  85%, ' +
+              'hsl(var(--info)   / 0.05) 100%)',
+        }}
+      >
+        <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-border-subtle/60">
+          <MiniMetric tone="primary" icon={ListOrdered}    label="Pedidos hoy"  value={num(pedidosHoy)}   sub={pedidosHoy > 0 ? `de ${cop(totalHoy)}` : 'sin ventas'} />
+          <MiniMetric tone="info"    icon={Calculator}     label="Ticket prom." value={cop(ticketProm)}   sub="últimos 7 días" />
+          <MiniMetric tone="success" icon={CalendarRange}  label="Total semana" value={cop(totalSemana)}  sub="últimos 7 días" />
+          <MiniMetric tone="warning" icon={CalendarDays}   label="Total mes"    value={cop(totalMes)}     sub="mes en curso" />
         </div>
       </Card>
 
@@ -302,12 +314,36 @@ function KpiCard({ tone = 'success', label, value, icon: Icon, sub, deltaPct, sp
 // MINI METRIC — celda compacta dentro del strip
 // ─────────────────────────────────────────────────────────────────────────────
 
-function MiniMetric({ label, value, sub }) {
+const MINI_TONES = {
+  primary: 'hsl(var(--accent))',
+  success: 'hsl(var(--success))',
+  info:    'hsl(var(--info))',
+  warning: 'hsl(var(--warning))',
+}
+
+function MiniMetric({ label, value, sub, icon: Icon, tone = 'primary' }) {
+  const color = MINI_TONES[tone] || MINI_TONES.primary
   return (
-    <div className="p-3 md:p-3.5">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+    <div className="relative p-3 md:p-3.5 group transition-colors duration-base hover:bg-foreground/[0.015]">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">{label}</div>
+        {Icon && (
+          <span
+            className="grid place-items-center rounded-md size-5 shrink-0"
+            style={{ background: `color-mix(in srgb, ${color} 12%, transparent)`, color }}
+          >
+            <Icon className="size-2.5"/>
+          </span>
+        )}
+      </div>
       <div className="mt-1 text-base font-semibold tracking-tight tabular leading-none">{value}</div>
       {sub && <div className="mt-1 text-[10.5px] text-muted-foreground truncate">{sub}</div>}
+      {/* Línea inferior de acento por tone */}
+      <span
+        aria-hidden
+        className="absolute left-3 right-3 bottom-0 h-px opacity-40"
+        style={{ background: `linear-gradient(90deg, transparent, ${color} 50%, transparent)` }}
+      />
     </div>
   )
 }

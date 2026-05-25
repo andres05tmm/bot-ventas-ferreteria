@@ -128,8 +128,10 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Aurora ferretera — gradient mesh fixed con orbes radiales ultra-sutiles.
-     Da identidad al body sin pegarle a Lighthouse (no blur, no animación). */
+  /* Aurora ferretera — gradient mesh fijo con flujo diagonal TR → BL.
+     Capa 1: linear gradient 225deg (warm top-right → cool bottom-left).
+     Capa 2-4: orbes radiales que refuerzan el flujo + acento central.
+     Sin blur ni animación (Lighthouse-friendly). */
   body::before {
     content: "";
     position: fixed;
@@ -137,15 +139,27 @@
     pointer-events: none;
     z-index: 0;
     background:
-      radial-gradient(circle 720px at 12% 15%,  hsl(var(--accent) / 0.05),  transparent 70%),
-      radial-gradient(circle 820px at 88% 85%,  hsl(var(--info)   / 0.035), transparent 70%),
-      radial-gradient(circle 560px at 50% 50%,  hsl(var(--warning)/ 0.022), transparent 70%);
+      linear-gradient(225deg,
+        hsl(var(--accent) / 0.055) 0%,
+        hsl(var(--accent) / 0.018) 35%,
+        transparent              60%,
+        hsl(var(--info)   / 0.025) 85%,
+        hsl(var(--info)   / 0.055) 100%),
+      radial-gradient(circle 880px at 92% 8%,   hsl(var(--accent) / 0.09),  transparent 65%),
+      radial-gradient(circle 980px at 8%  92%,  hsl(var(--info)   / 0.07),  transparent 65%),
+      radial-gradient(circle 520px at 50% 50%,  hsl(var(--warning)/ 0.028), transparent 70%);
   }
   [data-theme="dark"] body::before {
     background:
-      radial-gradient(circle 720px at 12% 15%,  hsl(var(--accent) / 0.10), transparent 70%),
-      radial-gradient(circle 820px at 88% 85%,  hsl(var(--info)   / 0.07), transparent 70%),
-      radial-gradient(circle 560px at 50% 50%,  hsl(var(--warning)/ 0.05), transparent 70%);
+      linear-gradient(225deg,
+        hsl(var(--accent) / 0.10) 0%,
+        hsl(var(--accent) / 0.03) 35%,
+        transparent             60%,
+        hsl(var(--info)   / 0.05) 85%,
+        hsl(var(--info)   / 0.11) 100%),
+      radial-gradient(circle 880px at 92% 8%,   hsl(var(--accent) / 0.14), transparent 65%),
+      radial-gradient(circle 980px at 8%  92%,  hsl(var(--info)   / 0.12), transparent 65%),
+      radial-gradient(circle 520px at 50% 50%,  hsl(var(--warning)/ 0.06), transparent 70%);
   }
   /* Contenido por encima del background */
   #root { position: relative; z-index: 1; }
