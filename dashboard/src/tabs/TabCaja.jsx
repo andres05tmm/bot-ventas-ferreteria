@@ -3,6 +3,7 @@
  * Wave 3.a: migrado a primitives shadcn + tokens semantic.
  */
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useFetch, API_BASE } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { useIsMobile } from '../components/shared.jsx'
@@ -18,36 +19,10 @@ import {
   Lock, Unlock, Wallet, TrendingUp, TrendingDown, Calculator,
   Plus, X, Banknote, Smartphone, CreditCard, Receipt, AlertCircle, Loader2,
 } from 'lucide-react'
+import KpiCard from '@/components/KpiCard.jsx'
 import { cn } from '@/lib/utils'
 
 const cop = v => v == null || isNaN(v) ? '$0' : '$' + Math.round(v).toLocaleString('es-CO')
-
-// ─── KPI card ─────────────────────────────────────────────────────────────────
-function Kpi({ label, value, sub, icon: Icon, tone = 'default' }) {
-  const toneClass = {
-    default:    'text-foreground',
-    success:    'text-success',
-    danger:     'text-destructive',
-    primary:    'text-primary',
-    muted:      'text-muted-foreground',
-  }[tone]
-  return (
-    <Card className="p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-          <div className={cn('text-xl font-bold tabular tracking-tight mt-1.5', toneClass)}>{value}</div>
-          {sub && <div className="text-[11px] text-muted-foreground mt-1">{sub}</div>}
-        </div>
-        {Icon && (
-          <div className={cn('size-9 rounded-md grid place-items-center bg-surface-2 shrink-0', toneClass)}>
-            <Icon className="size-4" />
-          </div>
-        )}
-      </div>
-    </Card>
-  )
-}
 
 function MetodoRow({ label, valor, icon: Icon }) {
   if (!valor) return null
@@ -177,6 +152,7 @@ function ModalVentaVaria({ open, onClose, onSaved, authFetch }) {
 
 // ─── Tab principal ────────────────────────────────────────────────────────────
 export default function TabCaja({ refreshKey }) {
+  const navigate = useNavigate()
   const isMobile = useIsMobile()
   const { authFetch } = useAuth()
   const [localRefresh, setLocalRefresh] = useState(0)
@@ -283,10 +259,11 @@ export default function TabCaja({ refreshKey }) {
 
       {/* KPIs */}
       <div className={cn('grid gap-3', isMobile ? 'grid-cols-2' : 'grid-cols-4')}>
-        <Kpi label="Apertura"           value={cop(d.monto_apertura)}    sub="Base inicial"                    icon={Wallet}      tone="muted" />
-        <Kpi label="Ventas hoy"         value={cop(d.total_ventas)}      sub="Efectivo + transf. + datáfono"   icon={TrendingUp}  tone="success" />
-        <Kpi label="Gastos"             value={cop(d.total_gastos)}      sub="Todos los egresos"               icon={TrendingDown} tone="danger" />
-        <Kpi label="Efectivo esperado"  value={cop(d.efectivo_esperado)} sub="Caja − gastos en efectivo"       icon={Calculator}  tone="primary" />
+        <KpiCard tone="muted"   label="Apertura"          value={cop(d.monto_apertura)}    sub="Base inicial"                  icon={Wallet} />
+        <KpiCard tone="success" label="Ventas hoy"        value={cop(d.total_ventas)}      sub="Efectivo + transf. + datáfono" icon={TrendingUp} />
+        <KpiCard tone="danger"  label="Gastos"            value={cop(d.total_gastos)}      sub="Todos los egresos"             icon={TrendingDown}
+          onClick={() => navigate('/gastos')} actionLabel="Ver gastos" />
+        <KpiCard tone="primary" label="Efectivo esperado" value={cop(d.efectivo_esperado)} sub="Caja − gastos en efectivo"     icon={Calculator} />
       </div>
 
       {/* Venta Varia (botón abre dialog) */}

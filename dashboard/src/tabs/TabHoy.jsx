@@ -15,10 +15,9 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AreaChart, Area, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip,
-  LineChart, Line,
 } from 'recharts'
 import {
-  TrendingUp, TrendingDown, ArrowRight, Plus, AlertTriangle,
+  ArrowRight, Plus, AlertTriangle,
   ShoppingCart, Wallet, Receipt, Package, Search, Activity,
   CreditCard, Calculator, CalendarRange, CalendarDays, ListOrdered,
 } from 'lucide-react'
@@ -26,6 +25,7 @@ import { useFetch, cop, num } from '@/components/shared.jsx'
 import { useVendorFilter } from '@/hooks/useVendorFilter.jsx'
 import { Card } from '@/components/ui/card.jsx'
 import { Badge } from '@/components/ui/badge.jsx'
+import KpiCard from '@/components/KpiCard.jsx'
 import { cn } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -230,91 +230,6 @@ export default function TabHoy({ refreshKey }) {
       {/* QUICK ACTIONS — full-width strip */}
       <QuickActions navigate={navigate} />
     </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// KPI CARD — compacto con tint semántico + sparkline opcional
-// ─────────────────────────────────────────────────────────────────────────────
-
-const TONES = {
-  success: { color: 'hsl(var(--success))',  bg: 'bg-success/[0.05]',  border: 'border-success/25  hover:border-success/45'  },
-  info:    { color: 'hsl(var(--info))',     bg: 'bg-info/[0.05]',     border: 'border-info/25     hover:border-info/45'     },
-  warning: { color: 'hsl(var(--warning))',  bg: 'bg-warning/[0.05]',  border: 'border-warning/25  hover:border-warning/45'  },
-}
-
-function KpiCard({ tone = 'success', label, value, icon: Icon, sub, deltaPct, spark, loading, onClick, actionLabel }) {
-  const t = TONES[tone] || TONES.success
-  const clickable = typeof onClick === 'function'
-  return (
-    <Card
-      className={cn(
-        'relative overflow-hidden p-3 transition-all duration-base ease-out-quad group',
-        t.bg, t.border,
-        clickable
-          ? 'cursor-pointer text-left w-full hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40'
-          : 'hover:-translate-y-px hover:shadow-md',
-      )}
-      {...(clickable ? { onClick, role: 'button', tabIndex: 0, onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } } : {})}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
-        <div className="flex items-center gap-1.5">
-          {actionLabel && (
-            <span
-              className={cn(
-                'hidden sm:inline-flex items-center gap-1 h-5 px-1.5 rounded-md',
-                'text-[10px] font-medium tabular',
-                'opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0',
-                'transition-all duration-base ease-out-quad',
-              )}
-              style={{
-                background: `color-mix(in srgb, ${t.color} 14%, transparent)`,
-                color: t.color,
-              }}
-            >
-              {actionLabel}
-              <ArrowRight className="size-2.5" />
-            </span>
-          )}
-          <span
-            className="grid place-items-center rounded-md size-6"
-            style={{ background: `color-mix(in srgb, ${t.color} 12%, transparent)`, color: t.color }}
-          >
-            <Icon className="size-3"/>
-          </span>
-        </div>
-      </div>
-
-      <div className={cn(
-        'mt-1.5 text-lg font-semibold tracking-tight tabular leading-none',
-        loading && 'opacity-50'
-      )}>
-        {value}
-      </div>
-
-      <div className="mt-1.5 flex items-end justify-between gap-2">
-        <div className="text-[10.5px] text-muted-foreground leading-snug truncate">
-          {deltaPct !== null && deltaPct !== undefined && Math.abs(deltaPct) > 0.5 && (
-            <span className={cn('inline-flex items-center gap-0.5 mr-1 font-semibold tabular',
-              deltaPct >= 0 ? 'text-success' : 'text-danger')}>
-              {deltaPct >= 0 ? <TrendingUp className="size-2.5"/> : <TrendingDown className="size-2.5"/>}
-              {deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%
-            </span>
-          )}
-          {sub}
-        </div>
-        {Array.isArray(spark) && spark.length >= 3 && (
-          <div className="shrink-0 w-[56px] h-[20px] opacity-90">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={spark.map(d => ({ v: Number(d.total ?? d) || 0 }))}>
-                <Line type="monotone" dataKey="v" stroke={t.color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
-    </Card>
   )
 }
 

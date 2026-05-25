@@ -16,6 +16,7 @@ import { useFetch, cop, num, API_BASE } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
 import { Card } from '@/components/ui/card.jsx'
+import KpiCard from '@/components/KpiCard.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
@@ -796,35 +797,3 @@ export default function TabCompras({ refreshKey }) {
   )
 }
 
-// ── KPI Card ──────────────────────────────────────────────────────────────────
-
-function KpiCard({ label, value, sub, icon: Icon, tone = 'primary' }) {
-  const toneCls = {
-    primary: 'text-primary',
-    success: 'text-success',
-    muted:   'text-muted-foreground',
-  }[tone] || 'text-primary'
-  const bgIcon = {
-    primary: 'bg-primary-soft',
-    success: 'bg-success/10',
-    muted:   'bg-muted',
-  }[tone] || 'bg-primary-soft'
-  return (
-    <Card className="p-4">
-      <div className="flex justify-between items-start gap-2">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-            {label}
-          </div>
-          <div className="text-xl font-bold text-foreground tabular-nums truncate">{value}</div>
-          {sub && <div className="text-[11px] text-muted-foreground mt-1 truncate">{sub}</div>}
-        </div>
-        {Icon && (
-          <div className={cn('size-8 rounded-md inline-flex items-center justify-center flex-shrink-0', bgIcon)}>
-            <Icon className={cn('size-4', toneCls)} />
-          </div>
-        )}
-      </div>
-    </Card>
-  )
-}
