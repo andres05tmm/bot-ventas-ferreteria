@@ -1,18 +1,17 @@
 /**
- * TabHistoricoVentas.jsx
- * Historial de ventas diarias — integrado con auto-sync del bot.
- *
- * Migrado a tokens shadcn + sonner (Fase 5).
+ * VistaMes — calendario heatmap mensual + desglose por día.
+ * Antes vivía como TabHistoricoVentas.jsx; absorbida por el wrapper
+ * TabHistorial con Tabs internos Día/Mes (Fase D).
  */
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
-  BarChart3, Calendar, ChevronLeft, ChevronRight, CreditCard, Download,
+  Calendar, ChevronLeft, ChevronRight, CreditCard, Download,
   Edit3, FileSpreadsheet, Loader2, RefreshCw, Save, Smartphone, Trophy,
   TrendingUp, Wallet, X,
 } from 'lucide-react'
-import { API_BASE, cop, useIsMobile } from '../components/shared.jsx'
-import { useAuth } from '../hooks/useAuth.js'
+import { API_BASE, cop, useIsMobile } from '../../components/shared.jsx'
+import { useAuth } from '../../hooks/useAuth.js'
 import { Card } from '@/components/ui/card.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { cn } from '@/lib/utils'
@@ -76,7 +75,7 @@ function KpiCard({ label, value, icon: Icon, tone = 'primary' }) {
 
 // ── Tab principal ─────────────────────────────────────────────────────────────
 
-export default function TabHistoricoVentas() {
+export default function VistaMes() {
   const mobile = useIsMobile()
   const hoy = new Date()
   const { authFetch } = useAuth()
@@ -211,15 +210,10 @@ export default function TabHistoricoVentas() {
   }
 
   return (
-    <div className={cn('mx-auto max-w-3xl', mobile ? 'px-2 py-3' : 'py-4')}>
+    <div className={cn('mx-auto max-w-3xl', mobile ? 'px-2' : '')}>
 
-      {/* Header + Nav */}
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-2.5">
-        <div className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
-          <BarChart3 className="size-4 text-muted-foreground" />
-          Histórico de Ventas
-        </div>
-
+      {/* Nav de mes — el título global lo provee el wrapper TabHistorial */}
+      <div className="flex items-center justify-end mb-5 flex-wrap gap-2.5">
         <div className="flex items-center gap-1.5">
           <Button variant="outline" size="icon" onClick={mesAnterior} className="h-8 w-8"
                   aria-label="Mes anterior">

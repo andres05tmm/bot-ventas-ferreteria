@@ -15,7 +15,6 @@ const TabHoy             = lazy(() => import('./tabs/TabHoy.jsx'))
 const TabTopProductos    = lazy(() => import('./tabs/TabTopProductos.jsx'))
 const TabInventario      = lazy(() => import('./tabs/TabInventario.jsx'))
 const TabHistorial       = lazy(() => import('./tabs/TabHistorial.jsx'))
-const TabHistoricoVentas = lazy(() => import('./tabs/TabHistoricoVentas.jsx'))
 const TabCaja            = lazy(() => import('./tabs/TabCaja.jsx'))
 const TabGastos          = lazy(() => import('./tabs/TabGastos.jsx'))
 const TabCompras         = lazy(() => import('./tabs/TabCompras.jsx'))
@@ -102,7 +101,8 @@ export default function App() {
             {/* /resumen fue absorbido por /hoy en Fase C — mantenemos redirect para links guardados */}
             <Route path="/resumen"             element={<Navigate to="/hoy" replace />} />
             <Route path="/historial"           element={<R Component={TabHistorial} />} />
-            <Route path="/historico"           element={<R Component={TabHistoricoVentas} />} />
+            {/* /historico fue absorbido por /historial?view=mes en Fase D */}
+            <Route path="/historico"           element={<Navigate to="/historial?view=mes" replace />} />
             <Route path="/resultados"          element={<R Component={TabResultados} />} />
             <Route path="/resultados/top"      element={<R Component={TabTopProductos} />} />
             <Route path="/kardex"              element={<R Component={TabKardex} />} />
