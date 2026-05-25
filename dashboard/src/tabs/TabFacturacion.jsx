@@ -493,8 +493,9 @@ function Historial({ refreshKey }) {
                 </button>
               )
             })}
-            <Button variant="ghost" size="icon" onClick={cargar} className="h-7 w-7">
-              <RefreshCw className="size-3.5" />
+            <Button variant="ghost" size="icon" onClick={cargar} className="h-7 w-7"
+                    aria-label="Recargar facturas">
+              <RefreshCw className="size-3.5" aria-hidden="true" />
             </Button>
           </div>
         </div>
@@ -560,6 +561,7 @@ function Historial({ refreshKey }) {
                           onClick={() => descargarPDF(f.cufe, f.numero)}
                           disabled={pdfLoading === f.cufe}
                           title="Descargar PDF"
+                          aria-label={`Descargar PDF de factura ${f.numero}`}
                           className="h-8 w-8"
                         >
                           {pdfLoading === f.cufe

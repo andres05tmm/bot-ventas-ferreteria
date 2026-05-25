@@ -1261,8 +1261,8 @@ export default function TabComprasFiscal({ refreshKey }) {
                                     <div className="flex justify-between items-start gap-2">
                                       <span className="text-sm font-semibold text-foreground flex-1 leading-snug">{c.producto}</span>
                                       <div className="flex gap-1 flex-shrink-0">
-                                        <Button variant="outline" size="icon" onClick={() => setEditando(c)} className="h-7 w-7" title="Editar ítem">
-                                          <Pencil className="size-3" />
+                                        <Button variant="outline" size="icon" onClick={() => setEditando(c)} className="h-7 w-7" title="Editar ítem" aria-label="Editar ítem">
+                                          <Pencil className="size-3" aria-hidden="true" />
                                         </Button>
                                         {!enAlmacenFila && (
                                           <Button
@@ -1270,9 +1270,10 @@ export default function TabComprasFiscal({ refreshKey }) {
                                             onClick={() => !enviandoCompra[c.id] && enviarACompras(c)}
                                             disabled={!!enviandoCompra[c.id]}
                                             title="Agregar a almacén"
+                                            aria-label="Agregar a almacén"
                                             className="h-7 w-7"
                                           >
-                                            {enviandoCompra[c.id] ? <Loader2 className="size-3 animate-spin" /> : <Package className="size-3" />}
+                                            {enviandoCompra[c.id] ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <Package className="size-3" aria-hidden="true" />}
                                           </Button>
                                         )}
                                       </div>
@@ -1347,9 +1348,10 @@ export default function TabComprasFiscal({ refreshKey }) {
                                       variant="outline" size="icon"
                                       onClick={() => setEditando(c)}
                                       title="Editar"
+                                      aria-label="Editar factura"
                                       className="h-7 w-7"
                                     >
-                                      <Pencil className="size-3" />
+                                      <Pencil className="size-3" aria-hidden="true" />
                                     </Button>
                                   </div>
                                 )

@@ -706,8 +706,9 @@ export default function TabCompras({ refreshKey }) {
                                     onClick={() => setEditando(c)}
                                     className="h-7 w-7"
                                     title="Editar"
+                                    aria-label="Editar compra"
                                   >
-                                    <Pencil className="size-3" />
+                                    <Pencil className="size-3" aria-hidden="true" />
                                   </Button>
                                   <Button
                                     variant="outline"
@@ -715,6 +716,7 @@ export default function TabCompras({ refreshKey }) {
                                     onClick={() => !yaEnFiscalFila && !cargando && enviarAFiscal(c)}
                                     disabled={yaEnFiscalFila || cargando}
                                     title={yaEnFiscalFila ? 'Ya en Fiscal' : 'Enviar a Fiscal'}
+                                    aria-label={yaEnFiscalFila ? 'Ya en Fiscal' : 'Enviar a Fiscal'}
                                     className={cn(
                                       'h-7 w-7',
                                       yaEnFiscalFila && 'border-success/40 text-success',

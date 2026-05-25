@@ -171,11 +171,11 @@ function PrecioInline({ value, prodKey, onSaved, authFetch }) {
         onKeyDown={e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') cerrar() }}
         className="w-24 h-7 px-2 text-xs font-mono font-bold text-primary bg-surface border border-primary/50 rounded outline-none focus:border-primary"
       />
-      <Button size="icon" className="size-7" onClick={guardar}>
-        {estado === 'saving' ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3.5" />}
+      <Button size="icon" className="size-7" onClick={guardar} aria-label="Guardar precio">
+        {estado === 'saving' ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
       </Button>
-      <Button size="icon" variant="outline" className="size-7" onClick={cerrar}>
-        <X className="size-3.5" />
+      <Button size="icon" variant="outline" className="size-7" onClick={cerrar} aria-label="Cancelar edición">
+        <X className="size-3.5" aria-hidden="true" />
       </Button>
     </div>
   )
@@ -251,8 +251,8 @@ function StockInline({ value, prodKey, fracciones, onSaved, authFetch }) {
             estado === 'err' ? 'border-destructive' : 'border-success',
           )}
         />
-        <Button size="icon" variant="ghost" className="size-7 text-success hover:text-success" onClick={() => guardar()}><Check className="size-3.5" /></Button>
-        <Button size="icon" variant="outline" className="size-7" onClick={cerrar}><X className="size-3.5" /></Button>
+        <Button size="icon" variant="ghost" className="size-7 text-success hover:text-success" onClick={() => guardar()} aria-label="Guardar stock"><Check className="size-3.5" aria-hidden="true" /></Button>
+        <Button size="icon" variant="outline" className="size-7" onClick={cerrar} aria-label="Cancelar edición"><X className="size-3.5" aria-hidden="true" /></Button>
       </div>
       {esFracc && fracBtns.length > 0 && (
         <div className="flex flex-wrap justify-center gap-1">

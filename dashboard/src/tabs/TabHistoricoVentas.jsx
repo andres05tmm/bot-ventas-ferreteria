@@ -221,8 +221,9 @@ export default function TabHistoricoVentas() {
         </div>
 
         <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="icon" onClick={mesAnterior} className="h-8 w-8">
-            <ChevronLeft className="size-4" />
+          <Button variant="outline" size="icon" onClick={mesAnterior} className="h-8 w-8"
+                  aria-label="Mes anterior">
+            <ChevronLeft className="size-4" aria-hidden="true" />
           </Button>
           <div className="flex gap-1.5 items-center bg-card border border-border rounded-md px-3 py-1.5">
             <select
@@ -240,8 +241,9 @@ export default function TabHistoricoVentas() {
               {[2024,2025,2026,2027].map(a => <option key={a} value={a}>{a}</option>)}
             </select>
           </div>
-          <Button variant="outline" size="icon" onClick={mesSiguiente} className="h-8 w-8">
-            <ChevronRight className="size-4" />
+          <Button variant="outline" size="icon" onClick={mesSiguiente} className="h-8 w-8"
+                  aria-label="Mes siguiente">
+            <ChevronRight className="size-4" aria-hidden="true" />
           </Button>
 
           {esMesActual && (

@@ -239,9 +239,10 @@ function SelectorFoto({ label, onChange, preview, onClear }) {
           <button
             type="button"
             onClick={onClear}
-            className="absolute top-1 right-1 bg-black/70 text-white border-none rounded-full size-5 cursor-pointer inline-flex items-center justify-center"
+            aria-label="Quitar foto"
+            className="absolute top-1 right-1 bg-foreground/70 text-background border-none rounded-full size-5 cursor-pointer inline-flex items-center justify-center"
           >
-            <X className="size-3" />
+            <X className="size-3" aria-hidden="true" />
           </button>
         </div>
       ) : (
