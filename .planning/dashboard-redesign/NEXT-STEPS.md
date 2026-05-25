@@ -1,6 +1,6 @@
 # Próximos pasos — Dashboard Redesign
 
-**Última actualización**: 2026-05-24 — Wave 3.b 6/7 sub-tareas completadas (queda solo el shell del tab)
+**Última actualización**: 2026-05-24 — Wave 3.b COMPLETADA (7/7 sub-tareas)
 
 ## Estado actual
 
@@ -54,16 +54,16 @@
     - `TabCaja.jsx` (415 → 330 LOC): toast con sonner global, `Dialog` confirmar cierre, `Dialog` venta varia, KPIs Card+lucide, tabla gastos del día tokenizada
     - `TabGastos.jsx` (323 → 310 LOC): **`ModalRegistrarGasto` exportado como named export (listo para reuso en Fase C desde el POS)**, gráficas con colores `hsl(var(--*))` tokenizados, period selector chips, tabla tokenizada
     - `npm run build` verde (8.63 KB css gzipped, 555 KB js gzipped)
-  - 🚧 **Wave 3.b EN PROGRESO**: `TabVentasRapidas.jsx` (**2911 → 2404 LOC**). 6/7 sub-tareas completadas en sesión dedicada (2026-05-24):
+  - ✅ **Wave 3.b COMPLETADA** (2026-05-24): `TabVentasRapidas.jsx` (**2911 → 2382 LOC**). 7/7 sub-tareas completadas en sesión dedicada:
     - ✅ **1. Constantes/helpers** (commit `2796e58`): nuevo archivo `dashboard/src/tabs/ventasRapidas.helpers.js` (154 LOC) con `FAV_KEY`/`CART_KEY` + load/save, `CAT_ICON`/`iconCat`/`catLabel`, `nl`, `SUBCATS`, `ordenarTornilleria`, `tipoProd`, `GRUPOS_CONFIG`/`SUBCATS_COLORES`/`buildGrupos`. Mismas claves storage (`vr_favs_v2`/`vr_carrito_v1`)
     - ✅ **2. ProdCard + Seccion** (commit `b48a544`): `<Card>` shadcn con `bg-primary-soft`/`border-primary` cuando hay items en carrito, `ring-primary` highlighted. Estrella favorito → lucide `<Star fill-current />`. Badges cantidad/tipo (cm/ml/gr/kg/fracción) tokenizados. `Seccion` sin `useTheme`
     - ✅ **3. PanelCarrito + CartItem** (commit `e4ad1d3`): tokens shadcn (`bg-card`, `bg-primary-soft`, `border-border`), `animate-in fade-in slide-in`, iconos lucide `Trash2`/`ShoppingCart`. Multiplicadores (×1/×2/×3/×5/×10) y edición de cantidad intactos. Toggle "calcular cambio" tokenizado
     - ✅ **4. Modales (×9) a Dialog shadcn** (commit `9edf12b`): `Modal` base montado sobre `<Dialog>` preservando API → los 6 modales hijos (Fraccion/Cm/Mlt/Grm/Kg/Qty) heredan el shell sin tocar lógica interna. `ModalCheckout`/`ModalMiscelanea`/`ModalColorPreparado` reescritos con Dialog y tokens. `PrecioEditor` tokenizado (warning/primary). `createPortal`/`getPortalRoot` se conservan para FAB/drawer móvil
     - ✅ **5. SelectorCliente + reuso ModalCliente** (commit `92f1e18`): `ModalCliente` ahora es **named export** desde `TabClientes.jsx` con prop opcional `nombreInicial`. `ModalNuevoCliente` eliminado (~260 LOC duplicadas borradas). `SelectorCliente` reescrito con tokens (`bg-muted`, `bg-primary-soft`) e iconos lucide `User`/`Plus`/`X`/`Loader2`. Prop `t` removido de `PanelCarrito` y sus dos call sites
     - ✅ **6. VistaGrupos + GrupoColores** (commit `04dfa11`): `GrupoColores` con `<Card>` shadcn, pills `bg-primary-soft+border-primary` en carrito, "ver más" con `border-dashed`, "color preparado" con `border-primary/40`. Grids de sueltas con columnas dinámicas vía inline `style` (Tailwind no genera `repeat(N)` en build)
-    - 🚧 **7. PENDIENTE — Shell del tab + smoke test**: queda migrar el componente principal `TabVentasRapidas` (~2200 LOC restantes en el tab — layout 3 columnas, sidebar de categorías/subcategorías, búsqueda, FAB móvil + drawer del carrito, banner caja cerrada, todo el `useTheme()` restante). **Sub-tarea 7 NO se ha empezado**.
-    - Commit + build verde tras cada sub-tarea (último build: 9.23 KB css gzipped, 552.82 KB js gzipped)
-    - Riesgo ALTO: tab crítico de operación diaria. Mantener mismas claves localStorage (`vr_favs_v2`) y sessionStorage (`vr_carrito_v1`)
+    - ✅ **7. Shell del tab + smoke test** (commit `cbdbc6d`): `TabVentasRapidas` sin `useTheme()`. Filtros y subcats como chips `bg-primary-soft+border-primary`, buscador con `Input` shadcn + icono `Search` lucide, vista vacía de favoritos con `Star` lucide `fill-current`. FAB móvil (barra fija inferior) y drawer del carrito a tokens (`bg-card`, `border-border`, `ShoppingCart`/`X`/`Loader2`); toggle calcular cambio conservado. Toasts via `bg-success`/`border-destructive` y animaciones movidas a `<style>` global del tab. Imports nuevos: `Search`, `Sparkles` (lucide), `Input` (ui). Claves storage intactas (`vr_favs_v2`/`vr_carrito_v1`/`vr_vendedor`). Modales internos (Fraccion/Cm/Mlt/Grm/Kg/Qty) heredan el shell Dialog ya migrado en sub-tarea 4 — sus internals con `useTheme()` quedan fuera del scope de Wave 3.b
+    - Commit + build verde tras cada sub-tarea (último build: 9.39 KB css gzipped, 552.85 KB js gzipped)
+    - Riesgo ALTO: tab crítico de operación diaria. Mantener mismas claves localStorage (`vr_favs_v2`) y sessionStorage (`vr_carrito_v1`) ✅ preservadas
   - ⏸️ **Pendiente Wave 3.c**: atajos POS — `CajaStatusPill` widget en HeaderBar + reusar `ModalRegistrarGasto` desde `/ventas` (ya está exportado de `TabGastos.jsx`)
   - ⏸️ **Pendiente Wave 4**: Fiscal — TabFacturacion, TabLibroIVA, TabComprasFiscal, TabCompras, TabProveedores, FacturasElectronicasRecibidas
 
