@@ -10,6 +10,7 @@ import {
 } from 'recharts'
 import { useFetch, cop, num, useIsMobile } from '../components/shared.jsx'
 import { Card } from '@/components/ui/card.jsx'
+import KpiCard from '@/components/KpiCard.jsx'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.jsx'
 import { ChevronDown, ChevronUp, Loader2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -22,22 +23,12 @@ function fmtDia(s) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-
+// MiniKpi — wrapper sobre KpiCard compartido para mantener call sites.
+// Mapea legacy tones ('accent' → 'primary', 'neutral' → 'default') sin
+// duplicar tokens. Sin icono por diseño (financiero/denso).
 function MiniKpi({ label, value, sub, tone = 'neutral' }) {
-  return (
-    <Card className="p-4 min-w-0">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">{label}</div>
-      <div className={cn(
-        'text-xl font-semibold tracking-tight tabular leading-none',
-        tone === 'success'  && 'text-success',
-        tone === 'danger'   && 'text-danger',
-        tone === 'accent'   && 'text-primary',
-      )}>
-        {value}
-      </div>
-      {sub && <p className="mt-1.5 text-xs text-muted-foreground">{sub}</p>}
-    </Card>
-  )
+  const mapped = tone === 'accent' ? 'primary' : tone === 'neutral' ? 'default' : tone
+  return <KpiCard label={label} value={value} sub={sub} tone={mapped} />
 }
 
 function EstadoResultados({ d, periodo }) {

@@ -17,6 +17,7 @@ import {
 import { cop, API_BASE, Spinner, useIsMobile } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { Card } from '@/components/ui/card.jsx'
+import KpiCard from '@/components/KpiCard.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
@@ -127,40 +128,6 @@ function MetodoBadge({ metodo }) {
     <span className={cn('inline-block px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap', cls)}>
       {metodo || '—'}
     </span>
-  )
-}
-
-// ── KPI ───────────────────────────────────────────────────────────────────────
-
-function KpiMini({ label, value, tone = 'primary', icon: Icon }) {
-  const toneCls = {
-    primary:     'text-primary',
-    success:     'text-success',
-    destructive: 'text-destructive',
-    muted:       'text-muted-foreground',
-  }[tone] || 'text-primary'
-  const bgIcon = {
-    primary:     'bg-primary-soft',
-    success:     'bg-success/10',
-    destructive: 'bg-destructive/10',
-    muted:       'bg-muted',
-  }[tone] || 'bg-primary-soft'
-  return (
-    <Card className="flex-1 min-w-[140px] p-4">
-      <div className="flex justify-between items-start gap-3">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            {label}
-          </div>
-          <div className="text-xl font-bold text-foreground tabular-nums truncate">{value}</div>
-        </div>
-        {Icon && (
-          <div className={cn('size-8 rounded-md inline-flex items-center justify-center flex-shrink-0', bgIcon)}>
-            <Icon className={cn('size-4', toneCls)} />
-          </div>
-        )}
-      </div>
-    </Card>
   )
 }
 
@@ -457,14 +424,18 @@ function Historial({ refreshKey }) {
   return (
     <div className="flex flex-col gap-3">
       {/* KPIs */}
-      <div className="flex gap-2.5 flex-wrap">
-        <KpiMini label="Facturas emitidas" value={totalEmitidas}  tone="success"     icon={CheckCircle2} />
-        <KpiMini label="$ Total facturado" value={cop(totalMonto)} tone="primary"    icon={DollarSign} />
-        <KpiMini
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <KpiCard label="Facturas emitidas" value={totalEmitidas}  tone="success" icon={CheckCircle2} />
+        <KpiCard label="$ Total facturado" value={cop(totalMonto)} tone="primary" icon={DollarSign} />
+        <KpiCard
           label="Con errores"
           value={totalErrores}
-          tone={totalErrores > 0 ? 'destructive' : 'muted'}
+          tone={totalErrores > 0 ? 'danger' : 'muted'}
           icon={XCircle}
+          {...(totalErrores > 0 ? {
+            onClick: () => setFiltro('error'),
+            actionLabel: filtro === 'error' ? 'Filtrado' : 'Ver errores',
+          } : {})}
         />
       </div>
 

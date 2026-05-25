@@ -7,6 +7,7 @@ import { useState, useMemo } from 'react'
 import { useFetch, cop, API_BASE, useIsMobile } from '../../components/shared.jsx'
 import { useAuth } from '../../hooks/useAuth.js'
 import { Card } from '@/components/ui/card.jsx'
+import KpiCard from '@/components/KpiCard.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
@@ -512,17 +513,8 @@ export default function VistaDia({ refreshKey }) {
   )
 }
 
+// KpiSmall — wrapper sobre KpiCard compartido (compact, sin icono).
 function KpiSmall({ label, value, tone = 'foreground' }) {
-  return (
-    <Card className="p-3">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">{label}</div>
-      <div className={cn('text-lg font-semibold tabular leading-none',
-        tone === 'success' && 'text-success',
-        tone === 'warning' && 'text-warning',
-        tone === 'accent'  && 'text-primary',
-      )}>
-        {value}
-      </div>
-    </Card>
-  )
+  const mapped = tone === 'accent' ? 'primary' : tone === 'foreground' ? 'default' : tone
+  return <KpiCard label={label} value={value} tone={mapped} compact />
 }

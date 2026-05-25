@@ -19,6 +19,7 @@ import {
 import { cop, API_BASE, Spinner } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { Card } from '@/components/ui/card.jsx'
+import KpiCard from '@/components/KpiCard.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
@@ -94,39 +95,6 @@ function ErrorMsg({ msg }) {
     <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2">
       {msg}
     </div>
-  )
-}
-
-// ── KPI ───────────────────────────────────────────────────────────────────────
-
-function Kpi({ label, value, sub, tone = 'primary', icon: Icon }) {
-  const toneCls = {
-    primary: 'text-primary',
-    success: 'text-success',
-    warning: 'text-warning',
-  }[tone] || 'text-primary'
-  const bgIcon = {
-    primary: 'bg-primary-soft',
-    success: 'bg-success/10',
-    warning: 'bg-warning/10',
-  }[tone] || 'bg-primary-soft'
-  return (
-    <Card className="flex-1 min-w-[150px] p-4 relative overflow-hidden">
-      <div className="flex justify-between items-start gap-3">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-            {label}
-          </div>
-          <div className="text-xl font-bold text-foreground tabular-nums truncate">{value}</div>
-          {sub && <div className="text-[11px] text-muted-foreground mt-1">{sub}</div>}
-        </div>
-        {Icon && (
-          <div className={cn('size-8 rounded-md inline-flex items-center justify-center flex-shrink-0', bgIcon)}>
-            <Icon className={cn('size-4', toneCls)} />
-          </div>
-        )}
-      </div>
-    </Card>
   )
 }
 
@@ -668,22 +636,22 @@ export default function TabLibroIVA() {
       {/* KPIs */}
       {loadRes && !resumen && <Spinner />}
       {resumen && (
-        <div className="flex gap-2.5 flex-wrap">
-          <Kpi
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <KpiCard
             label="IVA generado (FE)"
             value={cop(resumen.ventas.total_iva)}
             sub={`Base: ${cop(resumen.ventas.total_base)}`}
             tone="primary"
             icon={Receipt}
           />
-          <Kpi
+          <KpiCard
             label="IVA descontable"
             value={cop(resumen.compras.total_iva)}
             sub={`Total compras: ${cop(resumen.compras.total_bruto)}`}
             tone="success"
             icon={ShoppingCart}
           />
-          <Kpi
+          <KpiCard
             label="IVA neto del período"
             value={cop(Math.abs(resumen.iva_neto.valor))}
             sub={resumen.iva_neto.a_favor === 'empresa' ? 'Saldo a tu favor' : 'A pagar a la DIAN'}
