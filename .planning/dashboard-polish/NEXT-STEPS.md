@@ -43,6 +43,9 @@ En Fase A se aplicó el alpha-tint de `bg-primary-soft`, pero el par `bg-primary
 2. **`dark:text-brand-300` quirúrgico** en los 16 archivos donde aparece `bg-primary-soft text-primary`. Más invasivo, sin tocar tokens globales.
 3. **Dejar como está**. Legible aunque marginal — si nadie se queja, no es problema.
 
+#### Pendiente de TabResumen no migrado a Hoy
+La consolidación Fase C absorbió en Hoy: KPIs principales, evolución, métodos de pago, top productos, alertas stock. **Faltó**: ranking de vendedores del día (`Vendedores · Hoy`). Era una `Card` condicional admin-only en el viejo TabResumen. Migrar cuando se priorice — usar la misma agregación que `agruparVendedores()` (campo `v.vendedor` en `/ventas/hoy`).
+
 ### Componentes del catálogo 21st.dev — Wave 2/3
 
 Plan curado de la sesión (orden recomendado):

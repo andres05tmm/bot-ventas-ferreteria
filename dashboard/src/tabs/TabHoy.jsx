@@ -1,10 +1,15 @@
 /*
  * TabHoy — cockpit operativo, landing del dashboard.
- * Wave 1 Fase B "Aurora Ferretera":
- *   - KPIs compactos con tints semánticos (success/info/warning) + sparkline en Ventas
- *   - Hero: AreaChart de evolución (2/3) + feed live últimas ventas (1/3)
- *   - Sección secundaria: top productos, stock bajo, quick actions
+ * Wave 1 Fase B "Aurora Ferretera" + iteración post-feedback:
+ *   - KPIs principales compactos (3 cards: Ventas / Caja / Gastos)
+ *   - Strip de métricas secundarias (Pedidos / Ticket prom / Semana / Mes)
+ *   - Hero: AreaChart de evolución + feed live (últimas ventas)
+ *   - Operativa: Métodos de pago + Top productos + Stock bajo
+ *   - Quick actions
  * Datos derivados en cliente desde endpoints existentes — no toca backend.
+ *
+ * NOTA shape /ventas/hoy: el endpoint retorna { fecha, ventas, total, fuente }.
+ * Cada venta usa `metodo` (no `metodo_pago`) y `vendedor`.
  */
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -15,6 +20,7 @@ import {
 import {
   TrendingUp, TrendingDown, ArrowRight, Plus, AlertTriangle,
   ShoppingCart, Wallet, Receipt, Package, Search, Activity,
+  CreditCard,
 } from 'lucide-react'
 import { useFetch, cop, num } from '@/components/shared.jsx'
 import { useVendorFilter } from '@/hooks/useVendorFilter.jsx'
@@ -34,11 +40,16 @@ export default function TabHoy({ refreshKey }) {
   const deps        = [refreshKey, vendorCtx?.selectedVendor]
 
   const { data: resumen, loading: lRes } = useFetch(`/ventas/resumen${vendorParam}`, deps)
-  const { data: ventasHoy }              = useFetch(`/ventas/hoy${vendorParam}`,     deps)
+  const { data: ventasHoyRaw }           = useFetch(`/ventas/hoy${vendorParam}`,     deps)
   const { data: caja }                   = useFetch(`/caja`,                          deps)
   const { data: alertas }                = useFetch(`/inventario/bajo`,               deps)
 
-  const ventasHoyArr = Array.isArray(ventasHoy) ? ventasHoy : []
+  // /ventas/hoy → { fecha, ventas: [...], total, fuente }. Defensivo por si cambia.
+  const ventasHoyArr = useMemo(() => {
+    if (Array.isArray(ventasHoyRaw?.ventas)) return ventasHoyRaw.ventas
+    if (Array.isArray(ventasHoyRaw))         return ventasHoyRaw
+    return []
+  }, [ventasHoyRaw])
 
   // ── Derivados en cliente ───────────────────────────────────────────────────
   const totalGastos = useMemo(() => {
@@ -70,9 +81,32 @@ export default function TabHoy({ refreshKey }) {
     return arr.map(p => ({ ...p, pct: Math.max(8, Math.round((p.monto / max) * 100)) }))
   }, [ventasHoyArr])
 
-  const totalHoy   = resumen?.total_hoy   ?? 0
-  const ticketProm = resumen?.ticket_prom ?? 0
-  const pedidosHoy = resumen?.pedidos_hoy ?? ventasHoyArr.length
+  // Métodos de pago (agregado en cliente desde /ventas/hoy)
+  const metodosPago = useMemo(() => {
+    const acc = {}
+    for (const v of ventasHoyArr) {
+      const raw = String(v.metodo || '').trim().toLowerCase()
+      const key =
+        raw.includes('efect')   ? 'Efectivo' :
+        raw.includes('nequi')   ? 'Nequi' :
+        raw.includes('transf')  ? 'Transferencia' :
+        raw.includes('datafono') || raw.includes('tarj') ? 'Tarjeta' :
+        raw.includes('fiado') || raw.includes('credit')  ? 'Fiado' :
+        raw === '' || raw === '—' ? 'Sin registrar' : 'Otro'
+      acc[key] = (acc[key] || 0) + (Number(v.total) || 0)
+    }
+    const arr = Object.entries(acc).map(([nombre, monto]) => ({ nombre, monto }))
+      .sort((a, b) => b.monto - a.monto)
+    const total = arr.reduce((a, m) => a + m.monto, 0)
+    return arr.map(m => ({ ...m, pct: total > 0 ? Math.round((m.monto / total) * 100) : 0 }))
+  }, [ventasHoyArr])
+  const totalMetodos = metodosPago.reduce((a, m) => a + m.monto, 0)
+
+  const totalHoy     = resumen?.total_hoy     ?? 0
+  const ticketProm   = resumen?.ticket_prom   ?? 0
+  const pedidosHoy   = resumen?.pedidos_hoy   ?? ventasHoyArr.length
+  const totalSemana  = resumen?.total_semana  ?? 0
+  const totalMes     = resumen?.total_mes     ?? 0
 
   const alertasArr = Array.isArray(alertas) ? alertas : (alertas?.productos || [])
   const stockBajo  = alertasArr.slice(0, 5)
@@ -116,14 +150,14 @@ export default function TabHoy({ refreshKey }) {
       </header>
 
       {/* KPI STRIP — 3 cards compactos con tints semánticos */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <KpiCard
           tone="success"
           label="Ventas hoy"
           value={cop(totalHoy)}
           icon={ShoppingCart}
           loading={lRes}
-          sub={`${pedidosHoy} ${pedidosHoy === 1 ? 'venta' : 'ventas'} · ticket prom. ${cop(ticketProm)}`}
+          sub={`${pedidosHoy} ${pedidosHoy === 1 ? 'venta' : 'ventas'}`}
           deltaPct={deltaAyer}
           spark={historico7d}
         />
@@ -140,7 +174,7 @@ export default function TabHoy({ refreshKey }) {
                 {cajaAbierta ? '● Abierta' : 'Cerrada'}
               </Badge>
               {cajaAbierta && horaApertura && (
-                <span className="text-base tabular text-muted-foreground font-medium">
+                <span className="text-sm tabular text-muted-foreground font-medium">
                   {String(horaApertura).slice(0, 5)}
                 </span>
               )}
@@ -159,6 +193,16 @@ export default function TabHoy({ refreshKey }) {
         />
       </div>
 
+      {/* MINI METRIC STRIP — recupera datos de Resumen (4 métricas inline) */}
+      <Card className="p-0 overflow-hidden">
+        <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-border-subtle">
+          <MiniMetric label="Pedidos hoy"   value={num(pedidosHoy)}    sub={pedidosHoy > 0 ? `Ticket prom. ${cop(ticketProm)}` : 'sin ventas'} />
+          <MiniMetric label="Ticket prom."  value={cop(ticketProm)}    sub="últimos 7 días" />
+          <MiniMetric label="Total semana"  value={cop(totalSemana)}   sub="últimos 7 días" />
+          <MiniMetric label="Total mes"     value={cop(totalMes)}      sub="mes en curso" />
+        </div>
+      </Card>
+
       {/* HERO ZONE — Chart (2/3) + Feed live (1/3) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <EvolucionChart
@@ -172,8 +216,9 @@ export default function TabHoy({ refreshKey }) {
         />
       </div>
 
-      {/* SECCIÓN SECUNDARIA — Top productos + Stock bajo + Quick actions */}
+      {/* OPERATIVA — Métodos pago + Top productos + Stock bajo */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <MetodosPago items={metodosPago} total={totalMetodos} />
         <TopProductos
           items={topProductos}
           onMore={() => navigate('/top-productos')}
@@ -183,8 +228,10 @@ export default function TabHoy({ refreshKey }) {
           total={alertasArr.length}
           onMore={() => navigate('/inventario')}
         />
-        <QuickActions navigate={navigate} />
       </div>
+
+      {/* QUICK ACTIONS — full-width strip */}
+      <QuickActions navigate={navigate} />
     </div>
   )
 }
@@ -204,41 +251,41 @@ function KpiCard({ tone = 'success', label, value, icon: Icon, sub, deltaPct, sp
   return (
     <Card
       className={cn(
-        'relative overflow-hidden p-4 transition-all duration-base ease-out-quad',
+        'relative overflow-hidden p-3 transition-all duration-base ease-out-quad',
         t.bg, t.border,
         'hover:-translate-y-px hover:shadow-md',
       )}
     >
-      <div className="flex items-start justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
         <span
-          className="grid place-items-center rounded-md size-7"
+          className="grid place-items-center rounded-md size-6"
           style={{ background: `color-mix(in srgb, ${t.color} 12%, transparent)`, color: t.color }}
         >
-          <Icon className="size-3.5" />
+          <Icon className="size-3"/>
         </span>
       </div>
 
       <div className={cn(
-        'mt-2 text-2xl font-semibold tracking-tight tabular leading-none',
+        'mt-1.5 text-lg font-semibold tracking-tight tabular leading-none',
         loading && 'opacity-50'
       )}>
         {value}
       </div>
 
-      <div className="mt-2 flex items-end justify-between gap-2 min-h-[20px]">
-        <div className="text-[11px] text-muted-foreground leading-snug truncate">
+      <div className="mt-1.5 flex items-end justify-between gap-2">
+        <div className="text-[10.5px] text-muted-foreground leading-snug truncate">
           {deltaPct !== null && deltaPct !== undefined && Math.abs(deltaPct) > 0.5 && (
-            <span className={cn('inline-flex items-center gap-0.5 mr-1.5 font-semibold tabular',
+            <span className={cn('inline-flex items-center gap-0.5 mr-1 font-semibold tabular',
               deltaPct >= 0 ? 'text-success' : 'text-danger')}>
-              {deltaPct >= 0 ? <TrendingUp className="size-3"/> : <TrendingDown className="size-3"/>}
+              {deltaPct >= 0 ? <TrendingUp className="size-2.5"/> : <TrendingDown className="size-2.5"/>}
               {deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%
             </span>
           )}
           {sub}
         </div>
         {Array.isArray(spark) && spark.length >= 3 && (
-          <div className="shrink-0 w-[68px] h-[24px] opacity-90">
+          <div className="shrink-0 w-[56px] h-[20px] opacity-90">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={spark.map(d => ({ v: Number(d.total ?? d) || 0 }))}>
                 <Line type="monotone" dataKey="v" stroke={t.color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
@@ -248,6 +295,20 @@ function KpiCard({ tone = 'success', label, value, icon: Icon, sub, deltaPct, sp
         )}
       </div>
     </Card>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MINI METRIC — celda compacta dentro del strip
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MiniMetric({ label, value, sub }) {
+  return (
+    <div className="p-3 md:p-3.5">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="mt-1 text-base font-semibold tracking-tight tabular leading-none">{value}</div>
+      {sub && <div className="mt-1 text-[10.5px] text-muted-foreground truncate">{sub}</div>}
+    </div>
   )
 }
 
@@ -369,8 +430,8 @@ function PeriodPill({ active, onClick, children }) {
 
 function metodoTone(metodo) {
   const m = String(metodo || '').toLowerCase()
-  if (m.includes('efectivo'))                     return 'bg-success/10 text-success border-success/20'
-  if (m.includes('nequi') || m.includes('transf'))return 'bg-primary/10 text-primary border-primary/20'
+  if (m.includes('efectivo'))                      return 'bg-success/10 text-success border-success/20'
+  if (m.includes('nequi') || m.includes('transf')) return 'bg-primary/10 text-primary border-primary/20'
   if (m.includes('datafono') || m.includes('tarj'))return 'bg-info/10 text-info border-info/20'
   if (m.includes('fiado') || m.includes('credito'))return 'bg-warning/10 text-warning border-warning/20'
   return 'bg-surface-2 text-muted-foreground border-border'
@@ -396,7 +457,7 @@ function FeedLive({ ventas, onMore }) {
       ) : (
         <ul className="divide-y divide-border-subtle">
           {ventas.map((v, i) => (
-            <li key={`${v.consecutivo}-${i}`} className="py-2 flex items-center gap-2.5">
+            <li key={`${v.num || v.consecutivo}-${i}`} className="py-2 flex items-center gap-2.5">
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="text-[11px] text-muted-foreground tabular">{(v.hora || '').slice(0, 5)}</span>
@@ -406,11 +467,67 @@ function FeedLive({ ventas, onMore }) {
                   {v.producto || v.cliente || '—'}
                 </div>
               </div>
-              <Badge variant="outline" className={cn('text-[10px] h-5 px-1.5 shrink-0', metodoTone(v.metodo_pago))}>
-                {v.metodo_pago || '—'}
+              <Badge variant="outline" className={cn('text-[10px] h-5 px-1.5 shrink-0 capitalize', metodoTone(v.metodo))}>
+                {v.metodo || '—'}
               </Badge>
             </li>
           ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MÉTODOS DE PAGO — agregado del día con barras de %
+// ─────────────────────────────────────────────────────────────────────────────
+
+const METODO_BAR_COLORS = {
+  'Efectivo':       'hsl(var(--success))',
+  'Nequi':          'hsl(var(--accent))',
+  'Transferencia':  'hsl(var(--accent))',
+  'Tarjeta':        'hsl(var(--info))',
+  'Fiado':          'hsl(var(--warning))',
+  'Sin registrar':  'hsl(var(--text-muted))',
+  'Otro':           'hsl(var(--text-muted))',
+}
+
+function MetodosPago({ items, total }) {
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
+          <CreditCard className="size-3.5"/>
+          Métodos de pago · Hoy
+        </h2>
+        {total > 0 && (
+          <span className="text-[11px] text-muted-foreground tabular">{cop(total)}</span>
+        )}
+      </div>
+      {items.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">Sin ventas hoy.</p>
+      ) : (
+        <ul className="space-y-2.5">
+          {items.map((m, i) => {
+            const color = METODO_BAR_COLORS[m.nombre] || 'hsl(var(--text-muted))'
+            return (
+              <li key={i}>
+                <div className="flex items-baseline justify-between mb-1 text-[12px]">
+                  <span className="font-medium truncate">{m.nombre}</span>
+                  <span className="tabular font-semibold shrink-0">{cop(m.monto)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-1 rounded-full bg-surface-2 overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-base"
+                      style={{ width: `${Math.max(4, m.pct)}%`, background: color }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground tabular w-9 text-right shrink-0">{m.pct}%</span>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
     </Card>
@@ -516,12 +633,14 @@ function QuickActions({ navigate }) {
     success: { color: 'hsl(var(--success))', bg: 'bg-success/10'  },
   }
   return (
-    <Card className="p-5">
-      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 inline-flex items-center gap-1.5">
-        <Activity className="size-3.5"/>
-        Acciones rápidas
-      </h2>
-      <div className="grid grid-cols-2 gap-2">
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
+          <Activity className="size-3.5"/>
+          Acciones rápidas
+        </h2>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {actions.map(a => {
           const t = toneStyles[a.tone]
           const Icon = a.icon
