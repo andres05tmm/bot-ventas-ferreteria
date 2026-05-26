@@ -14,6 +14,7 @@ import {
 import { useFetch, cop, useIsMobile, API_BASE } from '../components/shared.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import { Card } from '@/components/ui/card.jsx'
+import KpiCard from '@/components/KpiCard.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
@@ -61,36 +62,6 @@ function ErrorMsg({ msg }) {
     <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2">
       {msg}
     </div>
-  )
-}
-
-function KpiCard({ label, value, icon: Icon, tone = 'primary' }) {
-  const toneCls = {
-    primary: 'text-primary',
-    success: 'text-success',
-    warning: 'text-warning',
-  }[tone] || 'text-primary'
-  const bgIcon = {
-    primary: 'bg-primary-soft',
-    success: 'bg-success/10',
-    warning: 'bg-warning/10',
-  }[tone] || 'bg-primary-soft'
-  return (
-    <Card className="p-3.5">
-      <div className="flex justify-between items-start gap-2">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-            {label}
-          </div>
-          <div className="text-lg font-bold text-foreground tabular-nums truncate">{value}</div>
-        </div>
-        {Icon && (
-          <div className={cn('size-7 rounded-md inline-flex items-center justify-center flex-shrink-0', bgIcon)}>
-            <Icon className={cn('size-3.5', toneCls)} />
-          </div>
-        )}
-      </div>
-    </Card>
   )
 }
 
@@ -752,10 +723,10 @@ export default function TabProveedores({ refreshKey }) {
         'grid gap-4',
         mobile ? 'grid-cols-2' : 'grid-cols-4',
       )}>
-        <KpiCard label="Deuda total"  value={cop(totalDeuda)}  icon={CreditCard}   tone="primary" />
-        <KpiCard label="Total pagado" value={cop(totalPagado)} icon={CheckCircle2} tone="success" />
-        <KpiCard label="Pendientes"   value={nPend}            icon={Circle}       tone="primary" />
-        <KpiCard label="En proceso"   value={nParc}            icon={Clock}        tone="warning" />
+        <KpiCard label="Deuda total"  value={cop(totalDeuda)}  icon={CreditCard}   tone="primary" topAccent iconStyle="filled" />
+        <KpiCard label="Total pagado" value={cop(totalPagado)} icon={CheckCircle2} tone="success" topAccent iconStyle="filled" />
+        <KpiCard label="Pendientes"   value={nPend}            icon={Circle}       tone="primary" topAccent iconStyle="filled" />
+        <KpiCard label="En proceso"   value={nParc}            icon={Clock}        tone="warning" topAccent iconStyle="filled" />
       </div>
 
       <ResumenProveedores data={resumen} />

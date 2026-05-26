@@ -425,13 +425,14 @@ function Historial({ refreshKey }) {
     <div className="flex flex-col gap-3">
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-        <KpiCard label="Facturas emitidas" value={totalEmitidas}  tone="success" icon={CheckCircle2} />
-        <KpiCard label="$ Total facturado" value={cop(totalMonto)} tone="primary" icon={DollarSign} />
+        <KpiCard label="Facturas emitidas" value={totalEmitidas}  tone="success" icon={CheckCircle2} topAccent iconStyle="filled" />
+        <KpiCard label="$ Total facturado" value={cop(totalMonto)} tone="primary" icon={DollarSign} topAccent iconStyle="filled" />
         <KpiCard
           label="Con errores"
           value={totalErrores}
           tone={totalErrores > 0 ? 'danger' : 'muted'}
           icon={XCircle}
+          topAccent iconStyle="filled"
           {...(totalErrores > 0 ? {
             onClick: () => setFiltro('error'),
             actionLabel: filtro === 'error' ? 'Filtrado' : 'Ver errores',

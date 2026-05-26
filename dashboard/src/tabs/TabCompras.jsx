@@ -528,10 +528,10 @@ export default function TabCompras({ refreshKey }) {
         <>
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-            <KpiCard label="Total invertido" value={cop(total)}     sub={`Últimos ${dias} días`} icon={DollarSign} tone="primary" />
-            <KpiCard label="Compras"          value={compras.length} sub="Registros"              icon={Package}    tone="muted" />
-            <KpiCard label="Proveedores"      value={porProv.length} sub="Distintos"              icon={Truck}      tone="muted" />
-            <KpiCard label="Productos"        value={Object.keys(d.por_producto||{}).length} sub="Artículos" icon={Hash} tone="muted" />
+            <KpiCard label="Total invertido" value={cop(total)}     sub={`Últimos ${dias} días`} icon={DollarSign} tone="primary" topAccent iconStyle="filled" />
+            <KpiCard label="Compras"          value={compras.length} sub="Registros"              icon={Package}    tone="muted"   topAccent iconStyle="filled" />
+            <KpiCard label="Proveedores"      value={porProv.length} sub="Distintos"              icon={Truck}      tone="muted"   topAccent iconStyle="filled" />
+            <KpiCard label="Productos"        value={Object.keys(d.por_producto||{}).length} sub="Artículos" icon={Hash} tone="muted" topAccent iconStyle="filled" />
           </div>
 
           {/* Por proveedor */}

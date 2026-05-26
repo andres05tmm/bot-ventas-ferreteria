@@ -19,6 +19,7 @@ import { useFetch, cop, num, API_BASE, useIsMobile } from '../components/shared.
 import { useAuth } from '../hooks/useAuth.js'
 import { useVendorFilter } from '../hooks/useVendorFilter.jsx'
 import { Card } from '@/components/ui/card.jsx'
+import KpiCard from '@/components/KpiCard.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
@@ -111,39 +112,6 @@ function ErrorMsg({ msg }) {
 
 function EmptyState({ msg = 'Sin datos para este período.' }) {
   return <div className="text-xs text-muted-foreground py-4">{msg}</div>
-}
-
-function KpiCard({ label, value, sub, icon: Icon, tone = 'primary' }) {
-  const toneCls = {
-    primary: 'text-primary',
-    success: 'text-success',
-    warning: 'text-warning',
-    muted:   'text-muted-foreground',
-  }[tone] || 'text-primary'
-  const bgIcon = {
-    primary: 'bg-primary-soft',
-    success: 'bg-success/10',
-    warning: 'bg-warning/10',
-    muted:   'bg-muted',
-  }[tone] || 'bg-primary-soft'
-  return (
-    <Card className="flex-1 min-w-[140px] p-3.5">
-      <div className="flex justify-between items-start gap-2">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-            {label}
-          </div>
-          <div className="text-lg font-bold text-foreground tabular-nums truncate">{value}</div>
-          {sub && <div className="text-[11px] text-muted-foreground mt-1 truncate">{sub}</div>}
-        </div>
-        {Icon && (
-          <div className={cn('size-7 rounded-md inline-flex items-center justify-center flex-shrink-0', bgIcon)}>
-            <Icon className={cn('size-3.5', toneCls)} />
-          </div>
-        )}
-      </div>
-    </Card>
-  )
 }
 
 // ── IVA toggle reutilizable ───────────────────────────────────────────────────
@@ -1045,17 +1013,18 @@ export default function TabComprasFiscal({ refreshKey }) {
         <>
           {/* KPIs */}
           <div className="flex gap-2.5 flex-wrap">
-            <KpiCard label="Total invertido"    value={cop(total)}               sub={`Últimos ${dias} días`}             icon={DollarSign}    tone="primary" />
-            <KpiCard label="IVA descontable"    value={cop(totalIvaDescontable)} sub="Crédito fiscal"                     icon={FileBarChart}  tone="success" />
-            <KpiCard label="Compras fiscales"   value={compras.length}           sub="Registros"                           icon={Receipt}       tone="muted" />
+            <KpiCard label="Total invertido"    value={cop(total)}               sub={`Últimos ${dias} días`}             icon={DollarSign}    tone="primary" topAccent iconStyle="filled" />
+            <KpiCard label="IVA descontable"    value={cop(totalIvaDescontable)} sub="Crédito fiscal"                     icon={FileBarChart}  tone="success" topAccent iconStyle="filled" />
+            <KpiCard label="Compras fiscales"   value={compras.length}           sub="Registros"                           icon={Receipt}       tone="muted"   topAccent iconStyle="filled" />
             <KpiCard
               label="Con factura"
               value={conFactura}
               sub={sinFactura > 0 ? `${sinFactura} sin nro.` : 'Todas tienen nro.'}
               icon={ClipboardList}
               tone={sinFactura > 0 ? 'warning' : 'success'}
+              topAccent iconStyle="filled"
             />
-            <KpiCard label="Enviadas a almacén" value={yaEnAlmacen} sub={`de ${compras.length}`} icon={Package} tone="muted" />
+            <KpiCard label="Enviadas a almacén" value={yaEnAlmacen} sub={`de ${compras.length}`} icon={Package} tone="muted" topAccent iconStyle="filled" />
           </div>
 
           {/* Por proveedor */}

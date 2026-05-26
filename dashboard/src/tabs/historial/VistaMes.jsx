@@ -215,10 +215,10 @@ export default function VistaMes() {
 
       {/* KPIs */}
       <div className={cn('grid gap-2.5 mb-5', mobile ? 'grid-cols-2' : 'grid-cols-4')}>
-        <KpiCard label="Total del mes"  value={cop(totalMes)} icon={Wallet}     tone="primary" />
-        <KpiCard label="Días con venta" value={diasVenta}     icon={Calendar}   tone="warning" />
-        <KpiCard label="Promedio / día" value={cop(promedio)} icon={TrendingUp} tone="success" />
-        <KpiCard label="Mejor día"      value={cop(mejorDia)} icon={Trophy}     tone="info" />
+        <KpiCard label="Total del mes"  value={cop(totalMes)} icon={Wallet}     tone="primary" topAccent iconStyle="filled" />
+        <KpiCard label="Días con venta" value={diasVenta}     icon={Calendar}   tone="warning" topAccent iconStyle="filled" />
+        <KpiCard label="Promedio / día" value={cop(promedio)} icon={TrendingUp} tone="success" topAccent iconStyle="filled" />
+        <KpiCard label="Mejor día"      value={cop(mejorDia)} icon={Trophy}     tone="info"    topAccent iconStyle="filled" />
       </div>
 
       {/* Calendario */}
@@ -287,9 +287,9 @@ export default function VistaMes() {
       {/* Métodos de pago */}
       {hayDesglose && (
         <div className={cn('grid gap-2.5 mb-4', mobile ? 'grid-cols-2' : 'grid-cols-3')}>
-          <KpiCard label="Efectivo"      value={cop(totalEfectivo)}      icon={Wallet}      tone="success" />
-          <KpiCard label="Transferencia" value={cop(totalTransferencia)} icon={Smartphone}  tone="info" />
-          <KpiCard label="Datáfono"      value={cop(totalDatafono)}      icon={CreditCard}  tone="warning" />
+          <KpiCard label="Efectivo"      value={cop(totalEfectivo)}      icon={Wallet}      tone="success" topAccent iconStyle="filled" />
+          <KpiCard label="Transferencia" value={cop(totalTransferencia)} icon={Smartphone}  tone="info"    topAccent iconStyle="filled" />
+          <KpiCard label="Datáfono"      value={cop(totalDatafono)}      icon={CreditCard}  tone="warning" topAccent iconStyle="filled" />
         </div>
       )}
 
