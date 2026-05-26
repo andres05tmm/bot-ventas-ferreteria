@@ -76,6 +76,13 @@ export default {
           DEFAULT:    'hsl(var(--bg-surface) / <alpha-value>)',
           foreground: 'hsl(var(--text-primary) / <alpha-value>)',
         },
+        // ── Accent strips (top bars en KpiCard) ──────────────────────────
+        'body-strong':   'hsl(var(--bg-body-strong) / <alpha-value>)',
+        'accent-red':    'hsl(var(--accent) / <alpha-value>)',
+        'accent-yellow': 'hsl(var(--accent-yellow) / <alpha-value>)',
+        'accent-blue':   'hsl(var(--accent-blue) / <alpha-value>)',
+        'accent-green':  'hsl(var(--accent-green) / <alpha-value>)',
+        'accent-orange': 'hsl(var(--accent-orange) / <alpha-value>)',
         // ── capa primitive (brand red) — uso puntual ──────────────────────
         brand: {
           50:  '#FEF1EF',

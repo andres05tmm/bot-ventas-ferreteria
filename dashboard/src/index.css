@@ -13,7 +13,8 @@
   :root,
   [data-theme="light"] {
     /* ── Fondos ────────────────────────────────────────────────────── */
-    --bg-body:        0 0% 98%;     /* #FAFAFA */
+    --bg-body:        42 43% 95%;   /* #F8F5EE blanco hueso cálido */
+    --bg-body-strong: 39 33% 92%;   /* #F1ECE3 variante hover/elevation */
     --bg-surface:     0 0% 100%;    /* #FFFFFF */
     --bg-surface-2:   240 5% 96%;   /* #F4F4F5 */
     --bg-sidebar:     0 0% 100%;
@@ -37,6 +38,12 @@
     --accent-soft:    9 75% 97%;    /* #FEF1EF */
     --accent-on:      0 0% 100%;
 
+    /* ── Accent strips (top bars en KpiCard) ─────────────────────── */
+    --accent-yellow:  37 79% 57%;   /* #E8A53A warning amber */
+    --accent-blue:   207 52% 36%;   /* #2C5F8A info saturado */
+    --accent-green:  133 35% 45%;   /* #4A9B5C success calibrado */
+    --accent-orange:  23 63% 48%;   /* #C8682E orange totals */
+
     /* ── Señales ──────────────────────────────────────────────────── */
     --success:        142 67% 28%;  /* #15803D */
     --warning:        20 80% 40%;   /* #C2410C */
@@ -53,10 +60,11 @@
   }
 
   [data-theme="dark"] {
-    --bg-body:        240 6% 10%;   /* #18181B */
+    --bg-body:        33 17% 10%;   /* #1F1B16 warm dark */
+    --bg-body-strong: 33 15% 14%;   /* #261F17 variante elevation */
     --bg-surface:     240 4% 16%;   /* #27272A */
     --bg-surface-2:   240 5% 26%;   /* #3F3F46 */
-    --bg-sidebar:     240 6% 10%;
+    --bg-sidebar:     33 17% 10%;
 
     --border-subtle:  240 4% 16%;
     --border:         240 5% 26%;
@@ -74,6 +82,12 @@
     --accent-soft:    6 87% 42%;    /* usar con alpha vía /10 en tailwind */
     --accent-on:      0 0% 98%;
 
+    /* ── Accent strips — mismos colores en dark (high-contrast) ───── */
+    --accent-yellow:  37 79% 57%;
+    --accent-blue:   207 52% 36%;
+    --accent-green:  133 35% 45%;
+    --accent-orange:  23 63% 48%;
+
     --success:        142 71% 45%;  /* #16A34A */
     --warning:        21 90% 48%;   /* #EA580C */
     --danger:         0 73% 51%;    /* #DC2626 */
@@ -90,10 +104,11 @@
   /* Respeta sistema cuando no hay override manual */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {
-      --bg-body:        240 6% 10%;
+      --bg-body:        33 17% 10%;
+      --bg-body-strong: 33 15% 14%;
       --bg-surface:     240 4% 16%;
       --bg-surface-2:   240 5% 26%;
-      --bg-sidebar:     240 6% 10%;
+      --bg-sidebar:     33 17% 10%;
       --border-subtle:  240 4% 16%;
       --border:         240 5% 26%;
       --border-strong:  240 4% 46%;
@@ -107,6 +122,10 @@
       --accent-hover:   7 73% 58%;
       --accent-soft:    6 87% 42%;
       --accent-on:      0 0% 98%;
+      --accent-yellow:  37 79% 57%;
+      --accent-blue:   207 52% 36%;
+      --accent-green:  133 35% 45%;
+      --accent-orange:  23 63% 48%;
       --success:        142 71% 45%;
       --warning:        21 90% 48%;
       --danger:         0 73% 51%;
