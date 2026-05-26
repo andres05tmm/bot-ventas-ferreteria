@@ -380,10 +380,11 @@ function PeriodPill({ active, onClick, children }) {
 
 function metodoTone(metodo) {
   const m = String(metodo || '').toLowerCase()
-  if (m.includes('efectivo'))                      return 'bg-success/10 text-success border-success/20'
-  if (m.includes('nequi') || m.includes('transf')) return 'bg-primary/10 text-primary border-primary/20'
-  if (m.includes('datafono') || m.includes('tarj'))return 'bg-info/10 text-info border-info/20'
-  if (m.includes('fiado') || m.includes('credito'))return 'bg-warning/10 text-warning border-warning/20'
+  if (m.includes('efectivo'))                       return 'bg-success/10 text-success border-success/20'
+  if (m.includes('transf'))                         return 'bg-warning/10 text-warning border-warning/20'
+  if (m.includes('nequi'))                          return 'bg-info/10 text-info border-info/20'
+  if (m.includes('datafono') || m.includes('tarj')) return 'bg-info/10 text-info border-info/20'
+  if (m.includes('fiado') || m.includes('credito')) return 'bg-danger/10 text-danger border-danger/20'
   return 'bg-surface-2 text-muted-foreground border-border'
 }
 
