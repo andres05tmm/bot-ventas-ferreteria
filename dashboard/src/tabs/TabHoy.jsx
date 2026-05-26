@@ -308,7 +308,7 @@ function EvolucionChart({ historico7d, historicoMes, loading }) {
           <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="hoyEvolGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%"  stopColor="hsl(var(--accent))" stopOpacity={0.25} />
+                <stop offset="0%"  stopColor="hsl(var(--accent))" stopOpacity={0.15} />
                 <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0}    />
               </linearGradient>
             </defs>
@@ -543,7 +543,10 @@ function StockBajo({ items, total, onMore }) {
         )}
       </div>
       {items.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">Stock sin alertas.</p>
+        <div className="py-8 flex flex-col items-center gap-2 text-muted-foreground">
+          <AlertTriangle className="size-6 text-warning opacity-60" />
+          <p className="text-sm">Stock sin alertas.</p>
+        </div>
       ) : (
         <>
           <ul className="divide-y divide-border-subtle">

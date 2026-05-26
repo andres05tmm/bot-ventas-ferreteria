@@ -76,8 +76,6 @@ export default {
           DEFAULT:    'hsl(var(--bg-surface) / <alpha-value>)',
           foreground: 'hsl(var(--text-primary) / <alpha-value>)',
         },
-        // ── Surfaces + tints ─────────────────────────────────────────────
-        'accent-soft':   'hsl(var(--accent-soft) / <alpha-value>)',
         // ── Accent strips (top bars en KpiCard) ──────────────────────────
         'body-strong':   'hsl(var(--bg-body-strong) / <alpha-value>)',
         'accent-red':    'hsl(var(--accent) / <alpha-value>)',
