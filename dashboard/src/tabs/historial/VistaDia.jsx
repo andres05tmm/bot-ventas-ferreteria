@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu.jsx'
 import {
   Search, Download, Pencil, Trash2, Loader2, X, AlertCircle, ChevronDown,
+  DollarSign, Wallet, Smartphone, CreditCard,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -349,7 +350,14 @@ export default function VistaDia({ refreshKey }) {
   }, [todasVentas])
 
   const ventas = useMemo(() => {
-    let res = filtro === 'todos' ? todasVentas : todasVentas.filter(v => v.estado === filtro)
+    let res = todasVentas
+    if (filtro === 'efectivo') {
+      res = todasVentas.filter(v => (v.metodo || '').toLowerCase().includes('efectivo'))
+    } else if (filtro === 'transferencia') {
+      res = todasVentas.filter(v => { const m = (v.metodo || '').toLowerCase(); return m.includes('transf') || m.includes('nequi') || m.includes('davi') })
+    } else if (filtro === 'datafono') {
+      res = todasVentas.filter(v => { const m = (v.metodo || '').toLowerCase(); return m.includes('datafono') || m.includes('tarjet') })
+    }
     if (busqueda) {
       const q = busqueda.toLowerCase()
       res = res.filter(v =>
@@ -364,8 +372,9 @@ export default function VistaDia({ refreshKey }) {
 
   const total = ventas.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
   const totalTodo = todasVentas.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
-  const pagados = todasVentas.filter(v => v.estado === 'pagado').length
-  const pendientes = todasVentas.filter(v => v.estado === 'pendiente').length
+  const totalEfectivo = todasVentas.filter(v => (v.metodo || '').toLowerCase().includes('efectivo')).reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
+  const totalTransferencia = todasVentas.filter(v => { const m = (v.metodo || '').toLowerCase(); return m.includes('transf') || m.includes('nequi') || m.includes('davi') }).reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
+  const totalDatafono = todasVentas.filter(v => { const m = (v.metodo || '').toLowerCase(); return m.includes('datafono') || m.includes('tarjet') }).reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
 
   if (loading) {
     return (
@@ -397,18 +406,19 @@ export default function VistaDia({ refreshKey }) {
 
       {/* KPIs */}
       <div className={cn('grid gap-3', isMobile ? 'grid-cols-2' : 'grid-cols-4')}>
-        <KpiSmall label="Total hoy"   value={cop(totalTodo)} tone="accent" />
-        <KpiSmall label="Registros"   value={todasVentas.length} />
-        <KpiSmall label="Pagados"     value={pagados}    tone="success" />
-        <KpiSmall label="Sin método"  value={pendientes} tone="warning" />
+        <KpiCard label="Total hoy"       value={cop(totalTodo)}       tone="primary"  icon={DollarSign} topAccent iconStyle="filled" />
+        <KpiCard label="Efectivo"        value={cop(totalEfectivo)}   tone="success"  icon={Wallet}     topAccent iconStyle="filled" />
+        <KpiCard label="Transferencia"   value={cop(totalTransferencia)} tone="warning" icon={Smartphone} topAccent iconStyle="filled" />
+        <KpiCard label="Datáfono"        value={cop(totalDatafono)}   tone="info"     icon={CreditCard} topAccent iconStyle="filled" />
       </div>
 
       {/* Filtros */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="inline-flex bg-surface-2 p-1 rounded-md">
-          <FiltroBtn active={filtro === 'todos'}     onClick={() => setFiltro('todos')}>Todos</FiltroBtn>
-          <FiltroBtn active={filtro === 'pagado'}    onClick={() => setFiltro('pagado')}>Pagados</FiltroBtn>
-          <FiltroBtn active={filtro === 'pendiente'} onClick={() => setFiltro('pendiente')}>Pendientes</FiltroBtn>
+          <FiltroBtn active={filtro === 'todos'}          onClick={() => setFiltro('todos')}>Todos</FiltroBtn>
+          <FiltroBtn active={filtro === 'efectivo'}       onClick={() => setFiltro('efectivo')}>Efectivo</FiltroBtn>
+          <FiltroBtn active={filtro === 'transferencia'}  onClick={() => setFiltro('transferencia')}>Transferencia</FiltroBtn>
+          <FiltroBtn active={filtro === 'datafono'}       onClick={() => setFiltro('datafono')}>Datáfono</FiltroBtn>
         </div>
         <div className="relative w-full sm:w-64">
           <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -513,8 +523,4 @@ export default function VistaDia({ refreshKey }) {
   )
 }
 
-// KpiSmall — wrapper sobre KpiCard compartido (compact, sin icono).
-function KpiSmall({ label, value, tone = 'foreground' }) {
-  const mapped = tone === 'accent' ? 'primary' : tone === 'foreground' ? 'default' : tone
-  return <KpiCard label={label} value={value} tone={mapped} compact />
-}
+

@@ -20,9 +20,10 @@ import {
 } from '@/components/ui/dialog.jsx'
 import { toast } from 'sonner'
 import {
-  Plus, Wallet, BarChart3, Folder, ClipboardList, TrendingDown,
+  Plus, Wallet, BarChart3, ClipboardList, TrendingDown,
   Banknote, Landmark, Loader2, AlertCircle,
 } from 'lucide-react'
+import KpiCard from '@/components/KpiCard.jsx'
 import { cn } from '@/lib/utils'
 
 const cop = v => v == null || isNaN(v) ? '$0' : '$' + Math.round(v).toLocaleString('es-CO')
@@ -54,29 +55,6 @@ function fmtFecha(s) {
   return `${d}/${m}`
 }
 
-// ─── KPI ──────────────────────────────────────────────────────────────────────
-function Kpi({ label, value, sub, icon: Icon, tone = 'default' }) {
-  const toneClass = {
-    default: 'text-foreground', danger: 'text-destructive', warning: 'text-warning',
-    muted: 'text-muted-foreground',
-  }[tone]
-  return (
-    <Card className="p-4 flex-1 min-w-40">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-          <div className={cn('text-xl font-bold tabular tracking-tight mt-1.5', toneClass)}>{value}</div>
-          {sub && <div className="text-[11px] text-muted-foreground mt-1">{sub}</div>}
-        </div>
-        {Icon && (
-          <div className={cn('size-9 rounded-md grid place-items-center bg-surface-2 shrink-0', toneClass)}>
-            <Icon className="size-4" />
-          </div>
-        )}
-      </div>
-    </Card>
-  )
-}
 
 // ─── Dialog registrar gasto ───────────────────────────────────────────────────
 export function ModalRegistrarGasto({ open, onClose, onSaved, authFetch }) {
@@ -233,11 +211,10 @@ export default function TabGastos({ refreshKey }) {
       </div>
 
       {/* KPIs */}
-      <div className="flex gap-3 flex-wrap">
-        <Kpi label="Total gastos"    value={cop(total)}      sub={`Últimos ${dias} días`}  icon={TrendingDown} tone="danger" />
-        <Kpi label="Promedio diario" value={cop(promDiario)} sub="Gasto diario promedio"    icon={BarChart3}    tone="warning" />
-        <Kpi label="Categorías"      value={porCat.length}   sub="Tipos de gasto"           icon={Folder}       tone="muted" />
-        <Kpi label="Registros"       value={gastos.length}   sub="Egresos registrados"      icon={ClipboardList} tone="muted" />
+      <div className={cn('grid gap-3', 'grid-cols-3')}>
+        <KpiCard label="Total gastos"    value={cop(total)}      sub={`Últimos ${dias} días`} icon={TrendingDown}  tone="danger"   topAccent iconStyle="filled" />
+        <KpiCard label="Promedio diario" value={cop(promDiario)} sub="Gasto diario promedio"  icon={BarChart3}     tone="warning"  topAccent iconStyle="filled" />
+        <KpiCard label="Registros"       value={gastos.length}   sub="Egresos registrados"   icon={ClipboardList}  tone="muted"    topAccent iconStyle="filled" />
       </div>
 
       {gastos.length === 0 ? (

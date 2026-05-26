@@ -1443,8 +1443,8 @@ function PanelCarrito({ carrito, totalCarrito, vendedor, setVendedor, metodo, se
   return (
     <div
       className={cn(
-        'bg-card overflow-hidden',
-        mobile ? '' : 'border border-border rounded-xl',
+        'bg-accent-soft overflow-hidden',
+        mobile ? '' : 'border border-primary/30 rounded-xl',
         sticky && 'sticky top-[70px]',
       )}
     >
