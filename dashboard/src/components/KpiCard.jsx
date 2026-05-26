@@ -1,10 +1,6 @@
 /*
  * KpiCard — tarjeta de métrica compacta, tokenizada y reutilizable.
  *
- * Diseñado bajo ui-ux-pro-max: contraste 4.5:1+, focus-ring visible,
- * touch target >=44px, easing ease-out-quad, motion con propósito
- * (affordance del onClick), scale-feedback sutil (-translate-y).
- *
  * Props:
  *   tone        — 'success' | 'info' | 'warning' | 'danger' | 'primary' | 'muted' | 'default'
  *   label       — etiqueta superior (uppercase)
@@ -17,6 +13,9 @@
  *   actionLabel — chip discreto en hover/focus indicando la acción
  *   loading     — atenúa el valor
  *   compact     — versión densa (p-2.5 en vez de p-3)
+ *   topAccent   — barra sólida de 3px arriba con el color del tone
+ *   iconStyle   — 'subtle' (default) | 'filled' (cuadrado sólido + ícono blanco)
+ *   heroValue   — si true: cifra en text-2xl (hero number)
  */
 import { TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line } from 'recharts'
@@ -24,13 +23,13 @@ import { Card } from '@/components/ui/card.jsx'
 import { cn } from '@/lib/utils'
 
 const TONES = {
-  success: { color: 'hsl(var(--success))',     bg: 'bg-success/[0.05]',     border: 'border-success/25     hover:border-success/45'     },
-  info:    { color: 'hsl(var(--info))',        bg: 'bg-info/[0.05]',        border: 'border-info/25        hover:border-info/45'        },
-  warning: { color: 'hsl(var(--warning))',     bg: 'bg-warning/[0.05]',     border: 'border-warning/25     hover:border-warning/45'     },
-  danger:  { color: 'hsl(var(--destructive))', bg: 'bg-destructive/[0.05]', border: 'border-destructive/25 hover:border-destructive/45' },
-  primary: { color: 'hsl(var(--accent))',      bg: 'bg-accent/[0.05]',      border: 'border-accent/25      hover:border-accent/45'      },
-  muted:   { color: 'hsl(var(--muted-foreground))', bg: 'bg-muted/40',      border: 'border-border         hover:border-border'         },
-  default: { color: 'hsl(var(--foreground))',  bg: 'bg-surface',            border: 'border-border         hover:border-border'         },
+  success: { color: 'hsl(var(--success))',     bg: 'bg-success/[0.04]',     border: 'border-success/20     hover:border-success/40'     },
+  info:    { color: 'hsl(var(--info))',        bg: 'bg-info/[0.04]',        border: 'border-info/20        hover:border-info/40'        },
+  warning: { color: 'hsl(var(--warning))',     bg: 'bg-warning/[0.04]',     border: 'border-warning/20     hover:border-warning/40'     },
+  danger:  { color: 'hsl(var(--danger))',      bg: 'bg-danger/[0.04]',      border: 'border-danger/20      hover:border-danger/40'      },
+  primary: { color: 'hsl(var(--accent))',      bg: 'bg-accent-red/[0.04]',  border: 'border-accent-red/20  hover:border-accent-red/40'  },
+  muted:   { color: 'hsl(var(--text-muted))',  bg: 'bg-muted/30',            border: 'border-border         hover:border-border'         },
+  default: { color: 'hsl(var(--text-primary))','bg': 'bg-surface',           border: 'border-border         hover:border-border'         },
 }
 
 export default function KpiCard({
@@ -45,6 +44,9 @@ export default function KpiCard({
   actionLabel,
   loading,
   compact = false,
+  topAccent = false,
+  iconStyle = 'subtle',
+  heroValue = false,
 }) {
   const t = TONES[tone] || TONES.default
   const clickable = typeof onClick === 'function'
@@ -57,7 +59,7 @@ export default function KpiCard({
         t.bg, t.border,
         clickable
           ? 'cursor-pointer text-left w-full hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40'
-          : 'hover:-translate-y-px hover:shadow-md',
+          : 'hover:-translate-y-px hover:shadow-sm',
       )}
       {...(clickable ? {
         onClick,
@@ -67,7 +69,16 @@ export default function KpiCard({
         onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } },
       } : {})}
     >
-      <div className="flex items-center justify-between gap-2">
+      {/* Top accent strip */}
+      {topAccent && (
+        <div
+          className="absolute top-0 inset-x-0 h-[3px]"
+          style={{ background: t.color }}
+          aria-hidden="true"
+        />
+      )}
+
+      <div className={cn('flex items-center justify-between gap-2', topAccent && 'mt-0.5')}>
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
           {label}
         </span>
@@ -90,7 +101,15 @@ export default function KpiCard({
               <ArrowRight className="size-2.5" aria-hidden="true" />
             </span>
           )}
-          {Icon && (
+          {Icon && iconStyle === 'filled' && (
+            <span
+              className="grid place-items-center rounded-md size-6 shrink-0"
+              style={{ background: t.color }}
+            >
+              <Icon className="size-3 text-white" aria-hidden="true" />
+            </span>
+          )}
+          {Icon && iconStyle === 'subtle' && (
             <span
               className="grid place-items-center rounded-md size-6 shrink-0"
               style={{ background: `color-mix(in srgb, ${t.color} 12%, transparent)`, color: t.color }}
@@ -102,9 +121,12 @@ export default function KpiCard({
       </div>
 
       <div className={cn(
-        'mt-1.5 text-lg font-semibold tracking-tight tabular leading-none',
+        'mt-1.5 font-semibold tracking-tight tabular leading-none',
+        heroValue ? 'text-2xl' : 'text-lg',
         loading && 'opacity-50',
-      )}>
+      )}
+        style={heroValue ? { color: t.color } : undefined}
+      >
         {value}
       </div>
 
@@ -114,7 +136,7 @@ export default function KpiCard({
             {deltaPct !== null && deltaPct !== undefined && Math.abs(deltaPct) > 0.5 && (
               <span className={cn(
                 'inline-flex items-center gap-0.5 mr-1 font-semibold tabular',
-                deltaPct >= 0 ? 'text-success' : 'text-destructive',
+                deltaPct >= 0 ? 'text-success' : 'text-danger',
               )}>
                 {deltaPct >= 0
                   ? <TrendingUp className="size-2.5" aria-hidden="true" />

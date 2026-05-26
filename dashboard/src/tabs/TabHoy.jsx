@@ -130,10 +130,10 @@ export default function TabHoy({ refreshKey }) {
 
   return (
     <div className="space-y-4">
-      {/* KPI STRIP — 3 cards compactos con tints semánticos */}
+      {/* KPI STRIP — 3 cards principales con topAccent + iconStyle filled */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <KpiCard
-          tone="success"
+          tone="primary"
           label="Ventas hoy"
           value={cop(totalHoy)}
           icon={ShoppingCart}
@@ -141,9 +141,12 @@ export default function TabHoy({ refreshKey }) {
           sub={`${pedidosHoy} ${pedidosHoy === 1 ? 'venta' : 'ventas'}`}
           deltaPct={deltaAyer}
           spark={historico7d}
+          topAccent
+          iconStyle="filled"
+          heroValue
         />
         <KpiCard
-          tone="info"
+          tone={cajaAbierta ? 'success' : 'warning'}
           label="Caja"
           icon={Wallet}
           onClick={() => navigate('/caja')}
@@ -166,39 +169,65 @@ export default function TabHoy({ refreshKey }) {
           sub={cajaAbierta
             ? `Base ${cop(aperturaCaja)} · ${numMovs} movs`
             : 'Pendiente de apertura'}
+          topAccent
+          iconStyle="filled"
         />
         <KpiCard
-          tone="warning"
+          tone="danger"
           label="Gastos hoy"
           value={cop(totalGastos)}
           icon={Receipt}
           onClick={() => navigate('/gastos')}
           actionLabel="Registrar gasto"
           sub={`${numGastos} ${numGastos === 1 ? 'registro' : 'registros'}`}
+          topAccent
+          iconStyle="filled"
         />
       </div>
 
-      {/* MINI METRIC STRIP — recupera datos de Resumen.
-          Card con gradiente diagonal sutil + borde tintado (estilo KPIs). */}
-      <Card
-        className="p-0 overflow-hidden border-primary/20 hover:border-primary/30 transition-colors duration-base"
-        style={{
-          backgroundImage:
-            'linear-gradient(135deg, ' +
-              'hsl(var(--accent) / 0.05)  0%, ' +
-              'hsl(var(--accent) / 0.015) 25%, ' +
-              'transparent                55%, ' +
-              'hsl(var(--info)   / 0.02)  85%, ' +
-              'hsl(var(--info)   / 0.05) 100%)',
-        }}
-      >
-        <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-border-subtle/60">
-          <MiniMetric tone="primary" icon={ListOrdered}    label="Pedidos hoy"  value={num(pedidosHoy)}   sub={pedidosHoy > 0 ? `de ${cop(totalHoy)}` : 'sin ventas'} />
-          <MiniMetric tone="info"    icon={Calculator}     label="Ticket prom." value={cop(ticketProm)}   sub="últimos 7 días" />
-          <MiniMetric tone="success" icon={CalendarRange}  label="Total semana" value={cop(totalSemana)}  sub="últimos 7 días" />
-          <MiniMetric tone="warning" icon={CalendarDays}   label="Total mes"    value={cop(totalMes)}     sub="mes en curso" />
-        </div>
-      </Card>
+      {/* MINI METRIC STRIP — 4 KpiCards con topAccent, tones contrastantes */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard
+          tone="primary"
+          icon={ListOrdered}
+          label="Pedidos hoy"
+          value={num(pedidosHoy)}
+          sub={pedidosHoy > 0 ? `de ${cop(totalHoy)}` : 'sin ventas'}
+          compact
+          topAccent
+          iconStyle="filled"
+        />
+        <KpiCard
+          tone="info"
+          icon={Calculator}
+          label="Ticket prom."
+          value={cop(ticketProm)}
+          sub="últimos 7 días"
+          compact
+          topAccent
+          iconStyle="filled"
+        />
+        <KpiCard
+          tone="success"
+          icon={CalendarRange}
+          label="Total semana"
+          value={cop(totalSemana)}
+          sub="últimos 7 días"
+          compact
+          topAccent
+          iconStyle="filled"
+        />
+        <KpiCard
+          tone="warning"
+          icon={CalendarDays}
+          label="Total mes"
+          value={cop(totalMes)}
+          sub="mes en curso"
+          compact
+          topAccent
+          iconStyle="filled"
+        />
+      </div>
 
       {/* HERO ZONE — Chart (2/3) + Feed live (1/3) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -229,51 +258,6 @@ export default function TabHoy({ refreshKey }) {
 
       {/* QUICK ACTIONS — full-width strip */}
       <QuickActions navigate={navigate} />
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MINI METRIC — celda compacta dentro del strip
-// ─────────────────────────────────────────────────────────────────────────────
-
-const MINI_TONES = {
-  primary: 'hsl(var(--accent))',
-  success: 'hsl(var(--success))',
-  info:    'hsl(var(--info))',
-  warning: 'hsl(var(--warning))',
-}
-
-function MiniMetric({ label, value, sub, icon: Icon, tone = 'primary' }) {
-  const color = MINI_TONES[tone] || MINI_TONES.primary
-  return (
-    <div
-      className="relative p-3 md:p-3.5 group transition-all duration-base hover:brightness-105"
-      style={{
-        backgroundImage:
-          `radial-gradient(circle at 100% 0%, color-mix(in srgb, ${color} 11%, transparent) 0%, transparent 65%),` +
-          `linear-gradient(135deg, color-mix(in srgb, ${color} 5%, transparent) 0%, transparent 60%)`,
-      }}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">{label}</div>
-        {Icon && (
-          <span
-            className="grid place-items-center rounded-md size-5 shrink-0"
-            style={{ background: `color-mix(in srgb, ${color} 16%, transparent)`, color }}
-          >
-            <Icon className="size-2.5"/>
-          </span>
-        )}
-      </div>
-      <div className="mt-1 text-base font-semibold tracking-tight tabular leading-none" style={{ color }}>{value}</div>
-      {sub && <div className="mt-1 text-[10.5px] text-muted-foreground truncate">{sub}</div>}
-      {/* Línea inferior decorativa */}
-      <span
-        aria-hidden
-        className="absolute left-3 right-3 bottom-0 h-px opacity-60"
-        style={{ background: `linear-gradient(90deg, transparent, ${color} 50%, transparent)` }}
-      />
     </div>
   )
 }
