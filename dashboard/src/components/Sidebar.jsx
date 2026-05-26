@@ -53,19 +53,23 @@ export default function Sidebar({ collapsed, setCollapsed, onOpenCommand, colorS
   return (
     <aside
       className={cn(
-        'sticky top-0 h-dvh shrink-0 border-r border-border bg-surface-sidebar/55',
+        'sticky top-0 h-dvh shrink-0 border-r border-border bg-surface-sidebar',
         'flex flex-col transition-[width] duration-base ease-out-quad',
         collapsed ? 'w-16' : 'w-60',
       )}
       aria-label="Navegación principal"
     >
       {/* Brand */}
-      <div className={cn('flex items-center gap-2 px-4 h-16 border-b border-border', collapsed && 'justify-center px-0')}>
-        <div className="size-8 shrink-0 rounded-md bg-primary text-primary-foreground grid place-items-center font-bold text-sm">F</div>
+      <div className={cn('flex items-center gap-2.5 px-4 h-16 border-b border-border', collapsed && 'justify-center px-0')}>
+        <img
+          src="/logo-punto-rojo.png"
+          alt="Ferretería Punto Rojo"
+          className="size-9 shrink-0 rounded-lg object-cover"
+        />
         {!collapsed && (
           <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold tracking-tight">Punto Rojo</span>
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Dashboard v5</span>
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Ferretería</span>
+            <span className="text-sm font-bold tracking-tight text-foreground">Punto Rojo</span>
           </div>
         )}
       </div>

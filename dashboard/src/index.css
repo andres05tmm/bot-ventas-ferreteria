@@ -147,44 +147,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Aurora ferretera — gradient mesh fijo con flujo diagonal TL → BR.
-     Capa 1: linear gradient 135deg (warm TL → neutral → cool BR).
-     Capa 2-4: orbes radiales que refuerzan el flujo.
-     Requiere que el wrapper de AppShell y la Sidebar sean transparentes.
-     Sin blur ni animación (Lighthouse-friendly). */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    background:
-      linear-gradient(135deg,
-        hsl(var(--accent) / 0.085) 0%,
-        hsl(var(--accent) / 0.055) 22%,
-        hsl(var(--accent) / 0.025) 42%,
-        transparent                58%,
-        hsl(var(--info)   / 0.04)  78%,
-        hsl(var(--info)   / 0.10)  100%),
-      radial-gradient(circle 920px at 14% 16%,  hsl(var(--accent) / 0.11), transparent 66%),
-      radial-gradient(circle 880px at 84% 84%,  hsl(var(--info)   / 0.12), transparent 64%),
-      radial-gradient(circle 520px at 50% 52%,  hsl(var(--warning)/ 0.045), transparent 68%);
-  }
-  [data-theme="dark"] body::before {
-    background:
-      linear-gradient(135deg,
-        hsl(var(--accent) / 0.13)  0%,
-        hsl(var(--accent) / 0.08)  22%,
-        hsl(var(--accent) / 0.035) 42%,
-        transparent                58%,
-        hsl(var(--info)   / 0.075) 78%,
-        hsl(var(--info)   / 0.16)  100%),
-      radial-gradient(circle 920px at 14% 16%,  hsl(var(--accent) / 0.16), transparent 66%),
-      radial-gradient(circle 880px at 84% 84%,  hsl(var(--info)   / 0.17), transparent 64%),
-      radial-gradient(circle 520px at 50% 52%,  hsl(var(--warning)/ 0.07), transparent 68%);
-  }
-
-  /* ── Scrollbar "Aurora" — fino, brand-tinted, fade en hover ─────────────
+  /* ── Scrollbar fino brand-tinted con fade en hover ──────────────────────
      Patrón inspirado en base-ui Scroll Area (sin dependencia extra).
      Aplicar con la clase `.scrollbar-aurora` en cualquier contenedor scroll. */
   .scrollbar-aurora {
@@ -199,7 +162,7 @@
     background: transparent;
   }
   .scrollbar-aurora::-webkit-scrollbar-thumb {
-    background: hsl(var(--accent) / 0.22);
+    background: hsl(var(--accent) / 0.18);
     border-radius: 999px;
     transition: background 200ms;
   }

@@ -20,7 +20,7 @@ export default function HeaderBar({ isMobile, onOpenCommand, onRefresh, lastRefr
     : null
 
   return (
-    <header className="sticky top-0 z-30 bg-surface/40 backdrop-blur-md border-b border-border/40">
+    <header className="sticky top-0 z-30 bg-surface border-b border-border">
       <div className="flex items-center gap-3 h-14 px-4 md:px-6">
         <h1 className="text-base md:text-lg font-semibold tracking-tight truncate">{title}</h1>
         {fechaHoy && (
@@ -94,7 +94,7 @@ function CajaStatusPill({ isMobile, refreshKey }) {
         'h-9 inline-flex items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors',
         abierta
           ? 'border-success/40 bg-success/10 text-success hover:bg-success/15'
-          : 'border-border bg-surface text-muted-foreground hover:text-foreground hover:bg-surface-2',
+          : 'border-warning/40 bg-warning/10 text-warning hover:bg-warning/15',
       )}
     >
       <Wallet className="size-3.5" />
