@@ -129,7 +129,7 @@ export default function TabHoy({ refreshKey }) {
   }, [historico7d])
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* KPI STRIP — 3 cards Arquetipo A: hero number negro + icono filled coloreado */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <KpiCard
@@ -201,7 +201,7 @@ export default function TabHoy({ refreshKey }) {
       </div>
 
       {/* HERO ZONE — Chart (2/3) + Feed live (1/3) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <EvolucionChart
           historico7d={historico7d}
           historicoMes={historicoMes}
@@ -215,7 +215,7 @@ export default function TabHoy({ refreshKey }) {
       </div>
 
       {/* OPERATIVA — Métodos pago + Top productos + Stock bajo */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <MetodosPago items={metodosPago} total={totalMetodos} />
         <TopProductos
           items={topProductos}
@@ -253,7 +253,7 @@ function CajaCard({ abierta, apertura, horaApertura, numMovs, onClick }) {
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       aria-label={abierta ? 'Cerrar caja' : 'Abrir caja'}
       className={cn(
-        'group relative overflow-hidden p-3 cursor-pointer text-left w-full',
+        'group relative overflow-hidden p-2.5 cursor-pointer text-left w-full',
         'bg-surface border-border',
         'transition-all duration-base ease-out-quad',
         'hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
@@ -273,16 +273,16 @@ function CajaCard({ abierta, apertura, horaApertura, numMovs, onClick }) {
 
       {/* Banda horizontal de estado */}
       <div className={cn(
-        'mt-3 px-2.5 py-2 rounded-md border flex items-center gap-2 min-h-[44px]',
+        'mt-2 px-2 py-1.5 rounded-md border flex items-center gap-2 min-h-[36px]',
         bandBg,
       )}>
         <span className={cn(
-          'inline-flex items-center px-2 h-[22px] rounded text-[10px] font-bold uppercase tracking-wide shrink-0',
+          'inline-flex items-center px-2 h-5 rounded text-[10px] font-bold uppercase tracking-wide shrink-0',
           pillBg,
         )}>
           {abierta ? 'Abierta' : 'Cerrada'}
         </span>
-        <span className="text-[11.5px] text-foreground/80 truncate">
+        <span className="text-[11px] text-foreground/80 truncate">
           {abierta
             ? (horaApertura
                 ? `${String(horaApertura).slice(0, 5)} · Base ${cop(apertura)} · ${numMovs} movs`
@@ -314,13 +314,13 @@ function EvolucionChart({ historico7d, historicoMes, loading }) {
   const promDia      = data.length > 0 ? totalPeriodo / data.length : 0
 
   return (
-    <Card className="lg:col-span-2 p-5">
-      <div className="flex items-start justify-between mb-4">
+    <Card className="lg:col-span-2 p-3.5">
+      <div className="flex items-start justify-between mb-3">
         <div>
           <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Evolución de ventas</h2>
-          <div className="flex items-baseline gap-2 mt-1.5 flex-wrap">
-            <span className="text-2xl font-semibold tracking-tight tabular text-foreground">{cop(totalPeriodo)}</span>
-            <span className="text-[11px] text-muted-foreground">
+          <div className="flex items-baseline gap-2 mt-1 flex-wrap">
+            <span className="text-xl font-semibold tracking-tight tabular text-foreground">{cop(totalPeriodo)}</span>
+            <span className="text-[10.5px] text-muted-foreground">
               acumulado · prom. {cop(promDia)}/día
             </span>
           </div>
@@ -332,11 +332,11 @@ function EvolucionChart({ historico7d, historicoMes, loading }) {
       </div>
 
       {loading ? (
-        <div className="h-[200px] grid place-items-center text-sm text-muted-foreground">Cargando…</div>
+        <div className="h-[170px] grid place-items-center text-sm text-muted-foreground">Cargando…</div>
       ) : data.length === 0 ? (
-        <div className="h-[200px] grid place-items-center text-sm text-muted-foreground">Sin datos para este período.</div>
+        <div className="h-[170px] grid place-items-center text-sm text-muted-foreground">Sin datos para este período.</div>
       ) : (
-        <ResponsiveContainer width="100%" height={200}>
+        <ResponsiveContainer width="100%" height={170}>
           <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="hoyEvolGrad" x1="0" y1="0" x2="0" y2="1">
@@ -437,8 +437,8 @@ function FeedLive({ ventas, productos = [], onMore }) {
   const prodsTop = (productos || []).slice(0, 4)
 
   return (
-    <Card className="p-5">
-      <div className="flex items-center justify-between mb-3">
+    <Card className="p-3.5">
+      <div className="flex items-center justify-between mb-2.5">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-2">
           Últimas ventas
           <span className="relative flex size-2">
@@ -458,7 +458,7 @@ function FeedLive({ ventas, productos = [], onMore }) {
           {/* Sección 1: ventas por consecutivo (hora · monto · método) */}
           <ul className="divide-y divide-border-subtle">
             {ventasUnicas.map((v, i) => (
-              <li key={`${v.num || v.consecutivo}-${i}`} className="py-2 flex items-center gap-2.5">
+              <li key={`${v.num || v.consecutivo}-${i}`} className="py-1.5 flex items-center gap-2.5">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
                     <span className="text-[11px] text-muted-foreground tabular">{(v.hora || '').slice(0, 5)}</span>
@@ -477,11 +477,11 @@ function FeedLive({ ventas, productos = [], onMore }) {
 
           {/* Sección 2: productos vendidos hoy con thumbnail */}
           {prodsTop.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-border-subtle">
-              <ul className="space-y-2">
+            <div className="mt-3 pt-2.5 border-t border-border-subtle">
+              <ul className="space-y-1.5">
                 {prodsTop.map((p, i) => (
                   <li key={`prod-${i}`} className="flex items-center gap-2.5">
-                    <ProductThumb nombre={p.nombre} src={p.imagen_url} size={32} />
+                    <ProductThumb nombre={p.nombre} src={p.imagen_url} size={28} />
                     <span className="flex-1 text-[12px] text-foreground truncate">{p.nombre}</span>
                     <span className="text-[11px] tabular text-muted-foreground shrink-0">{num(p.cant)} ud</span>
                   </li>
@@ -511,8 +511,8 @@ const METODO_BAR_COLORS = {
 
 function MetodosPago({ items, total }) {
   return (
-    <Card className="p-5">
-      <div className="flex items-center justify-between mb-3">
+    <Card className="p-3.5">
+      <div className="flex items-center justify-between mb-2.5">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
           <CreditCard className="size-3.5"/>
           Métodos de pago · Hoy
@@ -522,9 +522,9 @@ function MetodosPago({ items, total }) {
         )}
       </div>
       {items.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">Sin ventas hoy.</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">Sin ventas hoy.</p>
       ) : (
-        <ul className="space-y-2.5">
+        <ul className="space-y-2">
           {items.map((m, i) => {
             const color = METODO_BAR_COLORS[m.nombre] || 'hsl(var(--text-muted))'
             return (
@@ -557,20 +557,20 @@ function MetodosPago({ items, total }) {
 
 function TopProductos({ items, onMore }) {
   return (
-    <Card className="p-5">
-      <div className="flex items-center justify-between mb-3">
+    <Card className="p-3.5">
+      <div className="flex items-center justify-between mb-2.5">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Top productos hoy</h2>
         <button onClick={onMore} className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           ver todos <ArrowRight className="size-3"/>
         </button>
       </div>
       {items.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">Sin ventas hoy.</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">Sin ventas hoy.</p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="space-y-2">
           {items.map((p, i) => (
-            <li key={i} className="flex items-center gap-3">
-              <ProductThumb nombre={p.nombre} src={p.imagen_url} size={36} />
+            <li key={i} className="flex items-center gap-2.5">
+              <ProductThumb nombre={p.nombre} src={p.imagen_url} size={32} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline justify-between mb-1 gap-2 text-[12px]">
                   <span className="font-medium truncate">{p.nombre}</span>
@@ -594,8 +594,8 @@ function TopProductos({ items, onMore }) {
 function StockBajo({ items, total, onMore }) {
   const critico = items.filter(p => Number(p.stock ?? p.cantidad ?? 0) <= 5).length
   return (
-    <Card className="p-5">
-      <div className="flex items-center justify-between mb-3">
+    <Card className="p-3.5">
+      <div className="flex items-center justify-between mb-2.5">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
           <AlertTriangle className="size-3.5 text-warning"/>
           Stock bajo
@@ -609,8 +609,8 @@ function StockBajo({ items, total, onMore }) {
         )}
       </div>
       {items.length === 0 ? (
-        <div className="py-8 flex flex-col items-center gap-2 text-muted-foreground">
-          <AlertTriangle className="size-6 text-warning opacity-60" />
+        <div className="py-6 flex flex-col items-center gap-2 text-muted-foreground">
+          <AlertTriangle className="size-5 text-warning opacity-60" />
           <p className="text-sm">Stock sin alertas.</p>
         </div>
       ) : (
@@ -653,8 +653,8 @@ function QuickActions({ navigate }) {
     success: { color: 'hsl(var(--success))', bg: 'bg-success/10'  },
   }
   return (
-    <Card className="p-4">
-      <div className="flex items-center justify-between mb-3">
+    <Card className="p-3">
+      <div className="flex items-center justify-between mb-2.5">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
           <Activity className="size-3.5"/>
           Acciones rápidas

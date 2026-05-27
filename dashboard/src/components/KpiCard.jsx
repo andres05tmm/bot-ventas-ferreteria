@@ -77,10 +77,10 @@ export default function KpiCard({
       >
         {/* Banda superior sólida del tone */}
         <div
-          className="flex items-center justify-between gap-2 px-3 py-2"
+          className="flex items-center justify-between gap-2 px-3 py-1.5"
           style={{ background: t.color }}
         >
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-white truncate">
+          <span className="text-[10.5px] font-semibold uppercase tracking-wider text-white truncate">
             {label}
           </span>
           {Icon && (
@@ -88,16 +88,16 @@ export default function KpiCard({
           )}
         </div>
 
-        {/* Cuerpo blanco — cifra grande negra + sub muted */}
-        <div className="px-3 py-2.5">
+        {/* Cuerpo blanco — cifra elegante negra + sub muted */}
+        <div className="px-3 py-2">
           <div className={cn(
-            'text-2xl font-semibold tracking-tight tabular leading-none text-foreground',
+            'text-xl font-semibold tracking-tight tabular leading-none text-foreground',
             loading && 'opacity-50',
           )}>
             {value}
           </div>
           {sub && (
-            <div className="mt-1.5 text-[11px] text-muted-foreground leading-snug truncate">
+            <div className="mt-1 text-[10.5px] text-muted-foreground leading-snug truncate">
               {sub}
             </div>
           )}
@@ -113,7 +113,7 @@ export default function KpiCard({
     <Card
       className={cn(
         'relative overflow-hidden transition-all duration-base ease-out-quad group',
-        compact ? 'p-2.5' : 'p-3',
+        compact ? 'p-2.5' : 'p-2.5',
         t.bg, t.border,
         clickable
           ? 'cursor-pointer text-left w-full hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40'
@@ -179,15 +179,15 @@ export default function KpiCard({
       </div>
 
       <div className={cn(
-        'mt-2 font-semibold tracking-tight tabular leading-none text-foreground',
-        heroValue ? 'text-[28px]' : 'text-lg',
+        'mt-1.5 font-semibold tracking-tight tabular leading-none text-foreground',
+        heroValue ? 'text-2xl' : 'text-lg',
         loading && 'opacity-50',
       )}>
         {value}
       </div>
 
       {(sub || (deltaPct !== null && deltaPct !== undefined) || spark) && (
-        <div className="mt-1.5 flex items-end justify-between gap-2">
+        <div className="mt-1 flex items-end justify-between gap-2">
           <div className="text-[10.5px] text-muted-foreground leading-snug truncate">
             {deltaPct !== null && deltaPct !== undefined && Math.abs(deltaPct) > 0.5 && (
               <span className={cn(
