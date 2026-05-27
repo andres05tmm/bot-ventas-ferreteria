@@ -192,6 +192,7 @@ export default function TabHoy({ refreshKey }) {
         />
         <KpiCard
           headerBand
+          coloredValue
           tone="warning"
           icon={CalendarDays}
           label="Total mes"

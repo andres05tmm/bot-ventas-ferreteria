@@ -18,6 +18,8 @@
  *   heroValue   — si true: cifra en text-3xl (hero number, sin color de tone — usa foreground)
  *   headerBand  — si true: banda superior sólida coloreada con label+ícono blancos.
  *                 Mutuamente excluyente con topAccent. Cuerpo blanco abajo, cifra foreground.
+ *   coloredValue— si true: cifra usa el color del tone (resalta el valor).
+ *                 Aplica tanto en variante headerBand como hero.
  */
 import { TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line } from 'recharts'
@@ -50,6 +52,7 @@ export default function KpiCard({
   iconStyle = 'subtle',
   heroValue = false,
   headerBand = false,
+  coloredValue = false,
 }) {
   const t = TONES[tone] || TONES.default
   const clickable = typeof onClick === 'function'
@@ -88,12 +91,15 @@ export default function KpiCard({
           )}
         </div>
 
-        {/* Cuerpo blanco — cifra elegante negra + sub muted */}
+        {/* Cuerpo blanco — cifra elegante (foreground por default, tone si coloredValue) */}
         <div className="px-3 py-2">
           <div className={cn(
-            'text-xl font-semibold tracking-tight tabular leading-none text-foreground',
+            'text-xl font-semibold tracking-tight tabular leading-none',
+            !coloredValue && 'text-foreground',
             loading && 'opacity-50',
-          )}>
+          )}
+            style={coloredValue ? { color: t.color } : undefined}
+          >
             {value}
           </div>
           {sub && (
@@ -179,10 +185,13 @@ export default function KpiCard({
       </div>
 
       <div className={cn(
-        'mt-1.5 font-semibold tracking-tight tabular leading-none text-foreground',
+        'mt-1.5 font-semibold tracking-tight tabular leading-none',
+        !coloredValue && 'text-foreground',
         heroValue ? 'text-2xl' : 'text-lg',
         loading && 'opacity-50',
-      )}>
+      )}
+        style={coloredValue ? { color: t.color } : undefined}
+      >
         {value}
       </div>
 

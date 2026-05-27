@@ -60,16 +60,16 @@ export default function Sidebar({ collapsed, setCollapsed, onOpenCommand, colorS
       aria-label="Navegación principal"
     >
       {/* Brand */}
-      <div className={cn('flex items-center gap-2.5 px-4 h-16 border-b border-border', collapsed && 'justify-center px-0')}>
+      <div className={cn('flex items-center gap-3 px-3 h-20 border-b border-border', collapsed && 'justify-center px-0')}>
         <img
           src="/logo-punto-rojo.png"
           alt="Ferretería Punto Rojo"
-          className="size-9 shrink-0 rounded-lg object-cover"
+          className={cn('shrink-0 object-contain', collapsed ? 'size-10' : 'size-14')}
         />
         {!collapsed && (
-          <div className="flex flex-col leading-tight">
+          <div className="flex flex-col leading-tight min-w-0">
             <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Ferretería</span>
-            <span className="text-sm font-bold tracking-tight text-foreground">Punto Rojo</span>
+            <span className="text-[15px] font-bold tracking-tight text-foreground truncate">Punto Rojo</span>
           </div>
         )}
       </div>
