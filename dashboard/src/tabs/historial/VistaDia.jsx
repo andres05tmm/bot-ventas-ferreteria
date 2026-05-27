@@ -406,10 +406,10 @@ export default function VistaDia({ refreshKey }) {
 
       {/* KPIs */}
       <div className={cn('grid gap-3', isMobile ? 'grid-cols-2' : 'grid-cols-4')}>
-        <KpiCard label="Total hoy"       value={cop(totalTodo)}       tone="primary"  icon={DollarSign} topAccent iconStyle="filled" />
-        <KpiCard label="Efectivo"        value={cop(totalEfectivo)}   tone="success"  icon={Wallet}     topAccent iconStyle="filled" />
-        <KpiCard label="Transferencia"   value={cop(totalTransferencia)} tone="warning" icon={Smartphone} topAccent iconStyle="filled" />
-        <KpiCard label="Datáfono"        value={cop(totalDatafono)}   tone="info"     icon={CreditCard} topAccent iconStyle="filled" />
+        <KpiCard label="Total hoy"       value={cop(totalTodo)}       tone="primary"  icon={DollarSign} headerBand />
+        <KpiCard label="Efectivo"        value={cop(totalEfectivo)}   tone="success"  icon={Wallet}     headerBand />
+        <KpiCard label="Transferencia"   value={cop(totalTransferencia)} tone="warning" icon={Smartphone} headerBand />
+        <KpiCard label="Datáfono"        value={cop(totalDatafono)}   tone="info"     icon={CreditCard} headerBand />
       </div>
 
       {/* Filtros */}

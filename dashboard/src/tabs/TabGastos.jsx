@@ -212,9 +212,9 @@ export default function TabGastos({ refreshKey }) {
 
       {/* KPIs */}
       <div className={cn('grid gap-3', 'grid-cols-3')}>
-        <KpiCard label="Total gastos"    value={cop(total)}      sub={`Últimos ${dias} días`} icon={TrendingDown}  tone="danger"   topAccent iconStyle="filled" />
-        <KpiCard label="Promedio diario" value={cop(promDiario)} sub="Gasto diario promedio"  icon={BarChart3}     tone="warning"  topAccent iconStyle="filled" />
-        <KpiCard label="Registros"       value={gastos.length}   sub="Egresos registrados"   icon={ClipboardList}  tone="muted"    topAccent iconStyle="filled" />
+        <KpiCard label="Total gastos"    value={cop(total)}      sub={`Últimos ${dias} días`} icon={TrendingDown}  tone="danger"   headerBand />
+        <KpiCard label="Promedio diario" value={cop(promDiario)} sub="Gasto diario promedio"  icon={BarChart3}     tone="warning"  headerBand />
+        <KpiCard label="Registros"       value={gastos.length}   sub="Egresos registrados"   icon={ClipboardList}  tone="muted"    headerBand />
       </div>
 
       {gastos.length === 0 ? (

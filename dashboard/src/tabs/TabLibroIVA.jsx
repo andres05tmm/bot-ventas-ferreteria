@@ -643,7 +643,7 @@ export default function TabLibroIVA() {
             sub={`Base: ${cop(resumen.ventas.total_base)}`}
             tone="primary"
             icon={Receipt}
-            topAccent iconStyle="filled"
+            headerBand
           />
           <KpiCard
             label="IVA descontable"
@@ -651,7 +651,7 @@ export default function TabLibroIVA() {
             sub={`Total compras: ${cop(resumen.compras.total_bruto)}`}
             tone="success"
             icon={ShoppingCart}
-            topAccent iconStyle="filled"
+            headerBand
           />
           <KpiCard
             label="IVA neto del período"
@@ -659,7 +659,7 @@ export default function TabLibroIVA() {
             sub={resumen.iva_neto.a_favor === 'empresa' ? 'Saldo a tu favor' : 'A pagar a la DIAN'}
             tone={resumen.iva_neto.a_favor === 'empresa' ? 'success' : 'primary'}
             icon={Scale}
-            topAccent iconStyle="filled"
+            headerBand
           />
         </div>
       )}

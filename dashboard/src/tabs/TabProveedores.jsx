@@ -723,10 +723,10 @@ export default function TabProveedores({ refreshKey }) {
         'grid gap-4',
         mobile ? 'grid-cols-2' : 'grid-cols-4',
       )}>
-        <KpiCard label="Deuda total"  value={cop(totalDeuda)}  icon={CreditCard}   tone="primary" topAccent iconStyle="filled" />
-        <KpiCard label="Total pagado" value={cop(totalPagado)} icon={CheckCircle2} tone="success" topAccent iconStyle="filled" />
-        <KpiCard label="Pendientes"   value={nPend}            icon={Circle}       tone="primary" topAccent iconStyle="filled" />
-        <KpiCard label="En proceso"   value={nParc}            icon={Clock}        tone="warning" topAccent iconStyle="filled" />
+        <KpiCard label="Deuda total"  value={cop(totalDeuda)}  icon={CreditCard}   tone="primary" headerBand />
+        <KpiCard label="Total pagado" value={cop(totalPagado)} icon={CheckCircle2} tone="success" headerBand />
+        <KpiCard label="Pendientes"   value={nPend}            icon={Circle}       tone="primary" headerBand />
+        <KpiCard label="En proceso"   value={nParc}            icon={Clock}        tone="warning" headerBand />
       </div>
 
       <ResumenProveedores data={resumen} />

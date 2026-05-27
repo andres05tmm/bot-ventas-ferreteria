@@ -28,7 +28,7 @@ function fmtDia(s) {
 // duplicar tokens. Sin icono por diseño (financiero/denso).
 function MiniKpi({ label, value, sub, tone = 'neutral' }) {
   const mapped = tone === 'accent' ? 'primary' : tone === 'neutral' ? 'default' : tone
-  return <KpiCard label={label} value={value} sub={sub} tone={mapped} topAccent />
+  return <KpiCard label={label} value={value} sub={sub} tone={mapped} headerBand />
 }
 
 function EstadoResultados({ d, periodo }) {

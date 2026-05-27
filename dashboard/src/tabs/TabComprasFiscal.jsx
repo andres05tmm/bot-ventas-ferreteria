@@ -1013,18 +1013,18 @@ export default function TabComprasFiscal({ refreshKey }) {
         <>
           {/* KPIs */}
           <div className="flex gap-2.5 flex-wrap">
-            <KpiCard label="Total invertido"    value={cop(total)}               sub={`Últimos ${dias} días`}             icon={DollarSign}    tone="primary" topAccent iconStyle="filled" />
-            <KpiCard label="IVA descontable"    value={cop(totalIvaDescontable)} sub="Crédito fiscal"                     icon={FileBarChart}  tone="success" topAccent iconStyle="filled" />
-            <KpiCard label="Compras fiscales"   value={compras.length}           sub="Registros"                           icon={Receipt}       tone="muted"   topAccent iconStyle="filled" />
+            <KpiCard label="Total invertido"    value={cop(total)}               sub={`Últimos ${dias} días`}             icon={DollarSign}    tone="primary" headerBand />
+            <KpiCard label="IVA descontable"    value={cop(totalIvaDescontable)} sub="Crédito fiscal"                     icon={FileBarChart}  tone="success" headerBand />
+            <KpiCard label="Compras fiscales"   value={compras.length}           sub="Registros"                           icon={Receipt}       tone="muted"   headerBand />
             <KpiCard
               label="Con factura"
               value={conFactura}
               sub={sinFactura > 0 ? `${sinFactura} sin nro.` : 'Todas tienen nro.'}
               icon={ClipboardList}
               tone={sinFactura > 0 ? 'warning' : 'success'}
-              topAccent iconStyle="filled"
+              headerBand
             />
-            <KpiCard label="Enviadas a almacén" value={yaEnAlmacen} sub={`de ${compras.length}`} icon={Package} tone="muted" topAccent iconStyle="filled" />
+            <KpiCard label="Enviadas a almacén" value={yaEnAlmacen} sub={`de ${compras.length}`} icon={Package} tone="muted" headerBand />
           </div>
 
           {/* Por proveedor */}

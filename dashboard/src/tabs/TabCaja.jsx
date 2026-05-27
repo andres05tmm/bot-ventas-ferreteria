@@ -259,11 +259,11 @@ export default function TabCaja({ refreshKey }) {
 
       {/* KPIs */}
       <div className={cn('grid gap-3', isMobile ? 'grid-cols-2' : 'grid-cols-4')}>
-        <KpiCard tone="muted"   label="Apertura"          value={cop(d.monto_apertura)}    sub="Base inicial"                  icon={Wallet} />
-        <KpiCard tone="success" label="Ventas hoy"        value={cop(d.total_ventas)}      sub="Efectivo + transf. + datáfono" icon={TrendingUp} />
-        <KpiCard tone="danger"  label="Gastos"            value={cop(d.total_gastos)}      sub="Todos los egresos"             icon={TrendingDown}
+        <KpiCard headerBand tone="muted"   label="Apertura"          value={cop(d.monto_apertura)}    sub="Base inicial"                  icon={Wallet} />
+        <KpiCard headerBand tone="success" label="Ventas hoy"        value={cop(d.total_ventas)}      sub="Efectivo + transf. + datáfono" icon={TrendingUp} />
+        <KpiCard headerBand tone="danger"  label="Gastos"            value={cop(d.total_gastos)}      sub="Todos los egresos"             icon={TrendingDown}
           onClick={() => navigate('/gastos')} actionLabel="Ver gastos" />
-        <KpiCard tone="primary" label="Efectivo esperado" value={cop(d.efectivo_esperado)} sub="Caja − gastos en efectivo"     icon={Calculator} />
+        <KpiCard headerBand tone="primary" label="Efectivo esperado" value={cop(d.efectivo_esperado)} sub="Caja − gastos en efectivo"     icon={Calculator} />
       </div>
 
       {/* Venta Varia (botón abre dialog) */}
