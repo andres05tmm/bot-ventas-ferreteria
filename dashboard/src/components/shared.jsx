@@ -99,6 +99,39 @@ export function ErrorMsg({ msg }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ProductThumb — miniatura cuadrada de producto con fallback a iniciales
+// ─────────────────────────────────────────────────────────────────────────────
+export function ProductThumb({ src, nombre, size = 32, className = '' }) {
+  const iniciales = String(nombre || '?')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map(w => w[0]?.toUpperCase() || '')
+    .join('') || '?'
+
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={nombre || ''}
+        className={`rounded-sm object-cover shrink-0 ${className}`}
+        style={{ width: size, height: size }}
+      />
+    )
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      className={`grid place-items-center rounded-sm bg-surface-2 text-muted-foreground font-semibold shrink-0 ${className}`}
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.36) }}
+    >
+      {iniciales}
+    </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // useIsMobile — media query (max-width: 767px) con listener
 // ─────────────────────────────────────────────────────────────────────────────
 export function useIsMobile() {

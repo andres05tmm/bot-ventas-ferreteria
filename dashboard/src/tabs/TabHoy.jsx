@@ -21,7 +21,7 @@ import {
   ShoppingCart, Receipt, Package, Search, Activity,
   CreditCard, Briefcase, CalendarDays,
 } from 'lucide-react'
-import { useFetch, cop, num } from '@/components/shared.jsx'
+import { useFetch, cop, num, ProductThumb } from '@/components/shared.jsx'
 import { useVendorFilter } from '@/hooks/useVendorFilter.jsx'
 import { Card } from '@/components/ui/card.jsx'
 import { Badge } from '@/components/ui/badge.jsx'
@@ -209,6 +209,7 @@ export default function TabHoy({ refreshKey }) {
         />
         <FeedLive
           ventas={ultimas}
+          productos={topProductos}
           onMore={() => navigate('/historial')}
         />
       </div>
@@ -317,8 +318,8 @@ function EvolucionChart({ historico7d, historicoMes, loading }) {
       <div className="flex items-start justify-between mb-4">
         <div>
           <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Evolución de ventas</h2>
-          <div className="flex items-baseline gap-2 mt-1">
-            <span className="text-xl font-semibold tracking-tight tabular">{cop(totalPeriodo)}</span>
+          <div className="flex items-baseline gap-2 mt-1.5 flex-wrap">
+            <span className="text-2xl font-semibold tracking-tight tabular text-foreground">{cop(totalPeriodo)}</span>
             <span className="text-[11px] text-muted-foreground">
               acumulado · prom. {cop(promDia)}/día
             </span>
@@ -419,7 +420,22 @@ function metodoTone(metodo) {
   return 'bg-surface-2 text-muted-foreground border-border'
 }
 
-function FeedLive({ ventas, onMore }) {
+function FeedLive({ ventas, productos = [], onMore }) {
+  // Ventas únicas por consecutivo para no duplicar en la lista superior.
+  const ventasUnicas = useMemo(() => {
+    const seen = new Set()
+    const out = []
+    for (const v of ventas) {
+      const key = v.num || v.consecutivo || `${v.hora}-${v.total}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(v)
+    }
+    return out.slice(0, 4)
+  }, [ventas])
+
+  const prodsTop = (productos || []).slice(0, 4)
+
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between mb-3">
@@ -434,27 +450,46 @@ function FeedLive({ ventas, onMore }) {
           ver todas <ArrowRight className="size-3"/>
         </button>
       </div>
-      {ventas.length === 0 ? (
+
+      {ventasUnicas.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">Sin ventas registradas hoy.</p>
       ) : (
-        <ul className="divide-y divide-border-subtle">
-          {ventas.map((v, i) => (
-            <li key={`${v.num || v.consecutivo}-${i}`} className="py-2 flex items-center gap-2.5">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-[11px] text-muted-foreground tabular">{(v.hora || '').slice(0, 5)}</span>
-                  <span className="text-[13px] font-semibold tabular">{cop(v.total)}</span>
+        <>
+          {/* Sección 1: ventas por consecutivo (hora · monto · método) */}
+          <ul className="divide-y divide-border-subtle">
+            {ventasUnicas.map((v, i) => (
+              <li key={`${v.num || v.consecutivo}-${i}`} className="py-2 flex items-center gap-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[11px] text-muted-foreground tabular">{(v.hora || '').slice(0, 5)}</span>
+                    <span className="text-[13px] font-semibold tabular">{cop(v.total)}</span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                    {v.producto || v.cliente || '—'}
+                  </div>
                 </div>
-                <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                  {v.producto || v.cliente || '—'}
-                </div>
-              </div>
-              <Badge variant="outline" className={cn('text-[10px] h-5 px-1.5 shrink-0 capitalize', metodoTone(v.metodo))}>
-                {v.metodo || '—'}
-              </Badge>
-            </li>
-          ))}
-        </ul>
+                <Badge variant="outline" className={cn('text-[10px] h-5 px-1.5 shrink-0 capitalize', metodoTone(v.metodo))}>
+                  {v.metodo || '—'}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+
+          {/* Sección 2: productos vendidos hoy con thumbnail */}
+          {prodsTop.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-border-subtle">
+              <ul className="space-y-2">
+                {prodsTop.map((p, i) => (
+                  <li key={`prod-${i}`} className="flex items-center gap-2.5">
+                    <ProductThumb nombre={p.nombre} src={p.imagen_url} size={32} />
+                    <span className="flex-1 text-[12px] text-foreground truncate">{p.nombre}</span>
+                    <span className="text-[11px] tabular text-muted-foreground shrink-0">{num(p.cant)} ud</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
       )}
     </Card>
   )
@@ -499,7 +534,7 @@ function MetodosPago({ items, total }) {
                   <span className="tabular font-semibold shrink-0">{cop(m.monto)}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 h-1 rounded-full bg-surface-2 overflow-hidden">
+                  <div className="flex-1 h-2 rounded-full bg-surface-2 overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-base"
                       style={{ width: `${Math.max(4, m.pct)}%`, background: color }}
@@ -532,21 +567,21 @@ function TopProductos({ items, onMore }) {
       {items.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">Sin ventas hoy.</p>
       ) : (
-        <ul className="space-y-2.5">
+        <ul className="space-y-3">
           {items.map((p, i) => (
-            <li key={i}>
-              <div className="flex items-baseline justify-between mb-1 text-[12px]">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-muted-foreground tabular w-4 shrink-0">{i + 1}</span>
+            <li key={i} className="flex items-center gap-3">
+              <ProductThumb nombre={p.nombre} src={p.imagen_url} size={36} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline justify-between mb-1 gap-2 text-[12px]">
                   <span className="font-medium truncate">{p.nombre}</span>
+                  <span className="tabular font-semibold shrink-0">{cop(p.monto)}</span>
                 </div>
-                <span className="tabular font-semibold shrink-0">{cop(p.monto)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-1 rounded-full bg-surface-2 overflow-hidden">
-                  <div className="h-full rounded-full bg-primary/80 transition-all duration-base" style={{ width: `${p.pct}%` }}/>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-1.5 rounded-full bg-surface-2 overflow-hidden">
+                    <div className="h-full rounded-full bg-primary transition-all duration-base" style={{ width: `${p.pct}%` }}/>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground tabular w-12 text-right shrink-0">{num(p.cant)} ud</span>
                 </div>
-                <span className="text-[10px] text-muted-foreground tabular w-12 text-right shrink-0">{num(p.cant)} ud</span>
               </div>
             </li>
           ))}
