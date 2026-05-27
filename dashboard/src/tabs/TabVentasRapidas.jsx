@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Star, Trash2, ShoppingCart, User, X, Plus, Loader2, Search, Sparkles, Receipt } from 'lucide-react'
+import { Star, Trash2, ShoppingCart, User, X, Plus, Loader2, Search, Sparkles, Receipt, Wallet, Smartphone, CreditCard } from 'lucide-react'
 import { useFetch, Spinner, ErrorMsg, cop, API_BASE } from '../components/shared.jsx'
 import { Card } from '@/components/ui/card.jsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog.jsx'
@@ -1433,41 +1433,47 @@ function PanelCarrito({ carrito, totalCarrito, vendedor, setVendedor, metodo, se
                         removeItem, qtyChange, qtySet, onCheckout, calcCambio, setCalcCambio,
                         enviando, sticky, mobile }) {
   const totalQty = carrito.reduce((s, c) => s + (c.qty || 1), 0)
+  const hasItems = carrito.length > 0
 
   const METODOS = [
-    { key: 'efectivo',      label: 'Efectivo',  icon: '💵' },
-    { key: 'transferencia', label: 'Transfer.', icon: '📲' },
-    { key: 'datafono',      label: 'Datáfono',  icon: '💳' },
+    { key: 'efectivo',      label: 'Efectivo',  Icon: Wallet      },
+    { key: 'transferencia', label: 'Transfer.', Icon: Smartphone  },
+    { key: 'datafono',      label: 'Datáfono',  Icon: CreditCard  },
   ]
 
   return (
     <div
       className={cn(
-        'bg-primary-soft overflow-hidden',
-        mobile ? '' : 'border border-primary/30 rounded-xl',
+        'bg-surface overflow-hidden flex flex-col',
+        mobile ? '' : 'border border-border rounded-xl shadow-sm',
         sticky && 'sticky top-[70px]',
       )}
     >
-      {/* Header (solo desktop) */}
+      {/* Header banda roja con contador (solo desktop) */}
       {!mobile && (
-        <div className="px-3.5 py-3 border-b border-border flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Carrito</span>
-          <div
+        <div className="px-3.5 py-2 bg-primary flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-primary-foreground inline-flex items-center gap-1.5">
+            <ShoppingCart className="size-3.5" />
+            Carrito
+          </span>
+          <span
             className={cn(
-              'w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] font-bold text-primary-foreground transition-colors',
-              carrito.length ? 'bg-primary' : 'bg-border',
+              'min-w-[22px] h-[22px] px-1.5 rounded-full inline-flex items-center justify-center text-[11px] font-bold tabular transition-colors',
+              hasItems ? 'bg-white text-primary' : 'bg-white/25 text-white',
             )}
           >
             {totalQty}
-          </div>
+          </span>
         </div>
       )}
 
       {/* Items */}
       <div className={cn(mobile ? '' : 'max-h-[280px] overflow-y-auto')}>
-        {carrito.length === 0 ? (
-          <div className="px-3.5 py-7 text-center text-muted-foreground text-xs leading-relaxed">
-            <ShoppingCart className="size-7 mx-auto mb-1.5 opacity-25" />
+        {!hasItems ? (
+          <div className="px-3.5 py-8 text-center text-muted-foreground text-xs leading-relaxed">
+            <div className="mx-auto size-12 rounded-full bg-surface-2 grid place-items-center mb-2">
+              <ShoppingCart className="size-5 text-muted-foreground opacity-60" />
+            </div>
             Toca un producto para agregarlo
           </div>
         ) : (
@@ -1478,11 +1484,11 @@ function PanelCarrito({ carrito, totalCarrito, vendedor, setVendedor, metodo, se
       </div>
 
       {/* Total */}
-      {carrito.length > 0 && (
-        <div className="px-3.5 py-2.5 border-t border-border">
+      {hasItems && (
+        <div className="px-3.5 py-3 border-t border-border bg-surface-2/50">
           <div className="flex justify-between items-baseline">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</span>
-            <span className={cn('font-mono font-bold text-foreground tabular', mobile ? 'text-2xl' : 'text-xl')}>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Total</span>
+            <span className={cn('font-bold text-foreground tabular tracking-tight', mobile ? 'text-2xl' : 'text-xl')}>
               {cop(totalCarrito)}
             </span>
           </div>
@@ -1496,14 +1502,16 @@ function PanelCarrito({ carrito, totalCarrito, vendedor, setVendedor, metodo, se
       />
 
       {/* Vendedor */}
-      <div className="px-3.5 py-2 border-t border-border flex items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground min-w-[54px]">Vendedor</span>
+      <div className="px-3.5 py-2.5 border-t border-border flex items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[54px]">Vendedor</span>
         <select
           value={vendedor}
           onChange={e => { setVendedor(e.target.value); localStorage.setItem('vr_vendedor', e.target.value) }}
           className={cn(
-            'flex-1 bg-muted border border-border rounded text-foreground outline-none cursor-pointer focus-visible:ring-2 focus-visible:ring-ring',
-            mobile ? 'text-sm px-2.5 py-1.5' : 'text-[11px] px-2 py-1',
+            'flex-1 bg-surface border border-border rounded-md text-foreground outline-none cursor-pointer',
+            'focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:border-primary/50',
+            'hover:border-border-strong transition-colors',
+            mobile ? 'text-sm px-2.5 py-2' : 'text-[12px] px-2 py-1.5',
           )}
         >
           {['Andres', 'Farid M', 'Farid D', 'Karolay'].map(v => (
@@ -1513,26 +1521,33 @@ function PanelCarrito({ carrito, totalCarrito, vendedor, setVendedor, metodo, se
       </div>
 
       {/* Método de pago */}
-      <div className="grid grid-cols-3 gap-1.5 px-3.5 pt-2 pb-3">
-        {METODOS.map(m => {
-          const active = metodo === m.key
-          return (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => setMetodo(m.key)}
-              className={cn(
-                'flex flex-col items-center gap-0.5 rounded-md border transition-colors',
-                mobile ? 'py-2.5 px-1 text-xs' : 'py-1.5 px-1 text-[10px]',
-                active
-                  ? 'bg-primary-soft border-primary text-primary'
-                  : 'bg-muted border-border text-muted-foreground hover:border-primary/40',
-              )}
-            >
-              <span className={mobile ? 'text-lg' : 'text-sm'}>{m.icon}</span>{m.label}
-            </button>
-          )
-        })}
+      <div className="px-3.5 pt-3 pb-2 border-t border-border">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">
+          Método de pago
+        </div>
+        <div className="grid grid-cols-3 gap-1.5">
+          {METODOS.map(m => {
+            const active = metodo === m.key
+            const Icon = m.Icon
+            return (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => setMetodo(m.key)}
+                className={cn(
+                  'flex flex-col items-center justify-center gap-1 rounded-md border-2 transition-all',
+                  mobile ? 'py-2.5 px-1' : 'py-2 px-1',
+                  active
+                    ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                    : 'bg-surface border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                )}
+              >
+                <Icon className={mobile ? 'size-4' : 'size-3.5'} />
+                <span className={mobile ? 'text-[11px] font-semibold' : 'text-[10.5px] font-semibold'}>{m.label}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Toggle calcular cambio */}
@@ -1541,22 +1556,22 @@ function PanelCarrito({ carrito, totalCarrito, vendedor, setVendedor, metodo, se
           type="button"
           onClick={() => setCalcCambio(v => !v)}
           className={cn(
-            'mx-3.5 mb-2 px-2.5 py-1.5 flex items-center gap-2 rounded-md border transition-colors w-[calc(100%-28px)]',
+            'mx-3.5 mb-2.5 mt-0.5 px-3 py-2 flex items-center gap-2.5 rounded-md border transition-colors',
             calcCambio
-              ? 'bg-primary-soft border-primary/40'
-              : 'bg-transparent border-border hover:border-primary/40',
+              ? 'bg-primary/[0.06] border-primary/30'
+              : 'bg-surface border-border hover:border-primary/40',
           )}
         >
           <div
             className={cn(
-              'w-7 h-4 rounded-full relative shrink-0 transition-colors',
+              'w-8 h-[18px] rounded-full relative shrink-0 transition-colors',
               calcCambio ? 'bg-primary' : 'bg-border',
             )}
           >
             <div
               className={cn(
-                'absolute top-0.5 w-3 h-3 rounded-full bg-white transition-[left]',
-                calcCambio ? 'left-3.5' : 'left-0.5',
+                'absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-[left]',
+                calcCambio ? 'left-[18px]' : 'left-0.5',
               )}
             />
           </div>
@@ -1569,17 +1584,24 @@ function PanelCarrito({ carrito, totalCarrito, vendedor, setVendedor, metodo, se
       {/* Botón registrar */}
       <button
         type="button"
-        onClick={() => carrito.length && onCheckout()}
-        disabled={!carrito.length || enviando}
+        onClick={() => hasItems && onCheckout()}
+        disabled={!hasItems || enviando}
         className={cn(
-          'mx-3.5 mb-3.5 w-[calc(100%-28px)] rounded-md font-semibold tracking-wide transition-colors',
-          mobile ? 'py-4 text-[15px]' : 'py-3 text-xs',
-          carrito.length
-            ? 'bg-primary text-primary-foreground hover:bg-primary-hover'
-            : 'bg-border text-muted-foreground cursor-not-allowed',
+          'mx-3.5 mb-3.5 mt-1 rounded-md font-bold tracking-wide transition-all inline-flex items-center justify-center gap-2',
+          mobile ? 'py-3.5 text-[14px]' : 'py-3 text-[13px]',
+          hasItems
+            ? 'bg-primary text-primary-foreground hover:bg-primary-hover shadow-sm hover:shadow-md'
+            : 'bg-surface-2 text-muted-foreground cursor-not-allowed border border-border',
         )}
       >
-        {enviando ? 'Registrando...' : `Registrar venta${carrito.length > 0 ? ' · ' + cop(totalCarrito) : ''}`}
+        {enviando ? (
+          <><Loader2 className="size-4 animate-spin" /> Registrando…</>
+        ) : (
+          <>
+            <ShoppingCart className="size-4" />
+            {hasItems ? `Registrar venta · ${cop(totalCarrito)}` : 'Registrar venta'}
+          </>
+        )}
       </button>
     </div>
   )
@@ -1971,11 +1993,53 @@ export default function TabVentasRapidas({ refreshKey }) {
           </div>
         </div>
 
-        {/* ── Frecuentes ── */}
+        {/* ── Búsqueda (arriba, prominente) ── */}
+        <div className="relative mb-3">
+          <Search className="size-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Input
+            ref={searchRef}
+            value={busq}
+            onChange={e => { setBusq(e.target.value); if (e.target.value) setFiltro('todos'); setHighlightedIdx(-1) }}
+            onKeyDown={e => {
+              if (!busq.trim() || !prodsFiltrados.length) return
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setHighlightedIdx(i => Math.min(i + 1, prodsFiltrados.length - 1))
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setHighlightedIdx(i => Math.max(i - 1, 0))
+              } else if (e.key === 'Enter') {
+                e.preventDefault()
+                const prod = highlightedIdx >= 0 ? prodsFiltrados[highlightedIdx] : prodsFiltrados[0]
+                if (prod) clickProd(prod)
+              }
+            }}
+            placeholder="Buscar producto…  Enter agrega el primero"
+            className="pl-10 pr-9 h-11 text-sm bg-surface border-border focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20 shadow-xs"
+          />
+          {busq && (
+            <button
+              type="button"
+              onClick={() => { setBusq(''); setHighlightedIdx(-1); searchRef.current?.focus() }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 size-6 rounded grid place-items-center text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors"
+              aria-label="Limpiar"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+          {!busq && (
+            <kbd className="hidden sm:inline-flex absolute right-2.5 top-1/2 -translate-y-1/2 items-center px-1.5 h-5 rounded border border-border bg-surface-2 text-[10px] text-muted-foreground font-mono">
+              ↵
+            </kbd>
+          )}
+        </div>
+
+        {/* ── Frecuentes (Más vendidos, ahora después del buscador) ── */}
         {frecuentes.length > 0 && !busq.trim() && (
           <div className="mb-3">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">
-              🔥 Más vendidos
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 inline-flex items-center gap-1.5">
+              <Sparkles className="size-3 text-primary" />
+              Más vendidos
             </div>
             <div className="flex flex-wrap gap-1.5">
               {frecuentes.map(prod => {
@@ -2000,32 +2064,6 @@ export default function TabVentasRapidas({ refreshKey }) {
             </div>
           </div>
         )}
-
-        {/* ── Búsqueda ── */}
-        <div className="relative mb-2.5">
-          <Search className="size-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <Input
-            ref={searchRef}
-            value={busq}
-            onChange={e => { setBusq(e.target.value); if (e.target.value) setFiltro('todos'); setHighlightedIdx(-1) }}
-            onKeyDown={e => {
-              if (!busq.trim() || !prodsFiltrados.length) return
-              if (e.key === 'ArrowDown') {
-                e.preventDefault()
-                setHighlightedIdx(i => Math.min(i + 1, prodsFiltrados.length - 1))
-              } else if (e.key === 'ArrowUp') {
-                e.preventDefault()
-                setHighlightedIdx(i => Math.max(i - 1, 0))
-              } else if (e.key === 'Enter') {
-                e.preventDefault()
-                const prod = highlightedIdx >= 0 ? prodsFiltrados[highlightedIdx] : prodsFiltrados[0]
-                if (prod) clickProd(prod)
-              }
-            }}
-            placeholder="Buscar producto... (Enter agrega el primero)"
-            className="pl-8 h-9 text-xs"
-          />
-        </div>
 
         {/* ── Acciones: venta miscelánea + gasto rápido ── */}
         <div className="flex justify-end gap-1.5 mb-3.5">

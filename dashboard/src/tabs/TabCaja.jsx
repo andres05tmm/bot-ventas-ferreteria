@@ -214,7 +214,16 @@ export default function TabCaja({ refreshKey }) {
       <ModalCerrarCaja open={confirmCerrar} onClose={() => setConfirmCerrar(false)} onConfirm={cerrarCaja} cerrando={cerrando} />
       <ModalVentaVaria open={variaOpen} onClose={() => setVariaOpen(false)} onSaved={bump} authFetch={authFetch} />
 
-      {/* Estado + Acciones */}
+      {/* KPIs — primero, para glance inmediato */}
+      <div className={cn('grid gap-3', isMobile ? 'grid-cols-2' : 'grid-cols-4')}>
+        <KpiCard headerBand tone="muted"   label="Apertura"          value={cop(d.monto_apertura)}    sub="Base inicial"                  icon={Wallet} />
+        <KpiCard headerBand tone="success" label="Ventas hoy"        value={cop(d.total_ventas)}      sub="Efectivo + transf. + datáfono" icon={TrendingUp} />
+        <KpiCard headerBand tone="danger"  label="Gastos"            value={cop(d.total_gastos)}      sub="Todos los egresos"             icon={TrendingDown}
+          onClick={() => navigate('/gastos')} actionLabel="Ver gastos" />
+        <KpiCard headerBand tone="primary" label="Efectivo esperado" value={cop(d.efectivo_esperado)} sub="Caja − gastos en efectivo"     icon={Calculator} />
+      </div>
+
+      {/* Estado + Acciones — debajo, acción del día */}
       <Card className="p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
@@ -256,15 +265,6 @@ export default function TabCaja({ refreshKey }) {
           </div>
         )}
       </Card>
-
-      {/* KPIs */}
-      <div className={cn('grid gap-3', isMobile ? 'grid-cols-2' : 'grid-cols-4')}>
-        <KpiCard headerBand tone="muted"   label="Apertura"          value={cop(d.monto_apertura)}    sub="Base inicial"                  icon={Wallet} />
-        <KpiCard headerBand tone="success" label="Ventas hoy"        value={cop(d.total_ventas)}      sub="Efectivo + transf. + datáfono" icon={TrendingUp} />
-        <KpiCard headerBand tone="danger"  label="Gastos"            value={cop(d.total_gastos)}      sub="Todos los egresos"             icon={TrendingDown}
-          onClick={() => navigate('/gastos')} actionLabel="Ver gastos" />
-        <KpiCard headerBand tone="primary" label="Efectivo esperado" value={cop(d.efectivo_esperado)} sub="Caja − gastos en efectivo"     icon={Calculator} />
-      </div>
 
       {/* Venta Varia (botón abre dialog) */}
       <Card className="p-4">

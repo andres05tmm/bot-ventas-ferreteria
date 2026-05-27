@@ -27,7 +27,7 @@ export const ROUTES = [
 
   // Reportes
   { path: '/historial',           label: 'Historial',           icon: History,         group: 'reportes' },
-  { path: '/resultados',          label: 'Resultados',          icon: TrendingUp,      group: 'reportes' },
+  { path: '/resultados',          label: 'Resultados financieros', icon: TrendingUp,   group: 'reportes' },
   { path: '/kardex',              label: 'Kárdex',              icon: BookOpen,        group: 'reportes' },
 
   // Fiscal

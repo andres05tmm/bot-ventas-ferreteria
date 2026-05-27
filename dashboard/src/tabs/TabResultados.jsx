@@ -313,36 +313,29 @@ export default function TabResultados({ refreshKey }) {
   const { data: pd, loading: pl, error: pe } = useFetch('/proyeccion', [refreshKey])
 
   return (
-    <div className="space-y-5">
-      {/* Header con tabs internas */}
-      <Tabs defaultValue="resultados" className="space-y-5">
-        <header className="flex items-end justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">Resultados financieros</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">Estado de resultados · Proyección de caja · Top productos</p>
-          </div>
+    <div className="space-y-4">
+      <Tabs defaultValue="resultados" className="space-y-4">
+        {/* Controles: tabs internas izquierda + periodo derecha (cuando aplica) */}
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <TabsList>
             <TabsTrigger value="resultados">P&amp;L</TabsTrigger>
             <TabsTrigger value="top">Top productos</TabsTrigger>
           </TabsList>
-        </header>
-
-        <TabsContent value="resultados" className="space-y-5">
-          {/* Periodo selector */}
-          <div className="flex justify-end">
-            <div className="inline-flex bg-surface-2 p-1 rounded-md">
-              {[['semana','Esta semana'],['mes','Este mes']].map(([v, lbl]) => (
-                <button key={v} onClick={() => setPeriodo(v)}
-                  className={cn(
-                    'px-3 py-1 text-xs rounded transition-colors',
-                    periodo === v ? 'bg-surface text-foreground shadow-xs font-medium' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {lbl}
-                </button>
-              ))}
-            </div>
+          <div className="inline-flex bg-surface-2 p-1 rounded-md">
+            {[['semana','Esta semana'],['mes','Este mes']].map(([v, lbl]) => (
+              <button key={v} onClick={() => setPeriodo(v)}
+                className={cn(
+                  'px-3 py-1 text-xs rounded transition-colors',
+                  periodo === v ? 'bg-surface text-foreground shadow-xs font-medium' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {lbl}
+              </button>
+            ))}
           </div>
+        </div>
+
+        <TabsContent value="resultados" className="space-y-4">
 
           {rd && !rl && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
