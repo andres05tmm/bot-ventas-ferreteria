@@ -165,12 +165,12 @@ async def caja_abrir(body: CajaAbrirBody):
             "transferencias": 0,
             "datafono":       0,
         }
+        await notify_all("caja_abierta", {"monto_apertura": int(body.monto_apertura)})
         return {
             "ok":      True,
             "mensaje": f"Caja abierta con ${int(body.monto_apertura):,}".replace(",", "."),
             "caja":    caja_abierta,
         }
-        await notify_all("caja_abierta", {"monto_apertura": int(body.monto_apertura)})
     except HTTPException:
         raise
     except Exception as e:
