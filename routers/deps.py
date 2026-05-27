@@ -59,8 +59,10 @@ def get_current_user_optional(authorization: str = Header(None)):
 
 def get_filtro_usuario(current_user=Depends(get_current_user)):
     """
-    Siempre retorna None — todos los usuarios ven datos de todos los vendedores.
-    Se mantiene para compatibilidad con los routers que lo usan.
+    Siempre retorna None — todos los usuarios ven datos de todos los vendedores
+    por defecto. El filtrado opcional por vendedor vive en get_filtro_efectivo.
+
+    Se mantiene este helper para compatibilidad con los routers que lo usan.
     """
     return None
 
@@ -70,10 +72,37 @@ def get_filtro_efectivo(
     current_user=Depends(get_current_user)
 ):
     """
-    Admin con vendor_id seleccionado → filtra por ese vendedor
-    Admin sin vendor_id → sin filtro (ve todos los vendedores)
-    Vendedor → sin filtro (ve datos de todos los vendedores)
+    Resuelve el filtro por vendedor aplicado a un endpoint.
+
+    Reglas:
+      - Admin sin vendor_id           → None (ve todo agregado).
+      - Admin con vendor_id           → ese id (puede impersonar a cualquier vendedor).
+      - Vendedor sin vendor_id        → None (ve total agregado).
+      - Vendedor con vendor_id propio → su propio id (filtra por sí mismo).
+      - Vendedor con vendor_id ajeno  → HTTPException 403.
+
+    Nota: si el JWT no trae 'rol', se asume el escenario más restrictivo
+    (vendedor) para fail-safe.
     """
-    if vendor_id:
+    rol = (current_user or {}).get("rol")
+    usuario_id = (current_user or {}).get("usuario_id")
+
+    # Admin: puede pasar cualquier vendor_id o ninguno.
+    if rol == "admin":
         return vendor_id
-    return None  # todos ven todo
+
+    # Vendedor (o rol ausente — fail-safe).
+    # Sin filtro → ve agregado total. Es el comportamiento por defecto.
+    if vendor_id is None:
+        return None
+
+    # Sólo se permite filtrar por uno mismo.
+    if vendor_id == usuario_id:
+        return vendor_id
+
+    # Intento de impersonación: deniega.
+    logger.warning(
+        "Intento de filtrar por otro vendedor: usuario_id=%s rol=%s pidió vendor_id=%s",
+        usuario_id, rol, vendor_id,
+    )
+    raise HTTPException(status_code=403, detail="No autorizado para ver datos de otro vendedor")

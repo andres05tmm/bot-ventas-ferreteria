@@ -113,19 +113,26 @@ function CajaStatusPill({ isMobile, refreshKey }) {
 }
 
 function VendorSelector() {
-  const { isAdmin } = useAuth()
+  const { isAdmin, getUser } = useAuth()
   const ctx = useVendorFilter?.()
-  if (!isAdmin() || !ctx) return null
+  if (!ctx) return null
   const { vendedores, selectedVendor, setSelectedVendor } = ctx
+  // Admin ve la lista completa; vendedor solo recibe su propio nombre
+  // (filtrado en el backend en GET /usuarios/vendedores).
+  const userIsAdmin = isAdmin()
+  const currentUserId = getUser()?.usuario_id
+  const labelTodos = userIsAdmin ? 'Todos los vendedores' : 'Todos (agregado)'
   return (
     <select
       value={selectedVendor || ''}
       onChange={(e) => setSelectedVendor(parseInt(e.target.value) || null)}
       className="text-xs h-9 px-2 rounded-md border border-border bg-surface text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
     >
-      <option value="">Todos los vendedores</option>
+      <option value="">{labelTodos}</option>
       {(vendedores || []).map(v => (
-        <option key={v.id} value={v.id}>{v.nombre}</option>
+        <option key={v.id} value={v.id}>
+          {!userIsAdmin && v.id === currentUserId ? `Yo (${v.nombre})` : v.nombre}
+        </option>
       ))}
     </select>
   )
