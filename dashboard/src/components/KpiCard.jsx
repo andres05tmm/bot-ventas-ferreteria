@@ -15,7 +15,9 @@
  *   compact     — versión densa (p-2.5 en vez de p-3)
  *   topAccent   — barra sólida de 3px arriba con el color del tone
  *   iconStyle   — 'subtle' (default) | 'filled' (cuadrado sólido + ícono blanco)
- *   heroValue   — si true: cifra en text-2xl (hero number)
+ *   heroValue   — si true: cifra en text-3xl (hero number, sin color de tone — usa foreground)
+ *   headerBand  — si true: banda superior sólida coloreada con label+ícono blancos.
+ *                 Mutuamente excluyente con topAccent. Cuerpo blanco abajo, cifra foreground.
  */
 import { TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line } from 'recharts'
@@ -47,10 +49,66 @@ export default function KpiCard({
   topAccent = false,
   iconStyle = 'subtle',
   heroValue = false,
+  headerBand = false,
 }) {
   const t = TONES[tone] || TONES.default
   const clickable = typeof onClick === 'function'
 
+  // ────────────────────────────────────────────────────────────
+  // Variante headerBand: banda superior sólida + cuerpo blanco
+  // ────────────────────────────────────────────────────────────
+  if (headerBand) {
+    return (
+      <Card
+        className={cn(
+          'relative overflow-hidden p-0 transition-all duration-base ease-out-quad group',
+          'bg-surface border-border',
+          clickable
+            ? 'cursor-pointer text-left w-full hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40'
+            : 'hover:-translate-y-px hover:shadow-sm',
+        )}
+        {...(clickable ? {
+          onClick,
+          role: 'button',
+          tabIndex: 0,
+          'aria-label': actionLabel || label,
+          onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } },
+        } : {})}
+      >
+        {/* Banda superior sólida del tone */}
+        <div
+          className="flex items-center justify-between gap-2 px-3 py-2"
+          style={{ background: t.color }}
+        >
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-white truncate">
+            {label}
+          </span>
+          {Icon && (
+            <Icon className="size-3.5 text-white shrink-0" aria-hidden="true" />
+          )}
+        </div>
+
+        {/* Cuerpo blanco — cifra grande negra + sub muted */}
+        <div className="px-3 py-2.5">
+          <div className={cn(
+            'text-2xl font-semibold tracking-tight tabular leading-none text-foreground',
+            loading && 'opacity-50',
+          )}>
+            {value}
+          </div>
+          {sub && (
+            <div className="mt-1.5 text-[11px] text-muted-foreground leading-snug truncate">
+              {sub}
+            </div>
+          )}
+        </div>
+      </Card>
+    )
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // Variantes clásicas (topAccent / heroValue / compact)
+  // ────────────────────────────────────────────────────────────
   return (
     <Card
       className={cn(
@@ -121,12 +179,10 @@ export default function KpiCard({
       </div>
 
       <div className={cn(
-        'mt-1.5 font-semibold tracking-tight tabular leading-none',
-        heroValue ? 'text-2xl' : 'text-lg',
+        'mt-2 font-semibold tracking-tight tabular leading-none text-foreground',
+        heroValue ? 'text-[28px]' : 'text-lg',
         loading && 'opacity-50',
-      )}
-        style={heroValue ? { color: t.color } : undefined}
-      >
+      )}>
         {value}
       </div>
 
