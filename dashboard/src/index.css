@@ -13,10 +13,10 @@
   :root,
   [data-theme="light"] {
     /* ── Fondos ────────────────────────────────────────────────────── */
-    --bg-body:        42 43% 95%;   /* #F8F5EE blanco hueso cálido */
-    --bg-body-strong: 39 33% 92%;   /* #F1ECE3 variante hover/elevation */
-    --bg-surface:     0 0% 100%;    /* #FFFFFF */
-    --bg-surface-2:   240 5% 96%;   /* #F4F4F5 */
+    --bg-body:        220 14% 96%;  /* #F3F4F6 blanco grisaceo neutro (mockup Gemini) */
+    --bg-body-strong: 220 13% 91%;  /* #E5E7EB hover/elevation */
+    --bg-surface:     0 0% 100%;    /* #FFFFFF cards contrastan con body */
+    --bg-surface-2:   220 14% 94%;  /* #EDEFF2 */
     --bg-sidebar:     0 0% 100%;
 
     /* ── Bordes ────────────────────────────────────────────────────── */
