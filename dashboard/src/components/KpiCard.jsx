@@ -91,8 +91,13 @@ export default function KpiCard({
           )}
         </div>
 
-        {/* Cuerpo blanco — cifra elegante (foreground por default, tone si coloredValue) */}
-        <div className="px-3 py-2">
+        {/* Cuerpo — blanco por default; tintado con el tone cuando coloredValue */}
+        <div
+          className="px-3 py-2"
+          style={coloredValue
+            ? { background: `color-mix(in srgb, ${t.color} 6%, transparent)` }
+            : undefined}
+        >
           <div className={cn(
             'text-xl font-semibold tracking-tight tabular leading-none',
             !coloredValue && 'text-foreground',
@@ -103,7 +108,15 @@ export default function KpiCard({
             {value}
           </div>
           {sub && (
-            <div className="mt-1 text-[10.5px] text-muted-foreground leading-snug truncate">
+            <div
+              className={cn(
+                'mt-1 text-[10.5px] leading-snug truncate',
+                !coloredValue && 'text-muted-foreground',
+              )}
+              style={coloredValue
+                ? { color: `color-mix(in srgb, ${t.color} 75%, transparent)` }
+                : undefined}
+            >
               {sub}
             </div>
           )}
