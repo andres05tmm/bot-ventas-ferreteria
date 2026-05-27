@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 # -- propios --
 import db
+import config
 
 logger = logging.getLogger("ferrebot.auth")
 
@@ -133,7 +134,7 @@ async def auth_telegram(request: TelegramAuthRequest):
     return JSONResponse(
         content={"token": token, "nombre": nombre, "rol": rol},
         headers={
-            "Access-Control-Allow-Origin": "https://bot-ventas-ferreteria-production.up.railway.app",
+            "Access-Control-Allow-Origin": config.CORS_ORIGIN,
             "Access-Control-Allow-Credentials": "true",
         },
     )

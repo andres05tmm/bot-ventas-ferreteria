@@ -35,6 +35,12 @@ WEBHOOK_PORT      = int(os.getenv("PORT", "8443"))
 DATABASE_URL      = os.getenv("DATABASE_URL")
 SENTRY_DSN        = os.getenv("SENTRY_DSN", "")   # Opcional — captura errores en producción
 
+# CORS_ORIGIN: dominio HTTPS del dashboard (frontend). Una sola fuente de verdad
+# usada por api.py (CORSMiddleware + OPTIONS handler) y routers/auth.py (header
+# de la respuesta JWT). Sin default hardcoded — el operador debe configurarlo
+# explícitamente para cada despliegue. Si queda vacío, api.py loguea warning.
+CORS_ORIGIN       = os.getenv("CORS_ORIGIN", "")
+
 # Validar claves obligatorias al importar
 _CLAVES_REQUERIDAS = {
     "TELEGRAM_TOKEN":    TELEGRAM_TOKEN,

@@ -12,6 +12,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 # -- propios --
+import config
 from memoria import (
     obtener_resumen_caja,
     cargar_gastos_hoy,
@@ -74,9 +75,9 @@ async def comando_caja(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @protegido
 async def comando_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = config.CORS_ORIGIN or "(dashboard no configurado — falta CORS_ORIGIN)"
     await update.message.reply_text(
-        "📊 *Dashboard Ferretería Punto Rojo*\n\n"
-        "🔗 https://bot-ventas-ferreteria-production.up.railway.app/",
+        f"📊 *Dashboard Ferretería Punto Rojo*\n\n🔗 {url}",
         parse_mode="Markdown"
     )
 

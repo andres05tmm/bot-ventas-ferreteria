@@ -160,9 +160,10 @@ if refresh_token:
     print("Comando para actualizar en Railway (cópialo completo):")
     print("-" * 60)
     t = refresh_token.replace('"', '\\"')
+    api_url = os.getenv("CORS_ORIGIN", "<TU_API_URL>")
+    auth_token = os.getenv("BANCOLOMBIA_TOKEN_AUTH", "<AUTH_TOKEN>")
     print(
-        f'curl -X POST "https://bot-ventas-ferreteria-production.up.railway.app'
-        f'/bancolombia/gmail/token?auth=5c244aadbccdd566731233d25ff93971f231cf42"'
+        f'curl -X POST "{api_url}/bancolombia/gmail/token?auth={auth_token}"'
         f' -H "Content-Type: application/json"'
         f' -d "{{\\"token\\": \\"{t}\\"}}"'
     )

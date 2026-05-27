@@ -318,9 +318,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 app.add_middleware(RequestLoggingMiddleware)
 # CORSMiddleware se agrega DESPUÉS para que quede como capa más externa
 # (en FastAPI, add_middleware inserta al frente — el último agregado se ejecuta primero)
+if not _cfg.CORS_ORIGIN:
+    _api_logger.warning("⚠️ CORS_ORIGIN vacío — el dashboard no podrá conectarse. Configura la env var.")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("CORS_ORIGIN", "https://bot-ventas-ferreteria-production.up.railway.app")],
+    allow_origins=[_cfg.CORS_ORIGIN] if _cfg.CORS_ORIGIN else [],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -384,7 +386,7 @@ async def sentry_webhook(request: Request):
     Configurar en Sentry:
       Alerts → Create Alert → Issue Alert
       Acción: Send a notification via webhook
-      URL: https://bot-ventas-ferreteria-production.up.railway.app/webhooks/sentry
+      URL: <CORS_ORIGIN>/webhooks/sentry   (reemplazar por el dominio real del API)
 
     Variable de entorno requerida:
       SENTRY_ALERT_CHAT_ID — ID del grupo/chat de Telegram donde llegan las alertas
@@ -449,14 +451,13 @@ async def sentry_webhook(request: Request):
 # Este handler explícito garantiza que el preflight siempre devuelva los headers
 # correctos independientemente del estado del middleware.
 from fastapi.responses import Response as _Response
-_CORS_ORIGIN = os.getenv("CORS_ORIGIN", "https://bot-ventas-ferreteria-production.up.railway.app")
 
 @app.options("/auth/telegram")
 def auth_telegram_options():
     return _Response(
         status_code=200,
         headers={
-            "Access-Control-Allow-Origin": _CORS_ORIGIN,
+            "Access-Control-Allow-Origin": _cfg.CORS_ORIGIN,
             "Access-Control-Allow-Methods": "POST, OPTIONS",
             "Access-Control-Allow-Headers": "*",
             "Access-Control-Allow-Credentials": "true",
