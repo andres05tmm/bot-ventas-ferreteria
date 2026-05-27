@@ -18,8 +18,8 @@ import {
 } from 'recharts'
 import {
   ArrowRight, Plus, AlertTriangle,
-  ShoppingCart, Wallet, Receipt, Package, Search, Activity,
-  CreditCard, Calculator, CalendarRange, CalendarDays, ListOrdered,
+  ShoppingCart, Receipt, Package, Search, Activity,
+  CreditCard, Briefcase, CalendarDays,
 } from 'lucide-react'
 import { useFetch, cop, num } from '@/components/shared.jsx'
 import { useVendorFilter } from '@/hooks/useVendorFilter.jsx'
@@ -130,7 +130,7 @@ export default function TabHoy({ refreshKey }) {
 
   return (
     <div className="space-y-4">
-      {/* KPI STRIP — 3 cards principales con topAccent + iconStyle filled */}
+      {/* KPI STRIP — 3 cards Arquetipo A: hero number negro + icono filled coloreado */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <KpiCard
           tone="primary"
@@ -141,36 +141,15 @@ export default function TabHoy({ refreshKey }) {
           sub={`${pedidosHoy} ${pedidosHoy === 1 ? 'venta' : 'ventas'}`}
           deltaPct={deltaAyer}
           spark={historico7d}
-          topAccent
           iconStyle="filled"
           heroValue
         />
-        <KpiCard
-          tone={cajaAbierta ? 'success' : 'warning'}
-          label="Caja"
-          icon={Wallet}
+        <CajaCard
+          abierta={cajaAbierta}
+          apertura={aperturaCaja}
+          horaApertura={horaApertura}
+          numMovs={numMovs}
           onClick={() => navigate('/caja')}
-          actionLabel={cajaAbierta ? 'Cerrar caja' : 'Abrir caja'}
-          value={
-            <span className="inline-flex items-baseline gap-2">
-              <Badge variant="secondary" className={cn(
-                'h-5 text-[10px] font-semibold uppercase tracking-wide',
-                cajaAbierta ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'
-              )}>
-                {cajaAbierta ? '● Abierta' : 'Cerrada'}
-              </Badge>
-              {cajaAbierta && horaApertura && (
-                <span className="text-sm tabular text-muted-foreground font-medium">
-                  {String(horaApertura).slice(0, 5)}
-                </span>
-              )}
-            </span>
-          }
-          sub={cajaAbierta
-            ? `Base ${cop(aperturaCaja)} · ${numMovs} movs`
-            : 'Pendiente de apertura'}
-          topAccent
-          iconStyle="filled"
         />
         <KpiCard
           tone="danger"
@@ -180,52 +159,44 @@ export default function TabHoy({ refreshKey }) {
           onClick={() => navigate('/gastos')}
           actionLabel="Registrar gasto"
           sub={`${numGastos} ${numGastos === 1 ? 'registro' : 'registros'}`}
-          topAccent
           iconStyle="filled"
+          heroValue
         />
       </div>
 
-      {/* MINI METRIC STRIP — 4 KpiCards con topAccent, tones contrastantes */}
+      {/* MINI METRIC STRIP — 4 KpiCards con headerBand colorido (Arquetipo B) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard
+          headerBand
           tone="primary"
-          icon={ListOrdered}
-          label="Pedidos hoy"
+          icon={CalendarDays}
+          label="Pedidos"
           value={num(pedidosHoy)}
           sub={pedidosHoy > 0 ? `de ${cop(totalHoy)}` : 'sin ventas'}
-          compact
-          topAccent
-          iconStyle="filled"
         />
         <KpiCard
+          headerBand
           tone="info"
-          icon={Calculator}
+          icon={CalendarDays}
           label="Ticket prom."
           value={cop(ticketProm)}
           sub="últimos 7 días"
-          compact
-          topAccent
-          iconStyle="filled"
         />
         <KpiCard
+          headerBand
           tone="success"
-          icon={CalendarRange}
+          icon={CalendarDays}
           label="Total semana"
           value={cop(totalSemana)}
           sub="últimos 7 días"
-          compact
-          topAccent
-          iconStyle="filled"
         />
         <KpiCard
+          headerBand
           tone="warning"
           icon={CalendarDays}
           label="Total mes"
           value={cop(totalMes)}
           sub="mes en curso"
-          compact
-          topAccent
-          iconStyle="filled"
         />
       </div>
 
@@ -259,6 +230,66 @@ export default function TabHoy({ refreshKey }) {
       {/* QUICK ACTIONS — full-width strip */}
       <QuickActions navigate={navigate} />
     </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CAJA CARD — caso especial Row 1: banda horizontal con estado abierta/cerrada
+// ─────────────────────────────────────────────────────────────────────────────
+
+function CajaCard({ abierta, apertura, horaApertura, numMovs, onClick }) {
+  // Cerrada → banda amarilla (urgencia suave) + pill amber.
+  // Abierta → banda verde + pill verde.
+  const iconColor = abierta ? 'hsl(var(--success))' : 'hsl(var(--accent-yellow))'
+  const bandBg    = abierta ? 'bg-success/15 border-success/25' : 'bg-warning/15 border-warning/25'
+  const pillBg    = abierta ? 'bg-success text-white' : 'bg-warning text-white'
+
+  return (
+    <Card
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+      aria-label={abierta ? 'Cerrar caja' : 'Abrir caja'}
+      className={cn(
+        'group relative overflow-hidden p-3 cursor-pointer text-left w-full',
+        'bg-surface border-border',
+        'transition-all duration-base ease-out-quad',
+        'hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
+          Caja
+        </span>
+        <span
+          className="grid place-items-center rounded-md size-6 shrink-0"
+          style={{ background: iconColor }}
+        >
+          <Briefcase className="size-3 text-white" aria-hidden="true" />
+        </span>
+      </div>
+
+      {/* Banda horizontal de estado */}
+      <div className={cn(
+        'mt-3 px-2.5 py-2 rounded-md border flex items-center gap-2 min-h-[44px]',
+        bandBg,
+      )}>
+        <span className={cn(
+          'inline-flex items-center px-2 h-[22px] rounded text-[10px] font-bold uppercase tracking-wide shrink-0',
+          pillBg,
+        )}>
+          {abierta ? 'Abierta' : 'Cerrada'}
+        </span>
+        <span className="text-[11.5px] text-foreground/80 truncate">
+          {abierta
+            ? (horaApertura
+                ? `${String(horaApertura).slice(0, 5)} · Base ${cop(apertura)} · ${numMovs} movs`
+                : `Base ${cop(apertura)} · ${numMovs} movs`)
+            : 'Pendiente de apertura'}
+        </span>
+      </div>
+    </Card>
   )
 }
 
