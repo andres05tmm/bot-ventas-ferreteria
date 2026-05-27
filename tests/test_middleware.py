@@ -17,7 +17,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # -- propios --
-from middleware.auth import RateLimiter, protegido
+from middleware.auth import RateLimiter, protegido, global_guard, verificar_acceso
+from telegram.ext import ApplicationHandlerStop
 
 
 # ─────────────────────────────────────────────
@@ -142,3 +143,132 @@ def test_protegido_maneja_message_none():
 
         asyncio.run(handler(update, MagicMock()))
         assert called == [True]
+
+
+# ─────────────────────────────────────────────
+# TESTS — verificar_acceso (lógica pura, reutilizable)
+# ─────────────────────────────────────────────
+
+def test_verificar_acceso_fail_open():
+    """Sin AUTHORIZED_IDS configurados → permite cualquier chat (fail-open)."""
+    with patch("middleware.auth.AUTHORIZED_IDS", set()):
+        # Limpiar el rate limiter antes para no arrastrar estado de otros tests
+        from middleware.auth import rate_limiter
+        with rate_limiter._lock:
+            rate_limiter._historial.clear()
+        ok, motivo = verificar_acceso(chat_id=999)
+        assert ok is True
+        assert motivo is None
+
+
+def test_verificar_acceso_no_autorizado():
+    """Chat fuera de AUTHORIZED_IDS → False con motivo 'no_autorizado'."""
+    with patch("middleware.auth.AUTHORIZED_IDS", {100, 200}):
+        ok, motivo = verificar_acceso(chat_id=999)
+        assert ok is False
+        assert motivo == "no_autorizado"
+
+
+def test_verificar_acceso_rate_limited():
+    """Chat autorizado que supera el rate limit → False con motivo 'rate_limit'."""
+    from middleware.auth import rate_limiter
+    with rate_limiter._lock:
+        rate_limiter._historial.clear()
+    with patch("middleware.auth.AUTHORIZED_IDS", {123}):
+        # Consumir el límite (default 5 mensajes / 2s)
+        for _ in range(rate_limiter.max_mensajes):
+            ok, _ = verificar_acceso(chat_id=123)
+            assert ok is True
+        # El siguiente debe bloquearse
+        ok, motivo = verificar_acceso(chat_id=123)
+        assert ok is False
+        assert motivo == "rate_limit"
+
+
+def test_verificar_acceso_chat_id_none():
+    """Sin chat_id → False con motivo 'sin_chat_id'."""
+    ok, motivo = verificar_acceso(chat_id=None)
+    assert ok is False
+    assert motivo == "sin_chat_id"
+
+
+# ─────────────────────────────────────────────
+# TESTS — global_guard (handler PTB con TypeHandler)
+# ─────────────────────────────────────────────
+
+def test_global_guard_permite_autorizado():
+    """global_guard no levanta cuando el chat está autorizado."""
+    from middleware.auth import rate_limiter
+    with rate_limiter._lock:
+        rate_limiter._historial.clear()
+    with patch("middleware.auth.AUTHORIZED_IDS", {100}):
+        update = MagicMock()
+        update.effective_chat.id = 100
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock()
+        update.callback_query = None
+
+        # No debe levantar ninguna excepción
+        asyncio.run(global_guard(update, MagicMock()))
+
+
+def test_global_guard_bloquea_no_autorizado():
+    """global_guard levanta ApplicationHandlerStop cuando el chat no está autorizado."""
+    with patch("middleware.auth.AUTHORIZED_IDS", {100, 200}):
+        update = MagicMock()
+        update.effective_chat.id = 999  # no autorizado
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock()
+        update.callback_query = None
+
+        with pytest.raises(ApplicationHandlerStop):
+            asyncio.run(global_guard(update, MagicMock()))
+
+        update.message.reply_text.assert_called_once()
+
+
+def test_global_guard_bloquea_rate_limit():
+    """global_guard levanta ApplicationHandlerStop cuando se supera el rate limit."""
+    from middleware.auth import rate_limiter
+    with rate_limiter._lock:
+        rate_limiter._historial.clear()
+
+    with patch("middleware.auth.AUTHORIZED_IDS", {500}):
+        update = MagicMock()
+        update.effective_chat.id = 500
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock()
+        update.callback_query = None
+
+        # Consumir el límite
+        for _ in range(rate_limiter.max_mensajes):
+            asyncio.run(global_guard(update, MagicMock()))
+
+        # El siguiente debe levantar
+        with pytest.raises(ApplicationHandlerStop):
+            asyncio.run(global_guard(update, MagicMock()))
+
+
+def test_global_guard_sin_message_no_falla():
+    """update.message=None (ej. callback queries) no debe causar AttributeError."""
+    with patch("middleware.auth.AUTHORIZED_IDS", {100, 200}):
+        update = MagicMock()
+        update.effective_chat.id = 999  # no autorizado
+        update.message = None
+        update.callback_query = MagicMock()
+        update.callback_query.message = MagicMock()
+        update.callback_query.message.reply_text = AsyncMock()
+
+        with pytest.raises(ApplicationHandlerStop):
+            asyncio.run(global_guard(update, MagicMock()))
+
+
+def test_global_guard_sin_chat_no_falla():
+    """update.effective_chat=None → levanta ApplicationHandlerStop sin AttributeError."""
+    update = MagicMock()
+    update.effective_chat = None
+    update.message = None
+    update.callback_query = None
+
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(global_guard(update, MagicMock()))

@@ -11,8 +11,10 @@ _log = _logging.getLogger("ferrebot.main")
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, filters,
+    CallbackQueryHandler, TypeHandler, filters,
 )
+
+from middleware.auth import global_guard
 
 import config
 
@@ -93,6 +95,12 @@ def build_app() -> Application:
     servidor externo (ej. FastAPI en start-bot.py).
     """
     app = Application.builder().token(config.TELEGRAM_TOKEN).build()
+
+    # ── Guard global de auth + rate limit (group=-1 corre antes que todo) ─────
+    # Cierra C-02 de la auditoría: garantiza que TODO update (texto, audio,
+    # foto, documento, callback) pase por verificación, sin depender de que
+    # cada handler individual lleve @protegido.
+    app.add_handler(TypeHandler(Update, global_guard), group=-1)
 
     # Comandos
     app.add_handler(CommandHandler("start",      comando_inicio))
