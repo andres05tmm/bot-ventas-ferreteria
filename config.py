@@ -55,6 +55,52 @@ if _faltantes:
     raise SystemExit(1)
 
 # ─────────────────────────────────────────────
+# FEATURE FLAGS — activación de módulos por ferretería
+# ─────────────────────────────────────────────
+# Cada módulo opcional se enciende/apaga por env var. Si la var NO está seteada,
+# se AUTODETECTA por la presencia de la credencial clave del módulo: así Punto
+# Rojo (que ya tiene MATIAS_*, BOLD_*, etc. configuradas) mantiene todo activo
+# sin tocar nada, y una ferretería nueva sin esas credenciales arranca mínima.
+# El valor explícito de la env var (true/false) siempre tiene prioridad.
+def _flag(nombre: str, autodetect: bool = False) -> bool:
+    v = os.getenv(nombre)
+    if v is not None and v.strip() != "":
+        return v.strip().lower() in ("true", "1", "yes", "si", "sí")
+    return autodetect
+
+
+FE_HABILITADA            = _flag("FE_HABILITADA",            autodetect=bool(os.getenv("MATIAS_EMAIL")))
+HONORARIOS_HABILITADO    = _flag("HONORARIOS_HABILITADO",    autodetect=bool(os.getenv("HONORARIOS_CHAT_ID")))
+BANCOLOMBIA_HABILITADO   = _flag("BANCOLOMBIA_HABILITADO",   autodetect=bool(os.getenv("BANCOLOMBIA_GMAIL_CLIENT_ID")))
+BOLD_HABILITADO          = _flag("BOLD_HABILITADO",          autodetect=bool(os.getenv("BOLD_WEBHOOK_SECRET")))
+WOMPI_HABILITADO         = _flag("WOMPI_HABILITADO",         autodetect=bool(os.getenv("WOMPI_EVENTS_SECRET")))
+GMAIL_COMPRAS_HABILITADO = _flag("GMAIL_COMPRAS_HABILITADO", autodetect=bool(os.getenv("GMAIL_CLIENT_ID")))
+CLOUDINARY_HABILITADO    = _flag("CLOUDINARY_HABILITADO",    autodetect=bool(os.getenv("CLOUDINARY_CLOUD_NAME")))
+IA_MEMORIA_AVANZADA      = _flag("IA_MEMORIA_AVANZADA",      autodetect=True)
+INVENTARIO_HABILITADO    = _flag("INVENTARIO_HABILITADO",    autodetect=True)
+CAJA_HABILITADA          = _flag("CAJA_HABILITADA",          autodetect=True)
+FIADOS_HABILITADO        = _flag("FIADOS_HABILITADO",        autodetect=True)
+
+
+def _validar_flags() -> None:
+    """Aborta el arranque si un flag activo carece de sus credenciales."""
+    problemas = []
+    if FE_HABILITADA and not os.getenv("MATIAS_EMAIL"):
+        problemas.append("FE_HABILITADA=true requiere MATIAS_EMAIL / MATIAS_PASSWORD / MATIAS_RESOLUTION")
+    if BANCOLOMBIA_HABILITADO and not os.getenv("BANCOLOMBIA_GMAIL_CLIENT_ID"):
+        problemas.append("BANCOLOMBIA_HABILITADO=true requiere BANCOLOMBIA_GMAIL_CLIENT_ID / _SECRET / _REFRESH_TOKEN")
+    if GMAIL_COMPRAS_HABILITADO and not os.getenv("GMAIL_CLIENT_ID"):
+        problemas.append("GMAIL_COMPRAS_HABILITADO=true requiere GMAIL_CLIENT_ID / _SECRET / _REFRESH_TOKEN")
+    if problemas:
+        print("\n❌ Configuración de feature flags inválida:")
+        for p in problemas:
+            print(f"   • {p}")
+        raise SystemExit(1)
+
+
+_validar_flags()
+
+# ─────────────────────────────────────────────
 # VERSION
 # ─────────────────────────────────────────────
 VERSION = "v9.0-pg-only"

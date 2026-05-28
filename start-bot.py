@@ -174,15 +174,16 @@ async def lifespan(app: FastAPI):
         from services.compresor_nocturno import compresor_nocturno_job
 
         scheduler = AsyncIOScheduler(timezone=str(config.COLOMBIA_TZ))
-        scheduler.add_job(
-            compresor_nocturno_job,
-            trigger=CronTrigger(hour=3, minute=0, timezone=str(config.COLOMBIA_TZ)),
-            id="compresor_nocturno",
-            name="Compresor nocturno de memoria de entidad",
-            replace_existing=True,
-            misfire_grace_time=3600,  # si el bot estuvo caído, corre hasta 1h tarde
-            max_instances=1,
-        )
+        if config.IA_MEMORIA_AVANZADA:
+            scheduler.add_job(
+                compresor_nocturno_job,
+                trigger=CronTrigger(hour=3, minute=0, timezone=str(config.COLOMBIA_TZ)),
+                id="compresor_nocturno",
+                name="Compresor nocturno de memoria de entidad",
+                replace_existing=True,
+                misfire_grace_time=3600,  # si el bot estuvo caído, corre hasta 1h tarde
+                max_instances=1,
+            )
 
         # ── Job mensual: CC + DSNO día 23 a las 9:00 AM Colombia ────────────────
         async def _job_honorarios():
@@ -274,15 +275,16 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 log.error("[honorarios-job] Error: %s", e)
 
-        scheduler.add_job(
-            _job_honorarios,
-            trigger=CronTrigger(day=23, hour=9, minute=0, timezone=str(config.COLOMBIA_TZ)),
-            id="honorarios_mensual",
-            name="Cuenta de Cobro mensual día 23",
-            replace_existing=True,
-            misfire_grace_time=3600,
-            max_instances=1,
-        )
+        if config.HONORARIOS_HABILITADO:
+            scheduler.add_job(
+                _job_honorarios,
+                trigger=CronTrigger(day=23, hour=9, minute=0, timezone=str(config.COLOMBIA_TZ)),
+                id="honorarios_mensual",
+                name="Cuenta de Cobro mensual día 23",
+                replace_existing=True,
+                misfire_grace_time=3600,
+                max_instances=1,
+            )
 
         # ── Job cada 6 días: renovar el Gmail watch de Bancolombia ──────────────
         # Google fuerza expiración a los 7 días. Corremos a los 6 para tener
@@ -321,20 +323,21 @@ async def lifespan(app: FastAPI):
                     log.warning("[watch-bancolombia] No se pudo enviar alerta Telegram: %s", te)
 
         from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
-        scheduler.add_job(
-            _job_watch_bancolombia,
-            trigger=_IntervalTrigger(days=6),
-            id="watch_bancolombia",
-            name="Renovación automática watch Gmail Bancolombia (cada 6 días)",
-            replace_existing=True,
-            max_instances=1,
-        )
+        if config.BANCOLOMBIA_HABILITADO:
+            scheduler.add_job(
+                _job_watch_bancolombia,
+                trigger=_IntervalTrigger(days=6),
+                id="watch_bancolombia",
+                name="Renovación automática watch Gmail Bancolombia (cada 6 días)",
+                replace_existing=True,
+                max_instances=1,
+            )
 
         scheduler.start()
         app.state.scheduler = scheduler
         log.info(
-            "APScheduler iniciado — compresor nocturno 3:00 AM | "
-            "honorarios día 23 9:00 AM | watch Bancolombia cada 6 días"
+            "APScheduler iniciado — compresor:%s | honorarios:%s | watch Bancolombia:%s",
+            config.IA_MEMORIA_AVANZADA, config.HONORARIOS_HABILITADO, config.BANCOLOMBIA_HABILITADO,
         )
 
         # ── Renovar watch al arranque (con 20s de delay para que el server esté listo) ─

@@ -325,6 +325,7 @@ app.add_middleware(
 )
 
 # ── Registrar routers ─────────────────────────────────────────────────────────
+# Núcleo — siempre activo, independiente de la ferretería.
 app.include_router(auth.router)
 app.include_router(usuarios.router)
 app.include_router(ventas.router)
@@ -335,14 +336,30 @@ app.include_router(reportes.router)
 app.include_router(historico.router)
 app.include_router(chat.router)
 app.include_router(proveedores.router)
-app.include_router(facturacion.router)
-app.include_router(libro_iva.router)
-app.include_router(honorarios.router)
-app.include_router(gmail_webhook.router)        # ← Gmail → compras_fiscal
-app.include_router(bold_webhook.router)         # ← Pagos Bold (QR) → Telegram
-app.include_router(wompi_webhook.router)        # ← Pagos Wompi → Telegram
-app.include_router(bancolombia_notifier.router) # ← Endpoints de estado Bancolombia
 app.include_router(events.router)         # ← SSE tiempo real
+
+# Módulos opcionales — gateados por feature flag (config.py). En Punto Rojo todos
+# se autodetectan como activos por sus credenciales; en una ferretería nueva sin
+# esas credenciales no se registran (sus endpoints responden 404).
+if _cfg.FE_HABILITADA:
+    app.include_router(facturacion.router)
+    app.include_router(libro_iva.router)            # Libro IVA implica FE/DIAN
+if _cfg.HONORARIOS_HABILITADO:
+    app.include_router(honorarios.router)
+if _cfg.GMAIL_COMPRAS_HABILITADO:
+    app.include_router(gmail_webhook.router)         # ← Gmail → compras_fiscal
+if _cfg.BOLD_HABILITADO:
+    app.include_router(bold_webhook.router)          # ← Pagos Bold (QR) → Telegram
+if _cfg.WOMPI_HABILITADO:
+    app.include_router(wompi_webhook.router)         # ← Pagos Wompi → Telegram
+if _cfg.BANCOLOMBIA_HABILITADO:
+    app.include_router(bancolombia_notifier.router)  # ← Estado Bancolombia
+
+_api_logger.info(
+    "Módulos activos — FE:%s honorarios:%s gmail_compras:%s bold:%s wompi:%s bancolombia:%s",
+    _cfg.FE_HABILITADA, _cfg.HONORARIOS_HABILITADO, _cfg.GMAIL_COMPRAS_HABILITADO,
+    _cfg.BOLD_HABILITADO, _cfg.WOMPI_HABILITADO, _cfg.BANCOLOMBIA_HABILITADO,
+)
 
 # ── Health check ─────────────────────────────────────────────────────────────
 @app.get("/api/health")
