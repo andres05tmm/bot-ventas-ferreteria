@@ -202,3 +202,46 @@ def test_content_vacio_o_none():
 def test_tool_desconocido_se_ignora():
     content = [_Block("tool_use", name="herramienta_inexistente", input={"x": 1})]
     assert tool_uses_a_tags(content) == ""
+
+
+# ─────────────────────────────────────────────
+# Wiring: tools llega (o no) a messages.create
+# ─────────────────────────────────────────────
+
+class _FakeMessages:
+    def __init__(self):
+        self.kwargs = None
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return object()  # _llamar_claude no toca .content/.usage en happy path sin métricas
+
+
+class _FakeClient:
+    def __init__(self):
+        self.messages = _FakeMessages()
+
+
+def test_llamar_claude_forwarda_tools():
+    import asyncio
+    from ai import _llamar_claude_con_reintentos
+    cli = _FakeClient()
+    asyncio.run(_llamar_claude_con_reintentos(
+        cli, 100, [{"type": "text", "text": "x"}],
+        [{"role": "user", "content": "hola"}],
+        model=TOOL_REGISTRAR_VENTA and "claude-haiku-4-5-20251001",
+        tools=TOOLS,
+    ))
+    assert cli.messages.kwargs.get("tools") == TOOLS
+
+
+def test_llamar_claude_sin_tools_no_envia_param():
+    import asyncio
+    from ai import _llamar_claude_con_reintentos
+    cli = _FakeClient()
+    asyncio.run(_llamar_claude_con_reintentos(
+        cli, 100, [{"type": "text", "text": "x"}],
+        [{"role": "user", "content": "hola"}],
+        model="claude-haiku-4-5-20251001",
+        tools=None,
+    ))
+    assert "tools" not in cli.messages.kwargs

@@ -58,6 +58,8 @@ from ai.prompts import (
 )
 # Control de budget / costo real por vendedor/día
 from ai import budget as _budget
+# Tool-calling nativo (M-01) — schemas + puente tool_use→tags
+from ai import tools as tools_mod
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS PG — reemplazan funciones de excel.py
@@ -200,10 +202,14 @@ def _pg_borrar_cliente(termino: str) -> tuple[bool, str]:
 # LLAMADA A CLAUDE CON PROMPT CACHING
 # ─────────────────────────────────────────────
 
-async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, max_reintentos=3, model: str = None):
+async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, max_reintentos=3, model: str = None, tools: list | None = None):
     """
     Wrapper para llamar a Claude con reintentos: máximo 2 reintentos (3 intentos total),
     espera fija de 2s entre ellos. Si se agota, lanza RuntimeError con mensaje amigable.
+
+    `tools` (opcional): lista de tool schemas. Si se pasa, la llamada habilita
+    tool-calling nativo (M-01). tool_choice queda en "auto" — Claude decide si
+    registrar (llamando la herramienta) o preguntar (devolviendo texto).
     """
     _model = model or MODELO_HAIKU   # default haiku si no se especifica
 
@@ -219,16 +225,16 @@ async def _llamar_claude_con_reintentos(cliente, max_tokens, system, messages, m
             _m = _model   # capturar en closure
             import time as _time
             _t0 = _time.perf_counter()
+            _kwargs = {
+                "model":      _m,
+                "max_tokens": max_tokens,
+                "system":     system,
+                "messages":   messages,
+            }
+            if tools:
+                _kwargs["tools"] = tools
             respuesta = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: cliente.messages.create(
-                        model=_m,
-                        max_tokens=max_tokens,
-                        system=system,
-                        messages=messages,
-                    )
-                ),
+                loop.run_in_executor(None, lambda: cliente.messages.create(**_kwargs)),
                 timeout=45.0,
             )
             # Métricas Prometheus — fail-silent
@@ -649,8 +655,12 @@ async def procesar_con_claude(
                 model=_modelo_no_stream
             )
     else:
+        # M-01: tool-calling nativo cuando el flag está activo. tool_choice="auto"
+        # (default) deja que Claude decida entre llamar la herramienta o preguntar.
+        _tools = tools_mod.TOOLS if config.IA_TOOL_CALLING else None
         respuesta = await _llamar_claude_con_reintentos(
-            config.claude_client, max_tokens, system, messages, model=_modelo_no_stream
+            config.claude_client, max_tokens, system, messages,
+            model=_modelo_no_stream, tools=_tools,
         )
 
     # ── Registro de uso + log de cache ─────────────────────────────────────────
@@ -679,6 +689,11 @@ async def procesar_con_claude(
             f"output={output_tokens} tok | costo≈${_costo_llamada:.5f}"
         )
 
+    # M-01: con tool-calling, la respuesta puede traer bloques tool_use además
+    # de texto. El puente los convierte a tags [VENTA] que procesar_acciones ya
+    # consume. El thinking path no usa tools → conserva el return clásico.
+    if config.IA_TOOL_CALLING and not _usar_thinking:
+        return tools_mod.tool_uses_a_tags(respuesta.content)
     return respuesta.content[0].text
 
 async def _stream_claude_chunks(system: list, messages: list, max_tokens: int, model: str = MODELO_SONNET):
