@@ -349,6 +349,19 @@ async def procesar_con_claude(
                 _metrics.bypass_hits_total.inc()
             except Exception:  # noqa: BLE001
                 pass
+    # Con IA_TOOL_CALLING activo: anular bypass si el producto es ambiguo (hay
+    # múltiples variantes del mismo producto base sin que el vendedor especificara cuál).
+    # Esto permite que el BYPASS AMBIGÜEDAD más abajo genere la pregunta determinista.
+    if _bypass and config.IA_TOOL_CALLING and not _tiene_imagen:
+        from memoria import buscar_multiples_con_alias
+        from ai.prompt_products import _detectar_ambiguedad_variante
+        _cands_q = buscar_multiples_con_alias(_msg_bypass, limite=20)
+        if _detectar_ambiguedad_variante(_cands_q, _msg_bypass):
+            logging.getLogger("ferrebot.ai").info(
+                "[AMBIGUO] bypass anulado por ambigüedad: '%s'", _msg_bypass[:60]
+            )
+            _bypass = None
+
     if _bypass:
         import json as _jbp
         _txt, _venta = _bypass
@@ -488,6 +501,40 @@ async def procesar_con_claude(
         _msg_limpio = re.sub(r'^[\d\s/\.]+', '', _msg_limpio).strip()
         _msg_limpio = re.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_limpio).strip()
         return f"No tengo {_msg_limpio} en el catálogo."
+
+    # BYPASS AMBIGÜEDAD DETERMINISTA (M-01): si el MATCH ya detectó múltiples
+    # variantes del mismo producto sin que el vendedor especificara cuál, preguntar
+    # en Python sin gastar una llamada a Claude. Solo con IA_TOOL_CALLING activo.
+    _SEÑAL_AMBIGUO = "⚠️ AMBIGUO"
+    if (config.IA_TOOL_CALLING
+            and _SEÑAL_AMBIGUO in parte_dinamica
+            and not _es_consulta
+            and not _dashboard_mode
+            and not _es_venta_varia
+            and not _tiene_imagen
+            and "=" not in mensaje_usuario
+            and "$" not in mensaje_usuario):
+        from ai.prompt_products import _base_producto
+        _idx_amb = parte_dinamica.find(_SEÑAL_AMBIGUO)
+        _lineas_amb = [l.strip() for l in parte_dinamica[_idx_amb:_idx_amb + 400].split('\n') if l.strip()]
+        _opciones_linea = _lineas_amb[1] if len(_lineas_amb) > 1 else ""
+        if _opciones_linea:
+            _ops = [o.strip() for o in _opciones_linea.split(',') if o.strip()]
+            _toks = []
+            for _op in _ops:
+                _nums = re.findall(r'\d[\d/°"\']*', _op)
+                _toks.append(_nums[-1] if _nums else _op)
+            try:
+                _toks.sort(key=lambda x: float(x.replace('"', '').replace("'", '').replace('°', '')))
+            except ValueError:
+                pass
+            _base_n = _base_producto(_ops[0])
+            _base_n = (_base_n[0].upper() + _base_n[1:]) if _base_n else _ops[0]
+            _ops_str = ', '.join(_toks[:8])
+            logging.getLogger("ferrebot.ai").info(
+                "[AMBIGUO-BYPASS] '%s' → pregunta determinista: %s", mensaje_usuario[:60], _ops_str
+            )
+            return f"¿{_base_n} de qué número? Tengo: {_ops_str}."
 
     _modo = "MATCH+SIMPLE-CAT 💡"  # fracciones en MATCH, precio_unidad en estático
 
@@ -786,6 +833,18 @@ async def procesar_con_claude_stream(
     _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
     memoria = cargar_memoria()
     _bp = bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
+
+    # Con IA_TOOL_CALLING activo: anular bypass si el producto es ambiguo
+    if _bp and config.IA_TOOL_CALLING:
+        from memoria import buscar_multiples_con_alias
+        from ai.prompt_products import _detectar_ambiguedad_variante
+        _cands_qs = buscar_multiples_con_alias(_msg_bypass, limite=20)
+        if _detectar_ambiguedad_variante(_cands_qs, _msg_bypass):
+            logging.getLogger("ferrebot.ai").info(
+                "[AMBIGUO] bypass-stream anulado por ambigüedad: '%s'", _msg_bypass[:60]
+            )
+            _bp = None
+
     if _bp:
         _txt, _venta = _bp
         if _venta.get("multi"):
@@ -829,6 +888,39 @@ async def procesar_con_claude_stream(
         _msg_lp = re.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_lp).strip()
         yield ("done", f"No tengo {_msg_lp} en el catálogo.")
         return
+
+    # BYPASS AMBIGÜEDAD DETERMINISTA (M-01) — versión stream
+    _SEÑAL_AMBIGUO2 = "⚠️ AMBIGUO"
+    if (config.IA_TOOL_CALLING
+            and _SEÑAL_AMBIGUO2 in parte_dinamica
+            and not _es_consulta
+            and not _dashboard_mode
+            and not _es_venta_varia2
+            and "=" not in mensaje_usuario
+            and "$" not in mensaje_usuario):
+        from ai.prompt_products import _base_producto
+        _idx_amb2 = parte_dinamica.find(_SEÑAL_AMBIGUO2)
+        _lineas_amb2 = [l.strip() for l in parte_dinamica[_idx_amb2:_idx_amb2 + 400].split('\n') if l.strip()]
+        _opciones_linea2 = _lineas_amb2[1] if len(_lineas_amb2) > 1 else ""
+        if _opciones_linea2:
+            _ops2 = [o.strip() for o in _opciones_linea2.split(',') if o.strip()]
+            _toks2 = []
+            for _op2 in _ops2:
+                _nums2 = re.findall(r'\d[\d/°"\']*', _op2)
+                _toks2.append(_nums2[-1] if _nums2 else _op2)
+            try:
+                _toks2.sort(key=lambda x: float(x.replace('"', '').replace("'", '').replace('°', '')))
+            except ValueError:
+                pass
+            _base_n2 = _base_producto(_ops2[0])
+            _base_n2 = (_base_n2[0].upper() + _base_n2[1:]) if _base_n2 else _ops2[0]
+            _ops_str2 = ', '.join(_toks2[:8])
+            logging.getLogger("ferrebot.ai").info(
+                "[AMBIGUO-BYPASS] stream '%s' → pregunta determinista: %s",
+                mensaje_usuario[:60], _ops_str2
+            )
+            yield ("done", f"¿{_base_n2} de qué número? Tengo: {_ops_str2}.")
+            return
 
     # ── Historial ─────────────────────────────────────────────────────────────
     _n_hist = _calcular_historial(mensaje_usuario)
