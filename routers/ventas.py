@@ -17,6 +17,7 @@ from memoria import cargar_memoria
 from routers.shared import (
     _hoy, _hace_n_dias, _leer_ventas_postgres,
     _to_float, _cantidad_a_float, _stock_wayper,
+    factura_emitida_de_consecutivo,
 )
 from routers.caja import VentaRapidaPayload, VentaRapidaItem
 from routers.deps import get_filtro_efectivo, get_current_user
@@ -533,12 +534,25 @@ def ventas_top2(
 async def eliminar_venta(numero: int):
     """
     Elimina todas las filas de un consecutivo de venta.
+
+    Bloquea (409) si la venta ya tiene factura electrónica emitida: ante la DIAN
+    debe revertirse con una nota crédito, no con un borrado (N-03).
     """
     try:
         import db as _db
 
         if not _db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
+
+        factura = factura_emitida_de_consecutivo(numero)
+        if factura:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"La venta #{numero} tiene factura electrónica {factura} emitida. "
+                    f"Para anularla debes emitir una nota crédito, no borrarla."
+                ),
+            )
 
         borradas = _db.execute(
             "DELETE FROM ventas WHERE consecutivo = %s", [numero]

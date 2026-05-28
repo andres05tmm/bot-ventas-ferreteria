@@ -141,3 +141,27 @@ def test_eliminar_venta_sin_db_retorna_error():
     """DELETE /ventas/999 sin DB disponible debe retornar 4xx o 5xx."""
     resp = client.delete("/ventas/999")
     assert resp.status_code >= 400
+
+
+def test_eliminar_venta_facturada_bloqueada_409():
+    """N-03: una venta con FE emitida no se puede borrar; debe responder 409
+    y NO ejecutar el DELETE."""
+    with patch("db.DB_DISPONIBLE", True), \
+         patch("routers.ventas.factura_emitida_de_consecutivo", return_value="FPR42"), \
+         patch("db.execute") as mock_exec:
+        resp = client.delete("/ventas/42")
+    assert resp.status_code == 409
+    assert "nota crédito" in resp.json()["detail"]
+    mock_exec.assert_not_called()
+
+
+def test_eliminar_venta_no_facturada_procede():
+    """N-03: una venta sin FE emitida se borra normalmente (200)."""
+    from unittest.mock import AsyncMock
+    with patch("db.DB_DISPONIBLE", True), \
+         patch("routers.ventas.factura_emitida_de_consecutivo", return_value=None), \
+         patch("routers.ventas.notify_all", new=AsyncMock()), \
+         patch("db.execute", return_value=1):
+        resp = client.delete("/ventas/7")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True

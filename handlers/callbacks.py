@@ -312,27 +312,36 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
             numero = borrados_pendientes.pop(chat_id, None)
 
         if confirm == "si" and numero:
-            # Borrar de Postgres
-            pg_borradas = 0
-            try:
-                import db as _db
-                if _db.DB_DISPONIBLE:
-                    rows = await asyncio.to_thread(
-                        _db.execute,
-                        "DELETE FROM ventas_detalle WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s AND fecha::date = CURRENT_DATE)",
-                        [numero],
-                    )
-                    await asyncio.to_thread(
-                        _db.execute,
-                        "DELETE FROM ventas WHERE consecutivo = %s AND fecha::date = CURRENT_DATE",
-                        [numero],
-                    )
-                    pg_borradas = 1
-            except Exception as e_pg:
-                import logging as _log
-                _log.getLogger("ferrebot.callbacks").warning(f"Error borrando de Postgres: {e_pg}")
+            # Guard N-03: no borrar ventas ya facturadas (requieren nota crédito DIAN)
+            from routers.shared import factura_emitida_de_consecutivo
+            factura = await asyncio.to_thread(factura_emitida_de_consecutivo, numero)
+            if factura:
+                await query.edit_message_text(
+                    f"⛔ El consecutivo #{numero} tiene factura electrónica {factura} emitida.\n"
+                    f"No se puede borrar: para anularla debes emitir una nota crédito."
+                )
+            else:
+                # Borrar de Postgres
+                pg_borradas = 0
+                try:
+                    import db as _db
+                    if _db.DB_DISPONIBLE:
+                        rows = await asyncio.to_thread(
+                            _db.execute,
+                            "DELETE FROM ventas_detalle WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s AND fecha::date = CURRENT_DATE)",
+                            [numero],
+                        )
+                        await asyncio.to_thread(
+                            _db.execute,
+                            "DELETE FROM ventas WHERE consecutivo = %s AND fecha::date = CURRENT_DATE",
+                            [numero],
+                        )
+                        pg_borradas = 1
+                except Exception as e_pg:
+                    import logging as _log
+                    _log.getLogger("ferrebot.callbacks").warning(f"Error borrando de Postgres: {e_pg}")
 
-            await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
+                await query.edit_message_text(f"✅ Consecutivo #{numero} eliminado.")
         else:
             await query.edit_message_text("Borrado cancelado.")
 

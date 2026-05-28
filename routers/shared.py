@@ -25,6 +25,34 @@ def _hace_n_dias(n: int) -> datetime:
     return datetime.now(config.COLOMBIA_TZ) - timedelta(days=n)
 
 
+def factura_emitida_de_consecutivo(consecutivo: int) -> str | None:
+    """
+    Si el consecutivo de venta tiene una factura electrónica emitida, retorna su
+    número (ej. 'FPR42'); si no, None.
+
+    Se usa para bloquear la anulación (DELETE) de ventas ya facturadas: ante la
+    DIAN una FE emitida solo se revierte con nota crédito, no borrando la venta.
+    Borrarla dejaría la FE huérfana y sin la nota crédito legalmente exigida.
+    """
+    try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            return None
+        row = _db.query_one(
+            """
+            SELECT factura_numero
+            FROM ventas
+            WHERE consecutivo = %s AND factura_estado = 'emitida'
+            LIMIT 1
+            """,
+            [consecutivo],
+        )
+        return (row or {}).get("factura_numero") or None
+    except Exception as e:
+        logger.warning("factura_emitida_de_consecutivo(%s) falló: %s", consecutivo, e)
+        return None
+
+
 # ── Helper: leer ventas históricas (100 % PostgreSQL) ─────────────────────────
 def _leer_excel_rango(dias: int | None = None, mes_actual: bool = False) -> list[dict]:
     """
