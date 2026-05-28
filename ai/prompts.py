@@ -127,85 +127,16 @@ como tags de texto, igual que siempre.
 
 
 # ─────────────────────────────────────────────
-# ALIAS DE FERRETERÍA (pre-procesamiento)
-# ─────────────────────────────────────────────
-
-_ALIAS_FERRETERIA = [
-    # (patrón regex, reemplazo)
-    # LIJA: el vendedor a veces escribe "$N" para el grado en lugar de "#N"
-    # "lija $60" → "lija #60" ($60 nunca es un precio válido de lija — el mínimo es $2.000)
-    # Aplica solo cuando el número va inmediatamente después de "lija $"
-    (r'\blija[s]?\s+\$(\d+)\b', r'lija #\1'),
-    # PUNTILLAS: normalizar abreviaturas y quitar "caja de" → "puntilla X"
-    (r'\bcaja[s]?\s+de\s+puntilla[s]?\b', r'puntilla'),   # "caja de puntilla" → "puntilla"
-    (r'\bpuntilla[s]?\s+(.*?)\bs\.c\.?\b', r'puntilla \g<1> sin cabeza'),  # s.c → sin cabeza
-    (r'\bpuntilla[s]?\s+(.*?)\bc\.c\.?\b', r'puntilla \g<1> con cabeza'),  # c.c → con cabeza
-    (r'\bpuntilla[s]?\s+(.*?)\bsc\b',      r'puntilla \g<1> sin cabeza'),  # sc → sin cabeza (sin puntos)
-    (r'\bpuntilla[s]?\s+(.*?)\bcc\b',      r'puntilla \g<1> con cabeza'),  # cc → con cabeza (sin puntos)
-    (r'\bs\.c\.?\b', r'sin cabeza'),   # s.c genérico
-    (r'\bc\.c\.?\b', r'con cabeza'),   # c.c genérico
-    (r'\bsc\b(?=.*puntilla|\bpuntilla)', r'sin cabeza'),  # sc genérico cerca de puntilla
-    # TORNILLOS DRYWALL: normalizar medidas para evitar confusión (6x3 vs 6x3/4)
-    # Importante: estos patrones van PRIMERO para que se apliquen antes de otros
-    (r'\btornillo[s]?\s*(?:de\s*)?drywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'tornillo drywall \g<1>x3'),
-    (r'\bdrywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'drywall \g<1>x3'),
-    (r'\b(\d+)\s*[xX]\s*3\b(?!/)\s*(?=.*(?:tornillo|drywall))', r'\g<1>x3'),
-    # Rodillo sin medida → Rodillo Convencional
-    # Evita que "3 rodillos" matchee "Rodillo de 1"", "Rodillo de 2"", etc.
-    # Solo aplica cuando NO va seguido de una medida explícita (número o pulgadas)
-    (r'\b(\d+)\s+rodillos?\b(?!\s*(?:de\s+)?\d)', lambda m: f"{m.group(1)} rodillo convencional"),
-    # Pita sin color especificado → pita para carpa azul (la más vendida)
-    # Solo aplica cuando NO va seguido de un color
-    (r'\b(\d+)\s+(?:metros?\s+(?:de\s+)?)?pitas?\b(?!\s*(?:para\s+)?(?:carpa\s+)?(?:azul|rojo|negro|blanco|amarillo))',
-        lambda m: f"{m.group(1)} pita para carpa azul"),
-    # Selladores: alias_manager convierte "sellador"→"sellante", lo normalizamos de vuelta
-    # al nombre oficial del catálogo para que el MATCH lo encuentre
-    (r'\b(?:sellante|sellador)\s+lijable\b',    r'sellador corriente'),   # lijable = corriente
-    (r'\b(?:sellante|sellador)\s+corriente\b',  r'sellador corriente'),   # normalizar sellante→sellador
-    (r'\b(?:sellante|sellador)\s+catalizado\b', r'sellador catalizado'),  # normalizar sellante→sellador
-    # Pegaternit: normalizar variantes de escritura
-    (r'\bpagaternit\b', r'pegaternit'),
-    (r'\bpega\s*ternit\b', r'pegaternit'),
-    (r'\bpegaeternit\b', r'pegaternit'),
-    # Esmalte 3en1: normalizar variantes sin espacios
-    (r'\b3en1\b', r'3 en 1'),
-    (r'\b3-en-1\b', r'3 en 1'),
-    # Thinner/Varsol: litro=1/4 galón (8000), botella/botellita=1/10 galón (4000).
-    # Convertimos directo a precio total antes de llegar a Claude.
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellitas?\s+(?:de\s+)?thinner\b',
-        lambda m: f"{int(m.group(1) or 1) * 4000} thinner" if int(m.group(1) or 1) > 1 else "thinner 4000"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellitas?\s+(?:de\s+)?varsol\b',
-        lambda m: f"{int(m.group(1) or 1) * 4000} varsol" if int(m.group(1) or 1) > 1 else "varsol 4000"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?thinner\b',
-        lambda m: f"{int(m.group(1) or 1) * 4000} thinner" if int(m.group(1) or 1) > 1 else "thinner 4000"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?varsol\b',
-        lambda m: f"{int(m.group(1) or 1) * 4000} varsol" if int(m.group(1) or 1) > 1 else "varsol 4000"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?thinner\b',
-        lambda m: f"{int(m.group(1) or 1) * 8000} thinner" if int(m.group(1) or 1) > 1 else "thinner 8000"),
-    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?varsol\b',
-        lambda m: f"{int(m.group(1) or 1) * 8000} varsol" if int(m.group(1) or 1) > 1 else "varsol 8000"),
-    # Thinner/Varsol por galones (cantidades >= 1/2 galón)
-    # "1-1/2 galón de thinner", "1 y medio galón de thinner", "2-1/2 galones thinner"
-    (r'\b(\d+)\s*-\s*1/2\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
-    (r'\b(\d+)\s+y\s+(?:medio|1/2)\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
-    (r'\b(\d+)\s+(?:galon(?:es)?)\s+y\s+(?:medio|1/2)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
-    # "medio galón de thinner", "1/2 galón thinner"
-    (r'\b(?:medio|1/2)\s*(?:galon)?\s*(?:de\s*)?(thinner|varsol)\b', r'0.5 galones \g<1>'),
-    # "2 galones de thinner", "1 galón thinner"
-    (r'\b(\d+)\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1> galones \g<2>'),
-]
-
 def aplicar_alias_ferreteria(mensaje: str) -> str:
-    r"""
-    Transforma alias comunes antes de enviar a Claude.
-
-    re.sub maneja nativamente tanto callables (lambdas) como strings con
-    backreferences \g<1>/\g<2>, por lo que no se necesita lógica especial.
     """
-    resultado = alias_manager.aplicar_aliases_dinamicos(mensaje)
-    for patron, reemplazo in _ALIAS_FERRETERIA:
-        resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
-    return resultado
+    Transforma alias comunes antes de enviar a Claude (M-06).
+
+    Delega a alias_manager.aplicar_alias_completo(), que aplica en orden:
+      1. aliases dinámicos (defaults + BD)
+      2. _ALIAS_REGEX (regex con backreferences)
+      3. _ALIAS_LAMBDA (cálculo Python: rodillo, pita, thinner/varsol por botella/litro)
+    """
+    return alias_manager.aplicar_alias_completo(mensaje)
 
 # ─────────────────────────────────────────────
 # PARTE ESTÁTICA DEL SYSTEM PROMPT (cacheable)

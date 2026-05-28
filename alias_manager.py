@@ -113,7 +113,73 @@ _ALIASES_DEFAULT: dict[str, str] = {
     # ── Marcas de pegantes ────────────────────────────────────────────────
     "peganfer":     "pegante ceramico",
     "pega fer":     "pegante ceramico",
+    # ── Typos simples de aliases ferretería (antes en ai/prompts._ALIAS_FERRETERIA) ──
+    "pegaeternit":  "pegaternit",
+    "3en1":         "3 en 1",
+    "3-en-1":       "3 en 1",
 }
+
+# ─────────────────────────────────────────────
+# ALIAS REGEX (M-06) — patterns con backreferences, sin lambda
+# ─────────────────────────────────────────────
+# Aplicados con re.sub IGNORECASE después de los aliases simples.
+# Orden importante: patrones más específicos primero.
+_ALIAS_REGEX: list[tuple] = [
+    # Lija: "$N" → "#N" (el vendedor a veces escribe $60 en lugar de #60)
+    (r'\blija[s]?\s+\$(\d+)\b',                              r'lija #\1'),
+    # Puntilla: "caja de puntilla" → "puntilla"
+    (r'\bcaja[s]?\s+de\s+puntilla[s]?\b',                    r'puntilla'),
+    # Puntilla: abreviaciones s.c./c.c./sc/cc con artículo intermedio
+    (r'\bpuntilla[s]?\s+(.*?)\bs\.c\.?\b',  r'puntilla \g<1> sin cabeza'),
+    (r'\bpuntilla[s]?\s+(.*?)\bc\.c\.?\b',  r'puntilla \g<1> con cabeza'),
+    (r'\bpuntilla[s]?\s+(.*?)\bsc\b',       r'puntilla \g<1> sin cabeza'),
+    (r'\bpuntilla[s]?\s+(.*?)\bcc\b',       r'puntilla \g<1> con cabeza'),
+    # sc genérico cerca de puntilla (lookahead)
+    (r'\bsc\b(?=.*puntilla|\bpuntilla)',                      r'sin cabeza'),
+    # Tornillos drywall: normalizar "NxM 3" → "NxM x3" (evitar confusión 6x3 vs 6x3/4)
+    (r'\btornillo[s]?\s*(?:de\s*)?drywall\s*(\d+)\s*[xX]\s*3\b(?!/)', r'tornillo drywall \g<1>x3'),
+    (r'\bdrywall\s*(\d+)\s*[xX]\s*3\b(?!/)',                            r'drywall \g<1>x3'),
+    (r'\b(\d+)\s*[xX]\s*3\b(?!/)\s*(?=.*(?:tornillo|drywall))',        r'\g<1>x3'),
+    # Selladores: normalizar "sellante" → "sellador" según variante
+    (r'\b(?:sellante|sellador)\s+lijable\b',                  r'sellador corriente'),
+    (r'\b(?:sellante|sellador)\s+corriente\b',                r'sellador corriente'),
+    (r'\b(?:sellante|sellador)\s+catalizado\b',               r'sellador catalizado'),
+    # Thinner / Varsol por galones (sin lambda — cantidad y solvente como grupos)
+    (r'\b(\d+)\s*-\s*1/2\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b',          r'\g<1>.5 galones \g<2>'),
+    (r'\b(\d+)\s+y\s+(?:medio|1/2)\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
+    (r'\b(\d+)\s+(?:galon(?:es)?)\s+y\s+(?:medio|1/2)\s*(?:de\s*)?(thinner|varsol)\b', r'\g<1>.5 galones \g<2>'),
+    (r'\b(?:medio|1/2)\s*(?:galon)?\s*(?:de\s*)?(thinner|varsol)\b',                   r'0.5 galones \g<1>'),
+    (r'\b(\d+)\s*(?:galon(?:es)?)\s*(?:de\s*)?(thinner|varsol)\b',                     r'\g<1> galones \g<2>'),
+]
+
+# ─────────────────────────────────────────────
+# ALIAS LAMBDA (M-06) — transformaciones con cálculo Python, específicas de ferretería
+# ─────────────────────────────────────────────
+# Aplicados con re.sub IGNORECASE después de _ALIAS_REGEX.
+# Usan lambda para calcular el reemplazo en tiempo de ejecución.
+_ALIAS_LAMBDA: list[tuple] = [
+    # Rodillo sin medida → Rodillo Convencional (el más vendido sin especificar tamaño)
+    (r'\b(\d+)\s+rodillos?\b(?!\s*(?:de\s+)?\d)',
+        lambda m: f"{m.group(1)} rodillo convencional"),
+    # Pita sin color → pita para carpa azul (la más vendida en Punto Rojo)
+    (r'\b(\d+)\s+(?:metros?\s+(?:de\s+)?)?pitas?\b'
+     r'(?!\s*(?:para\s+)?(?:carpa\s+)?(?:azul|rojo|negro|blanco|amarillo))',
+        lambda m: f"{m.group(1)} pita para carpa azul"),
+    # Thinner / Varsol: botella/botellita = 1/10 galón → precio total (4000)
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellitas?\s+(?:de\s+)?thinner\b',
+        lambda m: "thinner 4000" if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 4000} thinner"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellitas?\s+(?:de\s+)?varsol\b',
+        lambda m: "varsol 4000"  if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 4000} varsol"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?thinner\b',
+        lambda m: "thinner 4000" if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 4000} thinner"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?varsol\b',
+        lambda m: "varsol 4000"  if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 4000} varsol"),
+    # Thinner / Varsol: litro = 1/4 galón → precio total (8000)
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?thinner\b',
+        lambda m: "thinner 8000" if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 8000} thinner"),
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?varsol\b',
+        lambda m: "varsol 8000"  if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 8000} varsol"),
+]
 
 # Cache en RAM — cargado una vez al iniciar, actualizado en cada /alias
 _aliases: dict[str, str] = {}  # {termino_lower: reemplazo}
@@ -297,6 +363,23 @@ def aplicar_aliases_dinamicos(mensaje: str) -> str:
         patron = r'\b' + re.escape(termino) + r'\b'
         resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
 
+    return resultado
+
+
+def aplicar_alias_completo(mensaje: str) -> str:
+    """
+    Aplica la cadena completa de alias al mensaje (M-06):
+      1. Aliases dinámicos: defaults + BD (word boundaries)
+      2. _ALIAS_REGEX: regex con backreferences (sin lambda)
+      3. _ALIAS_LAMBDA: transformaciones con cálculo Python
+
+    Reemplaza la lógica antes dispersa en ai/prompts._ALIAS_FERRETERIA.
+    """
+    resultado = aplicar_aliases_dinamicos(mensaje)
+    for patron, reemplazo in _ALIAS_REGEX:
+        resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
+    for patron, reemplazo in _ALIAS_LAMBDA:
+        resultado = re.sub(patron, reemplazo, resultado, flags=re.IGNORECASE)
     return resultado
 
 
