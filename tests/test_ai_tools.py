@@ -334,3 +334,58 @@ def test_prompt_estatico_incluye_directiva_solo_con_flag():
         config.IA_TOOL_CALLING = orig
     assert "registrar_venta" in con and "REGLA PRIORITARIA" in con
     assert "REGLA PRIORITARIA" not in sin
+
+
+# ─────────────────────────────────────────────
+# Nudge de ambigüedad de variante (determinista)
+# ─────────────────────────────────────────────
+
+def _cands(*nombres):
+    return [{"nombre": n, "nombre_lower": n.lower()} for n in nombres]
+
+
+def test_ambiguo_lija_sin_grano():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    cands = _cands("Lija N°60", "Lija N°80", "Lija N°100", "Lija N°120")
+    aviso = _detectar_ambiguedad_variante(cands, "1 lija")
+    assert aviso and "AMBIGUO" in aviso and "Lija N°60" in aviso
+
+
+def test_ambiguo_disco_metal_4_7():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    cands = _cands('Disco de Corte Metal 4"', 'Disco de Corte Metal 7"',
+                   'Disco de Corte Madera 4"')
+    aviso = _detectar_ambiguedad_variante(cands, "1 disco de corte metal")
+    assert aviso and "AMBIGUO" in aviso
+
+
+def test_no_ambiguo_si_especifica_grano():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    cands = _cands("Lija N°60", "Lija N°80", "Lija N°100")
+    # "lija 80" menciona el token 80 → especificó → no ambiguo
+    assert _detectar_ambiguedad_variante(cands, "lija 80") == ""
+
+
+def test_no_ambiguo_si_especifica_medida_disco():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    cands = _cands('Disco de Corte Metal 4"', 'Disco de Corte Metal 7"')
+    assert _detectar_ambiguedad_variante(cands, "1 disco de corte metal 7") == ""
+
+
+def test_no_ambiguo_una_sola_variante():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    assert _detectar_ambiguedad_variante(_cands("Martillo"), "2 martillo") == ""
+
+
+def test_no_ambiguo_distintos_productos_base():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    # Bases distintas (no son variantes del mismo producto) → no ambiguo
+    cands = _cands("Martillo", "Brocha de 3", "Cemento Gris")
+    assert _detectar_ambiguedad_variante(cands, "varios") == ""
+
+
+def test_cantidad_inicial_no_cuenta_como_variante():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    # "4 lija" → el 4 es cantidad, no un grano; los granos son 60/80/100
+    cands = _cands("Lija N°60", "Lija N°80", "Lija N°100")
+    assert _detectar_ambiguedad_variante(cands, "4 lija") != ""

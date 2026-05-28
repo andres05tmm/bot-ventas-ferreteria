@@ -26,6 +26,75 @@ from utils import _normalizar
 logger = logging.getLogger("ferrebot.ai.prompt_products")
 
 
+# ─────────────────────────────────────────────
+# NUDGE DE AMBIGÜEDAD DE VARIANTE (M-01)
+# ─────────────────────────────────────────────
+
+_FRAC_RE = re.compile(r'\d+\s*/\s*\d+')
+_NUM_RE  = re.compile(r'\d+')
+
+
+def _tokens_variante(nombre: str) -> set[str]:
+    """Tokens que distinguen una variante: fracciones y números del nombre."""
+    nl = nombre.lower()
+    toks = set(_FRAC_RE.findall(nl))
+    toks |= set(_NUM_RE.findall(_FRAC_RE.sub(' ', nl)))
+    return {t.replace(" ", "") for t in toks}
+
+
+def _base_producto(nombre: str) -> str:
+    """Nombre base: quita números, fracciones, °, comillas y el 'N' de 'N°'."""
+    b = _FRAC_RE.sub(' ', nombre.lower())
+    b = _NUM_RE.sub(' ', b)
+    b = re.sub(r'[°"”″]', ' ', b)
+    b = re.sub(r'\bn\b', ' ', b)
+    return re.sub(r'\s+', ' ', b).strip()
+
+
+def _detectar_ambiguedad_variante(candidatos: list, mensaje_usuario: str) -> str:
+    """
+    Detección DETERMINISTA de ambigüedad de variante para el nudge (M-01).
+
+    Agrupa los candidatos del MATCH por 'nombre base' (sin tokens de número/medida).
+    Si algún grupo tiene 2+ variantes y el mensaje NO menciona un token distintivo
+    de esas variantes (descontando la cantidad inicial), retorna un aviso para que
+    Claude PREGUNTE cuál en vez de adivinar. Si no hay ambigüedad, retorna "".
+
+    Esto NO clasifica intención (no decide si es venta o consulta): solo surface un
+    hecho del catálogo (hay N variantes), igual que el MATCH o los precálculos.
+    """
+    if not candidatos or len(candidatos) < 2:
+        return ""
+
+    # Tokens del mensaje, descontando una cantidad entera al inicio ("1 lija" → "1" es qty)
+    msg_sin_qty = re.sub(r'^\s*\d+\s+', ' ', mensaje_usuario.lower())
+    msg_toks = set(_FRAC_RE.findall(msg_sin_qty))
+    msg_toks |= set(_NUM_RE.findall(_FRAC_RE.sub(' ', msg_sin_qty)))
+    msg_toks = {t.replace(" ", "") for t in msg_toks}
+
+    grupos: dict[str, list] = {}
+    for p in candidatos:
+        nombre = p.get("nombre", "")
+        if nombre:
+            grupos.setdefault(_base_producto(nombre), []).append(p)
+
+    for base, miembros in grupos.items():
+        if not base or len(miembros) < 2:
+            continue
+        distintivos: set[str] = set()
+        for m in miembros:
+            distintivos |= _tokens_variante(m.get("nombre", ""))
+        if not distintivos or (msg_toks & distintivos):
+            continue  # el vendedor ya especificó una variante → no es ambiguo
+        nombres = ", ".join(m.get("nombre", "") for m in miembros)
+        return (
+            f"⚠️ AMBIGUO — el vendedor no especificó la variante y hay {len(miembros)} "
+            f"opciones del mismo producto:\n{nombres}\n"
+            "NO registres ni adivines: respondé con TEXTO preguntando cuál variante quiere."
+        )
+    return ""
+
+
 def construir_seccion_match(
     mensaje_usuario: str,
     nombre_usuario: str,
@@ -704,6 +773,19 @@ def construir_seccion_match(
             else:
                 info_candidatos_extra = "MATCH: (sin resultados — producto no encontrado en catalogo)"
                 logger.debug("[CANDIDATOS] MATCH vacío — producto no en catálogo")
+
+    # ── NUDGE DE AMBIGÜEDAD (M-01) — solo con tool-calling activo ────────────
+    # Si el MATCH trae 2+ variantes del mismo producto base y el vendedor no
+    # especificó cuál (y no declaró total con = o $), anteponer un aviso fuerte
+    # para que Claude pregunte en vez de adivinar. Determinista, gateado por flag.
+    import config as _config_amb
+    if (getattr(_config_amb, "IA_TOOL_CALLING", False)
+            and info_candidatos_extra.startswith("MATCH:")
+            and "=" not in mensaje_usuario and "$" not in mensaje_usuario):
+        _aviso_amb = _detectar_ambiguedad_variante(candidatos, mensaje_usuario)
+        if _aviso_amb:
+            info_candidatos_extra = _aviso_amb + "\n\n" + info_candidatos_extra
+            logger.debug("[AMBIGUO] %s", _aviso_amb.splitlines()[0])
 
     partes = [p for p in [info_fracciones_extra, info_candidatos_extra] if p]
     return "\n\n".join(partes)
