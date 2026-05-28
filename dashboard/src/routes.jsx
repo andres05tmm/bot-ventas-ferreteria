@@ -9,6 +9,7 @@ import {
   History, TrendingUp, BookOpen,
   FileText, FileCheck, Calculator, FileCog,
 } from 'lucide-react'
+import { isRouteEnabled } from './config/features.js'
 
 export const ROUTES = [
   // Hoy — top-level, sin grupo
@@ -45,7 +46,7 @@ export const GROUPS = [
 ]
 
 export function routesByGroup(groupId) {
-  return ROUTES.filter(r => r.group === groupId)
+  return ROUTES.filter(r => r.group === groupId && isRouteEnabled(r.path))
 }
 
 export function findRoute(path) {

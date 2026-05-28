@@ -9,6 +9,7 @@ import { ProtectedRoute } from './components/ProtectedRoute.jsx'
 import { Toaster } from './components/ui/sonner.jsx'
 import Login from './pages/Login.jsx'
 import AppShell from './components/AppShell.jsx'
+import { isRouteEnabled } from './config/features.js'
 
 // Code-splitting por tab — cada ruta descarga su chunk on-demand.
 const TabHoy             = lazy(() => import('./tabs/TabHoy.jsx'))
@@ -92,12 +93,15 @@ export default function App() {
             <Route path="/"                    element={<Navigate to="/hoy" replace />} />
             <Route path="/hoy"                 element={<R Component={TabHoy} />} />
             <Route path="/ventas"              element={<R Component={TabVentasRapidas} />} />
-            <Route path="/caja"                element={<R Component={TabCaja} />} />
-            <Route path="/inventario"          element={<R Component={TabInventario} />} />
+            {isRouteEnabled('/caja') &&
+            <Route path="/caja"                element={<R Component={TabCaja} />} />}
+            {isRouteEnabled('/inventario') &&
+            <Route path="/inventario"          element={<R Component={TabInventario} />} />}
             <Route path="/clientes"            element={<R Component={TabClientes} />} />
             <Route path="/compras"             element={<R Component={TabCompras} />} />
             <Route path="/proveedores"         element={<R Component={TabProveedores} />} />
-            <Route path="/gastos"              element={<R Component={TabGastos} />} />
+            {isRouteEnabled('/gastos') &&
+            <Route path="/gastos"              element={<R Component={TabGastos} />} />}
             {/* /resumen fue absorbido por /hoy en Fase C — mantenemos redirect para links guardados */}
             <Route path="/resumen"             element={<Navigate to="/hoy" replace />} />
             <Route path="/historial"           element={<R Component={TabHistorial} />} />
@@ -105,11 +109,16 @@ export default function App() {
             <Route path="/historico"           element={<Navigate to="/historial?view=mes" replace />} />
             <Route path="/resultados"          element={<R Component={TabResultados} />} />
             <Route path="/resultados/top"      element={<R Component={TabTopProductos} />} />
-            <Route path="/kardex"              element={<R Component={TabKardex} />} />
-            <Route path="/facturacion"         element={<R Component={TabFacturacion} />} />
-            <Route path="/facturas-recibidas"  element={<R Component={FacturasElectronicasRecibidas} />} />
-            <Route path="/libro-iva"           element={<R Component={TabLibroIVA} />} />
-            <Route path="/compras-fiscal"      element={<R Component={TabComprasFiscal} />} />
+            {isRouteEnabled('/kardex') &&
+            <Route path="/kardex"              element={<R Component={TabKardex} />} />}
+            {isRouteEnabled('/facturacion') &&
+            <Route path="/facturacion"         element={<R Component={TabFacturacion} />} />}
+            {isRouteEnabled('/facturas-recibidas') &&
+            <Route path="/facturas-recibidas"  element={<R Component={FacturasElectronicasRecibidas} />} />}
+            {isRouteEnabled('/libro-iva') &&
+            <Route path="/libro-iva"           element={<R Component={TabLibroIVA} />} />}
+            {isRouteEnabled('/compras-fiscal') &&
+            <Route path="/compras-fiscal"      element={<R Component={TabComprasFiscal} />} />}
             <Route path="*"                    element={<Navigate to="/hoy" replace />} />
           </Route>
         </Routes>

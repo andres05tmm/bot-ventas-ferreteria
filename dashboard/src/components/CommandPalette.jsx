@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/command.jsx'
 import { Plus, RefreshCw, MessageSquare } from 'lucide-react'
 import { ROUTES, GROUPS } from '@/routes.jsx'
+import { isRouteEnabled } from '@/config/features.js'
 
 export default function CommandPalette({ open, setOpen, onRefresh }) {
   const navigate = useNavigate()
@@ -79,7 +80,7 @@ export default function CommandPalette({ open, setOpen, onRefresh }) {
         </CommandGroup>
 
         {GROUPS.map(group => {
-          const items = ROUTES.filter(r => r.group === group.id)
+          const items = ROUTES.filter(r => r.group === group.id && isRouteEnabled(r.path))
           if (!items.length) return null
           return (
             <CommandGroup key={group.id} heading={group.label}>
