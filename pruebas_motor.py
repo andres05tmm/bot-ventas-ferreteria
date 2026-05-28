@@ -240,6 +240,9 @@ CASOS: dict[str, list[tuple[list[str], str]]] = {
         (["medio kilo wayper color"], "0.5×7000 = $3.500 (WAYPER DE COLOR)"),
         (["3 waypers blancos"], "3×700 = $2.100 (WAYPER BLANCO UNIDAD)"),
         (["2 wayper blanco"], "AMBIGUO → preguntar kilo o unidad"),
+        (["2 wayper blanco", "por unidad"], "multi-turno: → 2 × WAYPER BLANCO UNIDAD = $1.600 (800 c/u)"),
+        (["2 wayper blanco", "kilo"], "multi-turno: → 2 kg WAYPER BLANCO = $20.000"),
+        (["1 wayper color", "unidad"], "multi-turno: → 1 × WAYPER DE COLOR UNIDAD = $700"),
     ],
     # Cinta Pele: S=$8.500, M=$10.000, L=$17.000, XL=$28.000. Número = precio en miles.
     "pele": [

@@ -332,6 +332,10 @@ async def procesar_con_claude(
     _dashboard_mode = "##DASHBOARD##" in mensaje_usuario
     _tiene_imagen   = imagen_b64 is not None  # True cuando viene una foto del cuaderno
     _msg_bypass = re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
+    # Mensaje crudo SIN aliases dinámicos — necesario para el resolutor de wayper:
+    # un alias en BD reescribe "wayper blanco" → "WAYPER BLANCO UNIDAD" (default a
+    # unidad), lo que ocultaría la ambigüedad kilo/unidad que el resolutor detecta.
+    _msg_pre_alias = _msg_bypass
     _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
     # ── FIX [PEDIDO ORIGINAL:] — sintetizar query limpia para MATCH ─────────
     # mensajes.py inyecta [PEDIDO ORIGINAL: X]\n[PREGUNTA DEL BOT:...]\n
@@ -349,10 +353,31 @@ async def procesar_con_claude(
         _msg_bypass = f"{_po_m2.group(1).strip()} {_rc_m2.group(1).strip()}"
         _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
         _override_msg_para_match = f"{_pfx_po_s}{_msg_bypass}"
+        # Versión limpia (pre-alias) del pedido sintetizado, para el resolutor de
+        # wayper en multi-turno ("2 wayper blanco" + "por unidad" → "2 wayper blanco por unidad").
+        _po_raw = re.search(r'\[PEDIDO ORIGINAL:\s*([^\]]+)\]', _msg_pre_alias, re.IGNORECASE)
+        _rc_raw = re.search(r'\[RESPUESTA DEL CLIENTE[^\]]*:\s*([^\]]+)\]', _msg_pre_alias, re.IGNORECASE)
+        if _po_raw and _rc_raw:
+            _msg_pre_alias = f"{_po_raw.group(1).strip()} {_rc_raw.group(1).strip()}"
         logging.getLogger("ferrebot.ai").info(
             "[PEDIDO-ORIG] sintetizando para MATCH: '%s'", _msg_bypass[:80]
         )
     memoria = cargar_memoria()
+    # ── Resolutor determinista de wayper (MEDIUM-7) ──────────────────────────
+    # El wayper se vende por kilo/medio kilo/unidad, en blanco o color. El bypass
+    # normal lo resolvía como unidad callado y Claude era inconsistente; aquí se
+    # decide determinísticamente o se pregunta kilo/unidad si es ambiguo.
+    if not _tiene_imagen and not _dashboard_mode:
+        _way = bypass.resolver_wayper(_msg_pre_alias, memoria.get("catalogo", {}))
+        if _way:
+            import json as _jw
+            _wkind, _wval = _way
+            if _wkind == "ask":
+                logging.getLogger("ferrebot.ai").info(
+                    "[WAYPER] ambiguo kilo/unidad → pregunta: '%s'", _msg_bypass[:60])
+                return _wval
+            _wtxt = f"{_wval['cantidad']:g} {_wval['producto']} — ${_wval['total']:,.0f}"
+            return f"{_wtxt}\n[VENTA]{_jw.dumps(_wval, ensure_ascii=False)}[/VENTA]"
     # Las fotos con imagen no pueden pasar por el bypass Python (no hay texto estructurado).
     # Solo intentar bypass cuando NO hay imagen.
     if _tiene_imagen:

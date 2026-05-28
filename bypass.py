@@ -175,6 +175,102 @@ def _buscar_producto_exacto(nombre_msg: str, catalogo: dict) -> dict | None:
     return None
 
 # ─────────────────────────────────────────────
+# RESOLUTOR DETERMINISTA DE WAYPER
+# ─────────────────────────────────────────────
+
+def resolver_wayper(mensaje: str, catalogo: dict) -> tuple | None:
+    """
+    Resuelve ventas de wayper de forma determinista (MEDIUM-7).
+
+    El wayper se vende en blanco o de color, y cada uno por KILO, MEDIO KILO o
+    por UNIDAD. Reglas de decisión:
+      - peso ("kilo", "kilos", "kg", "medio kilo", "cuarto de kilo", "kilo y medio")
+        → producto por KILO, cantidad en kilos.
+      - "N unidades", "N waypers" (plural), "piezas" → producto por UNIDAD.
+      - "N wayper" (singular, SIN peso ni unidad) → AMBIGUO: preguntar kilo o unidad.
+      - color/blanco obligatorio; si no se especifica → None (el skill pregunta el color).
+
+    Precios SIEMPRE del catálogo (MATCH) — no hardcodeados.
+
+    Retorna:
+      None             → no aplica (no es wayper, es multiproducto, o falta el color)
+      ("ask", texto)   → ambiguo, preguntar kilo/unidad
+      ("venta", dict)  → venta resuelta (mismo formato que el bypass)
+    """
+    m = _norm(mensaje)
+    if not re.search(r'\b(wayper|guayper|waiper)s?\b', m):
+        return None
+    if "," in mensaje or "\n" in mensaje:
+        return None  # multiproducto → Claude
+
+    if re.search(r'\bcolor(?:es)?\b|\brayas\b|\bcuadros\b', m):
+        tipo = "color"
+    elif re.search(r'\bblanc[oa]s?\b|\bwhite\b|\bnormal\b', m):
+        tipo = "blanco"
+    else:
+        return None  # color sin especificar → el skill pregunta "¿blanco o de color?"
+
+    def _find(nombre_norm: str) -> dict | None:
+        for p in catalogo.values():
+            if _norm(p.get("nombre", "")) == nombre_norm:
+                return p
+        return None
+
+    if tipo == "blanco":
+        p_kilo, p_uni = _find("wayper blanco"), _find("wayper blanco unidad")
+    else:
+        p_kilo, p_uni = _find("wayper de color"), _find("wayper de color unidad")
+    if not p_kilo or not p_uni:
+        return None
+    precio_kilo = p_kilo.get("precio_unidad")
+    precio_uni  = p_uni.get("precio_unidad")
+    if not precio_kilo or not precio_uni:
+        return None
+
+    # ── Modo y cantidad ──────────────────────────────────────────────────────
+    # Frases de peso específicas primero (cantidad implícita).
+    modo = cant = None
+    if re.search(r'\bmedi[oa]\s+kilo\b', m):
+        modo, cant = "kilo", 0.5
+    elif re.search(r'\b(?:un\s+)?cuarto\s+(?:de\s+)?kilo\b', m):
+        modo, cant = "kilo", 0.25
+    elif re.search(r'\bkilo\s+y\s+medio\b', m):
+        modo, cant = "kilo", 1.5
+    else:
+        # Indicadores (pueden NO ser adyacentes al número, ej. respuesta multi-turno
+        # "2 wayper blanco por unidad" o "... por kilo").
+        _has_kilo = bool(re.search(r'\bkilos?\b|\bkg\b', m))
+        _has_uni  = bool(re.search(r'\bunidad(?:es)?\b|\bpiezas?\b', m)
+                         or re.search(r'\b(?:wayper|guayper|waiper)s\b', m))  # plural = unidades
+        _mn = re.search(r'(\d+(?:[.,]\d+)?)', m)
+        _qty = float(_mn.group(1).replace(",", ".")) if _mn else 1.0
+        if _has_kilo and not _has_uni:
+            if re.search(r'\by\s+medio\b', m):
+                _qty += 0.5
+            modo, cant = "kilo", _qty
+        elif _has_uni and not _has_kilo:
+            modo, cant = "unidad", _qty
+        else:
+            # "N wayper [tipo]" sin peso ni unidad (o conflicto) → ambiguo: preguntar.
+            _n = _mn.group(1) if _mn else "1"
+            _tlabel = "de color" if tipo == "color" else "blanco"
+            return ("ask",
+                    f"¿Los {_n} wayper {_tlabel} son por kilo o por unidad? "
+                    f"(kilo=${precio_kilo:,.0f}, unidad=${precio_uni:,.0f})")
+
+    if modo == "kilo":
+        nombre, precio = p_kilo["nombre"], precio_kilo
+    else:
+        nombre, precio = p_uni["nombre"], precio_uni
+    total = round(cant * precio)
+    venta = {
+        "producto": nombre, "cantidad": cant, "total": total,
+        "precio_unitario": precio, "metodo_pago": "",
+    }
+    return ("venta", venta)
+
+
+# ─────────────────────────────────────────────
 # FUNCIÓN PRINCIPAL
 # ─────────────────────────────────────────────
 
