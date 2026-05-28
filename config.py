@@ -80,6 +80,10 @@ IA_MEMORIA_AVANZADA      = _flag("IA_MEMORIA_AVANZADA",      autodetect=True)
 INVENTARIO_HABILITADO    = _flag("INVENTARIO_HABILITADO",    autodetect=True)
 CAJA_HABILITADA          = _flag("CAJA_HABILITADA",          autodetect=True)
 FIADOS_HABILITADO        = _flag("FIADOS_HABILITADO",        autodetect=True)
+# Motor IA con tool-calling nativo (M-01). Default OFF: el camino de tags de
+# texto sigue siendo el activo hasta encender el flag en Railway. Permite
+# rollback instantáneo sin redeploy.
+IA_TOOL_CALLING          = _flag("IA_TOOL_CALLING",          autodetect=False)
 
 
 def _validar_flags() -> None:
