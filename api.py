@@ -483,12 +483,32 @@ if _DIST.exists():
             return FileResponse(f, media_type="application/javascript")
         return {"error": "sw.js no encontrado"}
 
+    # H-11: en vez de una blocklist hardcoded de prefijos con guión, computamos
+    # dinámicamente los primeros segmentos de TODAS las rutas API registradas.
+    # Cualquier nuevo router que se agregue queda protegido automáticamente —
+    # sin riesgo de que el catch-all SPA devuelva index.html con 200 cuando
+    # debería ser 404.
+    def _api_prefixes() -> set[str]:
+        prefixes: set[str] = set()
+        for route in app.router.routes:
+            path = getattr(route, "path", "")
+            if not path or not path.startswith("/"):
+                continue
+            # Toma el primer segmento (entre la primera y la segunda "/")
+            first = path[1:].split("/", 1)[0]
+            # Ignora parametrizados ({full_path:path}, {id}, etc.)
+            if first and "{" not in first:
+                prefixes.add(first)
+        return prefixes
+
+    _API_PREFIXES = _api_prefixes()
+    _api_logger.info("SPA catch-all bloqueará %d prefijos API: %s",
+                     len(_API_PREFIXES), sorted(_API_PREFIXES))
+
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
-        # Rutas con guiones que el catch-all intercepta antes que el router.
-        # Solo bloqueamos estas — NO "auth" ni otras que usen GET (ej: callback Telegram).
-        _API_HYPHEN_PREFIXES = ("compras-fiscal", "libro-iva")
-        if any(full_path.startswith(p) for p in _API_HYPHEN_PREFIXES):
+        first = full_path.split("/", 1)[0]
+        if first in _API_PREFIXES:
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Ruta API no encontrada")
 

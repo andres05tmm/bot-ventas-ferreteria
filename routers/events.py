@@ -152,9 +152,22 @@ async def notify_all(event_type: str, data: dict | None = None) -> None:
             )
         log.debug("notify_all via pg_notify: %s", event_type)
     except Exception as exc:
-        log.warning(
-            "notify_all: pg_notify falló (%s) — usando broadcast local como fallback", exc
+        # H-04: pg_notify falló — solo las réplicas conectadas a ESTA instancia
+        # recibirán el evento por el broadcast local. En multi-réplica esto
+        # significa que los dashboards conectados a OTRAS réplicas no se
+        # enteran. Loguear como ERROR (no warning) para que Sentry lo capture
+        # y registrar el tipo de evento perdido para diagnóstico.
+        log.error(
+            "notify_all: pg_notify falló para evento '%s' (%s) — "
+            "fallback a broadcast local. Dashboards en otras réplicas no recibirán este evento.",
+            event_type, exc,
         )
+        # Métrica Prometheus: contar eventos que cayeron al fallback.
+        if _metrics is not None:
+            try:
+                _metrics.sse_pg_notify_fallback_total.labels(event_type=event_type).inc()
+            except Exception:
+                pass
         broadcast(event_type, data)
 
 

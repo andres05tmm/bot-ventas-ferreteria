@@ -256,6 +256,12 @@ CREATE TABLE IF NOT EXISTS clientes (
 );
 -- Columna añadida post-v1; idempotente en DBs ya existentes
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS direccion VARCHAR(300);
+-- H-13: clientes.regimen_fiscal se crea acá como INTEGER (1=Responsable IVA,
+-- 2=No Responsable) para que BDs nuevas no pasen por el VARCHAR de
+-- migrations/008 → migrations/012_fix_regimen_fiscal. ADD COLUMN IF NOT
+-- EXISTS no toca BDs viejas que ya la tienen como VARCHAR — esas usan la
+-- migración de normalización 012 una sola vez.
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS regimen_fiscal INTEGER DEFAULT 2;
 
 -- ───────────────────────────────────────────────────────────────
 -- VENTAS

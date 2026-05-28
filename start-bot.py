@@ -112,6 +112,14 @@ from keepalive import loop_keepalive  # noqa: E402
 
 _WEBHOOK_PATH = f"/{config.TELEGRAM_TOKEN}"
 
+# H-08: secret token enviado a Telegram en set_webhook(). Telegram lo devuelve
+# en el header X-Telegram-Bot-Api-Secret-Token de cada POST. Si no coincide
+# con el valor configurado, rechazamos con 401 — protege contra POSTs falsos
+# que conozcan el path del token (que aparece en cualquier log HTTP).
+# Si la env var TELEGRAM_WEBHOOK_SECRET no está seteada, fail-open (igual que
+# el resto del middleware en dev). En producción es recomendado configurarla.
+_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -135,12 +143,24 @@ async def lifespan(app: FastAPI):
     except Exception as _me:
         log.warning(f"⚠️ No se pudo inicializar métricas: {_me}")
 
-    # Registrar webhook: Telegram enviará los updates a WEBHOOK_URL/TOKEN
+    # Registrar webhook: Telegram enviará los updates a WEBHOOK_URL/TOKEN.
+    # H-08: si TELEGRAM_WEBHOOK_SECRET está configurado, lo registramos con
+    # set_webhook(secret_token=...). Telegram lo devolverá en el header
+    # X-Telegram-Bot-Api-Secret-Token y el handler lo validará.
     webhook_url = f"{config.WEBHOOK_URL}{_WEBHOOK_PATH}"
-    await tg_app.bot.set_webhook(
-        url=webhook_url,
-        allowed_updates=Update.ALL_TYPES,
-    )
+    _set_webhook_kwargs = {
+        "url": webhook_url,
+        "allowed_updates": Update.ALL_TYPES,
+    }
+    if _WEBHOOK_SECRET:
+        _set_webhook_kwargs["secret_token"] = _WEBHOOK_SECRET
+        log.info("🔐 Webhook protegido con secret_token (env TELEGRAM_WEBHOOK_SECRET)")
+    else:
+        log.warning(
+            "⚠️ TELEGRAM_WEBHOOK_SECRET no configurada — webhook acepta cualquier "
+            "POST al path /TOKEN. Configurar en producción."
+        )
+    await tg_app.bot.set_webhook(**_set_webhook_kwargs)
     log.info(f"✅ Webhook registrado: {webhook_url}")
 
     # Keepalive del prompt cache de Anthropic
@@ -225,7 +245,8 @@ async def lifespan(app: FastAPI):
                         caption=caption,
                         parse_mode="Markdown",
                     )
-                    _db.execute(
+                    # H-05: execute_async para no bloquear el event loop con I/O de PG
+                    await _db.execute_async(
                         "UPDATE cuentas_cobro SET enviado_telegram = TRUE WHERE consecutivo = %s",
                         [resultado_cc["consecutivo"]],
                     )
@@ -348,7 +369,20 @@ fastapi_app = FastAPI(lifespan=lifespan)
 
 @fastapi_app.post(_WEBHOOK_PATH)
 async def telegram_webhook(request: Request) -> Response:
-    """Recibe un update de Telegram y lo despacha al bot."""
+    """Recibe un update de Telegram y lo despacha al bot.
+
+    H-08: valida el header X-Telegram-Bot-Api-Secret-Token contra
+    TELEGRAM_WEBHOOK_SECRET si está configurado. Sin la env var,
+    cualquier POST al path del token es aceptado (compat dev).
+    """
+    if _WEBHOOK_SECRET:
+        recibido = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if recibido != _WEBHOOK_SECRET:
+            log.warning(
+                "POST /TOKEN rechazado — secret_token inválido (header presente: %s)",
+                bool(recibido),
+            )
+            return Response(status_code=401)
     data = await request.json()
     tg_app = request.app.state.tg_app
     update = Update.de_json(data, tg_app.bot)

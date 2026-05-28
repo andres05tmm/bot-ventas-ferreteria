@@ -183,6 +183,14 @@ sse_events_broadcast_total = Counter(
     registry=REGISTRY,
 )
 
+sse_pg_notify_fallback_total = Counter(
+    "ferrebot_sse_pg_notify_fallback_total",
+    "Veces que notify_all cayó al broadcast local porque pg_notify falló. "
+    "En multi-réplica, los eventos contados acá NO llegaron a otras réplicas.",
+    labelnames=["event_type"],
+    registry=REGISTRY,
+)
+
 # ─────────────────────────────────────────────
 # DB POOL (psycopg2 ThreadedConnectionPool, maxconn=10)
 # ─────────────────────────────────────────────
