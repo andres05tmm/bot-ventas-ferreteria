@@ -80,6 +80,8 @@ def _leer_catalogo_postgres(db_module) -> dict:
     catalogo = {}
     for p in productos:
         prod_dict = {
+            "id": p["id"],
+            "clave": p["clave"],
             "nombre": p["nombre"],
             "nombre_lower": p["nombre_lower"],
             "categoria": p["categoria"] or "",
