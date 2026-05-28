@@ -245,3 +245,72 @@ def test_llamar_claude_sin_tools_no_envia_param():
         tools=None,
     ))
     assert "tools" not in cli.messages.kwargs
+
+
+# ─────────────────────────────────────────────
+# Streaming: done trae tags (con tools) / texto (sin tools)
+# ─────────────────────────────────────────────
+
+class _FakeStream:
+    """Imita el context manager de config.claude_client.messages.stream(...)."""
+    def __init__(self, texts, final):
+        self._texts = texts
+        self._final = final
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+    @property
+    def text_stream(self):
+        for t in self._texts:
+            yield t
+    def get_final_message(self):
+        return self._final
+
+
+def _correr_stream(texts, final, tools):
+    import asyncio
+    import types
+    import config
+    from ai import _stream_claude_chunks
+    orig = config.claude_client
+    config.claude_client = types.SimpleNamespace(
+        messages=types.SimpleNamespace(stream=lambda **kw: _FakeStream(texts, final))
+    )
+    try:
+        async def _collect():
+            out = []
+            async for k, d in _stream_claude_chunks(
+                [{"type": "text", "text": "x"}],
+                [{"role": "user", "content": "2 martillo"}],
+                100, model="claude-haiku-4-5-20251001", tools=tools,
+            ):
+                out.append((k, d))
+            return out
+        return asyncio.run(_collect())
+    finally:
+        config.claude_client = orig
+
+
+def test_stream_done_trae_tags_con_tools():
+    import types
+    final = types.SimpleNamespace(
+        content=[_Block("tool_use", name="registrar_venta",
+                        input={"producto": "Martillo", "cantidad": 1, "total": 15000})],
+        usage=None,
+    )
+    eventos = _correr_stream(texts=[], final=final, tools=TOOLS)
+    kinds = [k for k, _ in eventos]
+    assert "done" in kinds
+    done_payload = next(d for k, d in eventos if k == "done")
+    assert _ventas_parseadas(done_payload) == [{"producto": "Martillo", "cantidad": 1, "total": 15000}]
+
+
+def test_stream_done_es_texto_sin_tools():
+    import types
+    final = types.SimpleNamespace(content=[_Block("text", text="hola mundo")], usage=None)
+    eventos = _correr_stream(texts=["hola ", "mundo"], final=final, tools=None)
+    chunks = [d for k, d in eventos if k == "chunk"]
+    done_payload = next(d for k, d in eventos if k == "done")
+    assert chunks == ["hola ", "mundo"]          # los deltas se streamean igual
+    assert done_payload == "hola mundo"          # sin tools, done = texto acumulado

@@ -696,13 +696,18 @@ async def procesar_con_claude(
         return tools_mod.tool_uses_a_tags(respuesta.content)
     return respuesta.content[0].text
 
-async def _stream_claude_chunks(system: list, messages: list, max_tokens: int, model: str = MODELO_SONNET):
+async def _stream_claude_chunks(system: list, messages: list, max_tokens: int, model: str = MODELO_SONNET, tools: list | None = None):
     """
     Async generator que hace streaming de Claude usando un thread + asyncio.Queue.
     Yields: ("chunk", text_piece) durante el stream
             ("usage", usage_obj)  justo antes de "done" (para tracking de costo)
             ("done",  full_text)  al finalizar
             ("error", error_str)  en caso de fallo
+
+    M-01: si `tools` viene, los text deltas se streamean igual (la prosa que
+    Claude emita), pero el payload de "done" se arma desde get_final_message()
+    con el puente tool_uses_a_tags — así los bloques tool_use (que NO salen por
+    text_stream) se convierten a tags [VENTA] para procesar_acciones.
     """
     import threading
     loop = asyncio.get_event_loop()
@@ -710,25 +715,33 @@ async def _stream_claude_chunks(system: list, messages: list, max_tokens: int, m
 
     def _sync_worker():
         try:
-            with config.claude_client.messages.stream(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=messages,
-            ) as stream:
+            _kwargs = {
+                "model":      model,
+                "max_tokens": max_tokens,
+                "system":     system,
+                "messages":   messages,
+            }
+            if tools:
+                _kwargs["tools"] = tools
+            with config.claude_client.messages.stream(**_kwargs) as stream:
                 full = ""
                 for text in stream.text_stream:
                     full += text
                     loop.call_soon_threadsafe(q.put_nowait, ("chunk", text))
-                # Extraer usage del mensaje final para tracking de costo
+                # Extraer usage + content final para tracking de costo y tools
                 _usage = None
+                _final = None
                 try:
                     _final = stream.get_final_message()
                     _usage = getattr(_final, "usage", None)
                 except Exception:
                     _usage = None
                 loop.call_soon_threadsafe(q.put_nowait, ("usage", _usage))
-                loop.call_soon_threadsafe(q.put_nowait, ("done", full))
+                if tools and _final is not None:
+                    _done_payload = tools_mod.tool_uses_a_tags(_final.content)
+                else:
+                    _done_payload = full
+                loop.call_soon_threadsafe(q.put_nowait, ("done", _done_payload))
         except Exception as exc:
             loop.call_soon_threadsafe(q.put_nowait, ("error", str(exc)))
 
@@ -882,7 +895,10 @@ async def procesar_con_claude_stream(
     yield ("model", _modelo)
 
     # ── Stream ────────────────────────────────────────────────────────────────
-    async for kind, data in _stream_claude_chunks(system, messages, max_tokens, model=_modelo):
+    # M-01: habilita tool-calling cuando el flag está activo. El payload de
+    # "done" trae texto+tags armados desde get_final_message (ver _stream_claude_chunks).
+    _tools_stream = tools_mod.TOOLS if config.IA_TOOL_CALLING else None
+    async for kind, data in _stream_claude_chunks(system, messages, max_tokens, model=_modelo, tools=_tools_stream):
         # Interceptar el evento "usage" para registrar costo sin propagarlo
         # al caller (que solo espera chunk/done/error/model).
         if kind == "usage":
