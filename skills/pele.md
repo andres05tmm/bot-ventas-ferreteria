@@ -5,11 +5,13 @@ Orden típico: S (más barato) → M → L → XL (más caro).
 
 ### CUANDO EL CLIENTE DA UN NÚMERO SIN UNIDAD DE MEDIDA
 "pele de 30", "pele 28", "pele 17" → el número se refiere al PRECIO en miles de pesos.
-Busca en el MATCH cuál talla tiene ese precio y úsala.
-Ejemplos:
-- "pele de 30" → buscar talla con precio ~$30.000 en el MATCH → probablemente XL
-- "pele de 17" → buscar talla con precio ~$17.000 en el MATCH → probablemente L
-- "pele de 10" → buscar talla con precio ~$10.000 en el MATCH → probablemente M
+Busca en el MATCH la talla con ESE precio exacto y REGÍSTRALA directamente (no preguntes).
+Solo pregunta si NINGUNA talla del MATCH coincide con el precio dicho.
+Ejemplos (precios del MATCH):
+- "pele de 28" → Cinta Pele XL ($28.000) → registrar
+- "pele de 17" → Cinta Pele L ($17.000) → registrar
+- "pele de 10" → Cinta Pele M ($10.000) → registrar
+- "pele de 8" o "pele de 8500" → Cinta Pele S ($8.500) → registrar
 
 ### CUANDO EL CLIENTE DA PRECIO EXPLÍCITO CON $
 "pele de 30 $17.000" → usa $17.000 como precio Y busca qué talla tiene ese precio en el MATCH.

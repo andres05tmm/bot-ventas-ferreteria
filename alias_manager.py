@@ -182,6 +182,12 @@ _ALIAS_LAMBDA: list[tuple] = [
         lambda m: "thinner 8000" if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 8000} thinner"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?varsol\b',
         lambda m: "varsol 8000"  if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 8000} varsol"),
+    # Carbonato en bolsa → "Carbonato X 25 Kg". "bolsa de carbonato" sin el "25 kg"
+    # no matchea el producto (la palabra "bolsa" arrastra otros productos en bolsa).
+    # Inyectar "25 kg" hace que el MATCH encuentre el producto correcto.
+    (r'\b(?:un[ao]?\s+)?(\d+)?\s*bolsas?\s+(?:de\s+)?carbonato\b',
+        lambda m: "carbonato 25 kg" if int(m.group(1) or 1) == 1 else f"{int(m.group(1))} carbonato 25 kg"),
+    (r'\bcarbonato\s+(?:en\s+)?bolsa\b', lambda m: "carbonato 25 kg"),
 ]
 
 # Cache en RAM — cargado una vez al iniciar, actualizado en cada /alias

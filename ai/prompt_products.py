@@ -67,6 +67,14 @@ def _nudge_ambiguo(miembros: list) -> str:
 
 _LABEL_NUM_RE = re.compile(r'^[\d°º"\'/.\-x×]+$', re.IGNORECASE)
 
+# Palabras de medida: si aparecen en el mensaje y el grupo ambiguo tiene una
+# variante "suelta" (sin token numérico, ej "Carbonato x Kg" frente a la bolsa
+# "Carbonato X 25 Kg"), la unidad selecciona la variante suelta → no es ambiguo.
+_UNIDADES_MEDIDA = {
+    "kilo", "kilos", "kg", "kgs", "gramo", "gramos", "gr", "grs",
+    "litro", "litros", "lt", "metro", "metros", "cm", "ml", "mililitros",
+}
+
 
 def _etiquetas_ambiguedad(opciones: list[str]) -> tuple[str, list[str], bool]:
     """
@@ -150,6 +158,7 @@ def _detectar_ambiguedad_variante(candidatos: list, mensaje_usuario: str) -> str
         if nombre:
             grupos.setdefault(_base_producto(nombre), []).append(p)
 
+    msg_tiene_unidad = bool(msg_palabras & _UNIDADES_MEDIDA)
     for base, miembros in grupos.items():
         if not base or len(miembros) < 2:
             continue
@@ -158,6 +167,11 @@ def _detectar_ambiguedad_variante(candidatos: list, mensaje_usuario: str) -> str
             distintivos |= _tokens_variante(m.get("nombre", ""))
         if not distintivos or (msg_toks & distintivos):
             continue  # el vendedor ya especificó una variante → no es ambiguo
+        # Variante suelta (sin token) + unidad de medida en el mensaje → el peso
+        # selecciona la suelta (ej "3 kilos carbonato" vs bolsa "Carbonato X 25 Kg").
+        hay_suelta = any(not _tokens_variante(m.get("nombre", "")) for m in miembros)
+        if hay_suelta and msg_tiene_unidad:
+            continue
         return _nudge_ambiguo(miembros)
 
     # ── B) AMBIGÜEDAD POR PALABRA/COLOR — misma firma numérica, distinta palabra ─
