@@ -377,10 +377,57 @@ async def procesar_con_claude(
     # candidatos con el contenido del último turno del usuario en el historial.
     # IMPORTANTE: solo se usa para construir candidatos — el mensaje real que
     # va a Claude sigue siendo mensaje_usuario sin modificar.
+    #
+    # V-11 (Sprint 3): tres guards adicionales para evitar falsos positivos
+    # del estilo "Hola" → bot intentando registrar venta de cerraduras de
+    # hace una hora. Sin estos guards, cualquier mensaje corto sin coma se
+    # interpretaba como continuación del último turno del usuario, aunque
+    # ese turno fuera de horas atrás o de otro vendedor en el mismo grupo.
     _msg_para_match = mensaje_usuario
     if historial_chat:
         _palabras_match = [w for w in _msg_bypass.lower().split() if len(w) > 2]
         _es_clarificacion = len(_palabras_match) <= 6 and "," not in _msg_bypass
+
+        # Guard 1: lista de "no-clarificaciones" obvias (saludos, agradecimientos,
+        # respuestas afirmativas/negativas, muletillas). Si el mensaje (en su
+        # forma normalizada, sin el prefijo "Vendedor: ") es exactamente uno
+        # de estos términos o empieza por uno, NO es continuación de nada.
+        if _es_clarificacion:
+            # Quitar prefijo "Vendedor: " si está presente para el chequeo.
+            _msg_limpio = _msg_bypass.lower().strip()
+            if ":" in _msg_limpio:
+                _msg_limpio = _msg_limpio.split(":", 1)[1].strip()
+            _NO_CLARIFICACIONES = {
+                "hola", "buenas", "buenas tardes", "buenos dias", "buenos días",
+                "buenas noches", "saludos", "ola", "hey",
+                "gracias", "muchas gracias", "ok", "vale", "listo", "dale",
+                "perfecto", "si", "sí", "no", "ya", "claro",
+                "jaja", "jeje", "jajaja", "mmm", "mm",
+                "chao", "adios", "adiós", "hasta luego", "bye",
+                "?", "??", "???",
+            }
+            if _msg_limpio in _NO_CLARIFICACIONES:
+                _es_clarificacion = False
+                logging.getLogger("ferrebot.ai").info(
+                    "[multi-turno] descartado — saludo/muletilla: '%s'", mensaje_usuario[:60]
+                )
+
+        # Guard 2: solo augmentar si el ÚLTIMO turno del assistant terminó en
+        # pregunta. Si el bot no preguntó nada, no hay razón para asumir que
+        # el usuario está aclarando algo.
+        if _es_clarificacion:
+            _ultimo_assistant = None
+            for _hmsg in reversed(historial_chat):
+                if _hmsg.get("role") == "assistant":
+                    _ultimo_assistant = _hmsg.get("content", "") or ""
+                    break
+            if not _ultimo_assistant or not _ultimo_assistant.rstrip().endswith("?"):
+                _es_clarificacion = False
+                if _ultimo_assistant is not None:
+                    logging.getLogger("ferrebot.ai").info(
+                        "[multi-turno] descartado — bot no preguntó nada en el turno anterior"
+                    )
+
         if _es_clarificacion:
             for _hmsg in reversed(historial_chat):
                 if _hmsg.get("role") == "user":
