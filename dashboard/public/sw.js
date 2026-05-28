@@ -1,7 +1,7 @@
 // Service Worker — Ferretería Punto Rojo Dashboard
 // Estrategia: Network First para la API, Cache First para assets estáticos
 
-const CACHE_NAME = 'puntorojo-v2'
+const CACHE_NAME = 'puntorojo-v3'
 
 // Assets que se cachean al instalar
 const PRECACHE = [
@@ -34,8 +34,17 @@ self.addEventListener('fetch', event => {
   const { request } = event
   const url = new URL(request.url)
 
+  // Solicitudes que NUNCA se cachean: cualquier método != GET (Cache API solo
+  // soporta GET — un POST/PUT/DELETE rompía con "Request method 'POST' is
+  // unsupported"). Van siempre a la red.
+  if (request.method !== 'GET') {
+    event.respondWith(fetch(request))
+    return
+  }
+
   // Requests a la API → siempre red (datos en tiempo real)
   if (
+    url.pathname.startsWith('/auth') ||
     url.pathname.startsWith('/ventas') ||
     url.pathname.startsWith('/caja') ||
     url.pathname.startsWith('/chat') ||
@@ -47,6 +56,11 @@ self.addEventListener('fetch', event => {
     url.pathname.startsWith('/resultados') ||
     url.pathname.startsWith('/historico') ||
     url.pathname.startsWith('/clientes') ||
+    url.pathname.startsWith('/proveedores') ||
+    url.pathname.startsWith('/facturacion') ||
+    url.pathname.startsWith('/honorarios') ||
+    url.pathname.startsWith('/libro-iva') ||
+    url.pathname.startsWith('/events') ||
     url.pathname.startsWith('/api')
   ) {
     event.respondWith(

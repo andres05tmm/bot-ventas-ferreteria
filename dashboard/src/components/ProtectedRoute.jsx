@@ -14,7 +14,11 @@ export const ProtectedRoute = ({ children }) => {
       return
     }
 
-    fetch('/api/auth/me', {
+    // El endpoint real es /auth/me (sin prefijo /api), igual que Login.jsx
+    // usa /auth/telegram. El /api anterior funcionaba por accidente porque el
+    // catch-all SPA servía index.html con 200; tras endurecer el catch-all
+    // (H-11) /api/auth/me pasó a devolver 404 y rebotaba la sesión a /login.
+    fetch('/auth/me', {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => {
