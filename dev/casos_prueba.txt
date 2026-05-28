@@ -1,0 +1,45 @@
+# Casos de prueba del chatbot — un mensaje por línea.
+# Líneas con # son comentarios. Correr con:
+#   python dev/probar_bot.py --batch dev/casos_prueba.txt
+# Cada bloque indica el comportamiento ESPERADO para revisar a ojo.
+
+# ── Ventas simples (debe registrar 1 VENTA, sin texto) ──
+2 martillo
+3 brochas de 3 pulgadas
+
+# ── Precio declarado con $ o = (el total es lo declarado, sin comparar catálogo) ──
+3 waype color $2000
+348 tornillos 6x3/4= 17000
+1 espatula metalica= 6000
+
+# ── Fracciones (la fracción va en cantidad, no en el nombre) ──
+1/4 laca miel catalizada = 17000
+1-1/2 vinilo t1 blanco
+medio kilo de acronal
+
+# ── Thinner/Varsol (lógica especial de litros/galones) ──
+2 galones de thinner
+una botella de thinner
+
+# ── Cuñete (sin cantidad = 1 completo) ──
+1 cuñete vinilo blanco t1
+
+# ── Venta varia (ajuste de caja, NO producto) ──
+no se alcanzó a anotar 80000
+venta varia 50000 efectivo
+
+# ── Ambigüedad de variante (debe PREGUNTAR, NO registrar) ──
+1 disco de corte metal
+1 lija
+
+# ── Producto fuera de catálogo CON total (registra igual + aviso) ──
+1 boquilla blanca $8.500
+
+# ── Conversación / consultas (NO debe registrar venta) ──
+hola
+buenos días
+cuanto vendimos hoy
+cuánto cuesta el martillo
+
+# ── Método de pago explícito ──
+2 cemento gris transferencia
