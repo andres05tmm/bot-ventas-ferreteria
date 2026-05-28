@@ -97,6 +97,13 @@ _ALIASES_DEFAULT: dict[str, str] = {
     "drawall":      "drywall",
     "drywll":       "drywall",
     "driwoll":      "drywall",
+    "drygual":      "drywall",
+    "drigual":      "drywall",
+    "draigual":     "drywall",
+    "draiwol":      "drywall",
+    "draiwall":     "drywall",
+    "drywal":       "drywall",
+    "driwall":      "drywall",
     # ── Otros typos frecuentes ────────────────────────────────
     "rodachines":   "rodachina",
     "rodachin":     "rodachina",

@@ -25,6 +25,21 @@ from utils import _normalizar
 
 logger = logging.getLogger("ferrebot.ai.prompt_products")
 
+# Directiva de los bloques de TOTALES PRECALCULADOS. Bloquea identidad de
+# producto además del total: el sistema ya resolvió el producto correcto (incl.
+# typos como "drygual"→drywall); Claude NO debe sustituirlo por otro del catálogo
+# estático aunque el nombre escrito tenga errores (bug MP-2: "drygual 6x2" caía
+# en "TORNILLOS HEX GALVANIZADO" en vez de TORNILLO DRYWALL 6X2).
+_DIRECTIVA_PRECALC = (
+    "TOTALES PRECALCULADOS (registra EXACTAMENTE este producto, cantidad y total "
+    "— NO recalcules NI sustituyas por otro producto del catálogo aunque el nombre "
+    "del pedido tenga errores de escritura):"
+)
+_DIRECTIVA_PRECALC_PUNTILLAS = (
+    "TOTALES PRECALCULADOS PUNTILLAS (registra EXACTAMENTE este producto, cantidad "
+    "y total — NO recalcules NI sustituyas por otro producto):"
+)
+
 
 # ─────────────────────────────────────────────
 # NUDGE DE AMBIGÜEDAD DE VARIANTE (M-01)
@@ -411,7 +426,7 @@ def construir_seccion_match(
                     f"({n_ent}x${p_gal:,} + {frac}=${p_fr:,})"
                 )
             info_fracciones_extra = (
-                "TOTALES PRECALCULADOS (USA EXACTAMENTE, NO recalcules):\n"
+                _DIRECTIVA_PRECALC + "\n"
                 + "\n".join(lineas)
             )
             logger.debug("[PRECALCULADO] %s", info_fracciones_extra)
@@ -487,7 +502,7 @@ def construir_seccion_match(
 
     if _lineas_pre_extra:
         _bloque_pre = (
-            "TOTALES PRECALCULADOS (USA EXACTAMENTE, NO recalcules):\n"
+            _DIRECTIVA_PRECALC + "\n"
             + "\n".join(_lineas_pre_extra)
         )
         if info_fracciones_extra:
@@ -575,7 +590,7 @@ def construir_seccion_match(
 
     if _grm_lines:
         _bloque_grm = (
-            "TOTALES PRECALCULADOS PUNTILLAS (USA EXACTAMENTE, NO recalcules):\n"
+            _DIRECTIVA_PRECALC_PUNTILLAS + "\n"
             + "\n".join(_grm_lines)
         )
         if info_fracciones_extra:
