@@ -433,6 +433,99 @@ async def manejar_flujo_correccion(update, context, chat_id: int, mensaje: str, 
     return False
 
 
+# Verbos de eliminación + referencia a "la última / esa venta". Detecta la
+# intención de anular por lenguaje natural ("anula la última venta", "borra la
+# venta anterior"). El bot SÍ puede anular vía /borrar; esto cablea el lenguaje
+# natural al MISMO flujo de confirmación (botones borrar_si_/borrar_no_).
+_RE_ANULAR_VENTA = re.compile(
+    r'\b(anul[ae]r?|borr[ae]r?|elimin[ae]r?|cancel[ae]r?|quit[ae]r?|deshac[eé]r?)\b'
+    r'.{0,40}?\bvent[ao]s?\b',
+    re.IGNORECASE | re.DOTALL,
+)
+_RE_ANULAR_REF = re.compile(
+    r'\b(ultim[ao]s?|última|últim[ao]s?|anterior|pasad[ao]|esa|recient[e]|'
+    r'que (?:registr|hic|acab|anot|met))',
+    re.IGNORECASE,
+)
+
+
+async def manejar_flujo_anulacion(update, chat_id: int, mensaje: str) -> bool:
+    """
+    Detecta "anula/borra la última venta" en lenguaje natural y dispara el MISMO
+    flujo de confirmación que /borrar: busca el último consecutivo del día, lo
+    deja en borrados_pendientes y muestra los botones borrar_si_/borrar_no_ (el
+    callback ya valida factura DIAN — guard N-03 — antes de eliminar).
+
+    Retorna True si el mensaje fue una intención de anulación y se manejó.
+    """
+    if not (_RE_ANULAR_VENTA.search(mensaje) and _RE_ANULAR_REF.search(mensaje)):
+        return False
+
+    import db as _db
+    if not _db.DB_DISPONIBLE:
+        await update.message.reply_text("⚠️ Base de datos no disponible.")
+        return True
+
+    import config as _config
+    from datetime import datetime as _dt
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    from ventas_state import borrados_pendientes, _estado_lock
+
+    hoy = _dt.now(_config.COLOMBIA_TZ).strftime("%Y-%m-%d")
+    # Último consecutivo del día (consecutivo se resetea diariamente — C-07)
+    fila_max = await asyncio.to_thread(
+        _db.query_one,
+        "SELECT MAX(consecutivo) AS num FROM ventas WHERE fecha::date = %s",
+        [hoy],
+    )
+    numero = fila_max.get("num") if fila_max else None
+    if not numero:
+        await update.message.reply_text("No hay ventas registradas hoy para anular.")
+        return True
+
+    rows = await asyncio.to_thread(
+        _db.query_all,
+        """
+        SELECT vd.producto_nombre AS producto, vd.total,
+               v.fecha::text AS fecha, v.vendedor
+        FROM   ventas_detalle vd
+        JOIN   ventas v ON v.id = vd.venta_id
+        WHERE  v.consecutivo = %s AND v.fecha::date = %s
+        """,
+        [numero, hoy],
+    )
+    filas = [dict(r) for r in rows]
+    if not filas:
+        await update.message.reply_text("No hay ventas registradas hoy para anular.")
+        return True
+
+    with _estado_lock:
+        borrados_pendientes[chat_id] = numero
+
+    lineas, total_sum = [], 0.0
+    for f in filas:
+        prod = f.get("producto", "?")
+        try:
+            total_sum += float(f.get("total", 0) or 0)
+            lineas.append(f"  • {prod} ${float(f.get('total', 0)):,.0f}")
+        except Exception:
+            lineas.append(f"  • {prod}")
+    vendedor_v = filas[0].get("vendedor", "?")
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Sí, anular", callback_data=f"borrar_si_{chat_id}"),
+        InlineKeyboardButton("❌ No",         callback_data=f"borrar_no_{chat_id}"),
+    ]])
+    await update.message.reply_text(
+        f"⚠️ ¿Anular la última venta (consecutivo #{numero})?\n"
+        f"Vendedor: {vendedor_v}\n\n"
+        + "\n".join(lineas)
+        + f"\n\nTotal: ${total_sum:,.0f}",
+        reply_markup=keyboard,
+    )
+    return True
+
+
 async def manejar_rechazo_cliente(update, chat_id: int, mensaje: str) -> bool:
     """
     Usuario respondió "no" a la pregunta de crear cliente.

@@ -61,6 +61,7 @@ from handlers.callbacks import (
 from handlers.parsing import parsear_actualizacion_masiva as _parsear_actualizacion_masiva
 from handlers.cliente_flujo import enviar_pregunta_cliente as _enviar_pregunta_cliente
 from handlers.dispatch import (
+    manejar_flujo_anulacion,
     manejar_flujo_cliente,
     manejar_flujo_excel,
     manejar_flujo_pago_texto,
@@ -240,6 +241,10 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
     if await manejar_flujo_correccion(update, context, chat_id, mensaje, vendedor):
         return
     if await manejar_rechazo_cliente(update, chat_id, mensaje):
+        return
+    # Anulación por lenguaje natural ("anula la última venta") → flujo /borrar.
+    # Va después de los flujos de venta pendiente (cancelar lo pendiente tiene prioridad).
+    if await manejar_flujo_anulacion(update, chat_id, mensaje):
         return
 
     # ── Actualización de precios: ahora es SOLO via /actualizar_precio ──
