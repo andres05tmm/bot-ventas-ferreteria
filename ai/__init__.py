@@ -440,7 +440,7 @@ async def procesar_con_claude(
                 if _hmsg.get("role") == "assistant":
                     _ultimo_assistant = _hmsg.get("content", "") or ""
                     break
-            if not _ultimo_assistant or not _ultimo_assistant.rstrip().endswith("?"):
+            if not _ultimo_assistant or "?" not in _ultimo_assistant:
                 _es_clarificacion = False
                 if _ultimo_assistant is not None:
                     logging.getLogger("ferrebot.ai").info(
@@ -454,9 +454,17 @@ async def procesar_con_claude(
                     # Solo augmentar si el mensaje previo tiene más contexto de productos
                     if isinstance(_prev_content, str) and len(_prev_content) > len(mensaje_usuario):
                         _msg_para_match = _prev_content + ", " + mensaje_usuario
+                        # Sintetizar el mensaje completo para Claude: pedido original + aclaración
+                        # "Test: 1 lija" + "Test: 120" → "Test: 1 lija 120"
+                        # Así Claude recibe toda la info en un turno y puede registrar directo.
+                        _bare_prev = re.sub(r'^[^:]+:\s*', '', _prev_content).strip()
+                        _bare_curr = re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
+                        _pfx_m     = re.match(r'^[^:]+:\s*', mensaje_usuario)
+                        _pfx       = _pfx_m.group(0) if _pfx_m else ""
+                        mensaje_usuario = f"{_pfx}{_bare_prev} {_bare_curr}"
                         logging.getLogger("ferrebot.ai").info(
-                            f"[multi-turno] clarificación detectada — augmentando match: "
-                            f"'{mensaje_usuario}' → '{_msg_para_match[:80]}'"
+                            "[multi-turno] clarificación — augmentando match y mensaje: "
+                            "'%s' → '%s'", _msg_para_match[:80], mensaje_usuario[:80]
                         )
                     break
 
@@ -473,34 +481,15 @@ async def procesar_con_claude(
         if _extra:
             parte_dinamica = _extra + "\n\n" + parte_dinamica
 
-    # BLOQUEO PYTHON: si el MATCH está vacío y el mensaje parece una venta
-    # (no es consulta, no es reporte), responder directamente sin llamar a Claude.
-    # Esto evita que el bot registre productos inexistentes con total:0.
-    # EXCEPCIÓN: si viene con contexto_extra (ej: dashboard), siempre pasa a Claude
-    # para permitir conversación libre sin que saludos/preguntas se traten como ventas.
-    _SEÑAL_MATCH_VACIO = "MATCH: (sin resultados — producto no encontrado en catalogo)"
+    # Clasificadores de intención — usados por BYPASS AMBIGÜEDAD y MATCH dinámico.
     _kw_no_venta = {"cuanto","vendimos","reporte","analiz","resumen","estadistica",
                     "top","mas vendido","gasto","caja","inventario","cliente",
                     "precio","vale","cuesta","cuanto vale","hay","stock","quedan"}
     _es_consulta = any(p in mensaje_usuario.lower() for p in _kw_no_venta)
-
-    # EXCEPCIÓN: venta varia siempre pasa a Claude aunque no esté en catálogo
     _kw_venta_varia = {"venta varia", "ventas varia", "venta general",
                        "ventas del dia", "ventas del día", "cuadre de caja",
                        "cuadre caja", "no alcance a anotar", "no alcancé a anotar"}
     _es_venta_varia = any(kw in mensaje_usuario.lower() for kw in _kw_venta_varia)
-
-    # BLOQUEO MATCH-VACÍO: omitir cuando hay imagen (el texto puede venir vacío/genérico)
-    # Omitir también cuando el mensaje no tiene dígitos: sin cantidad/precio no puede ser venta
-    # (ej: "hola", "gracias", "ayúdame") → deben llegar a Claude como conversación libre.
-    _tiene_numeros = bool(re.search(r'\d', _msg_bypass))
-    if _SEÑAL_MATCH_VACIO in parte_dinamica and not _es_consulta and not _dashboard_mode and not _tiene_imagen and not _es_venta_varia and _tiene_numeros:
-        # Extraer nombre del producto del mensaje para respuesta clara
-        _msg_limpio = mensaje_usuario.strip().lower()
-        # Quitar cantidades y unidades del inicio para aislar el nombre
-        _msg_limpio = re.sub(r'^[\d\s/\.]+', '', _msg_limpio).strip()
-        _msg_limpio = re.sub(r'^(kilo|kilos|galon|galones|metro|metros|unidad|unidades|litro|litros)\s*', '', _msg_limpio).strip()
-        return f"No tengo {_msg_limpio} en el catálogo."
 
     # BYPASS AMBIGÜEDAD DETERMINISTA (M-01): si el MATCH ya detectó múltiples
     # variantes del mismo producto sin que el vendedor especificara cuál, preguntar

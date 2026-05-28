@@ -389,3 +389,13 @@ def test_cantidad_inicial_no_cuenta_como_variante():
     # "4 lija" → el 4 es cantidad, no un grano; los granos son 60/80/100
     cands = _cands("Lija N°60", "Lija N°80", "Lija N°100")
     assert _detectar_ambiguedad_variante(cands, "4 lija") != ""
+
+
+def test_no_ambiguo_en_mensaje_augmentado_multiturno():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    # Simula el mensaje augmentado que genera el multi-turno cuando el usuario
+    # responde "80" después de "¿Lija de qué número? Tengo: ...":
+    # _msg_para_match = "Test: 1 lija, Test: 80"
+    # El "80" en el mensaje debe desactivar la ambigüedad aunque el prefijo "Test:" esté presente.
+    cands = _cands("Lija N°60", "Lija N°80", "Lija N°100", "Lija N°120")
+    assert _detectar_ambiguedad_variante(cands, "Test: 1 lija, Test: 80") == ""
