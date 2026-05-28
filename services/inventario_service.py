@@ -277,6 +277,86 @@ def _resolver_wayper_inventario(nombre_producto: str, cantidad: float) -> tuple[
     return None, cantidad
 
 
+def descontar_inventario_pg(cur, nombre_producto: str, cantidad: float) -> tuple[bool, str | None, float | None]:
+    """
+    Versión transaccional de descontar_inventario.
+
+    Opera DENTRO del cursor de una transacción en curso, así que el descuento
+    queda atado al INSERT de la venta: si la venta falla, el descuento se
+    revierte automáticamente con el ROLLBACK de la transacción.
+
+    Args:
+        cur: cursor psycopg2 dentro de una transacción abierta por el caller.
+        nombre_producto: nombre del producto vendido (puede ser alias o nombre
+                         oficial; la búsqueda es flexible vía buscar_clave_inventario).
+        cantidad: cantidad vendida (puede ser fracción).
+
+    Returns:
+        (True,  alerta_str|None, cantidad_restante_float)  si el producto
+                                                            estaba en inventario.
+        (False, None, None)                                 si el producto no
+                                                            está registrado en
+                                                            inventario (no es error).
+
+    ⚠️  Esta función NO invalida el cache de memoria — el caller debe llamar
+        memoria.invalidar_cache_memoria() DESPUÉS del commit de la transacción
+        para que las lecturas posteriores reflejen el cambio.
+    """
+    # Resolver wayper/kg → unidades igual que la versión no-PG
+    clave_wayper, cantidad_real = _resolver_wayper_inventario(nombre_producto, cantidad)
+    if clave_wayper:
+        # Verificar si la clave wayper existe en inventario antes de aplicar el factor
+        inventario = cargar_inventario()
+        if clave_wayper in inventario:
+            nombre_producto = clave_wayper
+            cantidad = cantidad_real
+
+    clave = buscar_clave_inventario(nombre_producto)
+    if not clave:
+        return False, None, None
+
+    # Buscar producto_id por clave de productos para hacer FOR UPDATE de inventario.
+    # productos.clave es UNIQUE — un solo row.
+    cur.execute("SELECT id FROM productos WHERE clave = %s", (clave,))
+    row_prod = cur.fetchone()
+    if not row_prod:
+        return False, None, None
+    producto_id = row_prod["id"] if isinstance(row_prod, dict) else row_prod[0]
+
+    # Lock de la fila de inventario para evitar carreras con otra venta
+    # concurrente que esté descontando el mismo producto.
+    cur.execute(
+        "SELECT cantidad, minimo, unidad, nombre_original "
+        "FROM inventario WHERE producto_id = %s FOR UPDATE",
+        (producto_id,),
+    )
+    row_inv = cur.fetchone()
+    if not row_inv:
+        return False, None, None
+
+    def _g(key, default=None):
+        return row_inv[key] if isinstance(row_inv, dict) else default
+
+    cantidad_actual = float(_g("cantidad", 0) or 0)
+    cantidad_nueva = max(0.0, round(cantidad_actual - cantidad, 4))
+
+    cur.execute(
+        "UPDATE inventario SET cantidad = %s, ultima_venta = NOW(), updated_at = NOW() "
+        "WHERE producto_id = %s",
+        (cantidad_nueva, producto_id),
+    )
+
+    minimo = float(_g("minimo", 5) or 0)
+    nombre = _g("nombre_original") or clave
+    unidad = _g("unidad") or "unidades"
+
+    alerta = None
+    if cantidad_nueva <= minimo:
+        alerta = f"⚠️ Stock bajo: {nombre} — quedan {cantidad_nueva} {unidad}"
+
+    return True, alerta, cantidad_nueva
+
+
 def descontar_inventario(nombre_producto: str, cantidad: float) -> tuple[bool, str | None, float | None]:
     """
     Descuenta cantidad del inventario si el producto está registrado.
