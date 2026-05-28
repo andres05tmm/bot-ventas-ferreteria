@@ -2,6 +2,39 @@
 
 > Auditoría exhaustiva — Fase 4 de 8.
 > Hallazgos clasificados por severidad y dominio. Cada hallazgo lleva archivo:línea, descripción y propuesta de fix. Total: **47 hallazgos** (8 CRITICAL, 14 HIGH, 18 MEDIUM, 7 LOW).
+
+---
+
+## ✅ ESTADO DE RESOLUCIÓN (actualizado 2026-05-28)
+
+Verificado contra el código actual (branch `feat/dashboard-polish`). Resumen:
+
+| Severidad | Total | ✅ Resueltos | ⚠️ Parcial | ⬜ Abiertos |
+|---|:-:|:-:|:-:|:-:|
+| CRITICAL | 8 | **8** (C-01..C-08) | 0 | 0 |
+| HIGH | 14 | **14** (H-01..H-14) | 0 | 0 |
+| MEDIUM | 18 | M-01, M-08 | M-12 | resto |
+| LOW | 7 | — | — | resto |
+
+**CRITICAL — todos resueltos** (Sprints 1 y 4):
+- C-01/C-03 RBAC → `routers/deps.py` con `get_filtro_usuario`/`get_filtro_efectivo` reales.
+- C-02 `@protegido` en handlers del bot (`middleware/auth.py`).
+- C-04 caja `notify_all` antes del return.
+- C-05 CORS centralizado en `config.CORS_ORIGIN` (sin fallback hardcoded).
+- C-06 doble schema → **Alembic** (`_init_schema` eliminado de db.py; `run.sh` corre `alembic upgrade head`).
+- C-07 consecutivo atómico con reset diario unificado.
+- C-08 inventario dentro de la transacción de la venta.
+
+**HIGH — todos resueltos** (Sprint 2): H-01..H-14, incl. H-08 (secret token webhook Telegram), H-13 (regimen_fiscal INTEGER), H-14 (tabla `fiados_movimientos` creada).
+
+**MEDIUM/LOW resueltos confirmados:**
+- M-01 `_init_schema` en una transacción → eliminado (Alembic).
+- M-08 `bypass.py` sin tests → `tests/test_bypass.py` existe; además arnés `pruebas_motor.py` (sesión 3) + bugs del motor de ventas arreglados.
+- M-12 hardcoded admin en `migrations/004` → ⚠️ **PARCIAL**: `migrations/004` es legacy (Alembic usa baseline, no la corre), así que un clon NO arrastra a Andrés como admin — PERO falta `seed_admin.py` con `ADMIN_TELEGRAM_ID` (ver gap #1 en `07-onboarding`). Queda abierto el seed.
+
+**Abiertos (relevantes para clonar / template)**: M-09/M-10 (plurales y `_ALIAS_FERRETERIA` consolidados en `alias_manager.py` pero aún específicos de Punto Rojo), M-13/M-14 (datos de honorarios a env — ya parcialmente vía `.env.example`), M-15 (tabla `config` vs `ferrebot_config`), M-16 (historico_ventas manual), M-17/M-18 (dashboard). LOW: en su mayoría abiertos (cosméticos).
+
+> Nota: los hallazgos abajo conservan su texto ORIGINAL de la auditoría (estado al momento del análisis). Para el estado actual, usar esta tabla.
 >
 > Severidad:
 > - **CRITICAL**: vulnerabilidad de seguridad, pérdida de datos, contradicción con el modelo de seguridad documentado.
@@ -11,7 +44,7 @@
 
 ---
 
-## CRITICAL
+## CRITICAL — ✅ TODOS RESUELTOS (Sprints 1 y 4)
 
 ### C-01 · RBAC desactivado — `get_filtro_usuario` siempre retorna `None`
 **Archivo**: `routers/deps.py:60-65`
@@ -144,7 +177,7 @@ for ic in items_calc:
 
 ---
 
-## HIGH
+## HIGH — ✅ TODOS RESUELTOS (Sprint 2)
 
 ### H-01 · `mensajes.py` ignora `AUTHORIZED_CHAT_IDS` aunque tiene su propio rate limit
 **Archivo**: `handlers/mensajes.py:73-91`

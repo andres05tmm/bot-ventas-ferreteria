@@ -5,6 +5,28 @@
 
 ---
 
+## ⚙️ ACTUALIZACIÓN 2026-05-28 — Estado REAL vs aspiracional
+
+Verificado contra el código actual (branch `feat/dashboard-polish`). El Sprint 4 implementó la base para clonar, pero **NO existe un repo-template separado** (todo vive en el mismo repo). Lo que YA existe vs lo que FALTA construir:
+
+**✅ YA EXISTE (real):**
+- **Alembic** (`alembic/`, `alembic.ini`, `versions/0001_baseline.py`). El schema se aplica **automáticamente** al arrancar el servicio API: `run.sh` corre `alembic upgrade head` y aborta si falla (fail-fast). NO hay que correrlo a mano ni con `railway.toml`.
+- **`.env.example`** real y completo (111 líneas) — es la fuente de verdad de variables. Úsalo como base, NO el §3 de abajo (que quedó desfasado en detalles).
+- **Feature flags** en `config.py`: `FE_HABILITADA`, `HONORARIOS_HABILITADO`, `BANCOLOMBIA_HABILITADO`, `BOLD_HABILITADO`, `WOMPI_HABILITADO`, `GMAIL_COMPRAS_HABILITADO`, `CLOUDINARY_HABILITADO`, `IA_MEMORIA_AVANZADA`, `INVENTARIO_HABILITADO`, `CAJA_HABILITADA`, `FIADOS_HABILITADO`, `IA_TOOL_CALLING`. Autodetectan por credencial; **OJO: INVENTARIO/CAJA/FIADOS/IA_MEMORIA autodetectan `true`** (NO "todos default false" como decía este doc).
+- **Datos de empresa a env**: `EMPRESA_NOMBRE/NIT/CIUDAD`, `MATIAS_CITY_ID/POSTAL_CODE/COUNTRY_ID`, `HONORARIOS_PROVEEDOR_*`.
+- **`IA_TOOL_CALLING=true`** → motor IA moderno (tool-calling + resolutores deterministas). Para una ferretería nueva, **setearlo true**.
+
+**✅ YA EXISTE (construido 2026-05-28):**
+- **`scripts/seed_admin.py`** — lee `ADMIN_TELEGRAM_ID`/`ADMIN_NOMBRE` del env e inserta el admin (UPSERT idempotente por `telegram_id`). Vars agregadas a `.env.example`.
+- **`scripts/seed_productos.py`** — carga catálogo desde CSV o XLSX (UPSERT idempotente por `clave`; deriva la clave del nombre si falta; soporta `--dry-run`).
+
+**⚠️ FALTA CONSTRUIR (gaps restantes — ver §15):**
+- `scripts/seed_clientes.py`, `scripts/nuevo_proyecto.sh`, `scripts/generate_oauth_token.py` **NO existen** (aspiracionales; no bloquean un clon manual).
+- El `.env.example` trae **defaults de Punto Rojo** (EMPRESA_*, HONORARIOS_PROVEEDOR=Andrés) — hay que sobreescribirlos al clonar.
+- **Prueba E2E del clon nunca ejecutada** (gap real — ver §15.4).
+
+---
+
 ## 0. Tiempo total esperado
 
 | Escenario | Hoy (manual, repo actual) | Con template-base |
@@ -230,50 +252,41 @@ CLOUDINARY_API_SECRET=
 
 ## 5. Fase D — Migrar el schema
 
-⚠️ Asume Alembic ya implementado en el template.
+✅ **REAL (2026-05-28): es automático.** `run.sh` corre `alembic upgrade head` al arrancar el servicio API, y aborta el arranque si falla (no sirve con schema desactualizado). NO hay que correrlo a mano ni configurar `railway.toml`. Solo el servicio `api` migra (el `bot` no, para evitar carreras).
 
 ```bash
-# Desde local con railway CLI
-railway link <project>
-railway run alembic upgrade head
-
-# Verificar
+# Verificación manual (opcional), tras el primer deploy del servicio api:
 railway run psql $DATABASE_URL -c "\dt"
-# Debe listar todas las tablas core + las opcionales según los flags activos.
+# Debe listar las tablas del baseline (alembic/versions/0001_baseline.py).
 ```
 
-Alternativamente, ejecutar como build step de Railway:
-
-```toml
-# railway.toml
-[deploy]
-preDeployCommand = "alembic upgrade head"
-```
+Nota: hoy hay un único `0001_baseline.py` (snapshot del schema de prod). Una BD vacía nueva queda con TODAS las tablas, pero **sin datos** (sin admin, sin catálogo) → ver Fase E.
 
 ---
 
 ## 6. Fase E — Seeds iniciales
 
-### 6.1. Admin
+✅ **REAL (2026-05-28): `scripts/seed_admin.py` y `scripts/seed_productos.py` existen y están probados.**
+
+### 6.1. Admin ✅
 
 ```bash
+# Requiere ADMIN_TELEGRAM_ID y ADMIN_NOMBRE en el entorno (ver .env.example).
 railway run python scripts/seed_admin.py
 ```
+Inserta/actualiza el admin en `usuarios` (UPSERT idempotente por `telegram_id`, rol='admin', activo=true). Correrlo dos veces no duplica.
 
-El script lee `ADMIN_TELEGRAM_ID` y `ADMIN_NOMBRE` del entorno e inserta en `usuarios` con `rol='admin'`.
-
-### 6.2. Productos (catálogo)
-
-```bash
-# CSV format: clave,nombre,categoria,codigo,precio_unidad,unidad_medida,stock
-railway run python scripts/seed_productos.py --file=catalogo_inicial.csv
-```
-
-### 6.3. Clientes (opcional)
+### 6.2. Productos (catálogo) ✅
 
 ```bash
-railway run python scripts/seed_clientes.py --file=clientes.csv
+railway run python scripts/seed_productos.py --file=catalogo.csv     # o .xlsx
+railway run python scripts/seed_productos.py --file=catalogo.csv --dry-run   # previsualizar
 ```
+Columnas: `nombre*`, `precio_unidad*` (obligatorias), `clave` (se deriva del nombre si falta), `categoria`, `codigo`, `unidad_medida`. UPSERT idempotente por `clave`. Alternativa: `/actualizar_catalogo` del bot (adjuntar .xlsx).
+
+### 6.3. Clientes (opcional) — ⚠️ script no existe aún
+
+Diseño: `scripts/seed_clientes.py --file=clientes.csv`. Alternativa: crear clientes desde el dashboard (tab Clientes) o el wizard del bot.
 
 ---
 
@@ -511,6 +524,20 @@ Si el cliente es "ferretería con FE pero sin Bancolombia/Gmail/honorarios":
 10. (30 min) Pruebas E2E del happy path.
 
 **Total: ~2:15 horas**.
+
+---
+
+## 15. ⚠️ GAPS reales para poder clonar (2026-05-28)
+
+Estado de los gaps (en orden de prioridad):
+
+1. ✅ **`scripts/seed_admin.py`** — HECHO (2026-05-28). Lee `ADMIN_TELEGRAM_ID`/`ADMIN_NOMBRE`, UPSERT idempotente. Vars en `.env.example`.
+2. ✅ **`scripts/seed_productos.py`** — HECHO (2026-05-28). CSV/XLSX, UPSERT por clave, `--dry-run`.
+3. ⬜ **Limpiar defaults de Punto Rojo en `.env.example`** — `EMPRESA_*` y `HONORARIOS_PROVEEDOR_*` traen datos de Andrés; dejarlos vacíos/placeholders para no arrastrarlos a un clon.
+4. ⬜ **Prueba E2E del clon (GAP PRINCIPAL restante)** — nadie ha corrido `alembic upgrade head` sobre BD vacía + `seed_admin` + login + registrar venta en una 2ª ferretería. Es el verdadero "¿funciona el clon?".
+5. ⬜ **(Opcional)** `scripts/seed_clientes.py`, `scripts/nuevo_proyecto.sh`, `scripts/generate_oauth_token.py` — no bloquean un clon manual.
+
+**Resumen**: infraestructura LISTA (Alembic auto + flags + env) y **seeds de admin/catálogo HECHOS**. El gap principal restante es **ejecutar un clon de prueba** (§15.4) para validar el flujo punta a punta.
 
 ---
 
