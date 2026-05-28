@@ -40,6 +40,12 @@ import asyncio
 import argparse
 import pathlib
 
+# El script vive en dev/ — asegurar que la raíz del repo esté en sys.path para
+# poder importar config, ai, db, etc. sin importar desde dónde se invoque.
+_RAIZ = pathlib.Path(__file__).resolve().parent.parent
+if str(_RAIZ) not in sys.path:
+    sys.path.insert(0, str(_RAIZ))
+
 
 # ─────────────────────────────────────────────
 # Carga de .env + dummies (antes de importar config)
@@ -84,8 +90,8 @@ _C = {
     "dim": "\033[2m", "bold": "\033[1m", "reset": "\033[0m",
     "green": "\033[32m", "yellow": "\033[33m", "cyan": "\033[36m", "red": "\033[31m",
 }
-if os.name == "nt" and not os.environ.get("WT_SESSION"):
-    # Consolas viejas de Windows no manejan ANSI — desactivar colores.
+if (os.name == "nt" and not os.environ.get("WT_SESSION")) or not sys.stdout.isatty():
+    # Consolas viejas de Windows / salida a pipe → sin ANSI (evita códigos crudos).
     _C = {k: "" for k in _C}
 
 
@@ -261,6 +267,14 @@ def main() -> None:
     # Tras parsear (así --help funciona sin claves): cargar .env y verificar.
     _cargar_env()
     _verificar_claves()
+
+    # Inicializar el pool de la BD (no se auto-inicializa al importar db; en
+    # producción lo hace api.py al arrancar). Sin esto el catálogo llega vacío.
+    import db as _db
+    if not _db.init_db():
+        print(f"{_C['red']}⚠️ No conecté a la BD — el catálogo llegará vacío. "
+              f"Revisá DATABASE_URL en .env.{_C['reset']}")
+        sys.exit(1)
 
     usar_tools = not args.no_tools  # default ON salvo --no-tools
 
