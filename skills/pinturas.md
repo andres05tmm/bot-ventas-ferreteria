@@ -10,7 +10,8 @@ Ej: "vinilo t1 preparado"→producto="Vinilo Davinci T1 Preparado", "laca catali
 Sin medida → preguntar. Precios: 1"=2000 | 1.5"=3000 | 2"=4000 | 2.5"=5000 | 3"=6000 | 4"=8000.
 
 ## RODILLO
-"rodillo" o "rodillos" SIN medida = Rodillo Convencional $7000.
-"3 rodillos"=3 × Rodillo Convencional = 21000. "1 rodillo"=7000.
+"rodillo" o "rodillos" SIN medida = Rodillo Convencional (precio del MATCH).
+"3 rodillos"=3 × Rodillo Convencional. "1 rodillo"=1 × Rodillo Convencional.
+USA SIEMPRE el precio_unidad del MATCH — NUNCA un precio memorizado.
 SOLO usar "Rodillo de X"" si dice EXPLÍCITAMENTE la medida: "rodillo de 3"", "rodillo 4 pulgadas".
 NUNCA interpretar "3 rodillos" como "Rodillo de 3"" — el 3 es CANTIDAD, no medida.

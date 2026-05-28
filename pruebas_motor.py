@@ -211,6 +211,52 @@ CASOS: dict[str, list[tuple[list[str], str]]] = {
          "varsol 1.5gal=39000 + drywall 6x1 x100 mayorista=4000 + lija150 x3=6000 + "
          "yeso 0.5kg=1000 → TOTAL $66.000"),
     ],
+    # Tintes: precio_tarro $26.000 → precio_ml $26. Venta por ml/pesos/tarro.
+    "tintes": [
+        (["1 tinte caoba"], "tarro completo: 1000ml, $26.000"),
+        (["2000 de tinte negro"], "por pesos: 2000/26=76.9ml, total $2.000"),
+        (["500ml de tinte miel"], "por ml: 500×26 = $13.000"),
+        (["medio tarro de tinte caoba"], "500ml, $13.000"),
+    ],
+    # Wayper: blanco kg=$10.000, color kg=$7.000, blanco und=$700, color und=$500.
+    "wayper": [
+        (["2 kilos wayper blanco"], "2×10000 = $20.000 (WAYPER BLANCO por kg)"),
+        (["medio kilo wayper color"], "0.5×7000 = $3.500 (WAYPER DE COLOR)"),
+        (["3 waypers blancos"], "3×700 = $2.100 (WAYPER BLANCO UNIDAD)"),
+        (["2 wayper blanco"], "AMBIGUO → preguntar kilo o unidad"),
+    ],
+    # Cinta Pele: S=$8.500, M=$10.000, L=$17.000, XL=$28.000. Número = precio en miles.
+    "pele": [
+        (["pele de 17"], "~$17.000 → Cinta Pele L"),
+        (["pele de 10"], "~$10.000 → Cinta Pele M"),
+        (["pele xl"], "talla explícita → Cinta Pele XL $28.000"),
+    ],
+    # Acronal por kilo = $13.000.
+    "acronal": [
+        (["2 kilos acronal"], "2×13000 = $26.000"),
+        (["medio kilo acronal"], "0.5×13000 = $6.500"),
+        (["kilo y medio acronal"], "1.5×13000 = $19.500"),
+    ],
+    # Pinturas por color: esmalte=$65.000, laca corriente=$80.000, poliuretano=$240.000,
+    # anticorrosivo=$65.000. SIEMPRE requieren color.
+    "pinturas_color": [
+        (["1 galon esmalte rojo"], "Esmalte Rojo = $65.000"),
+        (["esmalte"], "AMBIGUO → preguntar color (y tipo)"),
+        (["1 galon poliuretano blanco"], "Poliuretano Blanco = $240.000"),
+        (["poliuretano"], "AMBIGUO → preguntar color"),
+        (["1 galon anticorrosivo negro"], "Anticorrosivo Negro = $65.000"),
+        (["1 galon laca corriente azul"], "Laca Corriente Azul = $80.000"),
+    ],
+    # Carbonato: bolsa 25kg=$26.000, kilo suelto=$2.000.
+    "carbonato": [
+        (["1 bolsa de carbonato"], "Carbonato X 25 Kg = $26.000"),
+        (["3 kilos de carbonato"], "3×2000 = $6.000 (Carbonato x Kg)"),
+    ],
+    # Rodillo: sin medida → Convencional $8.000 (OJO: skill dice $7.000, desactualizado).
+    "rodillo": [
+        (["3 rodillos"], "3 × Rodillo Convencional $8.000 = $24.000"),
+        (["1 rodillo de 3"], "Rodillo de 3\" = $6.000"),
+    ],
 }
 
 

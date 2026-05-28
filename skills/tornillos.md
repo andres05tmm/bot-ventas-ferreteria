@@ -34,15 +34,16 @@ FORMAS DE VENTA VÁLIDAS:
    "2000 pesos de puntilla" → igual que arriba
 
 CÁLCULO precio_gramo:
-- Puntilla 1" SC: precio_caja=7500 → precio_gramo=15 pesos/gr
-- Puntilla 1-1/2" SC: precio_caja=5000 → precio_gramo=10 pesos/gr
-- (siempre precio_unidad / 500)
+- SIEMPRE precio_gramo = precio_unidad del MATCH / 500. NUNCA uses precios
+  memorizados (los precios cambian). Toma el precio_unidad del bloque MATCH.
+- Ejemplo: si el MATCH dice precio_caja=5000 → precio_gramo=10 pesos/gr.
 
 FORMATO [VENTA] para puntillas:
-- cantidad = gramos vendidos (número decimal, ej: 500, 250, 133.3)
+- cantidad = gramos vendidos (número decimal, ej: 500, 250, 200)
 - total = pesos cobrados (redondeado al peso)
-Ejemplo: "2000 pesos de puntilla 1 sc" (precio_gramo=15) →
-[VENTA]{"producto":"PUNTILLA 1\" SIN CABEZA","cantidad":133.3,"total":2000}[/VENTA]
+Ejemplo: "2000 de puntilla 2 sc" con precio_caja=5000 (precio_gramo=10) →
+gramos = 2000/10 = 200 →
+[VENTA]{"producto":"PUNTILLA 2\" SIN CABEZA","cantidad":200,"total":2000}[/VENTA]
 
 NUNCA uses precio_sobre_umbral ni precio_mayorista para puntillas. Siempre cobra precio_gramo × gramos.
 
