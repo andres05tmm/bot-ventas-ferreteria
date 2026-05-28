@@ -68,8 +68,11 @@ def _fecha_objetivo() -> _date:
 
 def _cargar_conversaciones_del_dia(fecha: _date) -> list[dict]:
     """
-    Trae conversaciones del día especificado (Colombia) que tengan al menos
-    una venta registrada en el mismo chat_id durante el mismo día.
+    Trae conversaciones del día especificado (Colombia) cuyo vendedor registró
+    al menos una venta ese mismo día.
+
+    El vínculo es por vendedor (conversaciones_bot.vendedor_id == ventas.usuario_id
+    == usuarios.id), ya que la tabla ventas no guarda chat_id.
 
     Retorna lista de dicts: {chat_id, vendedor_id, role, content, creado}
     """
@@ -83,12 +86,11 @@ def _cargar_conversaciones_del_dia(fecha: _date) -> list[dict]:
                    cb.creado
             FROM conversaciones_bot cb
             WHERE DATE(cb.creado AT TIME ZONE 'America/Bogota') = %s
-              AND cb.chat_id IN (
-                  SELECT DISTINCT v.chat_id
+              AND cb.vendedor_id IN (
+                  SELECT DISTINCT v.usuario_id
                   FROM ventas v
-                  WHERE DATE(v.fecha AT TIME ZONE 'America/Bogota') = %s
-                    AND v.estado = 'registrada'
-                    AND v.chat_id IS NOT NULL
+                  WHERE v.fecha = %s
+                    AND v.usuario_id IS NOT NULL
               )
             ORDER BY cb.chat_id, cb.creado
             """,
@@ -110,8 +112,7 @@ def _cargar_productos_vendidos(fecha: _date) -> list[str]:
             SELECT DISTINCT vd.producto_nombre
             FROM ventas_detalle vd
             JOIN ventas v ON v.id = vd.venta_id
-            WHERE DATE(v.fecha AT TIME ZONE 'America/Bogota') = %s
-              AND v.estado = 'registrada'
+            WHERE v.fecha = %s
               AND vd.producto_nombre IS NOT NULL
             ORDER BY vd.producto_nombre
             LIMIT %s
@@ -131,8 +132,7 @@ def _cargar_vendedores_activos(fecha: _date) -> list[str]:
             """
             SELECT DISTINCT vendedor
             FROM ventas
-            WHERE DATE(fecha AT TIME ZONE 'America/Bogota') = %s
-              AND estado = 'registrada'
+            WHERE fecha = %s
               AND vendedor IS NOT NULL
             """,
             [fecha],

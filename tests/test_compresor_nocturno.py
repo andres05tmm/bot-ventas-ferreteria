@@ -77,6 +77,24 @@ def test_cargar_conversaciones_db_falla():
         assert cn._cargar_conversaciones_del_dia(date(2026, 4, 17)) == []
 
 
+def test_cargar_conversaciones_sql_usa_columnas_reales():
+    """V-07: el SQL debe enlazar por usuario_id, NO por columnas inexistentes
+    en ventas (chat_id, estado), que provocaban que el query fallara siempre."""
+    capturado = {}
+
+    def _cap(sql, params=None, *a, **kw):
+        capturado["sql"] = sql
+        return []
+
+    with patch("db.query_all", side_effect=_cap):
+        cn._cargar_conversaciones_del_dia(date(2026, 4, 17))
+
+    sql = capturado["sql"]
+    assert "v.usuario_id" in sql
+    assert "v.chat_id" not in sql
+    assert "v.estado" not in sql
+
+
 # ─────────────────────────────────────────────
 # _cargar_productos_vendidos
 # ─────────────────────────────────────────────
@@ -100,6 +118,22 @@ def test_cargar_productos_vendidos_db_falla():
         raise RuntimeError("x")
     with patch("db.query_all", side_effect=_boom):
         assert cn._cargar_productos_vendidos(date(2026, 4, 17)) == []
+
+
+def test_cargar_productos_y_vendedores_sql_sin_estado():
+    """V-07: ventas no tiene columna estado; el SQL no debe filtrarla."""
+    sqls = []
+
+    def _cap(sql, params=None, *a, **kw):
+        sqls.append(sql)
+        return []
+
+    with patch("db.query_all", side_effect=_cap):
+        cn._cargar_productos_vendidos(date(2026, 4, 17))
+        cn._cargar_vendedores_activos(date(2026, 4, 17))
+
+    for sql in sqls:
+        assert "estado" not in sql
 
 
 # ─────────────────────────────────────────────
