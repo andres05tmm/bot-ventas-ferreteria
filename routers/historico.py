@@ -13,7 +13,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
 
-from memoria import cargar_memoria
 from routers.shared import (
     _hoy, _hace_n_dias, _leer_excel_rango,
     _to_float, _cantidad_a_float,
@@ -84,7 +83,7 @@ def _total_ventas_hoy_sheets() -> float:
 def _sync_historico_hoy() -> dict:
     """
     Sincroniza el total de hoy al histórico persistente.
-    Desglose de métodos de pago desde Postgres; gastos desde cargar_memoria().
+    Desglose de métodos de pago y gastos desde Postgres.
     """
     hoy   = _hoy()
     total = _total_ventas_hoy_sheets()
@@ -125,18 +124,10 @@ def _sync_historico_hoy() -> dict:
     except Exception:
         pass
 
-    # ── Gastos y abonos del día — desde cargar_memoria() ─────────────────
-    gastos_dia = 0.0
-    abonos_dia = 0.0
-    try:
-        for g in cargar_memoria().get("gastos", {}).get(hoy, []):
-            val = float(g.get("monto", 0))
-            gastos_dia += val
-            if g.get("categoria") == "abono_proveedor":
-                abonos_dia += val
-        gastos_dia = max(0.0, gastos_dia - abonos_dia)
-    except Exception:
-        pass
+    # ── Gastos y abonos del día — desde la tabla gastos de Postgres ──────
+    _ga        = _gastos_abonos_por_dia(hoy, hoy).get(hoy, {})
+    gastos_dia = float(_ga.get("gastos", 0.0))
+    abonos_dia = float(_ga.get("abonos_proveedores", 0.0))
 
     # ── Persistir en Postgres ─────────────────────────────────────────────
     _guardar_diario_postgres(hoy, {
@@ -264,6 +255,42 @@ def _guardar_diario_postgres(fecha: str, datos: dict) -> None:
         )
     except Exception as e:
         logger.warning("Error guardando diario en Postgres: %s", e)
+
+
+def _gastos_abonos_por_dia(desde: str, hasta: str) -> dict[str, dict[str, float]]:
+    """
+    Lee gastos y abonos a proveedores desde la tabla gastos de Postgres,
+    agrupados por fecha en el rango [desde, hasta] (YYYY-MM-DD, inclusivo).
+
+    Retorna {fecha: {"gastos": float, "abonos_proveedores": float}}.
+    Los registros con categoria='abono_proveedor' van a abonos; el resto a gastos.
+    """
+    resultado: dict[str, dict[str, float]] = {}
+    try:
+        from db import query_all as _qa
+        rows = _qa(
+            """
+            SELECT fecha::text          AS fecha,
+                   COALESCE(categoria, '') AS categoria,
+                   COALESCE(monto, 0)      AS monto
+            FROM gastos
+            WHERE fecha BETWEEN %s AND %s
+            """,
+            (desde, hasta),
+        )
+        for r in rows:
+            fecha = str(r.get("fecha", ""))[:10]
+            if not fecha:
+                continue
+            monto = float(r.get("monto", 0) or 0)
+            slot = resultado.setdefault(fecha, {"gastos": 0.0, "abonos_proveedores": 0.0})
+            if str(r.get("categoria", "")).lower() == "abono_proveedor":
+                slot["abonos_proveedores"] += monto
+            else:
+                slot["gastos"] += monto
+    except Exception as e:
+        logger.warning("Error leyendo gastos por día desde Postgres: %s", e)
+    return resultado
 
 
 def _leer_historico() -> dict:
@@ -425,8 +452,8 @@ def historico_corregir_dia(body: CorreccionDia):
 @router.post("/historico/reconstruir-desglose")
 def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
     """
-    Reconstruye el desglose diario leyendo ventas desde Postgres y gastos desde
-    cargar_memoria(). Escribe exclusivamente a historico_ventas en Postgres.
+    Reconstruye el desglose diario leyendo ventas y gastos desde Postgres.
+    Escribe exclusivamente a historico_ventas en Postgres.
     Usar cuando efectivo/transferencia/datáfono aparezcan en 0.
     """
     # Leer desglose existente desde Postgres (para preservar lo que ya hay)
@@ -463,20 +490,10 @@ def historico_reconstruir_desglose(dias: int = Query(default=60, ge=1, le=365)):
         else:
             por_dia[fecha]["efectivo"] += total
 
-    # Gastos y abonos desde cargar_memoria()
-    try:
-        gastos_mem = cargar_memoria().get("gastos", {})
-        for fecha, lista in gastos_mem.items():
-            if fecha < desde or fecha > hasta:
-                continue
-            for g in lista:
-                val = float(g.get("monto", 0))
-                if g.get("categoria") == "abono_proveedor":
-                    por_dia[fecha]["abonos_proveedores"] += val
-                else:
-                    por_dia[fecha]["gastos"] += val
-    except Exception:
-        pass
+    # Gastos y abonos desde la tabla gastos de Postgres
+    for fecha, ga in _gastos_abonos_por_dia(desde, hasta).items():
+        por_dia[fecha]["gastos"]             += ga.get("gastos", 0.0)
+        por_dia[fecha]["abonos_proveedores"] += ga.get("abonos_proveedores", 0.0)
 
     # Fusionar: respetar desglose existente; siempre actualizar gastos/abonos
     reconstruidos = 0

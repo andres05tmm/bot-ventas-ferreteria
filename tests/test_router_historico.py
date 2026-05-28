@@ -154,3 +154,41 @@ def test_historico_endpoints_devuelven_200(path):
          patch("routers.historico._total_ventas_hoy_sheets", return_value=0):
         resp = client.get(path)
     assert resp.status_code == 200
+
+
+# ─────────────────────────────────────────────
+# TESTS — V-03: gastos/abonos desde la tabla gastos de Postgres
+# ─────────────────────────────────────────────
+
+def test_gastos_abonos_por_dia_separa_gastos_y_abonos():
+    """_gastos_abonos_por_dia separa abono_proveedor de gastos normales por fecha."""
+    from routers.historico import _gastos_abonos_por_dia
+    rows = [
+        {"fecha": "2026-04-12", "categoria": "Alimentación", "monto": 9500},
+        {"fecha": "2026-04-12", "categoria": "Alimentación", "monto": 4500},
+        {"fecha": "2026-03-27", "categoria": "abono_proveedor", "monto": 100000},
+    ]
+    with patch("db.query_all", return_value=rows):
+        result = _gastos_abonos_por_dia("2026-03-01", "2026-04-30")
+    assert result["2026-04-12"]["gastos"] == 14000.0
+    assert result["2026-04-12"]["abonos_proveedores"] == 0.0
+    assert result["2026-03-27"]["abonos_proveedores"] == 100000.0
+    assert result["2026-03-27"]["gastos"] == 0.0
+
+
+def test_sync_historico_hoy_suma_gastos_de_postgres():
+    """V-03: _sync_historico_hoy debe sumar gastos de la tabla gastos, no de cargar_memoria()."""
+    from routers import historico as H
+    capturado: dict = {}
+    hoy = H._hoy()
+    with patch("routers.historico._total_ventas_hoy_sheets", return_value=50000), \
+         patch("routers.historico._leer_historico", return_value={}), \
+         patch("routers.historico._guardar_historico", lambda d: None), \
+         patch("routers.historico._guardar_diario_postgres",
+               side_effect=lambda fecha, datos: capturado.update(datos)), \
+         patch("routers.historico._gastos_abonos_por_dia",
+               return_value={hoy: {"gastos": 14000.0, "abonos_proveedores": 0.0}}), \
+         patch("db.query_all", return_value=[]):
+        result = H._sync_historico_hoy()
+    assert capturado.get("gastos") == 14000.0
+    assert result["gastos"] == 14000.0
