@@ -314,3 +314,23 @@ def test_stream_done_es_texto_sin_tools():
     done_payload = next(d for k, d in eventos if k == "done")
     assert chunks == ["hola ", "mundo"]          # los deltas se streamean igual
     assert done_payload == "hola mundo"          # sin tools, done = texto acumulado
+
+
+# ─────────────────────────────────────────────
+# Prompt: directiva de tool-calling solo con el flag activo
+# ─────────────────────────────────────────────
+
+def test_prompt_estatico_incluye_directiva_solo_con_flag():
+    import config
+    from ai.prompts import _construir_parte_estatica
+    mem = {"negocio": {}, "catalogo": {}}
+    orig = config.IA_TOOL_CALLING
+    try:
+        config.IA_TOOL_CALLING = True
+        con = _construir_parte_estatica(mem)
+        config.IA_TOOL_CALLING = False
+        sin = _construir_parte_estatica(mem)
+    finally:
+        config.IA_TOOL_CALLING = orig
+    assert "registrar_venta" in con and "REGLA PRIORITARIA" in con
+    assert "REGLA PRIORITARIA" not in sin

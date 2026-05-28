@@ -87,6 +87,30 @@ PRIORIDAD:
 
 
 # ─────────────────────────────────────────────
+# DIRECTIVA TOOL-CALLING DE VENTAS (M-01) — solo con IA_TOOL_CALLING
+# ─────────────────────────────────────────────
+# Se antepone a la parte estática cuando el flag está activo. Tiene prioridad
+# sobre la sección ACCIONES de core.md para el registro de ventas.
+
+_DOC_TOOL_VENTAS = """\
+==================== REGISTRO DE VENTAS — REGLA PRIORITARIA ====================
+Para REGISTRAR VENTAS usa la herramienta `registrar_venta` (una llamada por
+producto distinto). NO escribas tags de texto [VENTA]{...}[/VENTA] para ventas.
+Siguen vigentes TODAS las reglas de ventas de abajo:
+- Precio declarado por el vendedor con $ o "=" → es el total de esa línea, úsalo tal cual.
+- La fracción va en el parámetro `cantidad` (0.25=1/4), nunca en el nombre del producto.
+- "Venta Varia" se registra con producto="Venta Varia".
+- Si hay ambigüedad de variante (lija sin grano, disco sin pulgadas, etc.):
+  PREGUNTA con texto y NO llames la herramienta hasta que el vendedor aclare.
+- Silencio total en ventas sin ambigüedad: solo llama la herramienta, sin texto.
+Las demás acciones (gasto, fiado, inventario, cliente, etc.) se SIGUEN emitiendo
+como tags de texto, igual que siempre.
+================================================================================
+
+"""
+
+
+# ─────────────────────────────────────────────
 # ALIAS DE FERRETERÍA (pre-procesamiento)
 # ─────────────────────────────────────────────
 
@@ -236,7 +260,13 @@ def _construir_parte_estatica(memoria: dict) -> str:
     # Skills estáticos: core + precios_base (siempre necesarios, muy cacheables)
     skills_estaticos = skill_loader.obtener_skills_estaticos()
 
-    return f"""{skills_estaticos}
+    # M-01: cuando el tool-calling está activo, anteponer una directiva que le
+    # diga a Claude que registre ventas con la herramienta registrar_venta en
+    # vez de emitir tags [VENTA] de texto. Estable mientras el flag no cambie →
+    # no rompe el prompt caching. El resto de acciones siguen como tags.
+    tool_dir = _DOC_TOOL_VENTAS if config.IA_TOOL_CALLING else ""
+
+    return f"""{tool_dir}{skills_estaticos}
 
 INFORMACION DEL NEGOCIO: {negocio_json}
 
