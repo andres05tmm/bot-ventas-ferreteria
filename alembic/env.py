@@ -13,7 +13,10 @@ config = context.config
 # La URL de la BD viene SIEMPRE de la env var DATABASE_URL (12-factor) — nunca
 # se hardcodea en alembic.ini. Railway entrega el DSN con prefijo "postgres://",
 # pero SQLAlchemy exige "postgresql://"; normalizamos.
-_db_url = os.getenv("DATABASE_URL", "")
+# .strip() defensivo: algunos wrappers de shell (ej. `set VAR=val && cmd` en
+# cmd.exe) añaden espacios al valor, lo que produce un dbname inválido tipo
+# "railway " (con espacio) y un FATAL al conectar.
+_db_url = os.getenv("DATABASE_URL", "").strip()
 if _db_url.startswith("postgres://"):
     _db_url = _db_url.replace("postgres://", "postgresql://", 1)
 if _db_url:
