@@ -2,20 +2,41 @@
 FerreBot Dashboard API — FastAPI (entry point)
 
 Punto de entrada de FastAPI. Solo responsabilidades de infraestructura:
-  - Crear la app y configurar CORS
+  - Crear la app y configurar CORS (ver core/config.CORS_ORIGIN)
   - Registrar los routers de cada dominio
   - Servir el build estático del dashboard React
+  - Arrancar el hilo daemon pg_listener (bridge pg_notify → SSE)
+  - Arrancar la task de renovación del watch Gmail compras (cada 6 días)
 
 Toda la lógica de negocio vive en routers/:
-  shared.py    — helpers y utilidades compartidas (sin endpoints)
-  ventas.py    — /ventas/*, /venta-rapida
-  catalogo.py  — /catalogo/*, /productos, /inventario/*
-  caja.py      — /caja/*, /gastos/*, /compras/*
-  clientes.py  — /clientes/*
-  reportes.py  — /kardex, /resultados, /proyeccion
-  historico.py — /historico/*
-  chat.py      — /chat/*, /api/health
-  events.py    — /events (SSE tiempo real para el dashboard)
+  auth.py                 — /auth/telegram, /auth/me (Telegram Login + JWT)
+  usuarios.py             — /usuarios/vendedores (filtrado por rol)
+  ventas.py               — /ventas/*, /venta-rapida, /ventas/varia
+  catalogo.py             — /catalogo/*, /productos, /inventario/*
+  caja.py                 — /caja/*, /gastos/*, /compras/*, /compras-fiscal/*
+  clientes.py             — /clientes/*, /clientes/paises, /clientes/ciudades
+  reportes.py             — /kardex, /resultados, /proyeccion
+  historico.py            — /historico/*
+  chat.py                 — /chat, /chat/stream, /chat/memoria, /chat/briefing,
+                            /chat/reporte-datos, /chat/transcribir, /chat/export/*
+  proveedores.py          — /proveedores/*, /proveedores/facturas/*, /abonos/*
+  facturacion.py          — /facturacion/* (MATIAS API DIAN: FE + notas)
+  libro_iva.py            — /libro-iva/* (resumen bimestral)
+  honorarios.py           — /honorarios/* (Cuenta de Cobro mensual)
+  gmail_webhook.py        — /gmail/webhook (compras fiscales vía Pub/Sub)
+  bold_webhook.py         — /bold/webhook (notificaciones de pago Bold)
+  wompi_webhook.py        — /wompi/webhook (notificaciones de pago Wompi)
+  bancolombia_notifier.py — /bancolombia/* (transferencias vía Gmail Pub/Sub)
+  events.py               — /events (SSE tiempo real para el dashboard)
+  shared.py               — helpers y utilidades compartidas (sin endpoints)
+  deps.py                 — dependencias FastAPI (auth JWT, filtro RBAC)
+
+Endpoints inline en este módulo:
+  /api/health             — health check
+  /metrics                — Prometheus exposition format
+  /webhooks/sentry        — reenvío de alertas Sentry → Telegram
+  OPTIONS /auth/telegram  — preflight CORS explícito
+  /{full_path:path}       — catch-all SPA (sirve dashboard/dist/index.html)
 """
 
 from __future__ import annotations
@@ -216,35 +237,10 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_gmail_watch_renewal_loop())
     _api_logger.info("📬 Gmail watch renewal task iniciada (intervalo: 6 días)")
 
-    # ── Renovación automática del Gmail watch de Bancolombia (expira cada 7 días) ─
-    async def _bancolombia_watch_renewal_loop():
-        """Renueva el Gmail watch del correo Bancolombia cada 6 días."""
-        import os as _os
-        _SEIS_DIAS = 6 * 24 * 3600
-        _b_log = logging.getLogger("ferrebot.bancolombia_watch")
-        await asyncio.sleep(60)  # esperar 60s para no solapar con el watch de compras
-        while True:
-            try:
-                if all(_os.getenv(v) for v in (
-                    "BANCOLOMBIA_GMAIL_CLIENT_ID",
-                    "BANCOLOMBIA_GMAIL_CLIENT_SECRET",
-                    "BANCOLOMBIA_GMAIL_REFRESH_TOKEN",
-                    "BANCOLOMBIA_PUBSUB_TOPIC",
-                )):
-                    from routers.bancolombia_notifier import bancolombia_watch_setup
-                    result = await bancolombia_watch_setup()
-                    _b_log.info(
-                        "✅ Bancolombia Gmail watch renovado — historyId=%s, expira=%s",
-                        result.get("historyId"), result.get("expira"),
-                    )
-                else:
-                    _b_log.debug("Bancolombia watch: variables no configuradas — omitiendo renovación")
-            except Exception as _e:
-                _b_log.warning("⚠️ Error renovando Bancolombia Gmail watch: %s", _e)
-            await asyncio.sleep(_SEIS_DIAS)
-
-    asyncio.create_task(_bancolombia_watch_renewal_loop())
-    _api_logger.info("🏦 Bancolombia Gmail watch renewal task iniciada (intervalo: 6 días)")
+    # ── Renovación del watch Gmail Bancolombia ────────────────────────────────
+    # H-09: la renovación vive en start-bot.py (APScheduler con
+    # IntervalTrigger(days=6) + alerta Telegram). No la duplicamos aquí para
+    # evitar dos renovaciones concurrentes cuando ambos servicios están vivos.
 
     yield
 

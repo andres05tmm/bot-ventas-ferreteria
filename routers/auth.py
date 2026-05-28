@@ -4,7 +4,7 @@ import time
 import hmac
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # -- terceros --
 import jwt
@@ -81,9 +81,11 @@ async def auth_telegram(request: TelegramAuthRequest):
         logger.warning(f"Hash verification failed for user {request.id}")
         raise HTTPException(status_code=401, detail="Hash verification failed")
 
-    # 2. Verifica que auth_date no sea antiguo (> 24 horas)
-    now = int(time.time())
-    if now - request.auth_date > 86400:
+    # 2. Verifica que auth_date no sea antiguo (> 10 minutos).
+    # H-07: bajado de 24h a 10min. El widget de Telegram emite el auth_date
+    # en el momento del login; permitir 24h abría ventana para replay attacks.
+    ahora_epoch = int(time.time())
+    if ahora_epoch - request.auth_date > 600:
         logger.warning(f"Login expired for user {request.id} (auth_date={request.auth_date})")
         raise HTTPException(status_code=401, detail="Login expired")
 
@@ -112,8 +114,10 @@ async def auth_telegram(request: TelegramAuthRequest):
         logger.error("SECRET_KEY not configured")
         raise HTTPException(status_code=500, detail="Server configuration error")
 
-    now = datetime.utcnow()
-    expiry = now + timedelta(days=7)
+    # H-06: datetime.utcnow() está deprecado en Python 3.12+ — usar
+    # timezone-aware. pyjwt acepta datetime con tzinfo correctamente.
+    ahora_dt = datetime.now(timezone.utc)
+    expiry = ahora_dt + timedelta(days=7)
 
     payload = {
         "usuario_id": usuario_id,

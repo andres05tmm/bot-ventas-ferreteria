@@ -130,26 +130,9 @@ def test_catalogo_nav_con_termino(mocker):
     assert resp.status_code == 200
 
 
-def test_kardex_sin_param(mocker):
-    """GET /kardex sin param 'producto' → 503 cuando DB no disponible (param ahora opcional)."""
-    resp = client.get("/kardex")
-    assert resp.status_code == 503
-
-
-def test_kardex_sin_db(mocker):
-    """GET /kardex con DB no disponible → 503."""
-    mocker.patch("routers.catalogo.db.DB_DISPONIBLE", False)
-    resp = client.get("/kardex?producto=tornillo")
-    assert resp.status_code == 503
-
-
-def test_kardex_producto_no_encontrado(mocker):
-    """Con DB pero producto no en catálogo → 404."""
-    mocker.patch("routers.catalogo.db.DB_DISPONIBLE", True)
-    mocker.patch("routers.catalogo.db.query_all", return_value=[])
-    # buscar_producto_en_catalogo ya retorna None en el stub
-    resp = client.get("/kardex?producto=inexistente")
-    assert resp.status_code == 404
+# GET /kardex eliminado de routers/catalogo.py — era dead code (mismo path
+# registrado en routers/reportes.py que se incluye antes en api.py). Los tests
+# de kardex viven (o deberían vivir) en tests/test_router_reportes.py.
 
 
 def test_crear_producto_body_vacio():

@@ -70,25 +70,11 @@ from handlers.dispatch import (
 
 logger = logging.getLogger("ferrebot.mensajes")
 
-# ── Rate limiting ─────────────────────────────────────────────────────────────
-_RATE_LIMIT = 18          # mensajes permitidos por ventana
-_RATE_WINDOW = 60.0       # segundos de la ventana deslizante
-_rate_timestamps: dict[int, collections.deque] = {}  # chat_id → timestamps
-
-def _check_rate_limit(chat_id: int) -> bool:
-    """Retorna True si el chat está dentro del límite, False si lo superó."""
-    ahora = time.monotonic()
-    ventana_inicio = ahora - _RATE_WINDOW
-    if chat_id not in _rate_timestamps:
-        _rate_timestamps[chat_id] = collections.deque()
-    dq = _rate_timestamps[chat_id]
-    # Eliminar timestamps fuera de la ventana
-    while dq and dq[0] < ventana_inicio:
-        dq.popleft()
-    if len(dq) >= _RATE_LIMIT:
-        return False
-    dq.append(ahora)
-    return True
+# ── Rate limiting eliminado ──────────────────────────────────────────────────
+# El rate limit unificado vive ahora en middleware/auth.py (global_guard
+# registrado como TypeHandler en group=-1 desde main.build_app). Mantener
+# dos implementaciones divergentes (5/2s en middleware y 18/60s acá) confundía
+# y dejaba ventanas inconsistentes según qué handler tocaba primero.
 
 
 async def _enviar_botones_pago(message, chat_id: int, ventas: list):
@@ -197,10 +183,6 @@ async def manejar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("esperando_foto_abono", None)
             await update.message.reply_text("👍 Foto omitida. La factura queda registrada sin foto.")
             return
-
-    if not _check_rate_limit(chat_id):
-        await update.message.reply_text("⏳ Demasiados mensajes, espera un momento.")
-        return
 
     async with get_chat_lock(chat_id):
         await _procesar_mensaje(update, context, mensaje, chat_id, vendedor)
