@@ -333,6 +333,25 @@ async def procesar_con_claude(
     _tiene_imagen   = imagen_b64 is not None  # True cuando viene una foto del cuaderno
     _msg_bypass = re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
     _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
+    # ── FIX [PEDIDO ORIGINAL:] — sintetizar query limpia para MATCH ─────────
+    # mensajes.py inyecta [PEDIDO ORIGINAL: X]\n[PREGUNTA DEL BOT:...]\n
+    # [RESPUESTA DEL CLIENTE: Y] cuando guarda contexto pendiente (ej. tras
+    # bypass-ambigüedad). Los corchetes y tokens basura ("[PEDIDO", "lija]", etc.)
+    # rompen buscar_multiples_con_alias y producen un MATCH incorrecto o vacío.
+    # Solución: extraer X e Y y sintetizar "_msg_bypass = X Y" para búsqueda limpia.
+    # mensaje_usuario que Claude recibe queda intacto (contexto completo).
+    _pfx_po_m = re.match(r'^[^:]+:\s*', mensaje_usuario)
+    _pfx_po_s = _pfx_po_m.group(0) if _pfx_po_m else ""
+    _po_m2    = re.search(r'\[PEDIDO ORIGINAL:\s*([^\]]+)\]', _msg_bypass, re.IGNORECASE)
+    _rc_m2    = re.search(r'\[RESPUESTA DEL CLIENTE[^\]]*:\s*([^\]]+)\]', _msg_bypass, re.IGNORECASE)
+    _override_msg_para_match: str | None = None
+    if _po_m2 and _rc_m2:
+        _msg_bypass = f"{_po_m2.group(1).strip()} {_rc_m2.group(1).strip()}"
+        _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
+        _override_msg_para_match = f"{_pfx_po_s}{_msg_bypass}"
+        logging.getLogger("ferrebot.ai").info(
+            "[PEDIDO-ORIG] sintetizando para MATCH: '%s'", _msg_bypass[:80]
+        )
     memoria = cargar_memoria()
     # Las fotos con imagen no pueden pasar por el bypass Python (no hay texto estructurado).
     # Solo intentar bypass cuando NO hay imagen.
@@ -403,6 +422,7 @@ async def procesar_con_claude(
     # interpretaba como continuación del último turno del usuario, aunque
     # ese turno fuera de horas atrás o de otro vendedor en el mismo grupo.
     _msg_para_match = mensaje_usuario
+    _msg_para_match_augmented = False
     if historial_chat:
         _palabras_match = [w for w in _msg_bypass.lower().split() if len(w) > 2]
         _es_clarificacion = len(_palabras_match) <= 6 and "," not in _msg_bypass
@@ -454,6 +474,7 @@ async def procesar_con_claude(
                     # Solo augmentar si el mensaje previo tiene más contexto de productos
                     if isinstance(_prev_content, str) and len(_prev_content) > len(mensaje_usuario):
                         _msg_para_match = _prev_content + ", " + mensaje_usuario
+                        _msg_para_match_augmented = True
                         # Sintetizar el mensaje completo para Claude: pedido original + aclaración
                         # "Test: 1 lija" + "Test: 120" → "Test: 1 lija 120"
                         # Así Claude recibe toda la info en un turno y puede registrar directo.
@@ -467,6 +488,10 @@ async def procesar_con_claude(
                             "'%s' → '%s'", _msg_para_match[:80], mensaje_usuario[:80]
                         )
                     break
+
+    # Aplicar override de [PEDIDO ORIGINAL:] si multi-turno no augmentó el mensaje.
+    if not _msg_para_match_augmented and _override_msg_para_match is not None:
+        _msg_para_match = _override_msg_para_match
 
     parte_dinamica = _construir_parte_dinamica(_msg_para_match, nombre_usuario, memoria)
 
