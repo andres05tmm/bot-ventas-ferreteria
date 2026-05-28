@@ -96,13 +96,29 @@ _DOC_TOOL_VENTAS = """\
 ==================== REGISTRO DE VENTAS — REGLA PRIORITARIA ====================
 Para REGISTRAR VENTAS usa la herramienta `registrar_venta` (una llamada por
 producto distinto). NO escribas tags de texto [VENTA]{...}[/VENTA] para ventas.
-Siguen vigentes TODAS las reglas de ventas de abajo:
+
+>>> REGLA DE ORO — AMBIGÜEDAD DE VARIANTE (tiene prioridad sobre "silencio total"):
+ANTES de llamar registrar_venta, mirá el MATCH. Si hay 2 o MÁS productos cuyo
+nombre base es el mismo pero difieren en medida / número / grano / pulgadas /
+color (ej: varias "Lija N°...", o "Disco de Corte Metal 4\"" y "...7\""), y el
+vendedor NO dijo cuál variante quiere → NO llames la herramienta. En su lugar
+RESPONDÉ CON TEXTO preguntando cuál, listando las opciones del MATCH. Ejemplos:
+  "1 lija" + MATCH con N°60, N°80, N°100... → "¿Qué número de lija? Tengo 60, 80, 100, 120..."
+  "1 disco de corte metal" + MATCH 4" y 7"  → "¿Disco de corte metal de 4\" o 7\"?"
+CLAVE: aunque TODAS las variantes cuesten lo MISMO (ej: 8 lijas todas a $2.000),
+el número/grano/medida es una diferencia FÍSICA que el cliente ya eligió — una lija
+N°60 (gruesa) NO es lo mismo que una N°400 (fina). Que tengan igual precio NO las
+hace intercambiables: IGUAL tenés que preguntar cuál.
+Vale MÁS preguntar que adivinar. NUNCA elijas vos la variante (ni la más barata,
+ni la más común, ni la primera del MATCH) cuando hay varias y el vendedor no la especificó.
+SÍ registrá directo si: el vendedor YA dio la variante ("lija 80", "disco metal 7"),
+o el MATCH trae una sola variante, o dio el total exacto con "=" o "$".
+
+Resto de reglas (siguen vigentes, ver abajo):
 - Precio declarado por el vendedor con $ o "=" → es el total de esa línea, úsalo tal cual.
 - La fracción va en el parámetro `cantidad` (0.25=1/4), nunca en el nombre del producto.
 - "Venta Varia" se registra con producto="Venta Varia".
-- Si hay ambigüedad de variante (lija sin grano, disco sin pulgadas, etc.):
-  PREGUNTA con texto y NO llames la herramienta hasta que el vendedor aclare.
-- Silencio total en ventas sin ambigüedad: solo llama la herramienta, sin texto.
+- Silencio total en ventas SIN ambigüedad: solo llamá la herramienta, sin texto.
 Las demás acciones (gasto, fiado, inventario, cliente, etc.) se SIGUEN emitiendo
 como tags de texto, igual que siempre.
 ================================================================================
