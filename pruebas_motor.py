@@ -294,6 +294,28 @@ CASOS: dict[str, list[tuple[list[str], str]]] = {
         (["borra la ultima venta que registre"], "eliminar — SIN [VENTA] nuevo"),
         (["me equivoque, no era esa cantidad"], "corrección — SIN [VENTA] nuevo"),
     ],
+    # MULTIPRODUCTO CON FALLO PARCIAL: un ítem problemático junto a válidos.
+    # Observar: ¿registra los buenos y marca el malo? ¿bloquea todo? ¿pregunta?
+    "multi_problemas": [
+        # (1) producto NO en BD + válido
+        (["2 lija 150, 5 destornillador magico marca acme"],
+         "lija 150 válido ($4.000) + destornillador inexistente → debe avisar que no existe"),
+        # (2) ambiguo (1 lija) + válido
+        (["1 lija, 2 tornillos drywall 6x1"],
+         "lija ambigua (preguntar número) + tornillos 6x1 válido (2×$42=$84)"),
+        # (3) typo NO cubierto (drygual) + válido
+        (["12 tornillos drygual 6x2, 2 lija 150"],
+         "drygual=typo de drywall → 12×$67=$804 ; lija 150 → 2×$2.000=$4.000"),
+        # (4) typo SÍ cubierto por alias (drwall) + válido
+        (["12 tornillos drwall 6x2, 2 lija 150"],
+         "drwall→drywall (alias) → 12×$67=$804 ; lija150 → $4.000"),
+        # (5) varios problemas a la vez: ambiguo + inexistente + typo
+        (["1 lija, 5 widget inexistente, 12 tornillos drygual 6x2"],
+         "ambiguo + inexistente + typo en un solo mensaje"),
+        # (6) producto inexistente solo con otro válido (multi-línea)
+        (["3 lija 150\n2 martillo de titanio"],
+         "lija150 válido + martillo de titanio inexistente"),
+    ],
 }
 
 
