@@ -316,7 +316,7 @@ async def _procesar_mensaje(update, context, mensaje, chat_id, vendedor):
         if texto_respuesta and not _acciones_venta and "?" in texto_respuesta:
             with _estado_lock:
                 mensaje_contexto_pendiente[chat_id] = {
-                    "mensaje":  _mensaje_para_claude,
+                    "mensaje":  mensaje,
                     "pregunta": texto_respuesta,
                 }
             logging.getLogger("ferrebot.mensajes").debug(
