@@ -177,8 +177,39 @@ CASOS: dict[str, list[tuple[list[str], str]]] = {
     ],
     "granel": [
         (["2 kilos cemento blanco"], "2 x $2.500 = $5.000"),
-        (["medio kilo yeso"], "0.5 x $1.500 = $750"),
-        (["kilo y medio talco"], "1.5 x $1.500 = $2.250"),
+        (["medio kilo yeso"], "0.5 x $2.000 = $1.000 (catálogo $2.000/kg)"),
+        (["kilo y medio talco"], "1.5 x $2.000 = $3.000 (catálogo $2.000/kg)"),
+    ],
+    # Puntilla 2" = caja $5.000 → precio_gramo $10. (con/sin cabeza, mismo precio)
+    "puntillas": [
+        (["caja puntilla 2"], "caja completa = 500gr, total $5.000"),
+        (["media caja puntilla 2"], "250gr, total $2.500"),
+        (["1/4 de caja puntilla 2"], "125gr, total $1.250"),
+        (["300 gramos puntilla 2"], "300 x $10/gr = $3.000"),
+        (["$2000 de puntilla 2 sc"], "por pesos: 2000/10 = 200gr, total $2.000"),
+        (["2000 de puntilla 2"], "por pesos: 200gr, total $2.000"),
+    ],
+    "multiproducto": [
+        (["2 tornillos drywall 6x1, 3 lija 100"], "multi: 2x$42=$84 + 3x$2000=$6000"),
+        (["2 tornillos drywall 6x1\n3 lija 100"], "multi-línea: igual que arriba"),
+        (["5 chazo plastico 1/4, 2 lija 80"], "multi: 5x$42=$210 + 2x$2000=$4000"),
+        (["1 galon vinilo t1 blanco, 2 lija 100"], "multi: $50.000 + $4.000"),
+    ],
+    # Estrés: 7 productos en un mensaje mezclando fracción, gramos, kilos,
+    # fracción mixta, mayorista (100 tornillos) y unidad. Total esperado $66.000.
+    "estres7": [
+        ([
+            "1/4 de thinner\n"
+            "300 gramos puntilla 2\n"
+            "2 kilos cemento blanco\n"
+            "1-1/2 galon varsol\n"
+            "100 tornillos drywall 6x1\n"
+            "3 lija 150\n"
+            "medio kilo yeso"
+        ],
+         "7 prods: thinner 1/4=8000 + puntilla2 300gr=3000 + cemento 2kg=5000 + "
+         "varsol 1.5gal=39000 + drywall 6x1 x100 mayorista=4000 + lija150 x3=6000 + "
+         "yeso 0.5kg=1000 → TOTAL $66.000"),
     ],
 }
 
