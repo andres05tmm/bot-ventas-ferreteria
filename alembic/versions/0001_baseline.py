@@ -41,7 +41,14 @@ def _cargar_sql() -> str:
 
 def upgrade() -> None:
     sql = _cargar_sql()
-    op.get_bind().exec_driver_sql(sql)
+    bind = op.get_bind()
+    bind.exec_driver_sql(sql)
+    # pg_dump incluye `SELECT pg_catalog.set_config('search_path', '', false)`,
+    # que deja el search_path VACÍO a nivel de sesión. Eso rompe el paso siguiente
+    # de Alembic — `INSERT INTO alembic_version` (sin calificar) — porque no
+    # encuentra la tabla. En una BD nueva esto abortaba todo el upgrade (rollback,
+    # 0 tablas). Restaurar el search_path a 'public' deja la conexión usable.
+    bind.exec_driver_sql("SELECT pg_catalog.set_config('search_path', 'public', false);")
 
 
 def downgrade() -> None:
