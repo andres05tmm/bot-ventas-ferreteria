@@ -214,6 +214,32 @@ def _detectar_ambiguedad_variante(candidatos: list, mensaje_usuario: str) -> str
     return ""
 
 
+def _detectar_ambiguedad_segmentos(mensaje_usuario: str) -> str:
+    """
+    Ambigüedad PER-SEGMENTO para ventas multiproducto (MP-1).
+
+    En "1 lija, 2 tornillos drywall 6x1" la búsqueda del mensaje completo se llena
+    de variantes de tornillo y nunca surface las de lija, así que la ambigüedad de
+    "1 lija" pasa desapercibida y el bot adivina N°60. Aquí se divide el mensaje por
+    coma/salto de línea y se evalúa cada segmento con SUS propios candidatos.
+    Retorna el primer nudge de ambigüedad encontrado, o "".
+    """
+    from memoria import buscar_multiples_con_alias
+    # Quitar prefijo "Nombre: " del vendedor antes de segmentar.
+    cuerpo = re.sub(r'^[^:\n]{1,20}:\s*', '', mensaje_usuario)
+    segmentos = [s.strip() for s in re.split(r'[,\n]+', cuerpo) if s.strip()]
+    if len(segmentos) < 2:
+        return ""
+    for seg in segmentos:
+        if not re.search(r'[a-záéíóúñ]{3,}', seg.lower()):
+            continue
+        cands = buscar_multiples_con_alias(seg, limite=20)
+        aviso = _detectar_ambiguedad_variante(cands, seg)
+        if aviso:
+            return aviso
+    return ""
+
+
 def construir_seccion_match(
     mensaje_usuario: str,
     nombre_usuario: str,
@@ -902,6 +928,9 @@ def construir_seccion_match(
             and info_candidatos_extra.startswith("MATCH:")
             and "=" not in mensaje_usuario and "$" not in mensaje_usuario):
         _aviso_amb = _detectar_ambiguedad_variante(candidatos, mensaje_usuario)
+        if not _aviso_amb:
+            # Multiproducto: revisar ambigüedad por segmento (MP-1).
+            _aviso_amb = _detectar_ambiguedad_segmentos(mensaje_usuario)
         if _aviso_amb:
             info_candidatos_extra = _aviso_amb + "\n\n" + info_candidatos_extra
             logger.debug("[AMBIGUO] %s", _aviso_amb.splitlines()[0])

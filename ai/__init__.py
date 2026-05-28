@@ -373,9 +373,13 @@ async def procesar_con_claude(
     # Esto permite que el BYPASS AMBIGÜEDAD más abajo genere la pregunta determinista.
     if _bypass and config.IA_TOOL_CALLING and not _tiene_imagen:
         from memoria import buscar_multiples_con_alias
-        from ai.prompt_products import _detectar_ambiguedad_variante
+        from ai.prompt_products import _detectar_ambiguedad_variante, _detectar_ambiguedad_segmentos
         _cands_q = buscar_multiples_con_alias(_msg_bypass, limite=20)
-        if _detectar_ambiguedad_variante(_cands_q, _msg_bypass):
+        # Whole-message + per-segment (MP-1): en multiproducto la búsqueda global
+        # se llena de variantes de un solo producto y oculta la ambigüedad de otro
+        # (ej "1 lija, 2 tornillos 6x1" → el bypass resolvía lija→N°60 callado).
+        if (_detectar_ambiguedad_variante(_cands_q, _msg_bypass)
+                or _detectar_ambiguedad_segmentos(_msg_bypass)):
             logging.getLogger("ferrebot.ai").info(
                 "[AMBIGUO] bypass anulado por ambigüedad: '%s'", _msg_bypass[:60]
             )
@@ -851,9 +855,10 @@ async def procesar_con_claude_stream(
     # Con IA_TOOL_CALLING activo: anular bypass si el producto es ambiguo
     if _bp and config.IA_TOOL_CALLING:
         from memoria import buscar_multiples_con_alias
-        from ai.prompt_products import _detectar_ambiguedad_variante
+        from ai.prompt_products import _detectar_ambiguedad_variante, _detectar_ambiguedad_segmentos
         _cands_qs = buscar_multiples_con_alias(_msg_bypass, limite=20)
-        if _detectar_ambiguedad_variante(_cands_qs, _msg_bypass):
+        if (_detectar_ambiguedad_variante(_cands_qs, _msg_bypass)
+                or _detectar_ambiguedad_segmentos(_msg_bypass)):
             logging.getLogger("ferrebot.ai").info(
                 "[AMBIGUO] bypass-stream anulado por ambigüedad: '%s'", _msg_bypass[:60]
             )
