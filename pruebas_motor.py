@@ -55,6 +55,22 @@ _TAG_RE = re.compile(r"\[/?[A-ZÉÍ_]+(?:\][^\[]*\[/[A-ZÉÍ_]+)?\]", re.DOTALL)
 # ─────────────────────────────────────────────
 # PARSEO DE LA RESPUESTA CRUDA
 # ─────────────────────────────────────────────
+# Tags de bloque [XXX]...[/XXX] y marcadores de acción sueltos que emite Claude.
+_TAGS_BLOQUE = ("VENTA", "GASTO", "FIADO", "INVENTARIO", "BUSCAR_HISTORICO",
+                "PRECIO_ACTUALIZADO", "PRECIO_MAYORISTA", "PRECIO_FRACCION")
+_ACCIONES_RE = re.compile(
+    r"\b(PEDIR_METODO_PAGO|INICIAR_FLUJO_CLIENTE|PAGO_PENDIENTE_AVISO|"
+    r"PEDIR_CONFIRMACION|CLIENTE_DESCONOCIDO)\b"
+)
+
+
+def _detectar_tags(raw: str) -> list[str]:
+    """Lista de tags de bloque y acciones presentes en la respuesta cruda."""
+    tags = [t for t in _TAGS_BLOQUE if f"[{t}]" in raw]
+    tags += sorted(set(_ACCIONES_RE.findall(raw)))
+    return tags
+
+
 def _parsear(respuesta_raw: str) -> tuple[str, list[dict]]:
     """Extrae los [VENTA] y el texto visible (pregunta/aviso) de la respuesta cruda."""
     ventas: list[dict] = []
@@ -257,6 +273,27 @@ CASOS: dict[str, list[tuple[list[str], str]]] = {
         (["3 rodillos"], "3 × Rodillo Convencional $8.000 = $24.000"),
         (["1 rodillo de 3"], "Rodillo de 3\" = $6.000"),
     ],
+    # CONSULTAS: NO deben registrar venta — solo responder info. (sin [VENTA])
+    "consultas": [
+        (["cuanto vale el galon de thinner"], "info precio, SIN [VENTA]"),
+        (["hay lija 100?"], "consulta stock, SIN [VENTA]"),
+        (["cuanto cuesta el vinilo t1 blanco"], "info precio, SIN [VENTA]"),
+        (["cuanto vendimos hoy"], "reporte, SIN [VENTA]"),
+        (["tienes cemento blanco"], "consulta disponibilidad, SIN [VENTA]"),
+    ],
+    # CLIENTE / FIADO: venta asignada a cliente o crédito (espera [VENTA]+acción cliente/fiado).
+    "cliente_fiado": [
+        (["2 lija 100 fiado a Pedro"], "venta a crédito → [FIADO] o acción cliente Pedro"),
+        (["1 galon vinilo t1 blanco para Juan"], "venta asignada a Juan → acción cliente"),
+        (["3 tornillos drywall 6x1 a credito"], "crédito sin nombre → pedir cliente / acción fiado"),
+    ],
+    # MODIFICACIONES / ANULACIÓN: NUNCA deben crear un [VENTA] nuevo.
+    "modificaciones": [
+        (["anula la ultima venta"], "anular — SIN [VENTA] nuevo"),
+        (["cambia el metodo de pago a transferencia"], "modificar — SIN [VENTA] nuevo"),
+        (["borra la ultima venta que registre"], "eliminar — SIN [VENTA] nuevo"),
+        (["me equivoque, no era esa cantidad"], "corrección — SIN [VENTA] nuevo"),
+    ],
 }
 
 
@@ -270,7 +307,12 @@ def _fmt_venta(v: dict) -> str:
     cant = v.get("cantidad", "?")
     pu = v.get("precio_unitario", v.get("precio_unidad", "?"))
     tot = v.get("total", "?")
-    return f"{cant} × {prod} @ {pu} = ${tot}"
+    extra = ""
+    if v.get("cliente"):
+        extra += f"  [cliente: {v['cliente']}]"
+    if v.get("metodo_pago"):
+        extra += f"  [pago: {v['metodo_pago']}]"
+    return f"{cant} × {prod} @ {pu} = ${tot}{extra}"
 
 
 async def correr(categorias: list[str]) -> None:
@@ -312,8 +354,14 @@ async def correr(categorias: list[str]) -> None:
                                 print(f"           ⓘ catálogo precio_unidad={cat_precio} (venta usó {pu})")
                         elif prod_l and not any(prod_l in k or k in prod_l for k in lookup):
                             print(f"           ⚠ producto '{v.get('producto')}' NO existe tal cual en catálogo")
+                _tags = _detectar_tags(r["raw"])
+                _tags_no_venta = [t for t in _tags if t != "VENTA"]
+                if _tags_no_venta:
+                    print(f"{etiqueta} TAGS:  {', '.join(_tags_no_venta)}")
                 if r["texto"]:
                     print(f"{etiqueta} TEXTO: {r['texto'][:200]}")
+                if not r["ventas"] and not r["texto"] and not _tags_no_venta:
+                    print(f"{etiqueta} (sin venta, sin texto, sin tags)")
                 if "__ERROR__" in r["raw"]:
                     print(f"{etiqueta} {r['raw'][:200]}")
             sys.stdout.flush()
