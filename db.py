@@ -351,6 +351,26 @@ ALTER TABLE fiados ADD COLUMN IF NOT EXISTS saldo_actual INTEGER DEFAULT 0;
 ALTER TABLE fiados ADD COLUMN IF NOT EXISTS ultima_actualizacion TIMESTAMP DEFAULT NOW();
 ALTER TABLE fiados ADD COLUMN IF NOT EXISTS notas TEXT;
 
+-- H-14: tabla transaccional de cargos/abonos. Antes los movimientos vivían
+-- solo en memoria (cache) y se perdían en cada reinicio. Ver
+-- migrations/024_fiados_movimientos.py para el rationale completo.
+CREATE TABLE IF NOT EXISTS fiados_movimientos (
+    id               BIGSERIAL    PRIMARY KEY,
+    fiado_id         INTEGER      NOT NULL REFERENCES fiados(id) ON DELETE CASCADE,
+    fecha            DATE         NOT NULL DEFAULT CURRENT_DATE,
+    hora             TIME         NOT NULL DEFAULT (NOW()::time),
+    concepto         TEXT         NOT NULL DEFAULT '',
+    cargo            NUMERIC(15,2) NOT NULL DEFAULT 0,
+    abono            NUMERIC(15,2) NOT NULL DEFAULT 0,
+    saldo_resultante NUMERIC(15,2) NOT NULL,
+    creado_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CHECK (cargo >= 0 AND abono >= 0)
+);
+CREATE INDEX IF NOT EXISTS idx_fiados_mov_fiado_fecha
+    ON fiados_movimientos (fiado_id, fecha DESC, hora DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_fiados_mov_creado
+    ON fiados_movimientos (creado_at);
+
 -- ───────────────────────────────────────────────────────────────
 -- FACTURAS DE PROVEEDORES (cuentas por pagar)
 -- ───────────────────────────────────────────────────────────────

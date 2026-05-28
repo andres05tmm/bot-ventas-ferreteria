@@ -71,6 +71,11 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
     """
     Registra un movimiento de fiado (cargo=lo que quedó debiendo, abono=lo que pagó).
     Crea el cliente en fiados si no existe.
+
+    H-14: el movimiento ahora se persiste en la tabla fiados_movimientos en
+    la misma transacción que el UPDATE del saldo. El cache en memoria también
+    se actualiza para que las lecturas inmediatas vean el cambio. Si el bot
+    se reinicia, el cache se reconstruye desde la tabla (no se pierde nada).
     """
     import db as _db
     if not _db.DB_DISPONIBLE:
@@ -93,18 +98,68 @@ def guardar_fiado_movimiento(cliente: str, concepto: str, cargo: float, abono: f
         "saldo":    saldo_nuevo,
     })
 
-    existing = _db.query_one("SELECT id FROM fiados WHERE nombre = %s", (cliente,))
-    if existing:
-        _db.execute(
-            "UPDATE fiados SET saldo_actual=%s, ultima_actualizacion=NOW(), updated_at=NOW() WHERE id=%s",
-            (int(saldo_nuevo), existing["id"])
-        )
-    else:
-        _db.execute_returning(
-            "INSERT INTO fiados (nombre, saldo_actual, ultima_actualizacion) VALUES (%s, %s, NOW()) RETURNING id",
-            (cliente, int(saldo_nuevo))
-        )
+    # Transacción: UPSERT del saldo + INSERT del movimiento atómicamente.
+    with _db._get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM fiados WHERE nombre = %s", (cliente,))
+            row = cur.fetchone()
+            if row:
+                fiado_id = row["id"]
+                cur.execute(
+                    "UPDATE fiados SET saldo_actual=%s, ultima_actualizacion=NOW(), "
+                    "updated_at=NOW() WHERE id=%s",
+                    (int(saldo_nuevo), fiado_id),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO fiados (nombre, saldo_actual, ultima_actualizacion) "
+                    "VALUES (%s, %s, NOW()) RETURNING id",
+                    (cliente, int(saldo_nuevo)),
+                )
+                fiado_id = cur.fetchone()["id"]
+
+            cur.execute(
+                """INSERT INTO fiados_movimientos
+                       (fiado_id, concepto, cargo, abono, saldo_resultante)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (fiado_id, concepto, cargo, abono, saldo_nuevo),
+            )
+        conn.commit()
+
     return saldo_nuevo
+
+
+def listar_movimientos_cliente(fiado_id: int, limit: int = 20) -> list[dict]:
+    """
+    Retorna los últimos N movimientos de un fiado desde PG (no del cache).
+    Útil para reconstruir el detalle del cliente después de un reinicio.
+    """
+    import db as _db
+    if not _db.DB_DISPONIBLE:
+        return []
+    try:
+        rows = _db.query_all(
+            """SELECT fecha, hora, concepto, cargo, abono, saldo_resultante
+               FROM fiados_movimientos
+               WHERE fiado_id = %s
+               ORDER BY fecha DESC, hora DESC, id DESC
+               LIMIT %s""",
+            (fiado_id, limit),
+        )
+        return [
+            {
+                "fecha":    str(r["fecha"]),
+                "hora":     str(r["hora"])[:5] if r.get("hora") else "",
+                "concepto": r["concepto"] or "",
+                "cargo":    float(r["cargo"] or 0),
+                "abono":    float(r["abono"] or 0),
+                "saldo":    float(r["saldo_resultante"] or 0),
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.warning("listar_movimientos_cliente falló: %s", e)
+        return []
 
 
 def abonar_fiado(cliente: str, monto: float, concepto: str = "Abono") -> tuple[bool, str]:
@@ -144,16 +199,34 @@ def resumen_fiados() -> str:
 
 
 def detalle_fiado_cliente(cliente: str) -> str:
-    """Retorna el detalle de movimientos de un cliente."""
+    """
+    Retorna el detalle de movimientos de un cliente.
+
+    H-14: ahora lee los movimientos desde PG (fiados_movimientos) en vez del
+    cache de memoria, así sobreviven a reinicios del bot. Fallback al cache
+    in-memory si la query falla (compatibilidad).
+    """
+    import db as _db
     fiados      = cargar_fiados()
     cliente_key = _buscar_cliente_fiado(cliente, fiados)
     if not cliente_key:
         return f"No encontré a '{cliente}' en los fiados."
-    datos = fiados[cliente_key]
-    saldo = datos.get("saldo", 0)
-    movs  = datos.get("movimientos", [])
+    saldo = fiados[cliente_key].get("saldo", 0)
+
+    # Intentar leer desde PG; si falla, usar el cache.
+    movs: list[dict] = []
+    if _db.DB_DISPONIBLE:
+        row = _db.query_one("SELECT id FROM fiados WHERE nombre = %s", (cliente_key,))
+        if row:
+            movs = listar_movimientos_cliente(row["id"], limit=10)
+            # PG retorna en orden DESC; invertir a ASC para mostrar cronológicamente.
+            movs = list(reversed(movs))
+    if not movs:
+        # Fallback al cache (incluye datos legados pre-H-14 que no migraron).
+        movs = fiados[cliente_key].get("movimientos", [])[-10:]
+
     lineas = [f"📋 Cuenta de {cliente_key} — Saldo: ${saldo:,.0f}\n"]
-    for m in movs[-10:]:  # últimos 10 movimientos
+    for m in movs:
         if m["cargo"] > 0 and m["abono"] > 0:
             lineas.append(f"  {m['fecha']} | {m['concepto']} | Cargo: ${m['cargo']:,.0f} | Abono: ${m['abono']:,.0f} | Saldo: ${m['saldo']:,.0f}")
         elif m["cargo"] > 0:
