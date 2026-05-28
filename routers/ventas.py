@@ -358,12 +358,17 @@ async def venta_rapida(payload: VentaRapidaPayload, current_user=Depends(get_cur
         # ⚠️ Usar hora Colombia (no UTC del servidor Railway) para que la fecha
         # coincida con los filtros del dashboard que también usan COLOMBIA_TZ.
         ahora = _dt.datetime.now(config.COLOMBIA_TZ).replace(tzinfo=None)
+        hoy_str = ahora.strftime("%Y-%m-%d")
+
+        # Importar dentro de la función para evitar ciclos al inicializar el router.
+        from services.inventario_service import descontar_inventario_pg
 
         with _db._get_conn() as conn:
             with conn.cursor() as cur:
-                # Consecutivo atómico desde PG
-                cur.execute("SELECT COALESCE(MAX(consecutivo), 0) + 1 AS siguiente FROM ventas")
-                consecutivo = cur.fetchone()["siguiente"]
+                # C-07: consecutivo atómico con LOCK TABLE + reset diario.
+                # El lock persiste hasta el commit, previniendo race conditions
+                # entre ventas concurrentes (bot vs dashboard, dashboard vs dashboard).
+                consecutivo = _db.proximo_consecutivo_atomico(cur, hoy_str)
 
                 cur.execute(
                     """
@@ -404,14 +409,28 @@ async def venta_rapida(payload: VentaRapidaPayload, current_user=Depends(get_cur
                             ic.get("producto_id"),
                         ),
                     )
+
+                # C-08: descontar inventario DENTRO de la transacción. Si falla
+                # un descuento o el INSERT, todo se revierte (no quedan ventas
+                # huérfanas sin descuento ni descuentos sin venta).
+                for ic in items_calc:
+                    try:
+                        descontar_inventario_pg(cur, ic["item"].nombre, ic["cant_num"])
+                    except Exception as e:
+                        logger.error(
+                            "descontar_inventario_pg falló para %s (cantidad=%s): %s",
+                            ic["item"].nombre, ic["cant_num"], e,
+                        )
+                        # Re-raise para abortar la transacción completa.
+                        raise
             conn.commit()
 
-        for ic in items_calc:
-            try:
-                from memoria import descontar_inventario
-                descontar_inventario(ic["item"].nombre, ic["cant_num"])
-            except Exception:
-                pass
+        # Invalidar cache de memoria después del commit exitoso.
+        try:
+            from memoria import invalidar_cache_memoria
+            invalidar_cache_memoria()
+        except Exception:
+            pass
 
         await notify_all("venta_registrada", {
             "consecutivo": consecutivo,

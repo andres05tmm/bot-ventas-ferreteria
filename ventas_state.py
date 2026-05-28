@@ -372,9 +372,10 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         _carrito_origen.pop(chat_id, None)
         _carrito_metodo.pop(chat_id, None)
         timer = _timers_carrito.pop(chat_id, None)
-        # CORRECCIÓN Bug 5: consecutivo se obtiene DENTRO del lock para evitar
-        # que dos ventas simultáneas reciban el mismo número de consecutivo.
-        consecutivo = obtener_siguiente_consecutivo()
+    # C-07: el consecutivo se obtiene DENTRO de la transacción PG más abajo
+    # (proximo_consecutivo_atomico con LOCK TABLE), no acá. Esto previene
+    # race conditions entre ventas del bot y del dashboard.
+    consecutivo: int | None = None
     if timer is not None and not timer.done():
         try:
             timer.cancel()
@@ -443,14 +444,8 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
 
         cliente_txt = f" | {nombre_c}" if nombre_c != "Consumidor Final" else ""
         confirmaciones.append(f"• {cantidad_legible} {producto} ${valor_final:,.0f}{cliente_txt}")
-
-        # Descontar inventario (solo si el producto está registrado y no es venta sin detalle).
-        # descontar_inventario() siempre retorna (bool, str|None, float|None).
-        es_sin_detalle = venta.get("sin_detalle", False)
-        if not es_sin_detalle:
-            descontado, alerta, cantidad_restante = descontar_inventario(producto, cantidad)
-            if descontado and alerta:
-                confirmaciones.append(alerta)
+        # C-08: el descuento de inventario se mueve al bloque PG abajo, dentro
+        # de la misma transacción que el INSERT de la venta — atomicidad real.
 
     # Actualizar caja
     caja = cargar_caja()
@@ -459,74 +454,125 @@ def registrar_ventas_con_metodo(ventas: list, metodo: str, vendedor: str, chat_i
         caja[campo]  = caja.get(campo, 0) + total_transaccion
         guardar_caja(caja)
 
-    # ── Postgres write (non-fatal, additive) ─────────────────────────────────
+    # ── Postgres write (atomic, additive) ────────────────────────────────────
+    # Todo en una sola transacción:
+    #   1. proximo_consecutivo_atomico → consecutivo con LOCK
+    #   2. INSERT ventas
+    #   3. INSERT ventas_detalle (N filas)
+    #   4. descontar_inventario_pg (N veces, con FOR UPDATE)
+    #   5. pg_notify
+    # Si cualquier paso falla, todo se revierte automáticamente.
+    alertas_inventario: list[str] = []
     try:
         import db as _db
         if _db.DB_DISPONIBLE:
             from datetime import datetime as _dt
+            from services.inventario_service import descontar_inventario_pg
             _logger = logging.getLogger("ferrebot.ventas_state")
             fecha_hoy   = _dt.now(config.COLOMBIA_TZ).strftime("%Y-%m-%d")
             hora_actual = _dt.now(config.COLOMBIA_TZ).strftime("%H:%M:%S")
-            # Resolver cliente_id desde tabla clientes si no es CF
-            cliente_id_pg = None
-            if id_c != "CF":
-                cliente_row = _db.query_one(
-                    "SELECT id FROM clientes WHERE LOWER(nombre) = LOWER(%s)",
-                    (nombre_c,)
-                )
-                if cliente_row:
-                    cliente_id_pg = cliente_row["id"]
-            row = _db.execute_returning(
-                """INSERT INTO ventas
-                       (consecutivo, fecha, hora, cliente_id, cliente_nombre,
-                        vendedor, metodo_pago, total, usuario_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                   RETURNING id""",
-                (consecutivo, fecha_hoy, hora_actual, cliente_id_pg,
-                 nombre_c, vendedor, metodo, total_transaccion, usuario_id)
-            )
-            if row:
-                venta_id = row["id"]
-                for item in items_para_pg:
-                    _db.execute(
-                        """INSERT INTO ventas_detalle
-                               (venta_id, producto_nombre, cantidad, unidad_medida,
-                                precio_unitario, total, alias_usado, sin_detalle)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                        (venta_id, item["producto"], item["cantidad"],
-                         item["unidad"], item["precio_u"], item["valor_final"],
-                         item.get("alias"), item.get("sin_detalle", False))
+
+            with _db._get_conn() as conn:
+                with conn.cursor() as cur:
+                    # C-07: consecutivo atómico con LOCK TABLE, dentro de la
+                    # transacción que va a hacer el INSERT. El lock persiste
+                    # hasta el commit.
+                    consecutivo = _db.proximo_consecutivo_atomico(cur, fecha_hoy)
+
+                    # Resolver cliente_id desde tabla clientes si no es CF
+                    cliente_id_pg = None
+                    if id_c != "CF":
+                        cur.execute(
+                            "SELECT id FROM clientes WHERE LOWER(nombre) = LOWER(%s)",
+                            (nombre_c,),
+                        )
+                        cliente_row = cur.fetchone()
+                        if cliente_row:
+                            cliente_id_pg = cliente_row["id"]
+
+                    cur.execute(
+                        """INSERT INTO ventas
+                               (consecutivo, fecha, hora, cliente_id, cliente_nombre,
+                                vendedor, metodo_pago, total, usuario_id)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                           RETURNING id""",
+                        (consecutivo, fecha_hoy, hora_actual, cliente_id_pg,
+                         nombre_c, vendedor, metodo, total_transaccion, usuario_id),
                     )
-                # Notificar al dashboard via PostgreSQL LISTEN/NOTIFY.
-                # El dashboard escucha 'ferrebot_events' y llama broadcast()
-                # para propagar el evento SSE a todos los clientes conectados.
-                # El notify es parte de la misma transacción: se envía solo
-                # cuando el commit ocurre, garantizando que el dashboard
-                # nunca recibe un evento de una venta que no llegó a guardarse.
-                try:
-                    _notify_payload = _json.dumps({
-                        "type": "venta_registrada",
-                        "data": {
-                            "consecutivo": consecutivo,
-                            "total":       total_transaccion,
-                            "metodo":      metodo,
-                            "vendedor":    vendedor,
-                        },
-                    })
-                    _db.execute(
-                        "SELECT pg_notify('ferrebot_events', %s)",
-                        [_notify_payload],
-                    )
-                except Exception as _ne:
-                    logging.getLogger("ferrebot.ventas_state").warning(
-                        f"pg_notify failed (no crítico): {_ne}"
-                    )
+                    venta_id = cur.fetchone()["id"]
+
+                    for item in items_para_pg:
+                        cur.execute(
+                            """INSERT INTO ventas_detalle
+                                   (venta_id, producto_nombre, cantidad, unidad_medida,
+                                    precio_unitario, total, alias_usado, sin_detalle)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (venta_id, item["producto"], item["cantidad"],
+                             item["unidad"], item["precio_u"], item["valor_final"],
+                             item.get("alias"), item.get("sin_detalle", False)),
+                        )
+
+                    # C-08: descontar inventario DENTRO de la transacción.
+                    # Recopilamos alertas pero NO appendamos a confirmaciones
+                    # hasta confirmar el commit (si la transacción falla,
+                    # no queremos que el usuario vea alertas de un descuento
+                    # que se revirtió).
+                    for item in items_para_pg:
+                        if item.get("sin_detalle"):
+                            continue
+                        try:
+                            ok, alerta, _ = descontar_inventario_pg(
+                                cur, item["producto"], item["cantidad"],
+                            )
+                            if ok and alerta:
+                                alertas_inventario.append(alerta)
+                        except Exception as e:
+                            _logger.error(
+                                "descontar_inventario_pg falló para %s: %s",
+                                item["producto"], e,
+                            )
+                            raise  # aborta la transacción completa
+
+                    # pg_notify dentro de la transacción — el dashboard solo
+                    # recibe el evento si el commit ocurre exitosamente.
+                    try:
+                        _notify_payload = _json.dumps({
+                            "type": "venta_registrada",
+                            "data": {
+                                "consecutivo": consecutivo,
+                                "total":       total_transaccion,
+                                "metodo":      metodo,
+                                "vendedor":    vendedor,
+                            },
+                        })
+                        cur.execute(
+                            "SELECT pg_notify('ferrebot_events', %s)",
+                            [_notify_payload],
+                        )
+                    except Exception as _ne:
+                        _logger.warning(f"pg_notify failed (no crítico): {_ne}")
+                conn.commit()
+
+            # Commit exitoso — invalidar cache de memoria para que las próximas
+            # lecturas reflejen los descuentos de inventario.
+            try:
+                from memoria import invalidar_cache_memoria
+                invalidar_cache_memoria()
+            except Exception:
+                pass
+
+            # Ya seguro: appendar alertas de stock bajo a la respuesta al vendedor.
+            confirmaciones.extend(alertas_inventario)
     except Exception as e:
         logging.getLogger("ferrebot.ventas_state").warning(
             f"Postgres ventas write failed: {e}"
         )
     # ─────────────────────────────────────────────────────────────────────────
 
+    if consecutivo is None:
+        # PG no disponible o falló — usar 0 como sentinel para que la línea
+        # 'Consecutivo #' no muestre 'None'.
+        consecutivo = 0
     confirmaciones.insert(0, f"🧾 Consecutivo #{consecutivo}")
     confirmaciones.append(f"💰 Total: ${total_transaccion:,.0f}")
     return confirmaciones

@@ -510,6 +510,12 @@ def obtener_siguiente_consecutivo() -> int:
     """
     Retorna el siguiente consecutivo disponible para hoy (MAX + 1).
     Si no hay ventas hoy retorna 1.
+
+    ⚠️  Esta función NO es atómica — abre y cierra su propia conexión, así que
+    entre el SELECT y el INSERT siguiente otra transacción puede tomar el
+    mismo número. Úsala solo para consultas informativas (mostrar al usuario).
+    Para insertar una venta, usa proximo_consecutivo_atomico(cur, fecha)
+    dentro de la misma transacción que el INSERT.
     """
     import config as _cfg
     from datetime import datetime as _dt
@@ -520,6 +526,44 @@ def obtener_siguiente_consecutivo() -> int:
         (hoy,)
     )
     return int(row["max_c"]) + 1 if row else 1
+
+
+def proximo_consecutivo_atomico(cur, fecha: str) -> int:
+    """
+    Calcula el siguiente consecutivo de venta para la fecha dada, dentro de
+    la transacción del cursor recibido. Garantiza atomicidad emitiendo
+    LOCK TABLE ventas IN SHARE ROW EXCLUSIVE MODE antes del SELECT, así que
+    el lock persiste hasta el commit de la transacción del caller.
+
+    Reset diario: el consecutivo se reinicia cada día. La tabla ventas tiene
+    UNIQUE (consecutivo, fecha), así que cada fecha lleva su propia secuencia.
+
+    Args:
+        cur: cursor psycopg2 dentro de una transacción en curso.
+        fecha: string YYYY-MM-DD en hora Colombia (use COLOMBIA_TZ).
+
+    Returns:
+        int — siguiente consecutivo (1 si no hay ventas en la fecha).
+
+    Uso:
+        with _db._get_conn() as conn:
+            with conn.cursor() as cur:
+                consecutivo = _db.proximo_consecutivo_atomico(cur, hoy)
+                cur.execute("INSERT INTO ventas ...", (consecutivo, ...))
+    """
+    cur.execute("LOCK TABLE ventas IN SHARE ROW EXCLUSIVE MODE")
+    cur.execute(
+        "SELECT COALESCE(MAX(consecutivo), 0) + 1 AS siguiente "
+        "FROM ventas WHERE fecha = %s",
+        (fecha,),
+    )
+    row = cur.fetchone()
+    # cursor_factory=RealDictCursor → row es dict; algunos mocks devuelven tuple
+    if row is None:
+        return 1
+    if isinstance(row, dict):
+        return int(row.get("siguiente") or 1)
+    return int(row[0] or 1)
 
 
 def obtener_nombre_id_cliente(termino: str) -> tuple[str, str]:
