@@ -51,27 +51,99 @@ def _base_producto(nombre: str) -> str:
     return re.sub(r'\s+', ' ', b).strip()
 
 
+def _palabras_significativas(nombre: str) -> set[str]:
+    """Palabras del nombre base con ≥3 chars (descarta 'n', 't', 'x', 'de'...)."""
+    return {w for w in _base_producto(nombre).split() if len(w) >= 3}
+
+
+def _nudge_ambiguo(miembros: list) -> str:
+    nombres = ", ".join(m.get("nombre", "") for m in miembros)
+    return (
+        f"⚠️ AMBIGUO — el vendedor no especificó la variante y hay {len(miembros)} "
+        f"opciones del mismo producto:\n{nombres}\n"
+        "NO registres ni adivines: respondé con TEXTO preguntando cuál variante quiere."
+    )
+
+
+_LABEL_NUM_RE = re.compile(r'^[\d°º"\'/.\-x×]+$', re.IGNORECASE)
+
+
+def _etiquetas_ambiguedad(opciones: list[str]) -> tuple[str, list[str], bool]:
+    """
+    Dada una lista de nombres de variantes, separa el prefijo común de las
+    etiquetas distintivas (quitando el marcador 'N°'). Retorna
+    (prefijo_comun, etiquetas_unicas, son_numericas).
+
+      ['TORNILLO DRYWALL 6X2', 'TORNILLO DRYWALL 8X3']
+          → ('tornillo drywall', ['6X2', '8X3'], True)
+      ['Lija N°60', 'Lija N°100']
+          → ('lija', ['60', '100'], True)
+      ['Vinilo Davinci T1 Lila', 'Vinilo Davinci T1 Ocre']
+          → ('vinilo davinci t1', ['Lila', 'Ocre'], False)
+    """
+    if not opciones:
+        return "", [], False
+    limpio = [re.sub(r'\bN[°º]?\s*(?=\d)', '', o, flags=re.I).split() for o in opciones]
+    pref = 0
+    for col in zip(*limpio):
+        if len({c.lower() for c in col}) == 1:
+            pref += 1
+        else:
+            break
+    prefijo = " ".join(limpio[0][:pref]).lower() if pref else _base_producto(opciones[0]).strip()
+    etiquetas: list[str] = []
+    vistas: set[str] = set()
+    for w in limpio:
+        resto = " ".join(w[pref:]) or " ".join(w)
+        if resto not in vistas:
+            vistas.add(resto)
+            etiquetas.append(resto)
+    son_num = bool(etiquetas) and all(
+        _LABEL_NUM_RE.match(e.replace(" ", "")) for e in etiquetas
+    )
+    return prefijo, etiquetas, son_num
+
+
 def _detectar_ambiguedad_variante(candidatos: list, mensaje_usuario: str) -> str:
     """
     Detección DETERMINISTA de ambigüedad de variante para el nudge (M-01).
 
-    Agrupa los candidatos del MATCH por 'nombre base' (sin tokens de número/medida).
-    Si algún grupo tiene 2+ variantes y el mensaje NO menciona un token distintivo
-    de esas variantes (descontando la cantidad inicial), retorna un aviso para que
-    Claude PREGUNTE cuál en vez de adivinar. Si no hay ambigüedad, retorna "".
+    Detecta dos clases de ambigüedad sobre los candidatos del MATCH:
+      A) NUMÉRICA — variantes que difieren por número/fracción (Lija N°60 vs N°100,
+         tornillo 6x1 vs 6x2) y el mensaje no menciona cuál.
+      B) PALABRA/COLOR — variantes con la MISMA firma numérica que difieren por una
+         palabra distintiva, típicamente color (Vinilo T1 Lila vs Vinilo T1 Ocre…)
+         y el mensaje no menciona ninguna.
 
-    Esto NO clasifica intención (no decide si es venta o consulta): solo surface un
-    hecho del catálogo (hay N variantes), igual que el MATCH o los precálculos.
+    Guard previo: si algún candidato queda TOTALMENTE especificado por el mensaje
+    (todas sus palabras base ≥3 chars + todos sus tokens numéricos presentes), el
+    vendedor NO fue ambiguo → retorna "" aunque existan otras variantes sueltas en
+    el MATCH (evita preguntar por 'Lija N°120' cuando pidió 'lija esmeril 36').
+
+    Retorna un aviso para que Claude PREGUNTE, o "" si no hay ambigüedad.
+    Esto NO clasifica intención: solo surface un hecho del catálogo.
     """
     if not candidatos or len(candidatos) < 2:
         return ""
 
     # Tokens del mensaje, descontando una cantidad entera al inicio ("1 lija" → "1" es qty)
-    msg_sin_qty = re.sub(r'^\s*\d+\s+', ' ', mensaje_usuario.lower())
+    msg_lower    = mensaje_usuario.lower()
+    msg_sin_qty  = re.sub(r'^\s*\d+\s+', ' ', msg_lower)
     msg_toks = set(_FRAC_RE.findall(msg_sin_qty))
     msg_toks |= set(_NUM_RE.findall(_FRAC_RE.sub(' ', msg_sin_qty)))
     msg_toks = {t.replace(" ", "") for t in msg_toks}
+    msg_palabras = set(re.findall(r'[a-záéíóúñ]{3,}', msg_lower))
 
+    # ── GUARD: candidato totalmente especificado → no es ambiguo (HIGH-2) ────
+    for p in candidatos:
+        nombre = p.get("nombre", "")
+        toks_p = _tokens_variante(nombre)
+        if not toks_p or not toks_p.issubset(msg_toks):
+            continue
+        if _palabras_significativas(nombre) <= msg_palabras:
+            return ""  # el mensaje identifica exactamente este producto
+
+    # ── A) AMBIGÜEDAD NUMÉRICA — agrupar por nombre base ─────────────────────
     grupos: dict[str, list] = {}
     for p in candidatos:
         nombre = p.get("nombre", "")
@@ -86,12 +158,30 @@ def _detectar_ambiguedad_variante(candidatos: list, mensaje_usuario: str) -> str
             distintivos |= _tokens_variante(m.get("nombre", ""))
         if not distintivos or (msg_toks & distintivos):
             continue  # el vendedor ya especificó una variante → no es ambiguo
-        nombres = ", ".join(m.get("nombre", "") for m in miembros)
-        return (
-            f"⚠️ AMBIGUO — el vendedor no especificó la variante y hay {len(miembros)} "
-            f"opciones del mismo producto:\n{nombres}\n"
-            "NO registres ni adivines: respondé con TEXTO preguntando cuál variante quiere."
-        )
+        return _nudge_ambiguo(miembros)
+
+    # ── B) AMBIGÜEDAD POR PALABRA/COLOR — misma firma numérica, distinta palabra ─
+    # Ej: "vinilo t1" matchea 19 colores, todos con firma numérica {'1'} (el T1).
+    firmas: dict[frozenset, list] = {}
+    for p in candidatos:
+        firmas.setdefault(frozenset(_tokens_variante(p.get("nombre", ""))), []).append(p)
+
+    for firma, miembros in firmas.items():
+        if len(miembros) < 3:
+            continue
+        # La firma numérica debe estar satisfecha por el mensaje (o ser vacía).
+        if firma and not firma.issubset(msg_toks):
+            continue
+        listas = [_palabras_significativas(m.get("nombre", "")) for m in miembros]
+        comunes = set.intersection(*listas) if listas else set()
+        distintivas = set().union(*listas) - comunes
+        if not distintivas:
+            continue
+        # Si el mensaje YA contiene una palabra distintiva (un color) → especificó.
+        if distintivas & msg_palabras:
+            continue
+        return _nudge_ambiguo(miembros)
+
     return ""
 
 

@@ -528,27 +528,27 @@ async def procesar_con_claude(
             and not _tiene_imagen
             and "=" not in mensaje_usuario
             and "$" not in mensaje_usuario):
-        from ai.prompt_products import _base_producto
+        from ai.prompt_products import _etiquetas_ambiguedad
         _idx_amb = parte_dinamica.find(_SEÑAL_AMBIGUO)
         _lineas_amb = [l.strip() for l in parte_dinamica[_idx_amb:_idx_amb + 400].split('\n') if l.strip()]
         _opciones_linea = _lineas_amb[1] if len(_lineas_amb) > 1 else ""
         if _opciones_linea:
             _ops = [o.strip() for o in _opciones_linea.split(',') if o.strip()]
-            _toks = []
-            for _op in _ops:
-                _nums = re.findall(r'\d[\d/°"\']*', _op)
-                _toks.append(_nums[-1] if _nums else _op)
-            try:
-                _toks.sort(key=lambda x: float(x.replace('"', '').replace("'", '').replace('°', '')))
-            except ValueError:
-                pass
-            _base_n = _base_producto(_ops[0])
-            _base_n = (_base_n[0].upper() + _base_n[1:]) if _base_n else _ops[0]
-            _ops_str = ', '.join(_toks[:8])
-            logging.getLogger("ferrebot.ai").info(
-                "[AMBIGUO-BYPASS] '%s' → pregunta determinista: %s", mensaje_usuario[:60], _ops_str
-            )
-            return f"¿{_base_n} de qué número? Tengo: {_ops_str}."
+            _prefijo, _etqs, _son_num = _etiquetas_ambiguedad(_ops)
+            # Solo resolvemos en Python el caso NUMÉRICO (lija N°, tornillo 6x2…).
+            # El caso por palabra/color (vinilo T1 Lila/Ocre…) lo deja a Claude,
+            # que ve los nombres completos en el nudge y pregunta con naturalidad.
+            if _son_num and len(_etqs) >= 2:
+                try:
+                    _etqs.sort(key=lambda x: [int(n) for n in re.findall(r'\d+', x)] or [0])
+                except ValueError:
+                    pass
+                _pref_disp = (_prefijo[0].upper() + _prefijo[1:]) if _prefijo else _ops[0]
+                _ops_str = ', '.join(_etqs[:10])
+                logging.getLogger("ferrebot.ai").info(
+                    "[AMBIGUO-BYPASS] '%s' → pregunta determinista: %s", mensaje_usuario[:60], _ops_str
+                )
+                return f"¿{_pref_disp} de qué número? Tengo: {_ops_str}."
 
     _modo = "MATCH+SIMPLE-CAT 💡"  # fracciones en MATCH, precio_unidad en estático
 
@@ -912,29 +912,26 @@ async def procesar_con_claude_stream(
             and not _es_venta_varia2
             and "=" not in mensaje_usuario
             and "$" not in mensaje_usuario):
-        from ai.prompt_products import _base_producto
+        from ai.prompt_products import _etiquetas_ambiguedad
         _idx_amb2 = parte_dinamica.find(_SEÑAL_AMBIGUO2)
         _lineas_amb2 = [l.strip() for l in parte_dinamica[_idx_amb2:_idx_amb2 + 400].split('\n') if l.strip()]
         _opciones_linea2 = _lineas_amb2[1] if len(_lineas_amb2) > 1 else ""
         if _opciones_linea2:
             _ops2 = [o.strip() for o in _opciones_linea2.split(',') if o.strip()]
-            _toks2 = []
-            for _op2 in _ops2:
-                _nums2 = re.findall(r'\d[\d/°"\']*', _op2)
-                _toks2.append(_nums2[-1] if _nums2 else _op2)
-            try:
-                _toks2.sort(key=lambda x: float(x.replace('"', '').replace("'", '').replace('°', '')))
-            except ValueError:
-                pass
-            _base_n2 = _base_producto(_ops2[0])
-            _base_n2 = (_base_n2[0].upper() + _base_n2[1:]) if _base_n2 else _ops2[0]
-            _ops_str2 = ', '.join(_toks2[:8])
-            logging.getLogger("ferrebot.ai").info(
-                "[AMBIGUO-BYPASS] stream '%s' → pregunta determinista: %s",
-                mensaje_usuario[:60], _ops_str2
-            )
-            yield ("done", f"¿{_base_n2} de qué número? Tengo: {_ops_str2}.")
-            return
+            _prefijo2, _etqs2, _son_num2 = _etiquetas_ambiguedad(_ops2)
+            if _son_num2 and len(_etqs2) >= 2:
+                try:
+                    _etqs2.sort(key=lambda x: [int(n) for n in re.findall(r'\d+', x)] or [0])
+                except ValueError:
+                    pass
+                _pref_disp2 = (_prefijo2[0].upper() + _prefijo2[1:]) if _prefijo2 else _ops2[0]
+                _ops_str2 = ', '.join(_etqs2[:10])
+                logging.getLogger("ferrebot.ai").info(
+                    "[AMBIGUO-BYPASS] stream '%s' → pregunta determinista: %s",
+                    mensaje_usuario[:60], _ops_str2
+                )
+                yield ("done", f"¿{_pref_disp2} de qué número? Tengo: {_ops_str2}.")
+                return
 
     # ── Historial ─────────────────────────────────────────────────────────────
     _n_hist = _calcular_historial(mensaje_usuario)
