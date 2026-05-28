@@ -28,6 +28,7 @@ from typing import Optional
 import httpx
 
 import db as _db
+import config
 from config import COLOMBIA_TZ
 
 logger = logging.getLogger("ferrebot.facturacion")
@@ -731,7 +732,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "type_document_id":       7,    # Factura electrónica (según documentación oficial)
         "operation_type_id":      1,    # FIX: Siempre 1 (Factura Normal) — identity_document_id define CF/Normal
         "currency_id":            272,   # COP — recomendado en habilitación DIAN
-        "notes":                  venta.get("notas") or "Ferretería Punto Rojo",
+        "notes":                  venta.get("notas") or config.EMPRESA_NOMBRE,
         "graphic_representation": 1,
         "send_email":             1 if tiene_correo_real else 0,
         "customer":               customer,

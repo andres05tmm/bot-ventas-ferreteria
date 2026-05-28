@@ -20,6 +20,7 @@ from fpdf import FPDF
 
 # -- propios --
 import db as _db
+import config
 from config import COLOMBIA_TZ, HONORARIOS_VALOR, HONORARIOS_CHAT_ID
 
 log = logging.getLogger("ferrebot.honorarios")
@@ -28,25 +29,27 @@ log = logging.getLogger("ferrebot.honorarios")
 # CONSTANTES
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Datos parametrizados por env (config.py); defaults = Punto Rojo.
 EMISOR = {
-    "nombre":   "Andrés Felipe Malo Hernández",
-    "cc":       "1.043.295.412",
-    "nit":      "1043295412-4",
-    "direccion": "CON el Refugio BL 12 AP 2A",
-    "ciudad":   "Cartagena, Bolívar",
-    "regimen":  "No responsable de IVA — Artículo 437 E.T.",
+    "nombre":    config.HON_PROV_NOMBRE,
+    "cc":        config.HON_PROV_CC,
+    "nit":       config.HON_PROV_NIT,
+    "direccion": config.HON_PROV_DIRECCION,
+    "ciudad":    config.HON_PROV_CIUDAD,
+    "regimen":   config.HON_PROV_REGIMEN,
 }
 
 RECEPTOR = {
-    "nombre":  "Ferretería Punto Rojo F.D",
-    "nit":     "1235046119-1",
-    "ciudad":  "Cartagena, Bolívar",
+    "nombre": config.EMPRESA_NOMBRE,
+    "nit":    config.EMPRESA_NIT,
+    "ciudad": config.EMPRESA_CIUDAD,
 }
 
-CONCEPTO_DEFAULT = (
+CONCEPTO_DEFAULT = os.getenv(
+    "HONORARIOS_CONCEPTO",
     "Servicios de desarrollo de software, soporte técnico y mantenimiento "
     "del sistema de gestión integral (POS, inventario, facturación electrónica "
-    "DIAN y bot de ventas Telegram) para Ferretería Punto Rojo."
+    "DIAN y bot de ventas Telegram) para Ferretería Punto Rojo.",
 )
 
 MESES_ES = {
@@ -405,7 +408,7 @@ async def _enviar_telegram(
         f"Período: {periodo}\n"
         f"Valor: *{valor_fmt} COP*\n"
         f"IVA: $0 (No responsable)\n\n"
-        f"_Andrés Felipe Malo Hernández — NIT 1043295412-4_"
+        f"_{EMISOR['nombre']} — NIT {EMISOR['nit']}_"
     )
 
     try:

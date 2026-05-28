@@ -131,10 +131,37 @@ MESES = {
 #     cambia en todo el día — así que pagamos la escritura una vez y leemos barato
 #     durante 1h con cada mensaje del vendedor (vs. reescribir cada 5min).
 # ─────────────────────────────────────────────
+# IDENTIDAD DEL NEGOCIO (adquirente / receptor)
+# ─────────────────────────────────────────────
+# Datos de la ferretería. Defaults = Punto Rojo para compatibilidad; en una
+# ferretería nueva se sobreescriben por env. Se usan en facturación DIAN y CC.
+EMPRESA_NOMBRE = os.getenv("EMPRESA_NOMBRE", "Ferretería Punto Rojo F.D")
+EMPRESA_NIT    = os.getenv("EMPRESA_NIT", "1235046119-1")
+EMPRESA_CIUDAD = os.getenv("EMPRESA_CIUDAD", "Cartagena, Bolívar")
+
+# IDs internos de MATIAS para la ubicación (NO son códigos DANE; ver CLAUDE.md §10)
+MATIAS_CITY_ID     = os.getenv("MATIAS_CITY_ID", "149")
+MATIAS_POSTAL_CODE = os.getenv("MATIAS_POSTAL_CODE", "130001")
+MATIAS_COUNTRY_ID  = os.getenv("MATIAS_COUNTRY_ID", "45")
+
+# ─────────────────────────────────────────────
 # MÓDULO HONORARIOS
 # ─────────────────────────────────────────────
 HONORARIOS_VALOR   = int(os.getenv("HONORARIOS_VALOR", "2000000"))
 HONORARIOS_CHAT_ID = os.getenv("HONORARIOS_CHAT_ID", "")
+
+# Proveedor que emite la Cuenta de Cobro + Documento Soporte (persona natural).
+# Defaults = Andrés (Punto Rojo). En otra ferretería, el contratista pone los suyos.
+HON_PROV_NOMBRE      = os.getenv("HONORARIOS_PROVEEDOR_NOMBRE", "Andrés Felipe Malo Hernández")
+HON_PROV_NOMBRE_DIAN = os.getenv("HONORARIOS_PROVEEDOR_NOMBRE_DIAN", "MALO HERNANDEZ ANDRES FELIPE")
+HON_PROV_CC          = os.getenv("HONORARIOS_PROVEEDOR_CC", "1.043.295.412")
+HON_PROV_DNI         = os.getenv("HONORARIOS_PROVEEDOR_DNI", "1043295412")
+HON_PROV_NIT         = os.getenv("HONORARIOS_PROVEEDOR_NIT", "1043295412-4")
+HON_PROV_DIRECCION   = os.getenv("HONORARIOS_PROVEEDOR_DIRECCION", "CON EL REFUGIO BL 12 AP 2A")
+HON_PROV_CIUDAD      = os.getenv("HONORARIOS_PROVEEDOR_CIUDAD", "Cartagena, Bolívar")
+HON_PROV_MOBILE      = os.getenv("HONORARIOS_PROVEEDOR_MOBILE", "3001234567")
+HON_PROV_EMAIL       = os.getenv("HONORARIOS_PROVEEDOR_EMAIL", "andresfmalo05@gmail.com")
+HON_PROV_REGIMEN     = os.getenv("HONORARIOS_PROVEEDOR_REGIMEN", "No responsable de IVA — Artículo 437 E.T.")
 
 claude_client = anthropic.Anthropic(
     api_key=ANTHROPIC_API_KEY,

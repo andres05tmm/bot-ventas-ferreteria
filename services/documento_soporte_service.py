@@ -22,6 +22,7 @@ import httpx
 
 # -- propios --
 import db as _db
+import config
 from config import COLOMBIA_TZ, HONORARIOS_VALOR
 from services.facturacion_service import MATIAS_API_URL, _get_token
 
@@ -41,8 +42,9 @@ log = logging.getLogger("ferrebot.documento_soporte")
 
 # Andrés como proveedor (no obligado a facturar).
 # identity_document_id="1" = CC en IDs internos MATIAS (REGLA DE ORO: POST usa IDs MATIAS, no códigos DIAN).
+# Datos parametrizados por env (config.py); defaults = Andrés / Punto Rojo.
 _PROVEEDOR = {
-    "country_id":           "45",
+    "country_id":           config.MATIAS_COUNTRY_ID,
     # FIX DSAJ25a: En endpoint DS, identity_document_id="3" genera schemeName="31"
     # en el XML UBL del AccountingSupplierParty, que es lo que exige la DIAN para DS.
     # Aunque en /invoice "3" = NIT, en /ds/document "3" es el valor correcto para CC.
@@ -51,19 +53,20 @@ _PROVEEDOR = {
     "type_organization_id": 2,                # Persona natural
     "tax_regime_id":        2,                # Régimen simplificado
     "tax_level_id":         5,                # No responsable de IVA
-    "company_name":         "MALO HERNANDEZ ANDRES FELIPE",
-    "dni":                  "1043295412",
-    "address":              "CON EL REFUGIO BL 12 AP 2A",
-    "city_id":              "149",            # Cartagena — ID interno MATIAS
-    "postal_code":          "130001",         # Código postal Cartagena
-    "mobile":               "3001234567",     # Requerido por DIAN (DSAJ08a)
-    "email":                "andresfmalo05@gmail.com",
+    "company_name":         config.HON_PROV_NOMBRE_DIAN,
+    "dni":                  config.HON_PROV_DNI,
+    "address":              config.HON_PROV_DIRECCION,
+    "city_id":              config.MATIAS_CITY_ID,     # ID interno MATIAS (no DANE)
+    "postal_code":          config.MATIAS_POSTAL_CODE,
+    "mobile":               config.HON_PROV_MOBILE,    # Requerido por DIAN (DSAJ08a)
+    "email":                config.HON_PROV_EMAIL,
 }
 
-_DESCRIPCION_SERVICIO = (
+_DESCRIPCION_SERVICIO = os.getenv(
+    "HONORARIOS_DS_DESCRIPCION",
     "SERVICIOS DE DESARROLLO DE SOFTWARE, SOPORTE TECNICO Y MANTENIMIENTO "
     "DEL SISTEMA DE GESTION INTEGRAL PARA FERRETERIA PUNTO ROJO - "
-    "CONTRATO PSV-001-2026"
+    "CONTRATO PSV-001-2026",
 )
 
 _MAX_REINTENTOS = 3
