@@ -165,15 +165,18 @@ _ALIAS_LAMBDA: list[tuple] = [
     (r'\b(\d+)\s+(?:metros?\s+(?:de\s+)?)?pitas?\b'
      r'(?!\s*(?:para\s+)?(?:carpa\s+)?(?:azul|rojo|negro|blanco|amarillo))',
         lambda m: f"{m.group(1)} pita para carpa azul"),
-    # Thinner / Varsol: botella/botellita = 1/10 galón → precio total (4000)
+    # Thinner / Varsol: botellita (pequeña) = 1/10 galón → $4.000
+    # IMPORTANTE: la regex de botellita va ANTES que la de botella (no colisionan,
+    # pero el orden deja la intención explícita: lo más específico primero).
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellitas?\s+(?:de\s+)?thinner\b',
         lambda m: "thinner 4000" if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 4000} thinner"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellitas?\s+(?:de\s+)?varsol\b',
         lambda m: "varsol 4000"  if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 4000} varsol"),
+    # Thinner / Varsol: botella = 1/4 galón → $8.000 (la de 5.000 se pide como "5000 de thinner")
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?thinner\b',
-        lambda m: "thinner 4000" if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 4000} thinner"),
+        lambda m: "thinner 8000" if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 8000} thinner"),
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*botellas?\s+(?:de\s+)?varsol\b',
-        lambda m: "varsol 4000"  if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 4000} varsol"),
+        lambda m: "varsol 8000"  if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 8000} varsol"),
     # Thinner / Varsol: litro = 1/4 galón → precio total (8000)
     (r'\b(?:un[ao]?\s+)?(\d+)?\s*litros?\s+(?:de\s+)?thinner\b',
         lambda m: "thinner 8000" if int(m.group(1) or 1) == 1 else f"{int(m.group(1)) * 8000} thinner"),
