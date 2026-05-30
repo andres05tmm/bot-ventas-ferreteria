@@ -222,7 +222,9 @@ def _detectar_ambiguedad_segmentos(mensaje_usuario: str) -> str:
     de variantes de tornillo y nunca surface las de lija, así que la ambigüedad de
     "1 lija" pasa desapercibida y el bot adivina N°60. Aquí se divide el mensaje por
     coma/salto de línea y se evalúa cada segmento con SUS propios candidatos.
-    Retorna el primer nudge de ambigüedad encontrado, o "".
+    Retorna TODOS los nudges de ambigüedad encontrados (uno por segmento ambiguo),
+    o "". Surface todas las ambigüedades de una vez para que el bot pregunte por
+    todas juntas en vez de una por turno (MP-1 / bug ambigüedad de a una).
     """
     from memoria import buscar_multiples_con_alias
     # Quitar prefijo "Nombre: " del vendedor antes de segmentar.
@@ -230,14 +232,15 @@ def _detectar_ambiguedad_segmentos(mensaje_usuario: str) -> str:
     segmentos = [s.strip() for s in re.split(r'[,\n]+', cuerpo) if s.strip()]
     if len(segmentos) < 2:
         return ""
+    avisos = []
     for seg in segmentos:
         if not re.search(r'[a-záéíóúñ]{3,}', seg.lower()):
             continue
         cands = buscar_multiples_con_alias(seg, limite=20)
         aviso = _detectar_ambiguedad_variante(cands, seg)
-        if aviso:
-            return aviso
-    return ""
+        if aviso and aviso not in avisos:
+            avisos.append(aviso)
+    return "\n\n".join(avisos)
 
 
 def construir_seccion_match(
@@ -1054,6 +1057,50 @@ def construir_precalculos_especiales(
                     )
     if thinner_lineas:
         partes.append("\n".join(thinner_lineas))
+
+    # ── Wayper por kilo: precalcular total ──────────────────────────────────
+    # resolver_wayper (bypass) solo aplica a mensajes de UN producto; en
+    # multiproducto Claude leía mal el MATCH "WAYPER BLANCO:1=10000|1/2=5000" y
+    # registraba total $0. Aquí se precalcula el total por kilo determinísticamente.
+    if "wayper" in msg_l or "guayper" in msg_l:
+        _cat = memoria.get("catalogo", {})
+        def _precio_kilo_wayper(tipo: str) -> int:
+            nombre = "wayper blanco" if tipo == "blanco" else "wayper de color"
+            for _v in _cat.values():
+                if _v.get("nombre_lower", "") == nombre:
+                    return int(_v.get("precio_unidad", 0))
+            return 0
+        _way_lineas = []
+        for _seg in re.split(r'[,\n]+', msg_l):
+            if "wayper" not in _seg and "guayper" not in _seg:
+                continue
+            # Solo el caso KILO (con palabra de peso); unidad lo resuelve Claude/skill.
+            if not re.search(r'\bkilos?\b|\bkg\b', _seg):
+                continue
+            _tipo = "color" if re.search(r'\bcolor(?:es)?\b', _seg) else (
+                    "blanco" if re.search(r'\bblanc[oa]s?\b', _seg) else None)
+            if not _tipo:
+                continue
+            _pk = _precio_kilo_wayper(_tipo)
+            if not _pk:
+                continue
+            if re.search(r'\bmedi[oa]\s+kilo\b', _seg):
+                _kg = 0.5
+            elif re.search(r'\bkilo\s+y\s+medio\b', _seg):
+                _kg = 1.5
+            else:
+                _mk = re.search(r'(\d+(?:[.,]\d+)?)', _seg)
+                _kg = float(_mk.group(1).replace(",", ".")) if _mk else 1.0
+                if re.search(r'\by\s+medio\b', _seg):
+                    _kg += 0.5
+            _tot = round(_kg * _pk)
+            _nom = "WAYPER BLANCO" if _tipo == "blanco" else "WAYPER DE COLOR"
+            _way_lineas.append(
+                f"{_nom} PRECALCULADO: {_kg:g}kg = ${_tot:,} "
+                f"(cantidad={_kg:g}, total={_tot}, precio_kilo={_pk}). USA EXACTAMENTE estos valores."
+            )
+        if _way_lineas:
+            partes.append("\n".join(_way_lineas))
 
     # ── Tornillos drywall: precalcular precio correcto ──
     tornillo_calculado = ""
