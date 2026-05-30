@@ -282,3 +282,69 @@ def test_metodo_pago_vacio_por_default():
     """El bypass no asume método de pago — lo deja vacío para que el usuario lo elija."""
     _, venta = intentar_bypass_python("2 martillo carpintero", CATALOGO)
     assert venta.get("metodo_pago", "") == ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RESOLUTOR DE WAYPER — número pelado = UNIDAD (regresión: no preguntar)
+# ─────────────────────────────────────────────────────────────────────────────
+# Regla del negocio: "2 wayper blanco" = 2 unidades. Solo es kilo si se menciona
+# kg/kilo/medio kilo/etc. Antes el resolutor devolvía ("ask", ...) y preguntaba.
+
+from bypass import resolver_wayper
+
+CATALOGO_WAYPER = {
+    "wayper_blanco":        {"nombre": "WAYPER BLANCO",         "nombre_lower": "wayper blanco",         "precio_unidad": 10000},
+    "wayper_blanco_unidad": {"nombre": "WAYPER BLANCO UNIDAD",  "nombre_lower": "wayper blanco unidad",  "precio_unidad": 700},
+    "wayper_color":         {"nombre": "WAYPER DE COLOR",       "nombre_lower": "wayper de color",       "precio_unidad": 7000},
+    "wayper_color_unidad":  {"nombre": "WAYPER DE COLOR UNIDAD","nombre_lower": "wayper de color unidad","precio_unidad": 500},
+}
+
+
+def test_wayper_numero_pelado_es_unidad():
+    """'2 wayper blanco' → 2 unidades (NO preguntar)."""
+    res = resolver_wayper("2 wayper blanco", CATALOGO_WAYPER)
+    assert res is not None
+    kind, val = res
+    assert kind == "venta", f"esperaba venta, obtuve {kind}"
+    assert val["producto"] == "WAYPER BLANCO UNIDAD"
+    assert val["cantidad"] == 2
+    assert val["total"] == 1400  # 2 × 700
+
+
+def test_wayper_nunca_pregunta():
+    """resolver_wayper ya no debe devolver ('ask', ...) para número pelado."""
+    res = resolver_wayper("2 wayper blanco", CATALOGO_WAYPER)
+    assert res[0] != "ask"
+
+
+def test_wayper_kg_sigue_siendo_kilo():
+    """'2 kg de wayper blanco' → producto por kilo (la palabra de peso manda)."""
+    res = resolver_wayper("2 kg de wayper blanco", CATALOGO_WAYPER)
+    kind, val = res
+    assert kind == "venta"
+    assert val["producto"] == "WAYPER BLANCO"
+    assert val["cantidad"] == 2
+    assert val["total"] == 20000  # 2 × 10000
+
+
+def test_wayper_medio_kilo():
+    """'medio kilo de wayper blanco' → 0.5 kg = $5.000."""
+    kind, val = resolver_wayper("medio kilo de wayper blanco", CATALOGO_WAYPER)
+    assert kind == "venta"
+    assert val["producto"] == "WAYPER BLANCO"
+    assert val["cantidad"] == 0.5
+    assert val["total"] == 5000
+
+
+def test_wayper_plural_unidad():
+    """'3 waypers de color' → 3 unidades de color."""
+    kind, val = resolver_wayper("3 waypers de color", CATALOGO_WAYPER)
+    assert kind == "venta"
+    assert val["producto"] == "WAYPER DE COLOR UNIDAD"
+    assert val["cantidad"] == 3
+    assert val["total"] == 1500  # 3 × 500
+
+
+def test_wayper_sin_color_devuelve_none():
+    """Sin blanco/color especificado → None (el skill pregunta el color)."""
+    assert resolver_wayper("2 wayper", CATALOGO_WAYPER) is None

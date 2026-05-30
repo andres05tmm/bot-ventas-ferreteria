@@ -39,6 +39,7 @@ from unittest.mock import patch
 from services.catalogo_service import (
     buscar_producto_en_catalogo,
     buscar_multiples_en_catalogo,
+    buscar_multiples_con_alias,
     obtener_precio_para_cantidad,
     obtener_precios_como_texto,
 )
@@ -183,3 +184,73 @@ def test_obtener_precios_como_texto_sin_datos(mock_cm):
     resultado = obtener_precios_como_texto()
     assert isinstance(resultado, str)
     assert len(resultado) > 0
+
+
+# ─────────────────────────────────────────────
+# TESTS — matching de números como tokens COMPLETOS (regresión bug Lija Esmeril N°60)
+# ─────────────────────────────────────────────
+# Antes del fix, el token numérico se buscaba por substring: "60" coincidía con
+# "600"/"3600" y "30" (cantidad de cm) con "3000", desplazando al producto correcto
+# del bloque MATCH. El bot respondía "solo tengo N°36" para "lija esmeril 60/80".
+
+CATALOGO_LIJAS = {
+    "lija esmeril n°36":  {"nombre_lower": "lija esmeril n°36",  "nombre": "Lija Esmeril N°36",  "precio_unidad": 22000, "precios_fraccion": {}},
+    "lija esmeril n°60":  {"nombre_lower": "lija esmeril n°60",  "nombre": "Lija Esmeril N°60",  "precio_unidad": 20000, "precios_fraccion": {}},
+    "lija esmeril n°80":  {"nombre_lower": "lija esmeril n°80",  "nombre": "Lija Esmeril N°80",  "precio_unidad": 20000, "precios_fraccion": {}},
+    "lija esmeril n°100": {"nombre_lower": "lija esmeril n°100", "nombre": "Lija Esmeril N°100", "precio_unidad": 20000, "precios_fraccion": {}},
+    "lija n°60":          {"nombre_lower": "lija n°60",          "nombre": "Lija N°60",          "precio_unidad": 2000,  "precios_fraccion": {}},
+    "lija n°600":         {"nombre_lower": "lija n°600",         "nombre": "Lija N°600",         "precio_unidad": 2000,  "precios_fraccion": {}},
+    "lija n° 3000":       {"nombre_lower": "lija n° 3000",       "nombre": "LIJA N° 3000",       "precio_unidad": 3000,  "precios_fraccion": {}},
+}
+MEMORIA_LIJAS = {"catalogo": CATALOGO_LIJAS, "inventario": {}}
+
+
+@patch("memoria.cargar_memoria", return_value=MEMORIA_LIJAS)
+def test_lija_esmeril_60_es_top_candidato(mock_cm):
+    """'lija esmeril 60' debe devolver N°60 como primer candidato (no N°36 ni N°600)."""
+    res = buscar_multiples_en_catalogo("lija esmeril 60")
+    assert res, "no devolvió candidatos"
+    assert res[0]["nombre_lower"] == "lija esmeril n°60"
+
+
+@patch("memoria.cargar_memoria", return_value=MEMORIA_LIJAS)
+def test_numero_no_matchea_por_substring(mock_cm):
+    """'60' NO debe contar como coincidencia en 'lija n°600' (substring) — token completo."""
+    res = buscar_multiples_en_catalogo("lija esmeril 60")
+    nombres = [r["nombre_lower"] for r in res]
+    # N°600 no comparte el número 60 como token completo → no debe colarse arriba de N°60
+    assert nombres[0] == "lija esmeril n°60"
+    assert "lija n° 3000" not in nombres  # "30"/"60" jamás debe matchear "3000"
+
+
+@patch("memoria.cargar_memoria", return_value=MEMORIA_LIJAS)
+def test_lija_esmeril_80_presente_en_resultados(mock_cm):
+    """'lija esmeril 80' debe devolver N°80 como primer candidato."""
+    res = buscar_multiples_en_catalogo("lija esmeril 80")
+    assert res[0]["nombre_lower"] == "lija esmeril n°80"
+
+
+@patch("memoria.cargar_memoria", return_value=MEMORIA_LIJAS)
+def test_lija_esmeril_100_no_matchea_n10(mock_cm):
+    """'lija esmeril 100' debe devolver N°100 (no debe confundir 100 con 60/80)."""
+    res = buscar_multiples_en_catalogo("lija esmeril 100")
+    assert res[0]["nombre_lower"] == "lija esmeril n°100"
+
+
+@patch("memoria.cargar_memoria", return_value={"catalogo": {
+    "lija n° 1000": {"nombre_lower": "lija n° 1000", "nombre": "LIJA N° 1000", "precio_unidad": 2000, "precios_fraccion": {}},
+    "lija n°80":    {"nombre_lower": "lija n°80",    "nombre": "Lija N°80",    "precio_unidad": 2000, "precios_fraccion": {}},
+}, "inventario": {}})
+def test_lija_grano_1000_no_se_trata_como_precio(mock_cm):
+    """'lija numero 1000' debe encontrar LIJA N° 1000 (el 1000 es el grano, no un precio)."""
+    res = buscar_multiples_con_alias("lija numero 1000")
+    nombres = [r["nombre_lower"] for r in res]
+    assert "lija n° 1000" in nombres
+
+
+def test_limpiar_cantidad_conserva_grano_alto():
+    """_limpiar_cantidad_inicial conserva un número alto solo (grano) pero quita el precio."""
+    from services.catalogo_service import _limpiar_cantidad_inicial
+    assert _limpiar_cantidad_inicial("lija numero 1000") == "lija numero 1000"   # grano, se conserva
+    assert _limpiar_cantidad_inicial("brocha 2 pulgadas 4000") == "brocha 2 pulgadas"  # precio, se quita
+    assert _limpiar_cantidad_inicial("2 lijas 80") == "lijas 80"  # cantidad inicial fuera
