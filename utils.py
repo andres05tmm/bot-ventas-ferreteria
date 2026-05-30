@@ -230,7 +230,10 @@ _THINNER_PRECIO_A_CANTIDAD: dict[int, tuple[float, str]] = {
     26000: (1.0,              "1"),
 }
 
-_THINNER_KEYWORDS = ("thinner", "tiner", "tinner", "disolvente", "aguarras")
+# "aguarras" NO se incluye: es un solvente distinto que la ferretería no
+# necesariamente stockea. Conflactarlo con thinner causaba registrar Thinner
+# fantasma (bug multiproducto). Si no está en catálogo → "no encontré".
+_THINNER_KEYWORDS = ("thinner", "tiner", "tinner", "disolvente")
 
 
 def es_thinner(nombre_producto: str) -> bool:
