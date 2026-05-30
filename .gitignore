@@ -1,37 +1,34 @@
+# ── Entorno / secretos ──
 .env
-ventas.xlsx
+
+# ── Python ──
 __pycache__/
+*.pyc
+
+# ── Frontend (dashboard) ──
 dashboard/node_modules/
 dashboard/dist/
 
-# Archivos de estado en tiempo de ejecución — viven en Drive, no en el repo
+# ── Datos en runtime (viven en PostgreSQL, no en el repo) ──
 memoria.json
+ventas.xlsx
 BASE_DE_DATOS_PRODUCTOS.xlsx
--e "\n# Datos runtime - nunca al repo\n*.json\n*.xlsx" 
 
-# Obsidian vault — archivado a legacy/ (ya no vive en el repo)
-
-# Archivo local de material stale (Obsidian, GSD, Paul framework)
-# No se sube al repo. Conservar solo en máquina por si se necesita recuperar algo.
+# ── Material local / legacy (solo en la máquina) ──
 legacy/
 
-# ── claude-mem ────────────────────────────────────────────────────────────────
-# Memoria persistente de sesiones de desarrollo (Claude Code plugin).
-# Vive en ~/.claude/ globalmente, pero por si claude-mem crea archivos locales:
+# ── Claude Code / claude-mem (estado local de desarrollo) ──
 .claude-mem/
 .claude-mem.db
 .claude-mem.sqlite
 .claude/plugins/
 .claude/local/
-
-# ── Basura local / Obsidian / notas sueltas (no van al repo público) ──
-.obsidian/
-.claude/scheduled_tasks.lock
 .claude/*.lock
+
+# ── Obsidian (notas locales, no van al repo) ──
+.obsidian/
 *.canvas
 *.base
-Guia_Eventos_RADIAN_MATIAS_API.docx
-01-mapa-estructural.md
-03-logica-negocio.md
-2026-05-28.md
-codebase/
+
+# ── Documentos binarios sueltos (no versionar) ──
+*.docx
