@@ -1,0 +1,29 @@
+# ── GRUPO A — 3 casos con 1-2 productos AMBIGUOS (faltan datos) ───────────────
+# A1: ambiguos = "2 lijas" (¿grano?), "1 brocha" (¿pulgada?)
+2 lijas, 1 brocha, 1 martillo, 3 candados, 1 segueta, 2 metros de cable
+# A2: ambiguos = "1 wayper" (¿blanco/color? ¿kilo/unidad?), "5 tornillos drywall" (¿medida?)
+1 wayper, 5 tornillos drywall, 1 thinner, 3 chazos 3/8, 1 martillo, 2 brochas de 2 pulgadas
+# A3: ambiguos = "3 lijas esmeril" (¿N°?), "1 esmalte" (¿color?)
+3 lijas esmeril, 1 esmalte, 2 kilos de carbonato, 1 rodillo de 3 pulgadas, 4 puntillas 2 sin cabeza, 1 tinte miel
+
+# ── GRUPO B — 3 casos con 1-2 productos que NO existen en la BD ────────────────
+# B1: inexistente = "100 tornillos drywall 12x3/4" (calibre 12 no existe)
+100 tornillos drywall 12x3/4, 2 martillos, 30 cm lija esmeril 60, 3 candados, 1 thinner, 2 brochas de 3 pulgadas
+# B2: inexistente = "3 sierras circulares"
+3 sierras circulares, 2 kilos de acronal, 1 metro de manguera de jardin, 4 chazos 3/8, 1 esmalte negro, 2 brochas de 2 pulgadas
+# B3: inexistentes = "2 galones de aguarras", "1 varilla roscada"
+2 galones de aguarras, 1 varilla roscada, 30 cm lija esmeril 80, 3 candados, 1 rodillo de 4 pulgadas, 2 martillos
+
+# ── GRUPO C — 6 casos de SKILLS + unidades (fracciones, mixtas, kg, m, cm, gr) ─
+# C1: fracciones (thinner/varsol/vinilo por galon)
+1/4 de thinner, 1/2 de varsol, 1/4 de vinilo davinci t1 blanco, 1 esmalte blanco, 1 brocha de 2 pulgadas, 2 martillos
+# C2: fracciones MIXTAS (1 y medio, 2 y medio, 1 y un cuarto)
+1 y medio galones de thinner, 2 kilos y medio de acronal, 1 galon y un cuarto de varsol, 2 martillos, 1 brocha de 3 pulgadas, 3 candados
+# C3: kilos + gramos
+2 kilos de wayper blanco, medio kilo de acronal, 100 gramos de puntillas 2 con cabeza, 3 kilos de carbonato, 1 kilo de wayper de color, 2 martillos
+# C4: centimetros + metros
+30 cm de lija esmeril 60, 50 cm de lija esmeril 80, 2 metros de manguera de jardin, 3 metros de cable, 1 martillo, 4 candados
+# C5: tornilleria mayorista (umbral 50) + chazos
+60 tornillos drywall 6x1, 100 tornillos drywall 8x3, 30 tornillos drywall 6x2, 20 chazos 3/8, 2 brochas de 4 pulgadas, 1 rodillo convencional
+# C6: multi-skill (wayper kilo, lija cm, thinner fraccion, puntilla media caja, acronal kg, tinte)
+1 kilo de wayper de color, 30 cm lija esmeril 100, 1/2 de thinner, media caja de puntillas 2 sin cabeza, 2 kilos de acronal, 1 tinte caoba
