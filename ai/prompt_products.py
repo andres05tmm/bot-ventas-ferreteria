@@ -261,7 +261,12 @@ def construir_seccion_match(
     )
 
     stopwords = {"que", "del", "los", "las", "una", "uno", "con", "por", "para", "como",
-                 "fue", "son", "precio", "vale", "cuesta", "cuanto", "la", "el", "de", "en",
+                 "fue", "son", "precio", "vale", "valen", "cuesta", "cuestan", "cuanto",
+                 "la", "el", "de", "en",
+                 # verbos/muletillas de consulta — no son nombre de producto. Sin esto
+                 # "que precio TIENE 30 cm..." arrastra la medida "30" como token de
+                 # producto y corrompe el MATCH (bug Lija Esmeril N°60/N°80).
+                 "tiene", "tienes", "tienen", "tener", "hay", "queda", "quedan", "sale",
                  "galon", "galones", "litro", "litros", "kilo", "kilos", "metro", "metros",
                  "pulgada", "pulgadas", "unidad", "unidades",
                  "botella", "botellas",
@@ -790,7 +795,10 @@ def construir_seccion_match(
                 elif re.match(r'^\d+x\d+', p):  # formatos como 3x3, 8x1
                     palabras_seg.append(p)
                     nombre_producto_encontrado = True
-                elif nombre_producto_encontrado and p.isdigit() and 1 <= int(p) <= 999:
+                elif nombre_producto_encontrado and p.isdigit() and 1 <= int(p) <= 9999:
+                    # Hasta 4 dígitos: cubre números de producto grandes (lija grano
+                    # 1000/1500/3000). Un precio que entre como token es inofensivo:
+                    # con el matching por número COMPLETO no coincide con nada.
                     palabras_seg.append(p)
 
             if not palabras_seg:

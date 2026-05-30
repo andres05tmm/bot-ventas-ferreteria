@@ -167,6 +167,8 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
 
     _STOPWORDS = {"que", "del", "los", "las", "una", "uno", "con", "por",
                   "para", "como", "fue", "son", "de", "en", "la", "el",
+                  "precio", "cuanto", "cuesta", "cuestan", "vale", "valen",
+                  "tiene", "tienes", "tienen", "tener", "hay", "queda", "quedan", "sale",
                   "vendi", "vendo", "dame", "quiero", "necesito"}
 
     palabras_raw = [p for p in nombre_lower.split()
@@ -194,15 +196,21 @@ def buscar_multiples_en_catalogo(nombre_buscado: str, limite: int = 8) -> list:
     candidatos = []
     for prod in catalogo.values():
         nl = _norm(prod.get("nombre_lower", ""))
-        coincidencias = sum(
-            1 for p in palabras_producto
-            if p in nl or _stem_palabra(p) in nl
-        )
+        # Números del nombre como TOKENS COMPLETOS (no substring). Sin esto
+        # "60" matchea "600"/"3600" y "30" matchea "3000" → falsos positivos que
+        # desplazan al producto correcto (bug: "lija esmeril 60" caía en N°3000/N°36).
+        nl_numeros = set(_re_mem.findall(r'\d+', prod.get("nombre_lower", "")))
+        coincidencias = 0
+        for p in palabras_producto:
+            if p.isdigit():
+                if p in nl_numeros:        # número exacto, no substring
+                    coincidencias += 1
+            elif p in nl or _stem_palabra(p) in nl:
+                coincidencias += 1
         if coincidencias < min_hits:
             continue
 
         # Bonus por número exacto de talla/medida
-        nl_numeros = set(_re_mem.findall(r'\d+', prod.get("nombre_lower","")))
         bonus_numero = sum(1 for n in numeros_busqueda if n in nl_numeros)
 
         # Penalización: si el producto empieza con fracción (ej: "1/2 cuñete")
@@ -263,15 +271,21 @@ def _limpiar_cantidad_inicial(query: str) -> str:
         '1 brocha 2 pulgadas 4000' → 'brocha 2 pulgadas'
         '5 lijas 80'       → 'lijas 80'
     No elimina fracciones que son parte del nombre: '1/4 vinilo' → '1/4 vinilo'
-    No elimina precios finales (número > 1000 al final).
+    Solo elimina el precio final (4+ dígitos) cuando ya hay otra talla/número
+    antes: 'lija numero 1000' conserva el 1000 (es el grano, no un precio), pero
+    'brocha 2 pulgadas 4000' sí descarta el 4000.
     """
     import re as _re_lc
     q = query.strip()
     # Eliminar número entero inicial seguido de espacio y palabra alfabética
     # (ej: "2 brochas", "5 lijas", "1 brocha") — pero NO "1/4 vinilo" ni "2x4"
     q = _re_lc.sub(r'^(\d+)\s+(?=[a-zA-ZáéíóúÁÉÍÓÚñÑ])', '', q).strip()
-    # Eliminar precio final obvio (número > 1000 al final sin contexto de medida)
-    q = _re_lc.sub(r'\s+\d{4,}$', '', q).strip()
+    # Eliminar precio final (4+ dígitos al final) SOLO si queda otra cifra antes
+    # (una talla/medida). Sin esto se comía el número de producto: la "lija 1000",
+    # "lija 1500" y "lija 3000" quedaban inencontrables (bug del barrido de precisión).
+    cuerpo = _re_lc.sub(r'\s+\d{4,}$', '', q).strip()
+    if cuerpo != q and _re_lc.search(r'\d', cuerpo):
+        q = cuerpo
     return q
 
 
