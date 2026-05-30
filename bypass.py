@@ -187,14 +187,14 @@ def resolver_wayper(mensaje: str, catalogo: dict) -> tuple | None:
       - peso ("kilo", "kilos", "kg", "medio kilo", "cuarto de kilo", "kilo y medio")
         → producto por KILO, cantidad en kilos.
       - "N unidades", "N waypers" (plural), "piezas" → producto por UNIDAD.
-      - "N wayper" (singular, SIN peso ni unidad) → AMBIGUO: preguntar kilo o unidad.
+      - "N wayper" (número pelado SIN palabra de peso) → UNIDAD por defecto.
+        Ej: "2 wayper blanco" = 2 unidades. NO se pregunta (regla del negocio).
       - color/blanco obligatorio; si no se especifica → None (el skill pregunta el color).
 
     Precios SIEMPRE del catálogo (MATCH) — no hardcodeados.
 
     Retorna:
       None             → no aplica (no es wayper, es multiproducto, o falta el color)
-      ("ask", texto)   → ambiguo, preguntar kilo/unidad
       ("venta", dict)  → venta resuelta (mismo formato que el bypass)
     """
     m = _norm(mensaje)
@@ -248,15 +248,12 @@ def resolver_wayper(mensaje: str, catalogo: dict) -> tuple | None:
             if re.search(r'\by\s+medio\b', m):
                 _qty += 0.5
             modo, cant = "kilo", _qty
-        elif _has_uni and not _has_kilo:
-            modo, cant = "unidad", _qty
         else:
-            # "N wayper [tipo]" sin peso ni unidad (o conflicto) → ambiguo: preguntar.
-            _n = _mn.group(1) if _mn else "1"
-            _tlabel = "de color" if tipo == "color" else "blanco"
-            return ("ask",
-                    f"¿Los {_n} wayper {_tlabel} son por kilo o por unidad? "
-                    f"(kilo=${precio_kilo:,.0f}, unidad=${precio_uni:,.0f})")
+            # Regla del negocio: un número pelado SIN palabra de peso = UNIDAD.
+            # "2 wayper blanco" → 2 unidades (NO preguntar). Solo es kilo si se
+            # menciona kg/kilo/medio kilo/etc. (ramas de peso arriba). El conflicto
+            # raro (kilo Y unidad en el mismo mensaje) también cae a unidad.
+            modo, cant = "unidad", _qty
 
     if modo == "kilo":
         nombre, precio = p_kilo["nombre"], precio_kilo

@@ -364,18 +364,15 @@ async def procesar_con_claude(
         )
     memoria = cargar_memoria()
     # ── Resolutor determinista de wayper (MEDIUM-7) ──────────────────────────
-    # El wayper se vende por kilo/medio kilo/unidad, en blanco o color. El bypass
-    # normal lo resolvía como unidad callado y Claude era inconsistente; aquí se
-    # decide determinísticamente o se pregunta kilo/unidad si es ambiguo.
+    # El wayper se vende por kilo/medio kilo/unidad, en blanco o color. Se decide
+    # determinísticamente: con palabra de peso (kg/kilo/...) → kilo; un número
+    # pelado sin peso → unidad (regla del negocio, NO se pregunta).
     if not _tiene_imagen and not _dashboard_mode:
         _way = bypass.resolver_wayper(_msg_pre_alias, memoria.get("catalogo", {}))
         if _way:
             import json as _jw
+            # resolver_wayper solo devuelve ("venta", dict) o None (ver su docstring).
             _wkind, _wval = _way
-            if _wkind == "ask":
-                logging.getLogger("ferrebot.ai").info(
-                    "[WAYPER] ambiguo kilo/unidad → pregunta: '%s'", _msg_bypass[:60])
-                return _wval
             _wtxt = f"{_wval['cantidad']:g} {_wval['producto']} — ${_wval['total']:,.0f}"
             return f"{_wtxt}\n[VENTA]{_jw.dumps(_wval, ensure_ascii=False)}[/VENTA]"
     # Las fotos con imagen no pueden pasar por el bypass Python (no hay texto estructurado).

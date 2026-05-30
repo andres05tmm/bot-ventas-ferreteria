@@ -18,14 +18,15 @@ NO mezcles blanco con color — son inventarios completamente separados.
 ─────────────────────────────────────────
 CÓMO DISTINGUIR KILO VS UNIDAD
 ─────────────────────────────────────────
-→ KILO: menciona "kilo","kilos","kg","medio kilo","libra"
-  o dice un número con unidad de peso: "2 kilos de wayper"
+REGLA: un número pelado SIN palabra de peso = UNIDAD. NO preguntes.
 
-→ UNIDAD: menciona "uno","unidad","unidades","waypers" sin peso
-  o dice número entero sin unidad de peso: "3 waypers","un wayper"
+→ KILO: SOLO si menciona "kilo","kilos","kg","medio kilo","libra"
+  o un número con unidad de peso: "2 kilos de wayper"
 
-Ambigüedad "2 wayper blanco" sin contexto de peso → preguntar:
-  "¿Los 2 wayper son por kilo o por unidad?"
+→ UNIDAD (default): cualquier número sin palabra de peso.
+  "2 wayper blanco" → 2 UNIDADES. "3 waypers" → 3 unidades. "un wayper" → 1 unidad.
+
+NUNCA preguntes "¿kilo o unidad?". Si no dice peso, es unidad.
 
 ─────────────────────────────────────────
 FRACCIONES DE KILO
