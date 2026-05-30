@@ -97,13 +97,14 @@ CASOS = {
         ("30 cm lija esmeril 60",                               vende("esmeril n°60")),
     ],
     "lija_agua": [
-        ("precio lija 220",   encuentra("220")),
-        ("lija 600",          encuentra("600")),
-        ("lija numero 1000",  encuentra("1000")),
-        ("lija 1500",         encuentra("1500")),
-        ("lija 3000",         encuentra("3000")),
-        ("2 lijas 80",        encuentra("80")),
-        ("lija 120",          encuentra("120")),
+        ("precio lija 220",     encuentra("220")),
+        ("lija 600",            encuentra("600")),
+        ("lija numero 1000",    encuentra("1000")),
+        ("2 lijas 1500",        encuentra("1500")),   # grano alto: el bot solía negarlo
+        ("precio lija 3000",    encuentra("3000")),   # grano altísimo pero existe
+        ("10 lijas 1000",       vende("lija n° 1000")),
+        ("2 lijas 80",          encuentra("80")),
+        ("lija 120",            encuentra("120")),
     ],
     "wayper": [
         ("2 wayper blanco",                 todos(no_pregunta_kilo_unidad, vende("wayper blanco unidad", 1400))),

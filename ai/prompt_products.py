@@ -1112,7 +1112,17 @@ def construir_precalculos_especiales(
 
     # ── Regla multi-producto ──
     _es_multiproducto = "\n" in mensaje_usuario.strip() or mensaje_usuario.count(",") >= 2
-    _regla_no_encontrado = (
+    # Refuerzo: si el producto pedido aparece TAL CUAL en el MATCH, EXISTE — el
+    # MATCH es la verdad del catálogo. No descartes un número/medida por parecer
+    # inusual (ej. lija grano 1500/3000 sí existen). Solo es "no encontré" si de
+    # verdad NO está en el MATCH.
+    _confia_match = (
+        "CONFIA EN EL MATCH: si el producto pedido aparece TAL CUAL en el MATCH "
+        "(mismo número/medida), EXISTE en el catálogo aunque el número te parezca "
+        "raro o muy alto (ej. lija grano 1000/1500/3000). Úsalo sin dudar. "
+        "NUNCA digas 'no encontré' de algo que está en el MATCH. "
+    )
+    _regla_no_encontrado = _confia_match + (
         "REGLA MULTI-PRODUCTO: Para CADA producto en el mensaje, verifica si existe en el MATCH. "
         "Registra con [VENTA] SOLO los que SÍ encontraste con buena coincidencia. "
         "Si un producto NO tiene match claro en el catálogo (o el match es dudoso/diferente), "
