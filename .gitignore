@@ -23,3 +23,15 @@ legacy/
 .claude-mem.sqlite
 .claude/plugins/
 .claude/local/
+
+# ── Basura local / Obsidian / notas sueltas (no van al repo público) ──
+.obsidian/
+.claude/scheduled_tasks.lock
+.claude/*.lock
+*.canvas
+*.base
+Guia_Eventos_RADIAN_MATIAS_API.docx
+01-mapa-estructural.md
+03-logica-negocio.md
+2026-05-28.md
+codebase/
