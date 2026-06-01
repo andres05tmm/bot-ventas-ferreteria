@@ -345,6 +345,52 @@ def ventas_con_precio_dudoso(content: list, precio_esperado) -> list[dict]:
     return dudosas
 
 
+def _monto_int(val) -> int:
+    """Monto a entero apto para leer en voz. Fail-safe a 0."""
+    try:
+        return int(round(float(val or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def confirmacion_mutaciones_voz(content: list) -> str | None:
+    """
+    Riel de confirmación hablada (voz) para gasto / fiado / abono. Si Claude propone
+    registrar uno de estos (y NINGUNA venta — las ventas ya tienen su flujo de método
+    de pago de 2 pasos), devuelve una pregunta hablada para que el vendedor confirme
+    ANTES de registrar. Devuelve None si no hay mutación de ese tipo, o si el turno
+    también trae ventas (turno mixto → no se intercepta; raro en voz).
+
+    El registro real ocurre en el turno SIGUIENTE: cuando el vendedor afirma, Claude
+    vuelve a emitir la herramienta (la app manda el historial completo del loop) y el
+    riel ya no retiene (ver es_afirmacion_voz en ai/__init__). Mismo patrón que los
+    rieles de existencia/precio: se reemplaza la salida por la pregunta hablada.
+    """
+    tiene_venta = False
+    propuestas: list[str] = []
+    for raw in content or []:
+        b = _norm_block(raw)
+        if b["type"] != "tool_use":
+            continue
+        nombre = b["name"]
+        inp    = b["input"]
+        if nombre == "registrar_venta":
+            tiene_venta = True
+        elif nombre == "registrar_gasto":
+            concepto = (inp.get("concepto") or "").strip() or "varios"
+            propuestas.append(f"un gasto de {_monto_int(inp.get('monto'))} en {concepto}")
+        elif nombre == "registrar_fiado":
+            cliente = (inp.get("cliente") or "").strip() or "el cliente"
+            propuestas.append(f"un fiado de {_monto_int(inp.get('cargo'))} a {cliente}")
+        elif nombre == "abonar_fiado":
+            cliente = (inp.get("cliente") or "").strip() or "el cliente"
+            propuestas.append(f"un abono de {_monto_int(inp.get('monto'))} de {cliente}")
+
+    if tiene_venta or not propuestas:
+        return None
+    return f"Voy a registrar {', '.join(propuestas)}. ¿Confirmás?"
+
+
 def tool_uses_a_tags(content: list) -> str:
     """
     Convierte el `content` de una respuesta de Claude (lista de bloques text +

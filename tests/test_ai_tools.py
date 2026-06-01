@@ -33,10 +33,11 @@ import pytest
 # -- propios --
 from ai.tools import (
     tool_uses_a_tags, ventas_con_producto_desconocido, ventas_conocidas,
-    ventas_con_precio_dudoso,
+    ventas_con_precio_dudoso, confirmacion_mutaciones_voz,
     TOOLS, TOOL_REGISTRAR_VENTA, TOOL_REGISTRAR_GASTO,
     TOOL_REGISTRAR_FIADO, TOOL_ABONAR_FIADO,
 )
+from ai import es_afirmacion_voz
 
 
 # Regex idéntico al de ai/response_builder.procesar_acciones
@@ -419,6 +420,103 @@ def test_r2precio_acepta_int_directo_del_callback():
     content = [_Block("tool_use", name="registrar_venta",
                       input={"producto": "Martillo", "cantidad": 2, "total": 30000})]
     assert ventas_con_precio_dudoso(content, _precio_int) == []
+
+
+# ─────────────────────────────────────────────
+# Confirmar-antes-de-registrar gasto/fiado/abono (voz)
+# ─────────────────────────────────────────────
+
+def test_confirm_gasto_pide_confirmacion():
+    content = [_Block("tool_use", name="registrar_gasto",
+                      input={"concepto": "refrigerio", "monto": 5000})]
+    msg = confirmacion_mutaciones_voz(content)
+    assert msg is not None
+    assert "gasto de 5000 en refrigerio" in msg
+    assert "¿Confirmás?" in msg
+
+
+def test_confirm_fiado_pide_confirmacion():
+    content = [_Block("tool_use", name="registrar_fiado",
+                      input={"cliente": "Pedro", "cargo": 20000})]
+    msg = confirmacion_mutaciones_voz(content)
+    assert msg is not None and "fiado de 20000 a Pedro" in msg
+
+
+def test_confirm_abono_pide_confirmacion():
+    content = [_Block("tool_use", name="abonar_fiado",
+                      input={"cliente": "Pedro", "monto": 10000})]
+    msg = confirmacion_mutaciones_voz(content)
+    assert msg is not None and "abono de 10000 de Pedro" in msg
+
+
+def test_confirm_gasto_sin_concepto_usa_varios():
+    content = [_Block("tool_use", name="registrar_gasto", input={"monto": 3000})]
+    assert "en varios" in confirmacion_mutaciones_voz(content)
+
+
+def test_confirm_venta_no_se_intercepta():
+    # Venta tiene su propio flujo de método de pago → no se confirma acá.
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Martillo", "cantidad": 1, "total": 15000})]
+    assert confirmacion_mutaciones_voz(content) is None
+
+
+def test_confirm_turno_mixto_no_se_intercepta():
+    # Si hay venta + gasto en el mismo turno, no se retiene (raro en voz).
+    content = [
+        _Block("tool_use", name="registrar_venta",
+               input={"producto": "Martillo", "cantidad": 1, "total": 15000}),
+        _Block("tool_use", name="registrar_gasto",
+               input={"concepto": "refrigerio", "monto": 5000}),
+    ]
+    assert confirmacion_mutaciones_voz(content) is None
+
+
+def test_confirm_solo_texto_es_none():
+    content = [_Block("text", text="¿En efectivo o transferencia?")]
+    assert confirmacion_mutaciones_voz(content) is None
+
+
+def test_confirm_multiples_mutaciones_se_juntan():
+    content = [
+        _Block("tool_use", name="registrar_gasto",
+               input={"concepto": "refrigerio", "monto": 5000}),
+        _Block("tool_use", name="registrar_gasto",
+               input={"concepto": "transporte", "monto": 8000}),
+    ]
+    msg = confirmacion_mutaciones_voz(content)
+    assert "refrigerio" in msg and "transporte" in msg
+
+
+def test_confirm_content_vacio():
+    assert confirmacion_mutaciones_voz([]) is None
+    assert confirmacion_mutaciones_voz(None) is None
+
+
+# ── es_afirmacion_voz ─────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("msg", [
+    "##VOZ## Andres: sí",
+    "##VOZ## Andres: dale",
+    "##VOZ## Andres: dale pues",
+    "##VOZ## Andres: de una",
+    "##VOZ## Andres: sí confirmo",
+    "##VOZ## Andres: listo, hágale",
+    "Andres: confirmo",
+])
+def test_es_afirmacion_voz_positivas(msg):
+    assert es_afirmacion_voz(msg) is True
+
+
+@pytest.mark.parametrize("msg", [
+    "##VOZ## Andres: no",
+    "##VOZ## Andres: gasté 5000 en refrigerio",
+    "##VOZ## Andres: sí dame un martillo",   # 'sí' suelto en pedido sustantivo
+    "##VOZ## Andres: ",
+    "##VOZ## Andres: mejor no",
+])
+def test_es_afirmacion_voz_negativas(msg):
+    assert es_afirmacion_voz(msg) is False
 
 
 # ─────────────────────────────────────────────

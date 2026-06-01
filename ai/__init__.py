@@ -73,6 +73,42 @@ def _cantidad_legible_voz(cantidad) -> str:
         return str(cantidad)
 
 
+# Palabras que, solas o casi, cuentan como un "sí" del vendedor al confirmar una
+# mutación por voz (gasto/fiado/abono). Normalizadas (sin tildes). Conservador
+# para no leer un "sí" dentro de un mensaje sustantivo como confirmación.
+_AFIRMACIONES_VOZ = {
+    "si", "sip", "claro", "dale", "listo", "ok", "oka", "okay", "okey",
+    "hagale", "hazlo", "registralo", "registra", "confirmo", "confirma",
+    "confirmado", "correcto", "exacto", "eso", "aja", "sisas", "obvio",
+    "seguro", "perfecto", "afirmativo", "va", "vale", "hecho", "una", "once",
+}
+# Conectores que no aportan significado (no incluir "si": es afirmación por sí solo).
+_CONECTORES_VOZ = {"de", "pues", "ya", "esta", "bien", "por", "favor", "todo"}
+
+
+def es_afirmacion_voz(mensaje: str) -> bool:
+    """
+    True si el mensaje de voz es esencialmente una afirmación corta ('sí', 'dale',
+    'de una', 'hágale pues', 'sí confirmo') — señal de que el vendedor confirma la
+    mutación propuesta el turno anterior. Estricto a propósito: mensaje corto y
+    TODAS sus palabras significativas afirmativas, para no confundir un 'sí' suelto
+    dentro de un pedido sustantivo ('sí dame un martillo') con una confirmación.
+    """
+    t = mensaje or ""
+    for flag in ("##VOZ##", "##DASHBOARD##", "##BOT##"):
+        t = t.replace(flag, "")
+    if ":" in t:                       # quitar prefijo "Nombre: ..."
+        t = t.split(":", 1)[1]
+    t = re.sub(r"[^a-z0-9 ]", " ", _normalizar(t)).strip()
+    if not t:
+        return False
+    palabras = t.split()
+    if len(palabras) > 4:              # una afirmación es corta
+        return False
+    significativas = [w for w in palabras if w not in _CONECTORES_VOZ]
+    return bool(significativas) and all(w in _AFIRMACIONES_VOZ for w in significativas)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS PG — reemplazan funciones de excel.py
 # ─────────────────────────────────────────────────────────────────────────────
@@ -865,6 +901,19 @@ async def procesar_con_claude(
                 _cant_voz = _cantidad_legible_voz(_d["cantidad"])
                 return (f"Para {_cant_voz} {_d['producto']} el precio es "
                         f"{_d['total_catalogo']}. ¿Lo registro así o el precio es otro?")
+
+            # ── Confirmar-antes-de-registrar gasto/fiado/abono (solo voz) ─────
+            # Las ventas ya tienen 2 pasos (método de pago); gasto/fiado/abono se
+            # registraban de una. Si Claude los propone y el vendedor NO está
+            # afirmando, se pregunta hablado y se registra recién al confirmar: el
+            # historial del loop trae el turno previo → Claude reemite la tool.
+            if not es_afirmacion_voz(mensaje_usuario):
+                _conf_mut = tools_mod.confirmacion_mutaciones_voz(respuesta.content)
+                if _conf_mut:
+                    logging.getLogger("ferrebot.ai").info(
+                        "[CONFIRM-VOZ] propongo y espero confirmación: %s", _conf_mut
+                    )
+                    return _conf_mut
         return tools_mod.tool_uses_a_tags(respuesta.content)
     return respuesta.content[0].text
 
