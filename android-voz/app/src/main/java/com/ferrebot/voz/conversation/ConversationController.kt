@@ -48,6 +48,7 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
     private val sessionId = UUID.randomUUID().toString()
     private val historial = mutableListOf<Pair<String, String>>()  // (role, content)
     private var esperandoPago = false   // Fase 4: el próximo turno es el método de pago
+    private var intentosVacios = 0      // blancos seguidos (silencio) en manos libres
 
     private var loopActivo = false      // modo manos libres en curso
     private var vadJob: Job? = null
@@ -100,6 +101,7 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
             return
         }
         loopActivo = _ui.value.manosLibres   // en manos libres el loop sigue tras responder
+        intentosVacios = 0
         empezarEscucha()
     }
 
@@ -131,14 +133,27 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
             val inicio = System.currentTimeMillis()
             var huboVoz = false
             var ultimaVozTs = inicio
+            var vozSeguida = 0        // muestras consecutivas por encima del umbral
             recorder.maxAmplitude()   // descartar primer sample (suele ser 0)
             while (isActive && _ui.value.estado == Estado.ESCUCHANDO) {
                 delay(POLL_MS)
                 val amp = recorder.maxAmplitude()
                 val ahora = System.currentTimeMillis()
+                // Para EMPEZAR a contar voz exigir sonido SOSTENIDO (varias muestras):
+                // un clic/eco transitorio del TTS no debe contar como voz y disparar
+                // una grabación que Whisper luego alucina. Ya hablando, cualquier pico cuenta.
                 if (amp > UMBRAL_VOZ) {
-                    huboVoz = true
-                    ultimaVozTs = ahora
+                    if (huboVoz) {
+                        ultimaVozTs = ahora
+                    } else {
+                        vozSeguida++
+                        if (vozSeguida >= VOZ_MIN_MUESTRAS) {
+                            huboVoz = true
+                            ultimaVozTs = ahora
+                        }
+                    }
+                } else if (!huboVoz) {
+                    vozSeguida = 0
                 }
                 when {
                     huboVoz && ahora - ultimaVozTs > SILENCIO_MS -> { procesar(); return@launch }
@@ -176,9 +191,18 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
                 audio.delete()
 
                 if (texto.isBlank()) {
-                    finalizarSinLoop(error = "No te entendí, repetí.")
+                    // Vacío = el backend descartó silencio/alucinación (o no hubo voz).
+                    // En manos libres NO matamos el loop por un blanco: reanudamos la
+                    // escucha (acotado, para no machacar Whisper si hay ruido constante).
+                    if (loopActivo && intentosVacios < MAX_VACIOS) {
+                        intentosVacios++
+                        empezarEscucha()
+                    } else {
+                        finalizarSinLoop(error = "No te entendí, repetí.")
+                    }
                     return@launch
                 }
+                intentosVacios = 0   // hubo texto real
                 if (esPalabraDeParada(texto)) {
                     detener()
                     return@launch
@@ -271,9 +295,11 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
     private companion object {
         const val POLL_MS = 150L
         const val UMBRAL_VOZ = 1800            // getMaxAmplitude: umbral de voz (tunable por device)
+        const val VOZ_MIN_MUESTRAS = 2         // muestras sostenidas (~300ms) para contar como voz
         const val SILENCIO_MS = 1300L          // silencio tras hablar → enviar
         const val ESPERA_INICIAL_MS = 6000L    // sin voz al arrancar → cerrar loop
         const val MAX_GRABACION_MS = 30000L    // tope duro de grabación
+        const val MAX_VACIOS = 2               // blancos seguidos antes de cerrar el loop
 
         val PALABRAS_PARADA = setOf(
             "para", "parar", "pará", "detente", "detener", "cancela", "cancelar",
