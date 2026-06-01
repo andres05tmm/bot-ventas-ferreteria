@@ -807,7 +807,13 @@ async def procesar_con_claude(
         # (default) deja que Claude decida entre llamar la herramienta o preguntar.
         # En VOZ siempre se usa (más robusto para clasificar intención: venta vs
         # gasto vs fiado), sin depender del flag global que rige bot/dashboard.
-        _tools = tools_mod.TOOLS if (config.IA_TOOL_CALLING or _voz_mode) else None
+        # Voz suma crear_cliente (Fase 4.5); bot/dashboard usan su propio wizard.
+        if _voz_mode:
+            _tools = tools_mod.TOOLS_VOZ
+        elif config.IA_TOOL_CALLING:
+            _tools = tools_mod.TOOLS
+        else:
+            _tools = None
         respuesta = await _llamar_claude_con_reintentos(
             config.claude_client, max_tokens, system, messages,
             model=_modelo_no_stream, tools=_tools,

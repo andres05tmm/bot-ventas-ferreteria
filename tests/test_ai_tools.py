@@ -34,10 +34,12 @@ import pytest
 from ai.tools import (
     tool_uses_a_tags, ventas_con_producto_desconocido, ventas_conocidas,
     ventas_con_precio_dudoso, confirmacion_mutaciones_voz,
-    TOOLS, TOOL_REGISTRAR_VENTA, TOOL_REGISTRAR_GASTO,
-    TOOL_REGISTRAR_FIADO, TOOL_ABONAR_FIADO,
+    TOOLS, TOOLS_VOZ, TOOL_REGISTRAR_VENTA, TOOL_REGISTRAR_GASTO,
+    TOOL_REGISTRAR_FIADO, TOOL_ABONAR_FIADO, TOOL_CREAR_CLIENTE,
 )
 from ai import es_afirmacion_voz
+
+_RE_CLIENTE = re.compile(r"\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]", re.DOTALL)
 
 
 # Regex idéntico al de ai/response_builder.procesar_acciones
@@ -517,6 +519,72 @@ def test_es_afirmacion_voz_positivas(msg):
 ])
 def test_es_afirmacion_voz_negativas(msg):
     assert es_afirmacion_voz(msg) is False
+
+
+# ─────────────────────────────────────────────
+# crear_cliente (Fase 4.5 — alta de cliente por voz)
+# ─────────────────────────────────────────────
+
+def _clientes_parseados(salida: str) -> list[dict]:
+    return [json.loads(m.strip()) for m in _RE_CLIENTE.findall(salida)]
+
+
+def test_schema_crear_cliente_bien_formado():
+    assert TOOL_CREAR_CLIENTE["name"] == "crear_cliente"
+    props = TOOL_CREAR_CLIENTE["input_schema"]["properties"]
+    assert {"nombre", "identificacion"} <= set(props)
+    assert TOOL_CREAR_CLIENTE["input_schema"]["required"] == ["nombre", "identificacion"]
+
+
+def test_tools_voz_incluye_crear_cliente_y_las_de_plata():
+    # TOOLS_VOZ = las 4 de plata + crear_cliente. TOOLS (bot/dashboard) NO lo trae.
+    assert TOOLS_VOZ == TOOLS + [TOOL_CREAR_CLIENTE]
+    assert TOOL_CREAR_CLIENTE not in TOOLS
+
+
+def test_crear_cliente_genera_tag_parseable():
+    content = [_Block("tool_use", name="crear_cliente",
+                      input={"nombre": "Pedro Pérez", "identificacion": "123456",
+                             "telefono": "3001234567"})]
+    salida = tool_uses_a_tags(content)
+    cli = _clientes_parseados(salida)[0]
+    assert cli["nombre"] == "Pedro Pérez"
+    assert cli["identificacion"] == "123456"
+    assert cli["telefono"] == "3001234567"
+
+
+def test_crear_cliente_omite_opcionales_ausentes():
+    content = [_Block("tool_use", name="crear_cliente",
+                      input={"nombre": "Ana", "identificacion": "999"})]
+    cli = _clientes_parseados(tool_uses_a_tags(content))[0]
+    assert set(cli) == {"nombre", "identificacion"}   # sin tipo_id/telefono/correo vacíos
+
+
+def test_crear_cliente_identificacion_numerica_va_como_string():
+    # Si Claude manda la cédula como número, el tag la serializa como string.
+    content = [_Block("tool_use", name="crear_cliente",
+                      input={"nombre": "Luis", "identificacion": 12345})]
+    cli = _clientes_parseados(tool_uses_a_tags(content))[0]
+    assert cli["identificacion"] == "12345"
+
+
+def test_confirm_crear_cliente_pide_confirmacion():
+    content = [_Block("tool_use", name="crear_cliente",
+                      input={"nombre": "Pedro Pérez", "identificacion": "123456"})]
+    msg = confirmacion_mutaciones_voz(content)
+    assert msg is not None
+    assert "cliente Pedro Pérez con cédula 123456" in msg
+    assert "¿Confirmás?" in msg
+
+
+def test_confirm_crear_cliente_con_venta_no_se_intercepta():
+    content = [
+        _Block("tool_use", name="registrar_venta",
+               input={"producto": "Martillo", "cantidad": 1, "total": 15000}),
+        _Block("tool_use", name="crear_cliente",
+               input={"nombre": "Pedro", "identificacion": "123"}),
+    ]
+    assert confirmacion_mutaciones_voz(content) is None
 
 
 # ─────────────────────────────────────────────

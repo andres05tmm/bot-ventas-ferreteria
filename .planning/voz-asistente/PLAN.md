@@ -58,8 +58,8 @@ Corte por silencio, reanudar escucha al terminar de hablar, frases de control, c
 - [ ] Probar en device: los umbrales del VAD pueden requerir ajuste según micrófono/ruido del local.
 
 ### Capacidades del asistente (= cerebro del chat `/chat/stream`)
-Hoy por charla natural: **ventas, gastos, fiados, abonos, consultas/reportes**. NO soporta aún:
-- **Crear cliente**: wizard solo del bot Telegram (`cliente_flujo.py`); el chat emite `INICIAR_FLUJO_CLIENTE` pero los pasos no están cableados fuera del bot. → futura **Fase 4.5**.
+Hoy por charla natural: **ventas, gastos, fiados, abonos, consultas/reportes, crear cliente**. NO soporta aún:
+- **Crear cliente (HECHO — Fase 4.5):** tool `crear_cliente` (solo en `TOOLS_VOZ`, no en bot/dashboard) → puente al tag `[CLIENTE_NUEVO]` que `response_builder` ya inserta en PG. El cerebro junta nombre+cédula hablando (los pide si faltan) y pasa por el riel de confirmación hablada antes de guardar. NO se usó el wizard del bot (`cliente_flujo.py`/`INICIAR_FLUJO_CLIENTE`): en voz el cerebro conduce la conversación. 7 tests en `tests/test_ai_tools.py`.
 - **Emitir factura electrónica DIAN**: NO expuesto en el cerebro (a propósito — legal/sensible). → futura **Fase 8** con doble confirmación hablada obligatoria.
 
 ### Robustez del cerebro (en curso) — decisiones

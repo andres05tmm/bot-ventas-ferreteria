@@ -147,6 +147,47 @@ TOOL_ABONAR_FIADO = {
     },
 }
 
+# Alta de cliente. Solo se expone en VOZ (Fase 4.5): el bot de Telegram ya tiene
+# su wizard paso a paso; en voz el cerebro junta los datos hablando y, cuando
+# tiene nombre + cédula, llama esta herramienta. El puente la convierte al tag
+# [CLIENTE_NUEVO] que response_builder ya inserta en PG.
+TOOL_CREAR_CLIENTE = {
+    "name": "crear_cliente",
+    "description": (
+        "Da de alta un CLIENTE NUEVO en la base. Úsala cuando el vendedor pide "
+        "crear/registrar un cliente ('creá un cliente', 'guardá a este cliente', "
+        "'anotá a don Pedro'). Necesita SIEMPRE nombre e identificación (cédula o "
+        "NIT); si falta alguno, pedílo hablando antes de llamarla. El resto es "
+        "opcional. NO la uses para fiar ni para registrar ventas a un cliente: "
+        "para eso están registrar_fiado y registrar_venta.\n"
+        "- 'nombre': nombre completo del cliente.\n"
+        "- 'identificacion': número de cédula o NIT, solo dígitos, sin puntos."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "nombre": {"type": "string", "description": "Nombre completo del cliente."},
+            "identificacion": {
+                "type": "string",
+                "description": "Cédula o NIT, solo dígitos, sin puntos ni comas.",
+            },
+            "tipo_id": {
+                "type": "string",
+                "description": "Tipo de documento. Omitir si no se dice (default cédula).",
+                "enum": ["Cedula de ciudadania", "NIT", "Cedula de extranjeria", "Pasaporte"],
+            },
+            "tipo_persona": {
+                "type": "string",
+                "enum": ["Natural", "Juridica"],
+                "description": "Natural (persona) o Juridica (empresa). Omitir si no se dice.",
+            },
+            "telefono": {"type": "string", "description": "Teléfono. Omitir si no se menciona."},
+            "correo": {"type": "string", "description": "Correo. Omitir si no se menciona."},
+        },
+        "required": ["nombre", "identificacion"],
+    },
+}
+
 # Herramientas expuestas a Claude. Cubren las MUTACIONES de plata (venta, gasto,
 # fiado, abono) — donde la clasificación de intención debe ser precisa. Las
 # consultas y otras acciones siguen como tags de texto.
@@ -156,6 +197,10 @@ TOOLS = [
     TOOL_REGISTRAR_FIADO,
     TOOL_ABONAR_FIADO,
 ]
+
+# Conjunto de herramientas para el canal de VOZ: las de plata + alta de cliente.
+# El bot/dashboard siguen con TOOLS (el alta de cliente allá usa su propio wizard).
+TOOLS_VOZ = TOOLS + [TOOL_CREAR_CLIENTE]
 
 
 # ─────────────────────────────────────────────
@@ -206,12 +251,26 @@ def _abono_a_tag(inp: dict) -> str:
     return f"[ABONO_FIADO]{json.dumps(abono, ensure_ascii=False)}[/ABONO_FIADO]"
 
 
+def _cliente_a_tag(inp: dict) -> str:
+    """Convierte crear_cliente al tag [CLIENTE_NUEVO]{...}[/CLIENTE_NUEVO] que
+    response_builder ya inserta en PG. Solo incluye los opcionales que vengan."""
+    cli: dict = {
+        "nombre":         inp.get("nombre", ""),
+        "identificacion": str(inp.get("identificacion", "")),
+    }
+    for k in ("tipo_id", "tipo_persona", "telefono", "correo"):
+        if inp.get(k):
+            cli[k] = inp[k]
+    return f"[CLIENTE_NUEVO]{json.dumps(cli, ensure_ascii=False)}[/CLIENTE_NUEVO]"
+
+
 # tool_name → builder del tag equivalente
 _TAG_BUILDERS = {
     "registrar_venta":  _venta_a_tag,
     "registrar_gasto":  _gasto_a_tag,
     "registrar_fiado":  _fiado_a_tag,
     "abonar_fiado":     _abono_a_tag,
+    "crear_cliente":    _cliente_a_tag,
 }
 
 
@@ -385,6 +444,12 @@ def confirmacion_mutaciones_voz(content: list) -> str | None:
         elif nombre == "abonar_fiado":
             cliente = (inp.get("cliente") or "").strip() or "el cliente"
             propuestas.append(f"un abono de {_monto_int(inp.get('monto'))} de {cliente}")
+        elif nombre == "crear_cliente":
+            nom   = (inp.get("nombre") or "").strip() or "el cliente"
+            ident = str(inp.get("identificacion") or "").strip()
+            propuestas.append(
+                f"el cliente {nom} con cédula {ident}" if ident else f"el cliente {nom}"
+            )
 
     if tiene_venta or not propuestas:
         return None
