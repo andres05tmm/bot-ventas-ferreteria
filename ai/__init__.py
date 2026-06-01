@@ -62,6 +62,8 @@ from ai.prompts import (
 from ai import budget as _budget
 # Tool-calling nativo (M-01) — schemas + puente tool_use→tags
 from ai import tools as tools_mod
+# Búsqueda semántica del catálogo (fallback del fuzzy) — solo voz, fail-safe
+from ai import semantic_catalog as _semantic
 
 def _cantidad_legible_voz(cantidad) -> str:
     """Cantidad apta para leer en voz: '3', '1/4', '1 y 1/2'. Fail-safe a str."""
@@ -835,6 +837,13 @@ async def procesar_con_claude(
                     )
                     _prefijo = f"Entendí {_resumen}, pero "
                 _cola = "no encontré" if _prefijo else "No encontré"
+                # Fallback semántico: si el nombre no resuelve léxico ni con fuzzy
+                # pero hay un producto cercano en SENTIDO, ofrecerlo para confirmar
+                # (sin registrar aún). Fail-safe: si no hay match, pregunta genérica.
+                if len(_desconocidos) == 1:
+                    _sug = _semantic.sugerencia_semantica(_desconocidos[0])
+                    if _sug:
+                        return f"{_prefijo}{_cola} {_lista} en el catálogo. ¿Quisiste decir {_sug}?"
                 return (f"{_prefijo}{_cola} {_lista} en el catálogo. "
                         f"¿Me lo repetís o es otro producto?")
 

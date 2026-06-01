@@ -84,6 +84,10 @@ FIADOS_HABILITADO        = _flag("FIADOS_HABILITADO",        autodetect=True)
 # texto sigue siendo el activo hasta encender el flag en Railway. Permite
 # rollback instantáneo sin redeploy.
 IA_TOOL_CALLING          = _flag("IA_TOOL_CALLING",          autodetect=False)
+# Búsqueda semántica del catálogo (embeddings) como fallback del fuzzy en voz.
+# Default ON: la OPENAI_API_KEY siempre está presente y el módulo es fail-safe
+# (ante cualquier error → se comporta como si no existiera). Apagable por env.
+IA_SEMANTIC_CATALOGO     = _flag("IA_SEMANTIC_CATALOGO",     autodetect=True)
 
 
 def _validar_flags() -> None:
