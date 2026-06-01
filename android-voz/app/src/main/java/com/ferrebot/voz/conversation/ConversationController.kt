@@ -40,6 +40,7 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
 
     private val sessionId = UUID.randomUUID().toString()
     private val historial = mutableListOf<Pair<String, String>>()  // (role, content)
+    private var esperandoPago = false   // Fase 4: el próximo turno es el método de pago
 
     private val _ui = MutableStateFlow(VozUiState())
     val ui: StateFlow<VozUiState> = _ui.asStateFlow()
@@ -105,8 +106,33 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
                     _ui.value = _ui.value.copy(estado = Estado.IDLE, error = "No te entendí, repetí.")
                     return@launch
                 }
-                _ui.value = _ui.value.copy(estado = Estado.PENSANDO, transcripcion = texto)
 
+                // ── Fase 4: si hay venta pendiente, este turno es el método de pago ──
+                if (esperandoPago) {
+                    val metodo = parsearMetodo(texto)
+                    if (metodo == null) {
+                        val aviso = "No te entendí el método. Decí efectivo, transferencia o datáfono."
+                        _ui.value = _ui.value.copy(
+                            estado = Estado.HABLANDO, transcripcion = texto, respuesta = aviso,
+                        )
+                        tts.speak(aviso)   // seguimos esperando el método
+                        return@launch
+                    }
+                    _ui.value = _ui.value.copy(estado = Estado.PENSANDO, transcripcion = texto)
+                    val result = withContext(Dispatchers.IO) {
+                        api.confirmarPago(metodo, settings.vendedor, sessionId)
+                    }
+                    esperandoPago = false
+                    historial.add("user" to texto)
+                    historial.add("assistant" to result.respuesta)
+                    while (historial.size > 12) historial.removeAt(0)
+                    _ui.value = _ui.value.copy(estado = Estado.HABLANDO, respuesta = result.respuesta)
+                    tts.speak(result.respuesta)
+                    return@launch
+                }
+
+                // ── Turno normal ──
+                _ui.value = _ui.value.copy(estado = Estado.PENSANDO, transcripcion = texto)
                 val result = withContext(Dispatchers.IO) {
                     api.chatVoz(
                         mensaje = texto,
@@ -122,11 +148,25 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
                 // Acotar el historial a los últimos 6 turnos (12 mensajes).
                 while (historial.size > 12) historial.removeAt(0)
 
+                // Si quedó una venta pendiente de pago, el próximo turno es el método.
+                esperandoPago = result.pendiente
+
                 _ui.value = _ui.value.copy(estado = Estado.HABLANDO, respuesta = result.respuesta)
                 tts.speak(result.respuesta)
             } catch (e: Exception) {
                 _ui.value = _ui.value.copy(estado = Estado.IDLE, error = e.message ?: "Error de red")
             }
+        }
+    }
+
+    /** Interpreta el método de pago dicho por voz. Devuelve null si no lo reconoce. */
+    private fun parsearMetodo(texto: String): String? {
+        val t = texto.lowercase()
+        return when {
+            "efectiv" in t -> "efectivo"
+            "transfer" in t -> "transferencia"
+            "datafon" in t || "dataf" in t || "tarjet" in t -> "datafono"
+            else -> null
         }
     }
 

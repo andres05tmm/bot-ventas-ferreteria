@@ -44,15 +44,19 @@ desambiguación activa, método de pago entendido hablado. No toca bot ni dashbo
 - [x] Proyecto Android en `android-voz/`: Compose + Material 3, minSdk 26 / target 34, Kotlin 2.0.20 / AGP 8.6.1.
 - [x] Módulos: `MainActivity`, `ui/VozScreen` (+tema), `conversation/ConversationController` (máquina de estados), `audio/AudioRecorder` (m4a), `net/ApiClient` (OkHttp + SSE), `tts/TtsManager` (TTS nativo es-CO), `settings/SettingsStore` (URL configurable).
 - [x] `android-voz/CLAUDE.md` + `README.md` (instrucciones de build/sideload).
-- [ ] Abrir en Android Studio, sync Gradle, **build en celular/emulador**.
-- [ ] Probar E2E real: decir una venta → transcribe → responde hablando.
+- [x] Abrir en Android Studio, sync Gradle OK, **corrida en celular real** (wireless debugging).
+- [x] E2E validado: "dame un kilo de acronal" → transcribe bien → reconoce producto → dice total y pide método hablando. ✅
 - Nota: el build/compilación se verifica en Android Studio (esta repo no tiene SDK Android).
 
 ### Fase 3 — Loop conversacional + VAD
 Corte por silencio, reanudar escucha al terminar de hablar, barge-in, frases de control ("para/cancela/listo"), confirmación hablada antes de registrar. No grabar mientras habla el TTS.
 
-### Fase 4 — Pago por voz
+### Fase 4 — Pago por voz  ✅ (hecho, falta confirmar E2E en device)
 Detectar `pendiente`, preguntar método, entender efectivo/transferencia/datáfono, confirmar vía `/chat` (`confirmar_pago`).
+- [x] App: estado `esperandoPago`; el turno siguiente a una venta pendiente se parsea como método y va a `/chat` con `confirmar_pago` (no a `/chat/stream`).
+- [x] App: `parsearMetodo` (efectivo/transferencia/datáfono); si no reconoce, re-pregunta hablando.
+- [x] Backend: rama `confirmar_pago` con `canal:"voz"` responde hablada ("Listo, venta registrada en efectivo"), sin emojis ni `$`.
+- [ ] Confirmar E2E: registrar venta completa por voz (producto → método → "venta registrada").
 
 ### Fase 5 — Foreground service + botón del audífono
 `VozForegroundService` + `MediaSessionCompat`: disparo con app cerrada / pantalla apagada. Notificación persistente, audio focus, exención de batería. **Aquí se valida el hardware del botón** (riesgo: audífonos que mandan el botón directo a Google Assistant por firmware; manejar `KEYCODE_HEADSETHOOK` explícito).

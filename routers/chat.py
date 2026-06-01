@@ -902,8 +902,9 @@ async def chat_ia(
     request_id = getattr(request.state, "request_id", uuid.uuid4().hex[:8])
     t0 = time.perf_counter()
 
-    # ── RAMA B: Confirmación de pago desde botón ─────────────────────────────
+    # ── RAMA B: Confirmación de pago desde botón (o voz) ─────────────────────
     if req.confirmar_pago:
+        _es_voz = (req.canal or "").strip().lower() == "voz"
         metodo = req.confirmar_pago.strip().lower()
         if metodo not in ("efectivo", "transferencia", "datafono"):
             raise HTTPException(status_code=400, detail=f"Método de pago inválido: {metodo}")
@@ -915,7 +916,8 @@ async def chat_ia(
         if not ventas_pend:
             return {
                 "ok": True,
-                "respuesta": "⚠️ No hay ventas pendientes de confirmar.",
+                "respuesta": ("No hay ventas pendientes." if _es_voz
+                              else "⚠️ No hay ventas pendientes de confirmar."),
                 "acciones": {"ventas": 0, "gastos": 0},
                 "pendiente": False,
             }
@@ -925,9 +927,19 @@ async def chat_ia(
         )
         log.info(f"[/chat] ✅ {len(ventas_pend)} venta(s) confirmadas | método: {metodo}")
 
+        if _es_voz:
+            # Confirmación hablada: sin emojis ni símbolos, método en palabras.
+            _n = len(ventas_pend)
+            _respuesta = (
+                f"Listo, venta registrada en {metodo}." if _n == 1
+                else f"Listo, {_n} ventas registradas en {metodo}."
+            )
+        else:
+            _respuesta = "✅ Venta registrada\n" + "\n".join(confirmacion)
+
         return {
             "ok": True,
-            "respuesta": "✅ Venta registrada\n" + "\n".join(confirmacion),
+            "respuesta": _respuesta,
             "acciones": {"ventas": len(ventas_pend), "gastos": 0},
             "pendiente": False,
         }

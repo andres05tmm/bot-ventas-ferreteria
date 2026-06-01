@@ -158,4 +158,56 @@ class ApiClient(baseUrl: String) {
             })
         cont.invokeOnCancellation { source.cancel() }
     }
+
+    /**
+     * Confirma el pago de la venta pendiente vía POST /chat (rama confirmar_pago).
+     * `metodo`: "efectivo" | "transferencia" | "datafono". canal "voz" para que la
+     * respuesta venga hablada. La venta pendiente se ubica por `sessionId`.
+     */
+    suspend fun confirmarPago(
+        metodo: String,
+        nombre: String,
+        sessionId: String,
+    ): ChatResult = suspendCancellableCoroutine { cont ->
+        val payload = JSONObject()
+            .put("mensaje", "")               // requerido por el modelo; no se usa en esta rama
+            .put("nombre", nombre.ifBlank { "Vendedor" })
+            .put("session_id", sessionId)
+            .put("canal", "voz")
+            .put("confirmar_pago", metodo)
+        val req = Request.Builder()
+            .url(url("/chat"))
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        val call = client.newCall(req)
+        cont.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val txt = it.body?.string().orEmpty()
+                    if (!it.isSuccessful) {
+                        if (cont.isActive) cont.resumeWithException(RuntimeException("HTTP ${it.code}"))
+                        return
+                    }
+                    val json = runCatching { JSONObject(txt) }.getOrNull()
+                    if (json == null) {
+                        if (cont.isActive) cont.resumeWithException(RuntimeException("Respuesta inválida"))
+                        return
+                    }
+                    val acc = json.optJSONObject("acciones")
+                    val res = ChatResult(
+                        respuesta = json.optString("respuesta", ""),
+                        ventas = acc?.optInt("ventas", 0) ?: 0,
+                        gastos = acc?.optInt("gastos", 0) ?: 0,
+                        pendiente = json.optBoolean("pendiente", false),
+                    )
+                    if (cont.isActive) cont.resume(res)
+                }
+            }
+        })
+    }
 }
