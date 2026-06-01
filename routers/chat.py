@@ -1002,10 +1002,16 @@ async def chat_ia(
                 conf = await registrar_ventas_con_metodo_async(
                     ventas_pend, metodo, req.nombre, _chat_id
                 )
+                _n = len(ventas_pend)
+                if _es_voz:
+                    _resp = (f"Listo, venta registrada en {metodo}." if _n == 1
+                             else f"Listo, {_n} ventas registradas en {metodo}.")
+                else:
+                    _resp = "✅ Venta registrada\n" + "\n".join(conf)
                 return {
                     "ok": True,
-                    "respuesta": "✅ Venta registrada\n" + "\n".join(conf),
-                    "acciones": {"ventas": len(ventas_pend), "gastos": gastos_registrados},
+                    "respuesta": _resp,
+                    "acciones": {"ventas": _n, "gastos": gastos_registrados},
                     "pendiente": False,
                 }
 
@@ -1188,8 +1194,12 @@ async def chat_stream(
                     vp = list(ventas_pendientes.get(_chat_id, []))
                 if vp:
                     conf = await registrar_ventas_con_metodo_async(vp, metodo, req.nombre, _chat_id)
-                    texto_limpio = "✅ Venta registrada\n" + "\n".join(conf)
                     ventas_reg = len(vp)
+                    if _es_voz:
+                        texto_limpio = (f"Listo, venta registrada en {metodo}." if ventas_reg == 1
+                                        else f"Listo, {ventas_reg} ventas registradas en {metodo}.")
+                    else:
+                        texto_limpio = "✅ Venta registrada\n" + "\n".join(conf)
 
             elif pedir_pago:
                 with _estado_lock:
