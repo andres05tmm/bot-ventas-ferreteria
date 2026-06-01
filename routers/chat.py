@@ -869,6 +869,9 @@ class ChatRequest(BaseModel):
     tab_activo: str = ""
     # Forzar modelo: null=auto, "haiku", "sonnet"
     modelo_preferido: Optional[str] = None
+    # Canal de origen: "" = dashboard (default), "voz" = asistente de voz Android.
+    # En "voz" la respuesta se optimiza para ser leída en voz alta (ver ##VOZ##).
+    canal: str = ""
 
 
 @router.post("/chat")
@@ -937,12 +940,17 @@ async def chat_ia(
         mensaje_formateado = f"{req.nombre}: {req.mensaje.strip()}"
 
         _chat_id = _session_chat_id(req.session_id)
+        _es_voz = (req.canal or "").strip().lower() == "voz"
 
-        # ── Contexto dinámico del dashboard (datos reales en cada llamada) ──
-        contexto_dash = await _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
-
-        # Inyectar flag ##DASHBOARD## para que ai.py active modo dashboard
-        mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
+        if _es_voz:
+            # Voz: comportamiento de bot con estilo hablado, sin contexto pesado del dashboard.
+            contexto_dash = ""
+            mensaje_con_flag = f"##VOZ## {mensaje_formateado}"
+        else:
+            # ── Contexto dinámico del dashboard (datos reales en cada llamada) ──
+            contexto_dash = await _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
+            # Inyectar flag ##DASHBOARD## para que ai.py active modo dashboard
+            mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
 
         # vendedor_id viene del JWT si el usuario está autenticado, None si no
         _vid_chat = current_user.get("usuario_id") if current_user else None
@@ -995,13 +1003,26 @@ async def chat_ia(
                 ventas_pend = list(ventas_pendientes.get(_chat_id, []))
 
             if ventas_pend:
-                resumen = "\n".join(
-                    f"• {v.get('cantidad',1)} {v.get('producto','?')}  ${float(v.get('total',0)):,.0f}"
-                    for v in ventas_pend
-                )
-                texto_previo = texto_limpio.strip() if texto_limpio and texto_limpio.strip() else ""
-                texto_botones = (f"{texto_previo}\n\n" if texto_previo else "") + \
-                                f"🧾 {resumen}\n\n¿Cómo pagó?"
+                if _es_voz:
+                    # Voz: conservar el texto hablado de Claude (ya confirmó y pidió
+                    # el método). Si vino vacío, narrar sin emojis ni símbolo "$".
+                    if texto_limpio and texto_limpio.strip():
+                        texto_botones = texto_limpio.strip()
+                    else:
+                        resumen_voz = ", ".join(
+                            f"{v.get('cantidad',1)} {v.get('producto','?')} por "
+                            f"{float(v.get('total',0)):,.0f} pesos"
+                            for v in ventas_pend
+                        )
+                        texto_botones = f"{resumen_voz}. ¿Cómo pagó?"
+                else:
+                    resumen = "\n".join(
+                        f"• {v.get('cantidad',1)} {v.get('producto','?')}  ${float(v.get('total',0)):,.0f}"
+                        for v in ventas_pend
+                    )
+                    texto_previo = texto_limpio.strip() if texto_limpio and texto_limpio.strip() else ""
+                    texto_botones = (f"{texto_previo}\n\n" if texto_previo else "") + \
+                                    f"🧾 {resumen}\n\n¿Cómo pagó?"
                 return {
                     "ok": True,
                     "respuesta": texto_botones,
@@ -1087,8 +1108,15 @@ async def chat_stream(
     async def generate():
         try:
             mensaje_formateado = f"{req.nombre}: {req.mensaje.strip()}"
-            contexto_dash = await _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
-            mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
+            _es_voz = (req.canal or "").strip().lower() == "voz"
+            if _es_voz:
+                # Voz: comportamiento de bot (rápido, enfocado en venta) con estilo
+                # hablado. No se inyecta el contexto pesado del dashboard.
+                contexto_dash = ""
+                mensaje_con_flag = f"##VOZ## {mensaje_formateado}"
+            else:
+                contexto_dash = await _construir_contexto_dashboard(req.mensaje, tab_activo=req.tab_activo)
+                mensaje_con_flag = f"##DASHBOARD## {mensaje_formateado}"
             full_text = ""
             modelo_usado = None  # capturar qué modelo se usó
 
@@ -1155,12 +1183,24 @@ async def chat_stream(
                 with _estado_lock:
                     vp = list(ventas_pendientes.get(_chat_id, []))
                 if vp:
-                    resumen = "\n".join(
-                        f"• {v.get('cantidad',1)} {v.get('producto','?')}  ${float(v.get('total',0)):,.0f}"
-                        for v in vp
-                    )
-                    tp = texto_limpio.strip() if texto_limpio and texto_limpio.strip() else ""
-                    texto_limpio = (f"{tp}\n\n" if tp else "") + f"🧾 {resumen}\n\n¿Cómo pagó?"
+                    if _es_voz:
+                        # Voz: Claude ya confirmó y pidió el método hablando (VOZ).
+                        # Conservar su texto; solo si vino vacío, narrar un resumen simple
+                        # sin emojis ni símbolo "$" (la app lo lee en voz alta).
+                        if not (texto_limpio and texto_limpio.strip()):
+                            resumen_voz = ", ".join(
+                                f"{v.get('cantidad',1)} {v.get('producto','?')} por "
+                                f"{float(v.get('total',0)):,.0f} pesos"
+                                for v in vp
+                            )
+                            texto_limpio = f"{resumen_voz}. ¿Cómo pagó?"
+                    else:
+                        resumen = "\n".join(
+                            f"• {v.get('cantidad',1)} {v.get('producto','?')}  ${float(v.get('total',0)):,.0f}"
+                            for v in vp
+                        )
+                        tp = texto_limpio.strip() if texto_limpio and texto_limpio.strip() else ""
+                        texto_limpio = (f"{tp}\n\n" if tp else "") + f"🧾 {resumen}\n\n¿Cómo pagó?"
                     pendiente = True
                     opciones_pago = [
                         {"label": "💵 Efectivo",      "valor": "efectivo"},
@@ -1518,13 +1558,28 @@ async def transcribir_audio(audio: UploadFile = File(...)):
         ruta_tmp = tmp.name
 
     try:
+        import asyncio
+
+        # Prompt de vocabulario de ferretería para Whisper (jerga: "drywall",
+        # "thinner", "puntillas", fracciones...). Reusa el builder del bot para
+        # igualar la precisión del canal de Telegram. Fail-open: si falla, se
+        # transcribe sin prompt como antes.
+        _whisper_prompt = ""
+        try:
+            from handlers.mensajes import _build_whisper_prompt
+            _whisper_prompt = await asyncio.to_thread(_build_whisper_prompt)
+        except Exception as _wp_e:
+            logging.getLogger("ferrebot.api").warning(
+                f"[/chat/transcribir] sin prompt de vocabulario: {_wp_e}"
+            )
+
         def _transcribir():
             with open(ruta_tmp, "rb") as f:
-                return config.openai_client.audio.transcriptions.create(
-                    model="whisper-1", file=f, language="es"
-                )
+                _kwargs = {"model": "whisper-1", "file": f, "language": "es"}
+                if _whisper_prompt:
+                    _kwargs["prompt"] = _whisper_prompt
+                return config.openai_client.audio.transcriptions.create(**_kwargs)
 
-        import asyncio
         resultado = None
         for _tr_intento in range(3):
             try:

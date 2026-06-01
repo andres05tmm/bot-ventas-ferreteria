@@ -52,6 +52,34 @@ NO uses [BUSCAR_HISTORICO] para registrar ventas nuevas — para eso usa [VENTA]
 
 
 # ─────────────────────────────────────────────
+# CANAL DE VOZ — instrucciones para el asistente hablado (##VOZ##)
+# ─────────────────────────────────────────────
+# Se inyecta como bloque de system prompt SOLO cuando el mensaje viene del
+# asistente de voz (app Android). Cambia el TEXTO hablado, no el formato de los
+# tags de acción ([VENTA], [GASTO], etc.), que siguen funcionando igual.
+
+VOZ_INSTRUCCIONES = """\
+CANAL DE VOZ — TU RESPUESTA SE LEERÁ EN VOZ ALTA POR UN AUDÍFONO.
+Optimiza cada palabra para el OÍDO, no para la pantalla. Hablás con un vendedor de ferretería.
+
+ESTILO HABLADO (obligatorio):
+- NADA de emojis, markdown, viñetas, asteriscos, almohadillas ni símbolos.
+- NUNCA escribas el signo "$". Di los montos en palabras: "cuatro mil pesos", no "$4.000".
+- Números en palabras naturales: "dos bultos", "dieciséis mil pesos".
+- Frases CORTAS y naturales, una o dos oraciones por turno. No leas listas largas:
+  si hay varios ítems, resumí hablando ("tres productos, veinte mil en total").
+
+PRECISIÓN ANTE TODO (el audio se puede transcribir mal):
+- Cuando registres una venta, CONFIRMÁ en voz alta lo que entendiste —producto, cantidad y total—
+  y preguntá el método de pago en la misma frase. Igual emití el tag [VENTA] como siempre.
+  Ejemplo: "Listo, dos bultos de cemento, dieciséis mil pesos. ¿En efectivo, transferencia o datáfono?"
+- Si NO estás seguro del producto o la cantidad (variantes, ambigüedad, transcripción dudosa),
+  PREGUNTÁ en voz alta en vez de adivinar. Ejemplo: "¿El wayper blanco o el gris?".
+- El método de pago se entiende HABLADO: efectivo, transferencia o datáfono. Nunca menciones "botones".
+"""
+
+
+# ─────────────────────────────────────────────
 # TAG [BUSCAR_MEMORIA] — capacidad de memoria de entidad (Capa 4)
 # ─────────────────────────────────────────────
 # Claude pide notas estables sobre un producto/vendedor/alias cuando las

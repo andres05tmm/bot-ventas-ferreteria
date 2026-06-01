@@ -55,6 +55,7 @@ from ai.prompts import (
     aplicar_alias_ferreteria, _construir_parte_estatica,
     _construir_catalogo_imagen, _construir_parte_dinamica,
     _calcular_historial, MODELO_HAIKU, MODELO_SONNET, _elegir_modelo,
+    VOZ_INSTRUCCIONES,
 )
 # Control de budget / costo real por vendedor/día
 from ai import budget as _budget
@@ -330,6 +331,11 @@ async def procesar_con_claude(
     # Solo se aplican aliases DINÁMICOS (simples word-substitutions: tiner→thinner, etc.)
     # El mensaje llega como "{vendedor}: {texto}" — stripear prefijo antes del bypass
     _dashboard_mode = "##DASHBOARD##" in mensaje_usuario
+    # Canal de voz (app Android): estilo hablado + confirmación antes de registrar.
+    # Se salta el bypass Python (igual que se hará abajo) para que Claude confirme.
+    _voz_mode = "##VOZ##" in mensaje_usuario
+    if _voz_mode:
+        mensaje_usuario = mensaje_usuario.replace("##VOZ## ", "").replace("##VOZ##", "").strip()
     _tiene_imagen   = imagen_b64 is not None  # True cuando viene una foto del cuaderno
     _msg_bypass = re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
     # Mensaje crudo SIN aliases dinámicos — necesario para el resolutor de wayper:
@@ -367,7 +373,7 @@ async def procesar_con_claude(
     # El wayper se vende por kilo/medio kilo/unidad, en blanco o color. Se decide
     # determinísticamente: con palabra de peso (kg/kilo/...) → kilo; un número
     # pelado sin peso → unidad (regla del negocio, NO se pregunta).
-    if not _tiene_imagen and not _dashboard_mode:
+    if not _tiene_imagen and not _dashboard_mode and not _voz_mode:
         _way = bypass.resolver_wayper(_msg_pre_alias, memoria.get("catalogo", {}))
         if _way:
             import json as _jw
@@ -376,8 +382,9 @@ async def procesar_con_claude(
             _wtxt = f"{_wval['cantidad']:g} {_wval['producto']} — ${_wval['total']:,.0f}"
             return f"{_wtxt}\n[VENTA]{_jw.dumps(_wval, ensure_ascii=False)}[/VENTA]"
     # Las fotos con imagen no pueden pasar por el bypass Python (no hay texto estructurado).
-    # Solo intentar bypass cuando NO hay imagen.
-    if _tiene_imagen:
+    # En voz tampoco: siempre pasa a Claude para confirmar hablando antes de registrar.
+    # Solo intentar bypass cuando NO hay imagen y NO es voz.
+    if _tiene_imagen or _voz_mode:
         _bypass = None
     else:
         if _metrics is not None:
@@ -653,6 +660,10 @@ async def procesar_con_claude(
         },
     ]
 
+    # En voz: anteponer instrucciones de estilo hablado (sin caché — bloque corto).
+    if _voz_mode:
+        system.append({"type": "text", "text": VOZ_INSTRUCCIONES})
+
     if contexto_extra:
         # Separar catálogo (estático) de datos del día (dinámico)
         _sep = "## ESTADO DEL NEGOCIO"
@@ -698,6 +709,9 @@ async def procesar_con_claude(
     elif modelo_preferido == "haiku":
         _modelo_no_stream = MODELO_HAIKU
     else:
+        # Voz incluida: auto-router (Sonnet solo si el mensaje es complejo/ambiguo).
+        # El costo por turno de voz es ínfimo igual; la precisión la da la
+        # confirmación hablada, no forzar Sonnet.
         _modelo_no_stream = _elegir_modelo(mensaje_usuario)
 
     # ── BUDGET CHECK ─────────────────────────────────────────────────────────
@@ -868,11 +882,20 @@ async def procesar_con_claude_stream(
     if _dashboard_mode:
         mensaje_usuario = mensaje_usuario.replace("##DASHBOARD## ", "").replace("##DASHBOARD##", "").strip()
 
+    # ── Detectar canal de VOZ y limpiar flag ──────────────────────────────────
+    # El asistente de voz (app Android) antepone ##VOZ##. Cambia el ESTILO de la
+    # respuesta (hablada, sin símbolos) y exige confirmación antes de registrar,
+    # por eso se SALTA el bypass Python (que auto-registra sin confirmar en voz).
+    _voz_mode = "##VOZ##" in mensaje_usuario
+    if _voz_mode:
+        mensaje_usuario = mensaje_usuario.replace("##VOZ## ", "").replace("##VOZ##", "").strip()
+
     # ── Bypass Python ─────────────────────────────────────────────────────────
     _msg_bypass = _re_s.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
     _msg_bypass = alias_manager.aplicar_aliases_dinamicos(_msg_bypass)
     memoria = cargar_memoria()
-    _bp = bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
+    # En voz: no usar bypass — siempre pasa a Claude para confirmar hablando.
+    _bp = None if _voz_mode else bypass.intentar_bypass_python(_msg_bypass, memoria.get("catalogo", {}))
 
     # Con IA_TOOL_CALLING activo: anular bypass si el producto es ambiguo
     if _bp and config.IA_TOOL_CALLING:
@@ -992,6 +1015,9 @@ async def procesar_con_claude_stream(
         {"type": "text", "text": parte_estatica, "cache_control": _cache_1h},
         {"type": "text", "text": parte_dinamica},
     ]
+    # En voz: anteponer instrucciones de estilo hablado (sin caché — bloque corto).
+    if _voz_mode:
+        system.append({"type": "text", "text": VOZ_INSTRUCCIONES})
     if contexto_extra:
         _sep2 = "## ESTADO DEL NEGOCIO"
         if _sep2 in contexto_extra:
@@ -1009,6 +1035,9 @@ async def procesar_con_claude_stream(
     elif modelo_preferido == "haiku":
         _modelo = MODELO_HAIKU
     else:
+        # Voz incluida: auto-router (Sonnet solo si el mensaje es complejo/ambiguo).
+        # El costo por turno de voz es ínfimo igual; la precisión la da la
+        # confirmación hablada, no forzar Sonnet.
         _modelo = _elegir_modelo(mensaje_usuario)
     _tag = "sonnet" if "sonnet" in _modelo else "haiku"
     _forced = " (forzado)" if modelo_preferido in ("sonnet", "haiku") else ""
