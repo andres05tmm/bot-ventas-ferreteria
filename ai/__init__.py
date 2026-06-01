@@ -758,7 +758,9 @@ async def procesar_con_claude(
     else:
         # M-01: tool-calling nativo cuando el flag está activo. tool_choice="auto"
         # (default) deja que Claude decida entre llamar la herramienta o preguntar.
-        _tools = tools_mod.TOOLS if config.IA_TOOL_CALLING else None
+        # En VOZ siempre se usa (más robusto para clasificar intención: venta vs
+        # gasto vs fiado), sin depender del flag global que rige bot/dashboard.
+        _tools = tools_mod.TOOLS if (config.IA_TOOL_CALLING or _voz_mode) else None
         respuesta = await _llamar_claude_con_reintentos(
             config.claude_client, max_tokens, system, messages,
             model=_modelo_no_stream, tools=_tools,
@@ -793,7 +795,7 @@ async def procesar_con_claude(
     # M-01: con tool-calling, la respuesta puede traer bloques tool_use además
     # de texto. El puente los convierte a tags [VENTA] que procesar_acciones ya
     # consume. El thinking path no usa tools → conserva el return clásico.
-    if config.IA_TOOL_CALLING and not _usar_thinking:
+    if (config.IA_TOOL_CALLING or _voz_mode) and not _usar_thinking:
         return tools_mod.tool_uses_a_tags(respuesta.content)
     return respuesta.content[0].text
 

@@ -10,9 +10,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okhttp3.sse.EventSource
-import okhttp3.sse.EventSourceListener
-import okhttp3.sse.EventSources
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -84,16 +81,17 @@ class ApiClient(baseUrl: String) {
     }
 
     /**
-     * Envía el mensaje a /chat/stream con canal "voz" y consume el SSE.
-     * `onChunk` recibe cada fragmento incremental (útil en Fase 3); el valor de
-     * retorno es el ChatResult del evento "done".
+     * Envía el mensaje a /chat (no-streaming) con canal "voz" y devuelve el
+     * ChatResult. `onChunk` se conserva por compatibilidad pero no se usa (la voz
+     * habla la respuesta completa al final). Ver nota en el cuerpo sobre por qué
+     * /chat y no /chat/stream.
      */
     suspend fun chatVoz(
         mensaje: String,
         nombre: String,
         sessionId: String,
         historial: List<Pair<String, String>>,
-        onChunk: (String) -> Unit,
+        @Suppress("UNUSED_PARAMETER") onChunk: (String) -> Unit,
     ): ChatResult = suspendCancellableCoroutine { cont ->
         val histArray = JSONArray()
         historial.forEach { (role, content) ->
@@ -106,57 +104,43 @@ class ApiClient(baseUrl: String) {
             .put("canal", "voz")
             .put("historial", histArray)
 
+        // Voz usa el endpoint NO-streaming /chat: la app habla la respuesta completa
+        // recién al final (no usa los chunks), y /chat soporta tool-calling (más
+        // robusto para clasificar intención: venta vs gasto vs fiado).
         val req = Request.Builder()
-            .url(url("/chat/stream"))
+            .url(url("/chat"))
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
+        val call = client.newCall(req)
+        cont.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
 
-        val source: EventSource = EventSources.createFactory(client)
-            .newEventSource(req, object : EventSourceListener() {
-                override fun onEvent(
-                    eventSource: EventSource,
-                    id: String?,
-                    type: String?,
-                    data: String,
-                ) {
-                    val json = runCatching { JSONObject(data) }.getOrNull() ?: return
-                    when (json.optString("type")) {
-                        "chunk" -> onChunk(json.optString("text", ""))
-                        "done" -> {
-                            val acc = json.optJSONObject("acciones")
-                            val res = ChatResult(
-                                respuesta = json.optString("respuesta", ""),
-                                ventas = acc?.optInt("ventas", 0) ?: 0,
-                                gastos = acc?.optInt("gastos", 0) ?: 0,
-                                pendiente = json.optBoolean("pendiente", false),
-                            )
-                            eventSource.cancel()
-                            if (cont.isActive) cont.resume(res)
-                        }
-                        "error" -> {
-                            eventSource.cancel()
-                            if (cont.isActive) {
-                                cont.resumeWithException(
-                                    RuntimeException(json.optString("message", "Error del servidor")),
-                                )
-                            }
-                        }
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val txt = it.body?.string().orEmpty()
+                    if (!it.isSuccessful) {
+                        if (cont.isActive) cont.resumeWithException(RuntimeException("HTTP ${it.code}"))
+                        return
                     }
-                }
-
-                override fun onFailure(
-                    eventSource: EventSource,
-                    t: Throwable?,
-                    response: Response?,
-                ) {
-                    if (cont.isActive) {
-                        cont.resumeWithException(
-                            t ?: RuntimeException("Fallo de conexión (HTTP ${response?.code})"),
-                        )
+                    val json = runCatching { JSONObject(txt) }.getOrNull()
+                    if (json == null) {
+                        if (cont.isActive) cont.resumeWithException(RuntimeException("Respuesta inválida"))
+                        return
                     }
+                    val acc = json.optJSONObject("acciones")
+                    val res = ChatResult(
+                        respuesta = json.optString("respuesta", ""),
+                        ventas = acc?.optInt("ventas", 0) ?: 0,
+                        gastos = acc?.optInt("gastos", 0) ?: 0,
+                        pendiente = json.optBoolean("pendiente", false),
+                    )
+                    if (cont.isActive) cont.resume(res)
                 }
-            })
-        cont.invokeOnCancellation { source.cancel() }
+            }
+        })
     }
 
     /**

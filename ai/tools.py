@@ -65,9 +65,86 @@ TOOL_REGISTRAR_VENTA = {
     },
 }
 
-# Herramientas activas en Fase 1. El resto de acciones (gasto, fiado, inventario,
-# etc.) siguen emitiéndose como tags de texto hasta fases posteriores.
-TOOLS = [TOOL_REGISTRAR_VENTA]
+# Egreso de dinero (gasto). CLAVE para no confundir con una venta.
+TOOL_REGISTRAR_GASTO = {
+    "name": "registrar_gasto",
+    "description": (
+        "Registra un EGRESO de dinero del negocio (un gasto): plata que SALE. "
+        "Ejemplos: refrigerio, almuerzo, transporte, domicilio, servicios públicos "
+        "(luz, agua, internet), arriendo, papelería, herramienta para el local, "
+        "propina, pago de mano de obra.\n"
+        "NO es una venta (la venta es plata que ENTRA por vender un producto). "
+        "Si el vendedor dice 'gasté', 'pagué', 'registra un gasto', 'compré para el "
+        "local', 'saqué de la caja para…', es un GASTO, no una venta.\n"
+        "- 'concepto': en qué se gastó (ej. 'refrigerio', 'transporte').\n"
+        "- 'monto': pesos gastados, sin símbolos $ ni comas."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "concepto": {"type": "string", "description": "En qué se gastó."},
+            "monto": {"type": "number", "description": "Monto en pesos. Sin $ ni comas."},
+            "categoria": {
+                "type": "string",
+                "description": "Categoría opcional (ej. transporte, servicios, varios).",
+            },
+        },
+        "required": ["concepto", "monto"],
+    },
+}
+
+# Venta a crédito (fiado): el cliente se lleva mercancía y queda debiendo.
+TOOL_REGISTRAR_FIADO = {
+    "name": "registrar_fiado",
+    "description": (
+        "Registra un FIADO: una venta a crédito donde el cliente queda DEBIENDO. "
+        "Úsala cuando el vendedor dice 'fíale', 'a crédito', 'queda debiendo', "
+        "'anótale a la cuenta de…'. Requiere SIEMPRE el nombre del cliente.\n"
+        "- 'cliente': nombre de quien queda debiendo.\n"
+        "- 'concepto': qué se llevó.\n"
+        "- 'cargo': monto que queda debiendo, en pesos, sin $ ni comas."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "cliente": {"type": "string", "description": "Nombre del cliente que queda debiendo."},
+            "concepto": {"type": "string", "description": "Qué se llevó fiado."},
+            "cargo": {"type": "number", "description": "Monto que queda debiendo. Sin $ ni comas."},
+        },
+        "required": ["cliente", "cargo"],
+    },
+}
+
+# Abono: el cliente paga (total o parcial) sobre una deuda de fiado existente.
+TOOL_ABONAR_FIADO = {
+    "name": "abonar_fiado",
+    "description": (
+        "Registra un ABONO de un cliente sobre su deuda de fiado: plata que el "
+        "cliente PAGA para reducir lo que debe. Úsala cuando el vendedor dice "
+        "'abonó', 'pagó parte de la deuda', 'me dio X de lo que debía'. "
+        "Requiere el nombre del cliente.\n"
+        "- 'cliente': quién abona.\n"
+        "- 'monto': cuánto abonó, en pesos, sin $ ni comas."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "cliente": {"type": "string", "description": "Nombre del cliente que abona."},
+            "monto": {"type": "number", "description": "Monto abonado. Sin $ ni comas."},
+        },
+        "required": ["cliente", "monto"],
+    },
+}
+
+# Herramientas expuestas a Claude. Cubren las MUTACIONES de plata (venta, gasto,
+# fiado, abono) — donde la clasificación de intención debe ser precisa. Las
+# consultas y otras acciones siguen como tags de texto.
+TOOLS = [
+    TOOL_REGISTRAR_VENTA,
+    TOOL_REGISTRAR_GASTO,
+    TOOL_REGISTRAR_FIADO,
+    TOOL_ABONAR_FIADO,
+]
 
 
 # ─────────────────────────────────────────────
@@ -88,9 +165,42 @@ def _venta_a_tag(inp: dict) -> str:
     return f"[VENTA]{json.dumps(venta, ensure_ascii=False)}[/VENTA]"
 
 
+def _gasto_a_tag(inp: dict) -> str:
+    """Convierte registrar_gasto al tag [GASTO]{...}[/GASTO]."""
+    gasto: dict = {
+        "concepto": inp.get("concepto", ""),
+        "monto":    inp.get("monto", 0),
+    }
+    if inp.get("categoria"):
+        gasto["categoria"] = inp["categoria"]
+    return f"[GASTO]{json.dumps(gasto, ensure_ascii=False)}[/GASTO]"
+
+
+def _fiado_a_tag(inp: dict) -> str:
+    """Convierte registrar_fiado al tag [FIADO]{...}[/FIADO]."""
+    fiado: dict = {
+        "cliente":  inp.get("cliente", ""),
+        "concepto": inp.get("concepto", ""),
+        "cargo":    inp.get("cargo", 0),
+    }
+    return f"[FIADO]{json.dumps(fiado, ensure_ascii=False)}[/FIADO]"
+
+
+def _abono_a_tag(inp: dict) -> str:
+    """Convierte abonar_fiado al tag [ABONO_FIADO]{...}[/ABONO_FIADO]."""
+    abono: dict = {
+        "cliente": inp.get("cliente", ""),
+        "monto":   inp.get("monto", 0),
+    }
+    return f"[ABONO_FIADO]{json.dumps(abono, ensure_ascii=False)}[/ABONO_FIADO]"
+
+
 # tool_name → builder del tag equivalente
 _TAG_BUILDERS = {
-    "registrar_venta": _venta_a_tag,
+    "registrar_venta":  _venta_a_tag,
+    "registrar_gasto":  _gasto_a_tag,
+    "registrar_fiado":  _fiado_a_tag,
+    "abonar_fiado":     _abono_a_tag,
 }
 
 
