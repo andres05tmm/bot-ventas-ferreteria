@@ -325,16 +325,22 @@ async def manejar_metodo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE
                 pg_borradas = 0
                 try:
                     import db as _db
+                    from datetime import datetime as _dt
+                    import config as _cfg
+                    # Fecha de HOY en Colombia, NO CURRENT_DATE (que es UTC en Railway):
+                    # de noche UTC ya es el día siguiente y no encontraría la venta de hoy.
+                    # Coincide con el SELECT de /borrar, que ya usa fecha Colombia.
+                    _hoy = _dt.now(_cfg.COLOMBIA_TZ).strftime("%Y-%m-%d")
                     if _db.DB_DISPONIBLE:
                         rows = await asyncio.to_thread(
                             _db.execute,
-                            "DELETE FROM ventas_detalle WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s AND fecha::date = CURRENT_DATE)",
-                            [numero],
+                            "DELETE FROM ventas_detalle WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s AND fecha::date = %s)",
+                            [numero, _hoy],
                         )
                         await asyncio.to_thread(
                             _db.execute,
-                            "DELETE FROM ventas WHERE consecutivo = %s AND fecha::date = CURRENT_DATE",
-                            [numero],
+                            "DELETE FROM ventas WHERE consecutivo = %s AND fecha::date = %s",
+                            [numero, _hoy],
                         )
                         pg_borradas = 1
                 except Exception as e_pg:
