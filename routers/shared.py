@@ -25,10 +25,15 @@ def _hace_n_dias(n: int) -> datetime:
     return datetime.now(config.COLOMBIA_TZ) - timedelta(days=n)
 
 
-def factura_emitida_de_consecutivo(consecutivo: int) -> str | None:
+def factura_emitida_de_consecutivo(consecutivo: int, fecha: str | None = None) -> str | None:
     """
-    Si el consecutivo de venta tiene una factura electrónica emitida, retorna su
-    número (ej. 'FPR42'); si no, None.
+    Si el consecutivo de venta DE ESA FECHA tiene una factura electrónica emitida,
+    retorna su número (ej. 'FPR42'); si no, None.
+
+    El consecutivo es único SOLO por día (UNIQUE(consecutivo, fecha)) porque se
+    reinicia cada día. Por eso DEBE scoparse por fecha: sin ella, el #1 de hoy
+    matchearía la factura del #1 de cualquier día pasado (falso positivo).
+    Si `fecha` ("YYYY-MM-DD") no se pasa, asume HOY (Colombia).
 
     Se usa para bloquear la anulación (DELETE) de ventas ya facturadas: ante la
     DIAN una FE emitida solo se revierte con nota crédito, no borrando la venta.
@@ -38,18 +43,19 @@ def factura_emitida_de_consecutivo(consecutivo: int) -> str | None:
         import db as _db
         if not _db.DB_DISPONIBLE:
             return None
+        _fecha = fecha or _hoy()
         row = _db.query_one(
             """
             SELECT factura_numero
             FROM ventas
-            WHERE consecutivo = %s AND factura_estado = 'emitida'
+            WHERE consecutivo = %s AND fecha::date = %s AND factura_estado = 'emitida'
             LIMIT 1
             """,
-            [consecutivo],
+            [consecutivo, _fecha],
         )
         return (row or {}).get("factura_numero") or None
     except Exception as e:
-        logger.warning("factura_emitida_de_consecutivo(%s) falló: %s", consecutivo, e)
+        logger.warning("factura_emitida_de_consecutivo(%s, %s) falló: %s", consecutivo, fecha, e)
         return None
 
 

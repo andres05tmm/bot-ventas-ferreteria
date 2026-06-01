@@ -531,12 +531,17 @@ def ventas_top2(
 
 
 @router.delete("/ventas/{numero}")
-async def eliminar_venta(numero: int):
+async def eliminar_venta(numero: int, fecha: str | None = Query(None)):
     """
-    Elimina todas las filas de un consecutivo de venta.
+    Elimina todas las filas de un consecutivo de venta DE UNA FECHA.
 
-    Bloquea (409) si la venta ya tiene factura electrónica emitida: ante la DIAN
-    debe revertirse con una nota crédito, no con un borrado (N-03).
+    El consecutivo se reinicia cada día (UNIQUE(consecutivo, fecha)), así que el
+    borrado DEBE scoparse por fecha — borrar solo por consecutivo eliminaría el
+    #N de todos los días. Si no se pasa `fecha` ("YYYY-MM-DD"), asume HOY
+    (Colombia): nunca borra a través de varios días.
+
+    Bloquea (409) si la venta de esa fecha ya tiene factura electrónica emitida:
+    ante la DIAN debe revertirse con una nota crédito, no con un borrado (N-03).
     """
     try:
         import db as _db
@@ -544,24 +549,30 @@ async def eliminar_venta(numero: int):
         if not _db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
-        factura = factura_emitida_de_consecutivo(numero)
+        _fecha = fecha or _hoy()
+
+        factura = factura_emitida_de_consecutivo(numero, _fecha)
         if factura:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"La venta #{numero} tiene factura electrónica {factura} emitida. "
-                    f"Para anularla debes emitir una nota crédito, no borrarla."
+                    f"La venta #{numero} del {_fecha} tiene factura electrónica {factura} "
+                    f"emitida. Para anularla debes emitir una nota crédito, no borrarla."
                 ),
             )
 
         borradas = _db.execute(
-            "DELETE FROM ventas WHERE consecutivo = %s", [numero]
+            "DELETE FROM ventas WHERE consecutivo = %s AND fecha::date = %s",
+            [numero, _fecha],
         )
 
         if not borradas:
-            raise HTTPException(status_code=404, detail=f"Consecutivo #{numero} no encontrado")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Consecutivo #{numero} del {_fecha} no encontrado",
+            )
 
-        await notify_all("venta_eliminada", {"consecutivo": numero})
+        await notify_all("venta_eliminada", {"consecutivo": numero, "fecha": _fecha})
         return {"ok": True, "mensaje": f"Venta #{numero} eliminada"}
     except HTTPException:
         raise
@@ -570,9 +581,11 @@ async def eliminar_venta(numero: int):
 
 
 @router.delete("/ventas/{numero}/linea")
-async def eliminar_linea_venta(numero: int, producto: str = Query(...)):
+async def eliminar_linea_venta(numero: int, producto: str = Query(...), fecha: str | None = Query(None)):
     """
-    Elimina UNA sola línea (producto) de un consecutivo multi-producto.
+    Elimina UNA sola línea (producto) de un consecutivo multi-producto DE UNA FECHA.
+    El consecutivo es único solo por día; sin scopear por fecha el subquery
+    agarraría una fila de cualquier día. Si no se pasa `fecha`, asume HOY (Colombia).
     """
     try:
         import db as _db
@@ -580,13 +593,17 @@ async def eliminar_linea_venta(numero: int, producto: str = Query(...)):
         if not _db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
 
+        _fecha = fecha or _hoy()
+
         borradas = _db.execute(
             """
             DELETE FROM ventas_detalle
-            WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s LIMIT 1)
+            WHERE venta_id = (
+                SELECT id FROM ventas WHERE consecutivo = %s AND fecha::date = %s LIMIT 1
+            )
               AND LOWER(producto_nombre) = LOWER(%s)
             """,
-            [numero, producto],
+            [numero, _fecha, producto],
         )
 
         if not borradas:
@@ -615,15 +632,19 @@ class EditarVentaBody(BaseModel):
     producto_original: Union[str, None]   = None  # para identificar fila en multi-producto
 
 @router.patch("/ventas/{numero}")
-async def editar_venta(numero: int, body: EditarVentaBody):
+async def editar_venta(numero: int, body: EditarVentaBody, fecha: str | None = Query(None)):
     """
-    Edita los campos de un consecutivo. 100% Postgres.
+    Edita los campos de un consecutivo DE UNA FECHA. 100% Postgres.
+    El consecutivo se reinicia cada día; sin scopear por fecha se editaría una
+    fila de otro día. Si no se pasa `fecha`, asume HOY (Colombia).
     """
     try:
         import db as _db
 
         if not _db.DB_DISPONIBLE:
             raise HTTPException(status_code=503, detail="Base de datos no disponible")
+
+        _fecha = fecha or _hoy()
 
         cambios = {k: v for k, v in body.dict().items() if v is not None and k != "producto_original"}
         if not cambios:
@@ -650,12 +671,13 @@ async def editar_venta(numero: int, body: EditarVentaBody):
                 det_parts.append(f"{col} = %s")
                 det_params.append(cambios[campo])
         if det_parts:
-            where_det = "WHERE venta_id = (SELECT id FROM ventas WHERE consecutivo = %s LIMIT 1)"
+            where_det = ("WHERE venta_id = "
+                         "(SELECT id FROM ventas WHERE consecutivo = %s AND fecha::date = %s LIMIT 1)")
             if filtro_producto:
                 where_det += " AND LOWER(producto_nombre) = LOWER(%s)"
-                det_params.extend([numero, filtro_producto])
+                det_params.extend([numero, _fecha, filtro_producto])
             else:
-                det_params.append(numero)
+                det_params.extend([numero, _fecha])
             _db.execute(f"UPDATE ventas_detalle SET {', '.join(det_parts)} {where_det}", det_params)
 
         # Actualizar ventas (cabecera)
@@ -665,8 +687,11 @@ async def editar_venta(numero: int, body: EditarVentaBody):
                 cab_parts.append(f"{col} = %s")
                 cab_params.append(cambios[campo])
         if cab_parts:
-            cab_params.append(numero)
-            _db.execute(f"UPDATE ventas SET {', '.join(cab_parts)} WHERE consecutivo = %s", cab_params)
+            cab_params.extend([numero, _fecha])
+            _db.execute(
+                f"UPDATE ventas SET {', '.join(cab_parts)} WHERE consecutivo = %s AND fecha::date = %s",
+                cab_params,
+            )
 
         await notify_all("venta_editada", {"consecutivo": numero})
         return {"ok": True, "mensaje": f"Venta #{numero} actualizada"}

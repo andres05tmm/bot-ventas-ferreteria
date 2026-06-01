@@ -95,7 +95,9 @@ function ModalEditarVenta({ venta, onClose, onGuardado }) {
       if (form.vendedor !== venta.vendedor) body.vendedor = form.vendedor
       if (!Object.keys(body).length) { onClose(); return }
       body.producto_original = venta.producto
-      const r = await authFetch(`${API_BASE}/ventas/${venta.num}`, {
+      // El consecutivo es único solo por día → scopear por fecha de la venta.
+      const fechaVenta = String(venta.fecha || '').slice(0, 10)
+      const r = await authFetch(`${API_BASE}/ventas/${venta.num}?fecha=${encodeURIComponent(fechaVenta)}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
@@ -175,13 +177,15 @@ function ModalEliminar({ grupo, onClose, onEliminado }) {
   const [borrando, setBorrando] = useState(null)
 
   const consecutivo = grupo[0]?.num
+  // El consecutivo es único solo por día → scopear por la fecha del grupo.
+  const fechaGrupo = String(grupo[0]?.fecha || '').slice(0, 10)
   const totalGrupo = grupo.reduce((a, v) => a + (parseFloat(v.total) || 0), 0)
   const esMultiple = grupo.length > 1
 
   async function eliminarTodo() {
     setEstado('saving'); setBorrando('todo')
     try {
-      const r = await authFetch(`${API_BASE}/ventas/${consecutivo}`, { method: 'DELETE' })
+      const r = await authFetch(`${API_BASE}/ventas/${consecutivo}?fecha=${encodeURIComponent(fechaGrupo)}`, { method: 'DELETE' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Error')
       setEstado('ok')
@@ -193,7 +197,7 @@ function ModalEliminar({ grupo, onClose, onEliminado }) {
     setEstado('saving'); setBorrando(idx)
     try {
       const r = await authFetch(
-        `${API_BASE}/ventas/${consecutivo}/linea?producto=${encodeURIComponent(v.producto)}`,
+        `${API_BASE}/ventas/${consecutivo}/linea?producto=${encodeURIComponent(v.producto)}&fecha=${encodeURIComponent(fechaGrupo)}`,
         { method: 'DELETE' }
       )
       const d = await r.json()
