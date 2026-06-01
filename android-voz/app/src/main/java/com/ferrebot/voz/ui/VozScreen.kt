@@ -31,6 +31,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -72,6 +73,12 @@ fun VozScreen(
             TopAppBar(
                 title = { Text("FerreVoz") },
                 actions = {
+                    Text("Manos libres", style = MaterialTheme.typography.labelMedium)
+                    Switch(
+                        checked = ui.manosLibres,
+                        onCheckedChange = { vm.toggleManosLibres() },
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
                     IconButton(onClick = { mostrarAjustes = true }) {
                         Icon(Icons.Filled.Settings, contentDescription = "Ajustes")
                     }
@@ -102,7 +109,7 @@ fun VozScreen(
             )
 
             Text(
-                text = ui.respuesta.ifBlank { etiquetaEstado(ui.estado) },
+                text = ui.respuesta.ifBlank { etiquetaEstado(ui.estado, ui.manosLibres) },
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
@@ -170,9 +177,10 @@ private fun MicButton(estado: Estado, onTap: () -> Unit) {
     }
 }
 
-private fun etiquetaEstado(estado: Estado): String = when (estado) {
-    Estado.IDLE -> "Tocá para hablar"
-    Estado.ESCUCHANDO -> "Escuchando… tocá para enviar"
+private fun etiquetaEstado(estado: Estado, manosLibres: Boolean): String = when (estado) {
+    Estado.IDLE -> if (manosLibres) "Tocá para empezar a conversar" else "Tocá para hablar"
+    Estado.ESCUCHANDO -> if (manosLibres) "Hablá… (se envía solo al callar · tocá para parar)"
+                         else "Escuchando… tocá para enviar"
     Estado.TRANSCRIBIENDO -> "Transcribiendo…"
     Estado.PENSANDO -> "Pensando…"
     Estado.HABLANDO -> "Hablando… (tocá para cortar)"

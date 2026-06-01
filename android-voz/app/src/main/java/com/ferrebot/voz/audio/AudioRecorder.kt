@@ -37,6 +37,17 @@ class AudioRecorder(private val context: Context) {
         outputFile = file
     }
 
+    /**
+     * Amplitud máxima registrada desde la última llamada (0..32767).
+     * Base del VAD por silencio (Fase 3). La primera llamada tras start() suele
+     * devolver 0, así que conviene descartarla.
+     */
+    fun maxAmplitude(): Int = try {
+        recorder?.maxAmplitude ?: 0
+    } catch (_: Exception) {
+        0
+    }
+
     /** Detiene y devuelve el archivo grabado, o null si falló (audio muy corto, etc.). */
     fun stop(): File? {
         val rec = recorder ?: return null

@@ -48,8 +48,19 @@ desambiguación activa, método de pago entendido hablado. No toca bot ni dashbo
 - [x] E2E validado: "dame un kilo de acronal" → transcribe bien → reconoce producto → dice total y pide método hablando. ✅
 - Nota: el build/compilación se verifica en Android Studio (esta repo no tiene SDK Android).
 
-### Fase 3 — Loop conversacional + VAD
-Corte por silencio, reanudar escucha al terminar de hablar, barge-in, frases de control ("para/cancela/listo"), confirmación hablada antes de registrar. No grabar mientras habla el TTS.
+### Fase 3 — Loop conversacional + VAD  ⏳ (hecho, falta probar en device)
+Corte por silencio, reanudar escucha al terminar de hablar, frases de control, confirmación hablada antes de registrar.
+- [x] VAD por energía (`MediaRecorder.getMaxAmplitude()`): corta solo al dejar de hablar (UMBRAL_VOZ / SILENCIO_MS tunables).
+- [x] Loop manos libres: tras responder (TTS done) reanuda la escucha sola; silencio inicial cierra el loop.
+- [x] Palabras de parada ("para/cancela/chao/…") + tap para detener.
+- [x] Toggle "Manos libres" en la UI (off = modo manual de Fase 2, tap para enviar).
+- [ ] Barge-in (interrumpir hablando encima) — DIFERIDO (riesgo de eco; grabar mientras suena el TTS).
+- [ ] Probar en device: los umbrales del VAD pueden requerir ajuste según micrófono/ruido del local.
+
+### Capacidades del asistente (= cerebro del chat `/chat/stream`)
+Hoy por charla natural: **ventas, gastos, fiados, abonos, consultas/reportes**. NO soporta aún:
+- **Crear cliente**: wizard solo del bot Telegram (`cliente_flujo.py`); el chat emite `INICIAR_FLUJO_CLIENTE` pero los pasos no están cableados fuera del bot. → futura **Fase 4.5**.
+- **Emitir factura electrónica DIAN**: NO expuesto en el cerebro (a propósito — legal/sensible). → futura **Fase 8** con doble confirmación hablada obligatoria.
 
 ### Fase 4 — Pago por voz  ✅ (hecho, falta confirmar E2E en device)
 Detectar `pendiente`, preguntar método, entender efectivo/transferencia/datáfono, confirmar vía `/chat` (`confirmar_pago`).
