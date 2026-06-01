@@ -29,8 +29,10 @@ TOOL_REGISTRAR_VENTA = {
         "REGLAS:\n"
         "- 'total' es el total en pesos de esa línea (lo que pagó el cliente por ese "
         "producto), NUNCA el precio unitario. Sin símbolos $ ni comas.\n"
-        "- Si el vendedor declara un monto con $ o con '=', ese ES el total: úsalo tal "
-        "cual, sin compararlo con el catálogo ni pedir confirmación.\n"
+        "- Si el vendedor declara un monto con $, con '=', o diciéndolo (ej. 'a cinco "
+        "mil', 'en diez mil', 'el precio es ocho mil'), ese ES el total: úsalo tal "
+        "cual y marca 'precio_declarado': true. Si solo nombra el producto y la "
+        "cantidad (el precio sale del catálogo), NO pongas 'precio_declarado'.\n"
         "- 'producto' es el nombre limpio del catálogo SIN la fracción. La fracción va "
         "en 'cantidad' (ej. 0.25 para 1/4 — no escribas 'Laca 1/4').\n"
         "- 'metodo_pago' SOLO si el vendedor lo menciona explícitamente.\n"
@@ -59,6 +61,15 @@ TOOL_REGISTRAR_VENTA = {
             "cliente": {
                 "type": "string",
                 "description": "Nombre del cliente. Omitir si no se menciona.",
+            },
+            "precio_declarado": {
+                "type": "boolean",
+                "description": (
+                    "true SOLO si el vendedor dijo explícitamente un precio o monto "
+                    "para este producto (con $, con '=', o en palabras: 'a cinco mil', "
+                    "'en diez mil', 'vale ocho mil'). Omitir cuando el precio sale del "
+                    "catálogo (el vendedor solo nombró producto y cantidad)."
+                ),
             },
         },
         "required": ["producto", "cantidad", "total"],
@@ -273,6 +284,65 @@ def ventas_conocidas(content: list, existe_producto) -> list[dict]:
         if prod.lower() in _PRODUCTOS_SIN_CATALOGO or existe_producto(prod):
             conocidas.append(b["input"])
     return conocidas
+
+
+def ventas_con_precio_dudoso(content: list, precio_esperado) -> list[dict]:
+    """
+    Riel R2-precio (voz): revisa los `registrar_venta` de un producto CONOCIDO en
+    los que el vendedor NO declaró precio (`precio_declarado` ausente/falso) y el
+    `total` que puso Claude NO coincide con el del catálogo (precio × cantidad,
+    respetando fracciones y precio por cantidad). Sin precio declarado, el catálogo
+    es la fuente de verdad: un total divergente es una alucinación → NO se registra,
+    se pide confirmación hablada con el precio real.
+
+    A diferencia del riel de existencia, NO se auto-corrige el total: Claude ya
+    dijo el monto en su prosa hablada, así que cambiar solo el tag dejaría la voz
+    desincronizada del registro. Por eso se bloquea y se vuelve a preguntar.
+
+    `precio_esperado(producto: str, cantidad: float) -> tuple[int, float] | int | None`:
+    callback que devuelve el total de catálogo para esa cantidad (acepta la tupla
+    (total, precio_unidad) de obtener_precio_para_cantidad o un int directo), o
+    None / 0 si no se puede determinar. Se inyecta para no acoplar a memoria/DB.
+
+    Devuelve la lista de divergencias (orden preservado):
+        {"producto", "cantidad", "total_dicho", "total_catalogo"}
+    Lista vacía = todos los totales cuadran (o no había nada que validar).
+    """
+    dudosas: list[dict] = []
+    for raw in content or []:
+        b = _norm_block(raw)
+        if b["type"] != "tool_use" or b["name"] != "registrar_venta":
+            continue
+        inp = b["input"]
+        prod = (inp.get("producto") or "").strip()
+        if not prod or prod.lower() in _PRODUCTOS_SIN_CATALOGO:
+            continue
+        # El vendedor dijo un precio explícito → ese ES el total, no se valida.
+        if inp.get("precio_declarado"):
+            continue
+        try:
+            cantidad    = float(inp.get("cantidad", 1) or 1)
+            total_dicho = float(inp.get("total", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+
+        esperado = precio_esperado(prod, cantidad)
+        if isinstance(esperado, tuple):          # (total, precio_unidad) → tomar total
+            esperado = esperado[0]
+        if not esperado or esperado <= 0:        # sin precio de catálogo → no validar
+            continue
+
+        # Tolerancia: 1% del esperado (mín. 1 peso) absorbe redondeos; las
+        # alucinaciones de precio divergen por miles, no por pesos.
+        tolerancia = max(1.0, esperado * 0.01)
+        if abs(total_dicho - esperado) > tolerancia:
+            dudosas.append({
+                "producto":       prod,
+                "cantidad":       inp.get("cantidad", 1),
+                "total_dicho":    round(total_dicho),
+                "total_catalogo": int(esperado),
+            })
+    return dudosas
 
 
 def tool_uses_a_tags(content: list) -> str:

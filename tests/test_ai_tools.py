@@ -33,6 +33,7 @@ import pytest
 # -- propios --
 from ai.tools import (
     tool_uses_a_tags, ventas_con_producto_desconocido, ventas_conocidas,
+    ventas_con_precio_dudoso,
     TOOLS, TOOL_REGISTRAR_VENTA, TOOL_REGISTRAR_GASTO,
     TOOL_REGISTRAR_FIADO, TOOL_ABONAR_FIADO,
 )
@@ -65,6 +66,10 @@ def test_schema_registrar_venta_bien_formado():
     props = TOOL_REGISTRAR_VENTA["input_schema"]["properties"]
     assert {"producto", "cantidad", "total"} <= set(props)
     assert TOOL_REGISTRAR_VENTA["input_schema"]["required"] == ["producto", "cantidad", "total"]
+    # precio_declarado existe pero es OPCIONAL (riel R2-precio): solo lo marca
+    # Claude cuando el vendedor dijo el precio; su ausencia activa la validación.
+    assert props["precio_declarado"]["type"] == "boolean"
+    assert "precio_declarado" not in TOOL_REGISTRAR_VENTA["input_schema"]["required"]
     # TOOLS cubre las 4 mutaciones de plata (venta, gasto, fiado, abono) desde
     # el tool-calling completo — clasificación de intención precisa.
     assert TOOLS == [
@@ -309,6 +314,111 @@ def test_r2_conocidas_vacia_si_todo_desconocido():
     content = [_Block("tool_use", name="registrar_venta",
                       input={"producto": "Acrilan", "cantidad": 1, "total": 9000})]
     assert ventas_conocidas(content, _existe) == []
+
+
+# ─────────────────────────────────────────────
+# Riel R2-precio (voz): total dicho vs catálogo
+# ─────────────────────────────────────────────
+
+# Precios de catálogo simulados (precio unitario por producto).
+_PRECIOS_FAKE = {"martillo": 15000, "cemento gris": 28000, "lija 80": 2000}
+
+
+def _precio_esperado(producto: str, cantidad: float):
+    """Imita obtener_precio_para_cantidad: (total, precio_unidad) o None."""
+    unidad = _PRECIOS_FAKE.get(producto.strip().lower())
+    if unidad is None:
+        return None
+    return round(unidad * cantidad), unidad
+
+
+def test_r2precio_total_cuadra_no_se_reporta():
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Martillo", "cantidad": 2, "total": 30000})]
+    assert ventas_con_precio_dudoso(content, _precio_esperado) == []
+
+
+def test_r2precio_total_no_cuadra_se_reporta():
+    # Catálogo: 2 × 15000 = 30000; Claude puso 25000 → alucinación de precio.
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Martillo", "cantidad": 2, "total": 25000})]
+    dudosas = ventas_con_precio_dudoso(content, _precio_esperado)
+    assert len(dudosas) == 1
+    assert dudosas[0]["producto"] == "Martillo"
+    assert dudosas[0]["total_dicho"] == 25000
+    assert dudosas[0]["total_catalogo"] == 30000
+
+
+def test_r2precio_declarado_no_se_valida():
+    # El vendedor dijo el precio ('en 25000') → precio_declarado=true → se respeta.
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Martillo", "cantidad": 2, "total": 25000,
+                             "precio_declarado": True})]
+    assert ventas_con_precio_dudoso(content, _precio_esperado) == []
+
+
+def test_r2precio_venta_varia_se_ignora():
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Venta Varia", "cantidad": 1, "total": 80000})]
+    assert ventas_con_precio_dudoso(content, _precio_esperado) == []
+
+
+def test_r2precio_sin_precio_de_catalogo_no_se_valida():
+    # Producto conocido pero sin precio (callback None) → no se puede validar.
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Producto Sin Precio", "cantidad": 1, "total": 9999})]
+    assert ventas_con_precio_dudoso(content, _precio_esperado) == []
+
+
+def test_r2precio_tolerancia_absorbe_redondeo():
+    # 0.25 × 2000 = 500; un total de 501 (1 peso) cae dentro de la tolerancia.
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Lija 80", "cantidad": 0.25, "total": 501})]
+    assert ventas_con_precio_dudoso(content, _precio_esperado) == []
+
+
+def test_r2precio_fraccion_divergente_se_reporta():
+    # 0.5 × 2000 = 1000; Claude puso 1500 → diverge.
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Lija 80", "cantidad": 0.5, "total": 1500})]
+    dudosas = ventas_con_precio_dudoso(content, _precio_esperado)
+    assert dudosas[0]["total_catalogo"] == 1000
+    assert dudosas[0]["cantidad"] == 0.5
+
+
+def test_r2precio_multi_solo_reporta_divergente():
+    content = [
+        _Block("tool_use", name="registrar_venta",
+               input={"producto": "Cemento Gris", "cantidad": 1, "total": 28000}),  # ok
+        _Block("tool_use", name="registrar_venta",
+               input={"producto": "Martillo", "cantidad": 1, "total": 9000}),       # diverge
+    ]
+    dudosas = ventas_con_precio_dudoso(content, _precio_esperado)
+    assert len(dudosas) == 1
+    assert dudosas[0]["producto"] == "Martillo"
+
+
+def test_r2precio_ignora_texto_y_otras_tools():
+    content = [
+        _Block("text", text="¿En efectivo o transferencia?"),
+        _Block("tool_use", name="registrar_gasto",
+               input={"concepto": "refrigerio", "monto": 5000}),
+    ]
+    assert ventas_con_precio_dudoso(content, _precio_esperado) == []
+
+
+def test_r2precio_content_vacio():
+    assert ventas_con_precio_dudoso([], _precio_esperado) == []
+    assert ventas_con_precio_dudoso(None, _precio_esperado) == []
+
+
+def test_r2precio_acepta_int_directo_del_callback():
+    # El callback puede devolver un int (no solo la tupla) → también funciona.
+    def _precio_int(prod, cant):
+        return 30000
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Martillo", "cantidad": 2, "total": 30000})]
+    assert ventas_con_precio_dudoso(content, _precio_int) == []
 
 
 # ─────────────────────────────────────────────

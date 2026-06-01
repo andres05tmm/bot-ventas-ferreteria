@@ -43,6 +43,7 @@ from memoria import (
     buscar_producto_en_catalogo, buscar_multiples_en_catalogo,
     buscar_multiples_con_alias,
     obtener_precios_como_texto, obtener_info_fraccion_producto,
+    obtener_precio_para_cantidad,
     cargar_inventario, cargar_caja, cargar_gastos_hoy,
     obtener_resumen_caja, guardar_gasto,
     guardar_fiado_movimiento, abonar_fiado,
@@ -836,6 +837,25 @@ async def procesar_con_claude(
                 _cola = "no encontré" if _prefijo else "No encontré"
                 return (f"{_prefijo}{_cola} {_lista} en el catálogo. "
                         f"¿Me lo repetís o es otro producto?")
+
+            # ── RIEL R2-precio (solo voz): total dicho vs catálogo ────────────
+            # Llega acá solo con productos CONOCIDOS (la existencia ya pasó). Si
+            # el vendedor NO declaró precio y el total que puso Claude no cuadra
+            # con el del catálogo (precio×cantidad), es alucinación de precio: no
+            # se registra, se confirma hablado con el precio real. No se auto-
+            # corrige porque la prosa hablada de Claude ya dijo el monto.
+            _dudosas = tools_mod.ventas_con_precio_dudoso(
+                respuesta.content, obtener_precio_para_cantidad
+            )
+            if _dudosas:
+                logging.getLogger("ferrebot.ai").info(
+                    "[R2-PRECIO-VOZ] total no cuadra con catálogo, no registro: %s",
+                    _dudosas,
+                )
+                _d = _dudosas[0]
+                _cant_voz = _cantidad_legible_voz(_d["cantidad"])
+                return (f"Para {_cant_voz} {_d['producto']} el precio es "
+                        f"{_d['total_catalogo']}. ¿Lo registro así o el precio es otro?")
         return tools_mod.tool_uses_a_tags(respuesta.content)
     return respuesta.content[0].text
 
