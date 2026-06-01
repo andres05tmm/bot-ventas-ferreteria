@@ -981,6 +981,12 @@ async def chat_ia(
             respuesta_raw, req.nombre, _chat_id
         )
 
+        # Voz: la respuesta se LEE en voz alta → sin emojis (⚠️ del contexto), $ ni
+        # markdown, aunque el modelo se los salte. Belt-and-suspenders sobre el prompt.
+        if _es_voz:
+            from ai.voz_filtros import limpiar_texto_voz
+            texto_limpio = limpiar_texto_voz(texto_limpio)
+
         pedir_pago   = "PEDIR_METODO_PAGO" in acciones
         confirmacion_accion = next(
             (a for a in acciones if a.startswith("PEDIR_CONFIRMACION:")), None
@@ -1597,7 +1603,12 @@ async def transcribir_audio(audio: UploadFile = File(...)):
 
         def _transcribir():
             with open(ruta_tmp, "rb") as f:
-                _kwargs = {"model": "whisper-1", "file": f, "language": "es"}
+                # verbose_json: trae segments con no_speech_prob/avg_logprob, que
+                # usamos para descartar silencio que Whisper alucina como texto.
+                _kwargs = {
+                    "model": "whisper-1", "file": f, "language": "es",
+                    "response_format": "verbose_json",
+                }
                 if _whisper_prompt:
                     _kwargs["prompt"] = _whisper_prompt
                 return config.openai_client.audio.transcriptions.create(**_kwargs)
@@ -1622,9 +1633,23 @@ async def transcribir_audio(audio: UploadFile = File(...)):
                         detail="El asistente IA no está disponible ahora. Intenta de nuevo en unos momentos.",
                     )
 
-        texto = resultado.text.strip()
+        texto = (resultado.text or "").strip()
 
-        if not texto:
+        # ── Filtro anti-silencio/alucinación ─────────────────────────────────
+        # Whisper, sobre audio mudo o ruido (y peor con el prompt de vocabulario),
+        # inventa texto de ferretería → "ventas fantasma" cuando el VAD captura
+        # silencio o el eco del TTS. Si los segmentos delatan silencio, se descarta.
+        _segs = []
+        for _s in (getattr(resultado, "segments", None) or []):
+            _segs.append({
+                "no_speech_prob": getattr(_s, "no_speech_prob", None),
+                "avg_logprob":    getattr(_s, "avg_logprob", None),
+            })
+        from ai.voz_filtros import es_transcripcion_silencio
+        if es_transcripcion_silencio(texto, _segs):
+            logging.getLogger("ferrebot.api").info(
+                "[/chat/transcribir] descartado como silencio/alucinación: %r", texto
+            )
             return {"ok": False, "texto": ""}
 
         return {"ok": True, "texto": texto}
