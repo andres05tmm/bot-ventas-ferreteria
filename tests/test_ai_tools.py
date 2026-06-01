@@ -37,7 +37,7 @@ from ai.tools import (
     TOOLS, TOOLS_VOZ, TOOL_REGISTRAR_VENTA, TOOL_REGISTRAR_GASTO,
     TOOL_REGISTRAR_FIADO, TOOL_ABONAR_FIADO, TOOL_CREAR_CLIENTE,
 )
-from ai import es_afirmacion_voz
+from ai import es_afirmacion_voz, es_negacion_voz
 
 _RE_CLIENTE = re.compile(r"\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]", re.DOTALL)
 
@@ -521,6 +521,28 @@ def test_es_afirmacion_voz_negativas(msg):
     assert es_afirmacion_voz(msg) is False
 
 
+# ── es_negacion_voz ───────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("msg", [
+    "##VOZ## Andres: no",
+    "##VOZ## Andres: mejor no",
+    "##VOZ## Andres: espera, así no",
+    "##VOZ## Andres: no, el correo está mal",
+    "##VOZ## Andres: cambiá el teléfono",
+])
+def test_es_negacion_voz_positivas(msg):
+    assert es_negacion_voz(msg) is True
+
+
+@pytest.mark.parametrize("msg", [
+    "##VOZ## Andres: sí confirmo",
+    "##VOZ## Andres: dale regístralo",
+    "##VOZ## Andres: el cliente es Pedro",
+])
+def test_es_negacion_voz_negativas(msg):
+    assert es_negacion_voz(msg) is False
+
+
 # ─────────────────────────────────────────────
 # crear_cliente (Fase 4.5 — alta de cliente por voz)
 # ─────────────────────────────────────────────
@@ -573,8 +595,39 @@ def test_confirm_crear_cliente_pide_confirmacion():
                       input={"nombre": "Pedro Pérez", "identificacion": "123456"})]
     msg = confirmacion_mutaciones_voz(content)
     assert msg is not None
-    assert "cliente Pedro Pérez con cédula 123456" in msg
+    assert "cliente Pedro Pérez" in msg and "documento 123456" in msg
     assert "¿Confirmás?" in msg
+
+
+def test_confirm_crear_cliente_incluye_correo_y_telefono():
+    # La propuesta debe leer de vuelta TODOS los datos capturados (el bug era que
+    # solo decía nombre+cédula y el vendedor no veía reflejado el correo).
+    content = [_Block("tool_use", name="crear_cliente",
+                      input={"nombre": "Doty", "identificacion": "123",
+                             "correo": "andres@gmail.com", "telefono": "3001234567"})]
+    msg = confirmacion_mutaciones_voz(content)
+    assert "correo andres@gmail.com" in msg
+    assert "teléfono 3001234567" in msg
+
+
+def test_schema_crear_cliente_tipo_id_es_codigo():
+    # tipo_id debe ser un CÓDIGO corto (cabe en varchar(10)), no el nombre largo.
+    enum = TOOL_CREAR_CLIENTE["input_schema"]["properties"]["tipo_id"]["enum"]
+    assert enum == ["CC", "NIT", "CE", "PAS"]
+    assert all(len(c) <= 10 for c in enum)
+
+
+def test_tipo_id_codigo_evita_overflow_varchar10():
+    # El bug que rompía el alta: "Cedula de ciudadania" (20 chars) → varchar(10).
+    from ai.response_builder import _tipo_id_codigo
+    assert _tipo_id_codigo("Cedula de ciudadania") == "CC"
+    assert _tipo_id_codigo("cédula") == "CC"
+    assert _tipo_id_codigo("NIT") == "NIT"
+    assert _tipo_id_codigo("Cedula de extranjeria") == "CE"
+    assert _tipo_id_codigo(None) == "CC"          # default
+    assert _tipo_id_codigo("") == "CC"
+    assert all(len(_tipo_id_codigo(v)) <= 10
+               for v in ["Cedula de ciudadania", "pasaporte", "CC", None, "xxxxxxxxxxxxxxx"])
 
 
 def test_confirm_crear_cliente_con_venta_no_se_intercepta():

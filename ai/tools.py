@@ -161,7 +161,12 @@ TOOL_CREAR_CLIENTE = {
         "opcional. NO la uses para fiar ni para registrar ventas a un cliente: "
         "para eso están registrar_fiado y registrar_venta.\n"
         "- 'nombre': nombre completo del cliente.\n"
-        "- 'identificacion': número de cédula o NIT, solo dígitos, sin puntos."
+        "- 'identificacion': número de cédula o NIT, solo dígitos, sin puntos.\n"
+        "- 'tipo_id': CÓDIGO del documento — CC (cédula), NIT (empresa), CE (cédula "
+        "de extranjería) o PAS (pasaporte). Si no lo dicen, usá CC.\n"
+        "- Pedí también el correo y el teléfono si el vendedor los va a dar; van en "
+        "'correo' y 'telefono'. El correo dicho por voz suele venir con 'arroba' y "
+        "'punto': armalo bien (ej. 'andres arroba gmail punto com' → andres@gmail.com)."
     ),
     "input_schema": {
         "type": "object",
@@ -173,8 +178,8 @@ TOOL_CREAR_CLIENTE = {
             },
             "tipo_id": {
                 "type": "string",
-                "description": "Tipo de documento. Omitir si no se dice (default cédula).",
-                "enum": ["Cedula de ciudadania", "NIT", "Cedula de extranjeria", "Pasaporte"],
+                "enum": ["CC", "NIT", "CE", "PAS"],
+                "description": "Código del documento: CC cédula, NIT empresa, CE extranjería, PAS pasaporte. Default CC.",
             },
             "tipo_persona": {
                 "type": "string",
@@ -182,7 +187,7 @@ TOOL_CREAR_CLIENTE = {
                 "description": "Natural (persona) o Juridica (empresa). Omitir si no se dice.",
             },
             "telefono": {"type": "string", "description": "Teléfono. Omitir si no se menciona."},
-            "correo": {"type": "string", "description": "Correo. Omitir si no se menciona."},
+            "correo": {"type": "string", "description": "Correo ya armado (con @ y .). Omitir si no se menciona."},
         },
         "required": ["nombre", "identificacion"],
     },
@@ -445,11 +450,18 @@ def confirmacion_mutaciones_voz(content: list) -> str | None:
             cliente = (inp.get("cliente") or "").strip() or "el cliente"
             propuestas.append(f"un abono de {_monto_int(inp.get('monto'))} de {cliente}")
         elif nombre == "crear_cliente":
-            nom   = (inp.get("nombre") or "").strip() or "el cliente"
-            ident = str(inp.get("identificacion") or "").strip()
-            propuestas.append(
-                f"el cliente {nom} con cédula {ident}" if ident else f"el cliente {nom}"
-            )
+            nom    = (inp.get("nombre") or "").strip() or "el cliente"
+            ident  = str(inp.get("identificacion") or "").strip()
+            correo = (inp.get("correo") or "").strip()
+            tel    = (inp.get("telefono") or "").strip()
+            partes = [f"el cliente {nom}"]
+            if ident:
+                partes.append(f"documento {ident}")
+            if correo:
+                partes.append(f"correo {correo}")
+            if tel:
+                partes.append(f"teléfono {tel}")
+            propuestas.append(", ".join(partes))
 
     if tiene_venta or not propuestas:
         return None

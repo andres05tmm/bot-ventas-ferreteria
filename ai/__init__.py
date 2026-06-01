@@ -109,6 +109,44 @@ def es_afirmacion_voz(mensaje: str) -> bool:
     return bool(significativas) and all(w in _AFIRMACIONES_VOZ for w in significativas)
 
 
+# Palabras que indican que el vendedor NO confirma (corrige, cancela o pospone).
+_NEGACIONES_VOZ = {
+    "no", "nones", "negativo", "cancela", "cancelar", "espera", "espere",
+    "para", "pará", "todavia", "aun", "mejor", "cambia", "cambiar", "corrige",
+    "corregir", "esta", "mal", "equivocado", "asi",
+}
+
+
+def es_negacion_voz(mensaje: str) -> bool:
+    """True si el mensaje parece una negación/corrección ('no', 'mejor no',
+    'espera', 'así no', 'está mal'): bloquea que un re-emit cuente como confirmación."""
+    t = mensaje or ""
+    for flag in ("##VOZ##", "##DASHBOARD##", "##BOT##"):
+        t = t.replace(flag, "")
+    if ":" in t:
+        t = t.split(":", 1)[1]
+    t = re.sub(r"[^a-z0-9 ]", " ", _normalizar(t)).strip()
+    if not t:
+        return False
+    return any(w in _NEGACIONES_VOZ for w in t.split())
+
+
+def _norm_cmp_voz(texto: str) -> str:
+    """Normaliza un texto para comparar dos respuestas habladas (propuestas)."""
+    return re.sub(r"[^a-z0-9]+", " ", _normalizar(texto or "")).strip()
+
+
+def _ultima_respuesta_asistente(historial_chat: list) -> str:
+    """Último mensaje del asistente en el historial (para detectar re-propuesta)."""
+    for _h in reversed(historial_chat or []):
+        try:
+            if _h.get("role") == "assistant":
+                return str(_h.get("content") or "")
+        except AttributeError:
+            continue
+    return ""
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS PG — reemplazan funciones de excel.py
 # ─────────────────────────────────────────────────────────────────────────────
@@ -908,18 +946,28 @@ async def procesar_con_claude(
                 return (f"Para {_cant_voz} {_d['producto']} el precio es "
                         f"{_d['total_catalogo']}. ¿Lo registro así o el precio es otro?")
 
-            # ── Confirmar-antes-de-registrar gasto/fiado/abono (solo voz) ─────
-            # Las ventas ya tienen 2 pasos (método de pago); gasto/fiado/abono se
-            # registraban de una. Si Claude los propone y el vendedor NO está
-            # afirmando, se pregunta hablado y se registra recién al confirmar: el
-            # historial del loop trae el turno previo → Claude reemite la tool.
-            if not es_afirmacion_voz(mensaje_usuario):
-                _conf_mut = tools_mod.confirmacion_mutaciones_voz(respuesta.content)
-                if _conf_mut:
+            # ── Confirmar-antes-de-registrar gasto/fiado/abono/cliente (voz) ──
+            # Estas mutaciones se registraban de una. Se proponen habladas y se
+            # registran al confirmar. La confirmación se detecta de forma ROBUSTA:
+            #   (a) el vendedor afirma ("sí", "dale", "confirmo"), o
+            #   (b) re-propongo EXACTAMENTE lo mismo que el turno anterior y el
+            #       vendedor no niega → está confirmando (aguanta typos de Whisper
+            #       como "regítralo" o "confirma reistraduración" que (a) no capta).
+            # Si cambió algún dato, la propuesta cambia → se re-propone con lo nuevo.
+            _conf_mut = tools_mod.confirmacion_mutaciones_voz(respuesta.content)
+            if _conf_mut:
+                _afirma = es_afirmacion_voz(mensaje_usuario)
+                _prev   = _ultima_respuesta_asistente(historial_chat)
+                _repite = bool(_prev) and _norm_cmp_voz(_prev) == _norm_cmp_voz(_conf_mut)
+                _confirmado = _afirma or (_repite and not es_negacion_voz(mensaje_usuario))
+                if not _confirmado:
                     logging.getLogger("ferrebot.ai").info(
                         "[CONFIRM-VOZ] propongo y espero confirmación: %s", _conf_mut
                     )
                     return _conf_mut
+                logging.getLogger("ferrebot.ai").info(
+                    "[CONFIRM-VOZ] confirmado (afirma=%s repite=%s) → registro", _afirma, _repite
+                )
         return tools_mod.tool_uses_a_tags(respuesta.content)
     return respuesta.content[0].text
 

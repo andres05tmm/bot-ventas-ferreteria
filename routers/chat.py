@@ -1086,6 +1086,11 @@ async def chat_ia(
               and not a.startswith("CLIENTE_DESCONOCIDO:")]
             texto_final = "\n".join(otras) if otras else "(Sin respuesta)"
 
+        # Voz: el fallback puede traer "✅"/acciones crudas → limpiar para el TTS.
+        if _es_voz:
+            from ai.voz_filtros import limpiar_texto_voz
+            texto_final = limpiar_texto_voz(texto_final) or "Listo."
+
         result = {
             "ok": True,
             "respuesta": texto_final,

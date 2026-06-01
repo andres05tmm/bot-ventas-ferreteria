@@ -50,6 +50,28 @@ from ai.excel_gen import generar_excel_personalizado
 logger = logging.getLogger("ferrebot.ai.response_builder")
 
 
+# La columna clientes.tipo_id es varchar(10): guarda un CÓDIGO corto (CC/NIT/CE/PAS),
+# no el nombre largo. Mapear nombres a código y truncar evita el error
+# "value too long for type character varying(10)" al crear cliente por voz.
+_TIPO_ID_MAP = {
+    "cc": "CC", "cedula": "CC", "cedula de ciudadania": "CC",
+    "nit": "NIT",
+    "ce": "CE", "cedula de extranjeria": "CE",
+    "pas": "PAS", "pasaporte": "PAS",
+}
+
+
+def _tipo_id_codigo(valor: str | None) -> str:
+    """Normaliza el tipo de documento a un código ≤10 chars. Default 'CC'."""
+    if not valor:
+        return "CC"
+    v = str(valor).strip()
+    cod = _TIPO_ID_MAP.get(_normalizar(v))
+    if cod:
+        return cod
+    return v[:10] if len(v) <= 10 else "CC"
+
+
 def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tuple[str, list, list]:
     from ventas_state import (ventas_pendientes, registrar_ventas_con_metodo,
         _estado_lock, mensajes_standby, limpiar_pendientes_expirados,
@@ -258,7 +280,7 @@ def procesar_acciones(texto_respuesta: str, vendedor: str, chat_id: int) -> tupl
             id_num = str(datos.get("identificacion", "")).strip()
             if nombre and id_num:
                 ok = _pg_guardar_cliente(
-                    nombre, datos.get("tipo_id", "Cedula de ciudadania"), id_num,
+                    nombre, _tipo_id_codigo(datos.get("tipo_id")), id_num,
                     datos.get("tipo_persona", "Natural"),
                     datos.get("correo", ""), datos.get("telefono", ""),
                 )
