@@ -62,6 +62,14 @@ from ai import budget as _budget
 # Tool-calling nativo (M-01) — schemas + puente tool_use→tags
 from ai import tools as tools_mod
 
+def _cantidad_legible_voz(cantidad) -> str:
+    """Cantidad apta para leer en voz: '3', '1/4', '1 y 1/2'. Fail-safe a str."""
+    try:
+        return decimal_a_fraccion_legible(float(cantidad))
+    except (TypeError, ValueError):
+        return str(cantidad)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS PG — reemplazan funciones de excel.py
 # ─────────────────────────────────────────────────────────────────────────────
@@ -796,6 +804,38 @@ async def procesar_con_claude(
     # de texto. El puente los convierte a tags [VENTA] que procesar_acciones ya
     # consume. El thinking path no usa tools → conserva el return clásico.
     if (config.IA_TOOL_CALLING or _voz_mode) and not _usar_thinking:
+        # ── RIEL R2 (solo voz): no registrar productos que no existen ─────────
+        # El prompt ya prohíbe inventar productos, pero eso es a nivel modelo y
+        # puede fallar (alucinación, transcripción dudosa). Como riel de CÓDIGO,
+        # si registrar_venta trae un producto que ni el fuzzy match resuelve en
+        # el catálogo, NO se registra: se pide aclaración hablada. Scoped a voz
+        # para no alterar bot/dashboard (que usan IA_TOOL_CALLING).
+        if _voz_mode:
+            _existe = lambda n: buscar_producto_en_catalogo(n) is not None
+            _desconocidos = tools_mod.ventas_con_producto_desconocido(
+                respuesta.content, _existe
+            )
+            if _desconocidos:
+                logging.getLogger("ferrebot.ai").info(
+                    "[R2-VOZ] producto(s) fuera de catálogo, no registro: %s", _desconocidos
+                )
+                _lista = (_desconocidos[0] if len(_desconocidos) == 1
+                          else ", ".join(_desconocidos))
+                # Conservar el contexto del pedido: si OTROS productos del mismo
+                # turno sí existen, recordarlos en la pregunta. Quedan explícitos
+                # en el historial → el turno de aclaración retoma la venta completa.
+                _conocidas = tools_mod.ventas_conocidas(respuesta.content, _existe)
+                _prefijo = ""
+                if _conocidas:
+                    _resumen = ", ".join(
+                        f"{_cantidad_legible_voz(c.get('cantidad', 1))} "
+                        f"{c.get('producto', '')}".strip()
+                        for c in _conocidas
+                    )
+                    _prefijo = f"Entendí {_resumen}, pero "
+                _cola = "no encontré" if _prefijo else "No encontré"
+                return (f"{_prefijo}{_cola} {_lista} en el catálogo. "
+                        f"¿Me lo repetís o es otro producto?")
         return tools_mod.tool_uses_a_tags(respuesta.content)
     return respuesta.content[0].text
 

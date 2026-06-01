@@ -221,6 +221,60 @@ def _norm_block(block) -> dict:
     }
 
 
+# Productos legítimos que NO tienen entrada en el catálogo (no se validan).
+_PRODUCTOS_SIN_CATALOGO = {"venta varia", "ventas varia", "venta general"}
+
+
+def ventas_con_producto_desconocido(content: list, existe_producto) -> list[str]:
+    """
+    Riel R2 (voz): revisa los bloques tool_use `registrar_venta` y devuelve los
+    nombres de producto que NO existen en el catálogo, para NO registrarlos y
+    pedir aclaración hablada en vez de inventar un producto/precio.
+
+    `existe_producto(nombre: str) -> bool`: callback que resuelve si el producto
+    está en el catálogo. Se inyecta para no acoplar este módulo a memoria/DB
+    (lo mantiene puro y testeable). "Venta Varia" y similares se ignoran (son
+    ventas legítimas sin entrada de catálogo).
+
+    Devuelve la lista (preservando orden, sin duplicados) de nombres no hallados.
+    Lista vacía = todos los productos existen (o no hubo ventas que validar).
+    """
+    desconocidos: list[str] = []
+    for raw in content or []:
+        b = _norm_block(raw)
+        if b["type"] != "tool_use" or b["name"] != "registrar_venta":
+            continue
+        prod = (b["input"].get("producto") or "").strip()
+        if not prod or prod.lower() in _PRODUCTOS_SIN_CATALOGO:
+            continue
+        if not existe_producto(prod) and prod not in desconocidos:
+            desconocidos.append(prod)
+    return desconocidos
+
+
+def ventas_conocidas(content: list, existe_producto) -> list[dict]:
+    """
+    Complemento de ventas_con_producto_desconocido: devuelve los `input` de los
+    `registrar_venta` cuyo producto SÍ está en el catálogo (o es "Venta Varia").
+
+    Se usa para que, cuando un producto del pedido falle, la pregunta de
+    aclaración recuerde lo que ya quedó entendido ("entendí un martillo, pero
+    no encontré X..."). Así no se pierde el contexto de la venta completa: la
+    parte buena queda explícita en el historial y el siguiente turno la retoma.
+    """
+    conocidas: list[dict] = []
+    for raw in content or []:
+        b = _norm_block(raw)
+        if b["type"] != "tool_use" or b["name"] != "registrar_venta":
+            continue
+        prod = (b["input"].get("producto") or "").strip()
+        if not prod:
+            continue
+        if prod.lower() in _PRODUCTOS_SIN_CATALOGO or existe_producto(prod):
+            conocidas.append(b["input"])
+    return conocidas
+
+
 def tool_uses_a_tags(content: list) -> str:
     """
     Convierte el `content` de una respuesta de Claude (lista de bloques text +

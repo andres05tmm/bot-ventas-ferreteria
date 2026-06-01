@@ -31,7 +31,11 @@ os.environ.setdefault("OPENAI_API_KEY", "test")
 import pytest
 
 # -- propios --
-from ai.tools import tool_uses_a_tags, TOOLS, TOOL_REGISTRAR_VENTA
+from ai.tools import (
+    tool_uses_a_tags, ventas_con_producto_desconocido, ventas_conocidas,
+    TOOLS, TOOL_REGISTRAR_VENTA, TOOL_REGISTRAR_GASTO,
+    TOOL_REGISTRAR_FIADO, TOOL_ABONAR_FIADO,
+)
 
 
 # Regex idéntico al de ai/response_builder.procesar_acciones
@@ -61,7 +65,12 @@ def test_schema_registrar_venta_bien_formado():
     props = TOOL_REGISTRAR_VENTA["input_schema"]["properties"]
     assert {"producto", "cantidad", "total"} <= set(props)
     assert TOOL_REGISTRAR_VENTA["input_schema"]["required"] == ["producto", "cantidad", "total"]
-    assert TOOLS == [TOOL_REGISTRAR_VENTA]
+    # TOOLS cubre las 4 mutaciones de plata (venta, gasto, fiado, abono) desde
+    # el tool-calling completo — clasificación de intención precisa.
+    assert TOOLS == [
+        TOOL_REGISTRAR_VENTA, TOOL_REGISTRAR_GASTO,
+        TOOL_REGISTRAR_FIADO, TOOL_ABONAR_FIADO,
+    ]
 
 
 # ─────────────────────────────────────────────
@@ -202,6 +211,104 @@ def test_content_vacio_o_none():
 def test_tool_desconocido_se_ignora():
     content = [_Block("tool_use", name="herramienta_inexistente", input={"x": 1})]
     assert tool_uses_a_tags(content) == ""
+
+
+# ─────────────────────────────────────────────
+# Riel R2 (voz): producto fuera de catálogo
+# ─────────────────────────────────────────────
+
+# Catálogo simulado: solo estos productos "existen".
+_CATALOGO_FAKE = {"martillo", "cemento gris", "lija 80"}
+
+
+def _existe(nombre: str) -> bool:
+    return nombre.strip().lower() in _CATALOGO_FAKE
+
+
+def test_r2_producto_existente_no_se_reporta():
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Martillo", "cantidad": 1, "total": 15000})]
+    assert ventas_con_producto_desconocido(content, _existe) == []
+
+
+def test_r2_producto_desconocido_se_reporta():
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Acrilan", "cantidad": 1, "total": 9000})]
+    assert ventas_con_producto_desconocido(content, _existe) == ["Acrilan"]
+
+
+def test_r2_venta_varia_se_ignora():
+    # "Venta Varia" es legítima sin entrada de catálogo → nunca se reporta.
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Venta Varia", "cantidad": 1, "total": 80000})]
+    assert ventas_con_producto_desconocido(content, _existe) == []
+
+
+def test_r2_multi_solo_reporta_desconocidos():
+    content = [
+        _Block("tool_use", name="registrar_venta",
+               input={"producto": "Cemento Gris", "cantidad": 2, "total": 56000}),
+        _Block("tool_use", name="registrar_venta",
+               input={"producto": "Tornillo Fantasma", "cantidad": 5, "total": 5000}),
+    ]
+    assert ventas_con_producto_desconocido(content, _existe) == ["Tornillo Fantasma"]
+
+
+def test_r2_desconocidos_sin_duplicados():
+    content = [
+        _Block("tool_use", name="registrar_venta",
+               input={"producto": "Acrilan", "cantidad": 1, "total": 9000}),
+        _Block("tool_use", name="registrar_venta",
+               input={"producto": "Acrilan", "cantidad": 2, "total": 18000}),
+    ]
+    assert ventas_con_producto_desconocido(content, _existe) == ["Acrilan"]
+
+
+def test_r2_ignora_texto_y_otras_tools():
+    content = [
+        _Block("text", text="¿En efectivo o transferencia?"),
+        _Block("tool_use", name="registrar_gasto",
+               input={"concepto": "refrigerio", "monto": 5000}),
+    ]
+    # Sin registrar_venta → nada que validar.
+    assert ventas_con_producto_desconocido(content, _existe) == []
+
+
+def test_r2_producto_vacio_se_ignora():
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"cantidad": 1, "total": 1000})]
+    assert ventas_con_producto_desconocido(content, _existe) == []
+
+
+def test_r2_content_vacio():
+    assert ventas_con_producto_desconocido([], _existe) == []
+    assert ventas_con_producto_desconocido(None, _existe) == []
+
+
+# ── ventas_conocidas: contexto del pedido para la aclaración ──────────────────
+
+def test_r2_conocidas_devuelve_inputs_existentes():
+    content = [
+        _Block("tool_use", name="registrar_venta",
+               input={"producto": "Martillo", "cantidad": 1, "total": 15000}),
+        _Block("tool_use", name="registrar_venta",
+               input={"producto": "Tornillo Fantasma", "cantidad": 5, "total": 5000}),
+    ]
+    conocidas = ventas_conocidas(content, _existe)
+    assert len(conocidas) == 1
+    assert conocidas[0]["producto"] == "Martillo"
+
+
+def test_r2_conocidas_incluye_venta_varia():
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Venta Varia", "cantidad": 1, "total": 80000})]
+    assert ventas_conocidas(content, _existe)[0]["producto"] == "Venta Varia"
+
+
+def test_r2_conocidas_vacia_si_todo_desconocido():
+    content = [_Block("tool_use", name="registrar_venta",
+                      input={"producto": "Acrilan", "cantidad": 1, "total": 9000})]
+    assert ventas_conocidas(content, _existe) == []
 
 
 # ─────────────────────────────────────────────
