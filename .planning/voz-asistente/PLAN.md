@@ -39,8 +39,14 @@ desambiguación activa, método de pago entendido hablado. No toca bot ni dashbo
 - [x] Vocabulario de ferretería a Whisper en `/chat/transcribir` (reusa `_build_whisper_prompt`).
 - [ ] Verificación por curl + `python test_suite.py` (regresión bot/dashboard).
 
-### Fase 2 — App Kotlin, una vuelta manual
+### Fase 2 — App Kotlin, una vuelta manual  ⏳ (scaffold hecho, falta build en device)
 `MainActivity` + botón "tocar para hablar" → grabar → `/chat/transcribir` → `/chat/stream` (`canal:"voz"`) → hablar la respuesta (TTS `es-CO`). Crear `android-voz/CLAUDE.md`.
+- [x] Proyecto Android en `android-voz/`: Compose + Material 3, minSdk 26 / target 34, Kotlin 2.0.20 / AGP 8.6.1.
+- [x] Módulos: `MainActivity`, `ui/VozScreen` (+tema), `conversation/ConversationController` (máquina de estados), `audio/AudioRecorder` (m4a), `net/ApiClient` (OkHttp + SSE), `tts/TtsManager` (TTS nativo es-CO), `settings/SettingsStore` (URL configurable).
+- [x] `android-voz/CLAUDE.md` + `README.md` (instrucciones de build/sideload).
+- [ ] Abrir en Android Studio, sync Gradle, **build en celular/emulador**.
+- [ ] Probar E2E real: decir una venta → transcribe → responde hablando.
+- Nota: el build/compilación se verifica en Android Studio (esta repo no tiene SDK Android).
 
 ### Fase 3 — Loop conversacional + VAD
 Corte por silencio, reanudar escucha al terminar de hablar, barge-in, frases de control ("para/cancela/listo"), confirmación hablada antes de registrar. No grabar mientras habla el TTS.

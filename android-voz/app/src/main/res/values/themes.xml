@@ -1,0 +1,5 @@
+<resources>
+    <!-- La UI real es Compose (FerreVozTheme). Este theme XML es solo el shell
+         de la ventana/launch; ComponentActivity acepta cualquier theme. -->
+    <style name="Theme.FerreVoz" parent="@android:style/Theme.Material.NoActionBar" />
+</resources>
