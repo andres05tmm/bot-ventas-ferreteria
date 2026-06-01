@@ -80,6 +80,37 @@ PRECISIÓN ANTE TODO (el audio se puede transcribir mal):
 
 
 # ─────────────────────────────────────────────
+# REGLAS DE VOZ — reemplazan los skills del bot en el canal hablado
+# ─────────────────────────────────────────────
+# En voz NO se cargan los skills de texto del bot (core/precios_base/granel/…):
+# son ~16k chars escritos para Telegram y restan fluidez. En su lugar va este
+# bloque compacto. La precisión la dan las TOOLS + los rieles deterministas
+# (detección de ambigüedad), no la prosa.
+
+VOZ_REGLAS = """\
+Sos el asistente de voz de la ferretería. Hablás por audio con un vendedor.
+Tu trabajo: registrar ventas, gastos, fiados y abonos, y responder consultas —
+rápido y SIN errores.
+
+REGLAS DURAS (no las rompas):
+1. NUNCA inventes un producto ni un precio. Si el producto NO está en el catálogo,
+   decílo y preguntá; no lo registres.
+2. Si el producto es AMBIGUO (varias variantes: color, número, medida) y el
+   vendedor no aclaró cuál, PREGUNTÁ cuál antes de registrar. La marca "⚠️ AMBIGUO"
+   en el contexto es la señal: nunca elijas vos la variante.
+3. Antes de registrar, leé de vuelta lo que entendiste (producto, cantidad y, si
+   hay varios productos, el total) y pedí el método de pago en la misma frase.
+4. Una venta puede tener VARIOS productos: llamá la herramienta una vez por cada uno.
+5. El método de pago (efectivo, transferencia o datáfono) SOLO si el vendedor lo dice.
+6. Un GASTO es plata que SALE (refrigerio, transporte, servicios): usá registrar_gasto,
+   NO lo confundas con una venta.
+7. Si no entendiste o el audio quedó dudoso, preguntá; no adivines.
+
+Para las acciones usá las herramientas (registrar_venta, registrar_gasto,
+registrar_fiado, abonar_fiado). Para consultas, respondé hablando, en frases cortas."""
+
+
+# ─────────────────────────────────────────────
 # TAG [BUSCAR_MEMORIA] — capacidad de memoria de entidad (Capa 4)
 # ─────────────────────────────────────────────
 # Claude pide notas estables sobre un producto/vendedor/alias cuando las
@@ -170,10 +201,13 @@ def aplicar_alias_ferreteria(mensaje: str) -> str:
 # PARTE ESTÁTICA DEL SYSTEM PROMPT (cacheable)
 # ─────────────────────────────────────────────
 
-def _construir_parte_estatica(memoria: dict) -> str:
+def _construir_parte_estatica(memoria: dict, solo_voz: bool = False) -> str:
     """
     Construye la parte del system prompt que NO cambia entre mensajes.
     Al ser idéntica en todas las llamadas, Anthropic la cachea automáticamente.
+
+    `solo_voz=True`: usa el bloque compacto VOZ_REGLAS en vez de los skills de
+    texto del bot (más fluidez). El catálogo y la info de negocio se mantienen.
     """
     from memoria import obtener_precios_como_texto as _obtener_precios_como_texto
 
@@ -241,7 +275,11 @@ def _construir_parte_estatica(memoria: dict) -> str:
     # no rompe el prompt caching. El resto de acciones siguen como tags.
     tool_dir = _DOC_TOOL_VENTAS if config.IA_TOOL_CALLING else ""
 
-    return f"""{tool_dir}{skills_estaticos}
+    # Voz: en vez de los skills de texto del bot, el bloque compacto VOZ_REGLAS.
+    # (En voz el tool-calling siempre está activo, así que se incluye el directivo.)
+    encabezado = f"{_DOC_TOOL_VENTAS}{VOZ_REGLAS}" if solo_voz else f"{tool_dir}{skills_estaticos}"
+
+    return f"""{encabezado}
 
 INFORMACION DEL NEGOCIO: {negocio_json}
 
@@ -297,10 +335,13 @@ def _construir_catalogo_imagen(memoria: dict) -> str:
 # PARTE DINÁMICA DEL SYSTEM PROMPT (por mensaje)
 # ─────────────────────────────────────────────
 
-def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria: dict, dashboard_mode: bool = False) -> str:
+def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria: dict, dashboard_mode: bool = False, solo_voz: bool = False) -> str:
     """
     Orquesta la construcción de la parte dinámica del system prompt.
     Delega a ai.prompt_context (datos de negocio) y ai.prompt_products (productos).
+
+    `solo_voz=True`: omite los skills dinámicos de texto del bot (granel,
+    thinner_varsol, …) — conserva el MATCH de productos (con la señal ⚠️ AMBIGUO).
     """
     # Lazy imports — evita ciclos ai/__init__.py ↔ ai/prompts.py ↔ submodules
     from ai.prompt_context import (
@@ -318,7 +359,8 @@ def _construir_parte_dinamica(mensaje_usuario: str, nombre_usuario: str, memoria
     especiales_texto  = construir_precalculos_especiales(mensaje_usuario, memoria)
     clientes_texto    = construir_seccion_clientes(mensaje_usuario)
     operaciones_texto = construir_seccion_operaciones(mensaje_usuario)
-    skills_texto      = skill_loader.obtener_skills_dinamicos(mensaje_usuario)
+    # En voz no se cargan los skills dinámicos del bot (restan fluidez).
+    skills_texto      = "" if solo_voz else skill_loader.obtener_skills_dinamicos(mensaje_usuario)
     turno_texto       = construir_contexto_turno()
     # Capa 4 — notas estables sobre productos/vendedor (compresor nocturno)
     memoria_ent_texto = construir_seccion_memoria_entidades(mensaje_usuario, nombre_usuario)

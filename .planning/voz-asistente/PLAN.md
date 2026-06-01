@@ -66,7 +66,9 @@ Hoy por charla natural: **ventas, gastos, fiados, abonos, consultas/reportes**. 
 - **Modelo:** auto-router Haiku/Sonnet (NO Sonnet fijo — costo). Tool-calling hace a Haiku confiable.
 - **RAG:** se hará SOLO el útil → búsqueda **semántica del catálogo** como *fallback* del fuzzy (in-process, sin base vectorial, no agrega latencia al caso común). NO un RAG genérico de "conocimiento" (redundante con el prompt). Pendiente.
 - **Tool-calling (hecho):** `ai/tools.py` ahora tiene `registrar_venta/gasto/fiado/abono` con descripciones claras (resuelve misclasificación tipo "gasto→venta"). Se activa para VOZ siempre (`config.IA_TOOL_CALLING or _voz_mode`), sin tocar el flag global (bot/dashboard intactos). **La voz ahora rutea por `POST /chat` (no-stream)** porque el tool-calling solo vive en ese path; la app habla la respuesta completa igual.
-- **Pendiente:** confirmar-antes-de-registrar en gasto/fiado/abono (no solo venta), normalización de transcripción (reusar `_normalizar_con_haiku`), afinar VAD, y el RAG de catálogo.
+- **R1 (hecho):** prompt de voz DELGADO — `VOZ_REGLAS` (compacto) reemplaza los ~16k de skills del bot (core/precios_base/granel/thinner). Vía `solo_voz=_voz_mode` en `_construir_parte_estatica/_dinamica` (default False → bot/dashboard intactos). Conserva catálogo + MATCH de productos (con `⚠️ AMBIGUO`).
+- **R2 (núcleo hecho):** detección determinista de ambigüedad habilitada para voz (`config.IA_TOOL_CALLING or _voz_mode` en el short-circuit). El prompt delgado además exige "no inventes producto/precio; ante ambigüedad preguntá".
+- **Pendiente:** R2 completo (validación de existencia/precio como riel de código, no solo modelo), confirmar-antes-de-registrar en gasto/fiado/abono, normalización de transcripción (`_normalizar_con_haiku`), afinar VAD, RAG semántico de catálogo.
 
 ### Fase 4 — Pago por voz  ✅ (hecho, falta confirmar E2E en device)
 Detectar `pendiente`, preguntar método, entender efectivo/transferencia/datáfono, confirmar vía `/chat` (`confirmar_pago`).

@@ -438,7 +438,7 @@ async def procesar_con_claude(
     # Alias solo para Claude — después de que bypass descartó el mensaje
     mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
 
-    parte_estatica = _construir_parte_estatica(memoria)
+    parte_estatica = _construir_parte_estatica(memoria, solo_voz=_voz_mode)
 
     # ── FIX MULTI-TURNO: si el mensaje actual es una clarificación corta ──────
     # Cuando el bot pregunta "¿qué tamaño?" y el usuario responde solo con
@@ -526,7 +526,7 @@ async def procesar_con_claude(
     if not _msg_para_match_augmented and _override_msg_para_match is not None:
         _msg_para_match = _override_msg_para_match
 
-    parte_dinamica = _construir_parte_dinamica(_msg_para_match, nombre_usuario, memoria)
+    parte_dinamica = _construir_parte_dinamica(_msg_para_match, nombre_usuario, memoria, solo_voz=_voz_mode)
 
     # Fix 2+3: cuando hay imagen, inyectar catalogo completo con fracciones
     # + skill foto_cuaderno al frente de la parte dinamica.
@@ -553,7 +553,7 @@ async def procesar_con_claude(
     # variantes del mismo producto sin que el vendedor especificara cuál, preguntar
     # en Python sin gastar una llamada a Claude. Solo con IA_TOOL_CALLING activo.
     _SEÑAL_AMBIGUO = "⚠️ AMBIGUO"
-    if (config.IA_TOOL_CALLING
+    if ((config.IA_TOOL_CALLING or _voz_mode)
             and _SEÑAL_AMBIGUO in parte_dinamica
             and not _es_consulta
             and not _dashboard_mode
@@ -931,9 +931,9 @@ async def procesar_con_claude_stream(
 
     # ── Construir prompt ──────────────────────────────────────────────────────
     mensaje_usuario = aplicar_alias_ferreteria(mensaje_usuario)
-    parte_estatica  = _construir_parte_estatica(memoria)
+    parte_estatica  = _construir_parte_estatica(memoria, solo_voz=_voz_mode)
     parte_dinamica  = _construir_parte_dinamica(
-        mensaje_usuario, nombre_usuario, memoria, dashboard_mode=_dashboard_mode
+        mensaje_usuario, nombre_usuario, memoria, dashboard_mode=_dashboard_mode, solo_voz=_voz_mode
     )
 
     # ── MATCH vacío: solo en Telegram, no en dashboard ────────────────────────
@@ -957,7 +957,7 @@ async def procesar_con_claude_stream(
 
     # BYPASS AMBIGÜEDAD DETERMINISTA (M-01) — versión stream
     _SEÑAL_AMBIGUO2 = "⚠️ AMBIGUO"
-    if (config.IA_TOOL_CALLING
+    if ((config.IA_TOOL_CALLING or _voz_mode)
             and _SEÑAL_AMBIGUO2 in parte_dinamica
             and not _es_consulta
             and not _dashboard_mode
