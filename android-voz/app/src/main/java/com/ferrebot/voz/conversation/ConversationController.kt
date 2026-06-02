@@ -45,7 +45,10 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
     private val recorder = AudioRecorder(app)
     private val tts = TtsManager(app)
 
-    private val sessionId = UUID.randomUUID().toString()
+    // sessionId estable entre reinicios (P0.2): lo provee SettingsStore respaldado
+    // por SharedPreferences, no un UUID nuevo por arranque. Evita que el server
+    // deje huérfana una venta pendiente bajo una llave vieja tras reiniciar la app.
+    private val sessionId = settings.sessionId
     // turn_id: UUID por utterance (telemetría P0.1). Se regenera en cada
     // empezarEscucha() — incluso en los reintentos por silencio — y se reusa para
     // TODAS las llamadas de esa utterance (transcribir, chatVoz, confirmarPago).
