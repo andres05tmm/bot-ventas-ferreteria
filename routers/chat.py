@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import json
+import asyncio
 import logging
 import os
 import secrets
@@ -916,6 +917,15 @@ async def chat_ia(
         with _estado_lock:
             ventas_pend = list(ventas_pendientes.get(_chat_id, []))
 
+        # P0.3: si la memoria se vació (server reiniciado/dormido en Railway free)
+        # pero la app reanuda con su session_id persistente, recuperar la pendiente
+        # desde Postgres. Aditivo: si no hay respaldo, ventas_pend sigue vacío.
+        if not ventas_pend and _es_voz:
+            from ventas_state import cargar_pendiente_voz
+            ventas_pend = await asyncio.to_thread(
+                cargar_pendiente_voz, req.session_id, _chat_id
+            )
+
         if not ventas_pend:
             # Telemetría de voz (P0.1): turno de confirmación sin venta pendiente.
             if _es_voz:
@@ -937,6 +947,10 @@ async def chat_ia(
         confirmacion = await registrar_ventas_con_metodo_async(
             ventas_pend, metodo, req.nombre, _chat_id
         )
+        # P0.3: venta registrada → borrar el respaldo durable (idempotente).
+        if _es_voz:
+            from ventas_state import borrar_pendiente_voz
+            await asyncio.to_thread(borrar_pendiente_voz, req.session_id)
         log.info(f"[/chat] ✅ {len(ventas_pend)} venta(s) confirmadas | método: {metodo}")
 
         # Telemetría de voz (P0.1): turno de confirmación que cerró la venta.
@@ -1045,6 +1059,10 @@ async def chat_ia(
                 conf = await registrar_ventas_con_metodo_async(
                     ventas_pend, metodo, req.nombre, _chat_id
                 )
+                # P0.3: por si la pendiente venía de un respaldo durable, limpiarlo.
+                if _es_voz:
+                    from ventas_state import borrar_pendiente_voz
+                    await asyncio.to_thread(borrar_pendiente_voz, req.session_id)
                 _n = len(ventas_pend)
                 _voz_resultado = "venta_registrada"
                 if _es_voz:
@@ -1065,6 +1083,14 @@ async def chat_ia(
                 ventas_pend = list(ventas_pendientes.get(_chat_id, []))
 
             if ventas_pend:
+                # P0.3: espejar la pendiente en Postgres (solo voz) para poder
+                # recuperarla si la app o el server se reinician antes del pago.
+                if _es_voz:
+                    from ventas_state import persistir_pendiente_voz
+                    await asyncio.to_thread(
+                        persistir_pendiente_voz,
+                        req.session_id, _chat_id, req.nombre, ventas_pend,
+                    )
                 if _es_voz:
                     # Voz: conservar el texto hablado de Claude (ya confirmó y pidió
                     # el método). Si vino vacío, narrar sin emojis ni símbolo "$".
@@ -1166,6 +1192,44 @@ async def chat_ia(
             if _vtel is not None:
                 _vtel.reset()
 
+
+@router.get("/chat/pendiente")
+async def chat_pendiente(session_id: str = "default", nombre: str = ""):
+    """
+    Estado de venta pendiente de pago para una sesión de VOZ (P0.3).
+
+    La app la consulta al iniciar/reanudar: con el session_id persistente (P0.2)
+    recupera una venta que quedó esperando método de pago aunque la app o el
+    server (Railway free tier) se hayan reiniciado. Lee memoria; si está vacía,
+    hidrata desde Postgres (read-through). Aditivo: NO altera el flujo de pago.
+
+    Retorna {pendiente, resumen, items, total}. `resumen` ya viene listo para
+    leer en voz alta ("X por Y pesos").
+    """
+    from ventas_state import cargar_pendiente_voz
+
+    _chat_id = _session_chat_id(session_id)
+    ventas_pend = await asyncio.to_thread(cargar_pendiente_voz, session_id, _chat_id)
+    if not ventas_pend:
+        return {"pendiente": False, "resumen": "", "items": [], "total": 0}
+
+    total = 0.0
+    for v in ventas_pend:
+        try:
+            total += float(v.get("total", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+    resumen = ", ".join(
+        f"{v.get('cantidad', 1)} {v.get('producto', '?')} por "
+        f"{float(v.get('total', 0) or 0):,.0f} pesos"
+        for v in ventas_pend
+    )
+    return {
+        "pendiente": True,
+        "resumen": resumen,
+        "items": ventas_pend,
+        "total": int(total),
+    }
 
 
 @router.post("/chat/stream")

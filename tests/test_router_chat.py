@@ -58,6 +58,12 @@ async def _registrar_async(*a, **kw):
     return []
 sys.modules["ventas_state"].registrar_ventas_con_metodo_async = _registrar_async
 
+# P0.3 — helpers de persistencia de pendiente de voz (default: sin pendiente).
+# Se setean siempre (pueden ya existir desde otro módulo de test).
+sys.modules["ventas_state"].cargar_pendiente_voz = lambda *a, **kw: []
+sys.modules["ventas_state"].persistir_pendiente_voz = lambda *a, **kw: None
+sys.modules["ventas_state"].borrar_pendiente_voz = lambda *a, **kw: None
+
 if "ai" not in sys.modules:
     import os as _os
     _ai = types.ModuleType("ai")
@@ -178,3 +184,47 @@ def test_briefing_retorna_texto():
     data = resp.json()
     # El briefing puede ser texto directo o un dict con campo 'briefing'/'respuesta'
     assert data is not None
+
+
+# ─────────────────────────────────────────────
+# TESTS — GET /chat/pendiente (P0.3 recuperación de venta pendiente)
+# ─────────────────────────────────────────────
+
+def test_pendiente_sin_venta_retorna_false():
+    """Sin venta pendiente para la sesión → pendiente=False, items vacíos."""
+    resp = client.get("/chat/pendiente", params={"session_id": "voz-sin"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pendiente"] is False
+    assert data["items"] == []
+    assert data["total"] == 0
+
+
+def test_pendiente_con_venta_retorna_resumen_hablado():
+    """Con pendiente → pendiente=True, total sumado y resumen listo para TTS."""
+    ventas = [{"producto": "Varsol", "cantidad": 1, "total": 26000}]
+    with patch.object(sys.modules["ventas_state"], "cargar_pendiente_voz",
+                      lambda *a, **kw: ventas):
+        resp = client.get("/chat/pendiente", params={"session_id": "voz-con"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pendiente"] is True
+    assert data["total"] == 26000
+    assert len(data["items"]) == 1
+    assert "Varsol" in data["resumen"]
+    assert "26,000 pesos" in data["resumen"]
+
+
+def test_pendiente_multi_item_suma_total():
+    """Varias ventas pendientes → el total es la suma de los items."""
+    ventas = [
+        {"producto": "Varsol", "cantidad": 1, "total": 26000},
+        {"producto": "Thinner", "cantidad": 2, "total": 16000},
+    ]
+    with patch.object(sys.modules["ventas_state"], "cargar_pendiente_voz",
+                      lambda *a, **kw: ventas):
+        resp = client.get("/chat/pendiente", params={"session_id": "voz-multi"})
+    data = resp.json()
+    assert data["pendiente"] is True
+    assert data["total"] == 42000
+    assert len(data["items"]) == 2

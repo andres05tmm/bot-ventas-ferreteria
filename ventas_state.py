@@ -589,3 +589,108 @@ async def registrar_ventas_con_metodo_async(ventas, metodo, vendedor, chat_id) -
     return await loop.run_in_executor(
         None, lambda: registrar_ventas_con_metodo(ventas, metodo, vendedor, chat_id)
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# P0.3 — Persistencia durable de la venta pendiente de VOZ (Postgres)
+# ─────────────────────────────────────────────────────────────────────────
+# `ventas_pendientes` (arriba) es el camino caliente en memoria, pero se borra si
+# el server de Railway duerme/redeploya (free tier) → la venta a medio cobrar se
+# pierde. Espejamos la pendiente del canal de voz en la tabla ventas_pendientes_voz
+# (migración 017), keyed por session_id, para restaurarla cuando la app vuelve a
+# consultar (su session_id es estable, P0.2). Aditivo y best-effort: un fallo de
+# PG NUNCA rompe el flujo de pago — solo se pierde el respaldo durable.
+
+# TTL del respaldo durable. Mayor que _TIMEOUT_PENDIENTE (5 min en memoria) a
+# propósito: el objetivo es sobrevivir un sleep de Railway, que puede durar más.
+_TIMEOUT_PENDIENTE_VOZ_PG = int(_os.getenv("PENDIENTE_VOZ_TTL_SEG", str(12 * 3600)))  # 12h
+
+
+def persistir_pendiente_voz(session_id: str, chat_id: int, vendedor: str, ventas: list) -> None:
+    """Espeja en Postgres la venta pendiente de voz (best-effort, nunca rompe el flujo)."""
+    if not session_id or not ventas:
+        return
+    try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            return
+        _db.execute(
+            """
+            INSERT INTO ventas_pendientes_voz (session_id, chat_id, vendedor, ventas, created_at)
+            VALUES (%s, %s, %s, %s::jsonb, NOW())
+            ON CONFLICT (session_id) DO UPDATE
+                SET chat_id    = EXCLUDED.chat_id,
+                    vendedor   = EXCLUDED.vendedor,
+                    ventas     = EXCLUDED.ventas,
+                    created_at = NOW()
+            """,
+            (session_id, chat_id, vendedor, _json.dumps(ventas)),
+        )
+        # Limpieza oportunista de pendientes viejas (no acumular basura).
+        _db.execute(
+            "DELETE FROM ventas_pendientes_voz "
+            "WHERE created_at < NOW() - (%s || ' seconds')::interval",
+            (str(_TIMEOUT_PENDIENTE_VOZ_PG),),
+        )
+    except Exception as e:
+        logging.getLogger("ferrebot.ventas_state").debug(f"[pendiente-voz] persistir falló: {e}")
+
+
+def cargar_pendiente_voz(session_id: str, chat_id: int) -> list:
+    """
+    Devuelve la lista de ventas pendientes de la sesión de voz.
+
+    Camino caliente: memoria. Si está vacía (cold start tras un restart de
+    Railway), hidrata desde Postgres y REPUEBLA la memoria para que el flujo de
+    confirmación (que lee memoria) la encuentre. Retorna [] si no hay pendiente
+    o si expiró el TTL.
+    """
+    with _estado_lock:
+        en_memoria = list(ventas_pendientes.get(chat_id, []))
+    if en_memoria:
+        return en_memoria
+    if not session_id:
+        return []
+    try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            return []
+        row = _db.query_one(
+            """
+            SELECT ventas
+            FROM ventas_pendientes_voz
+            WHERE session_id = %s
+              AND created_at > NOW() - (%s || ' seconds')::interval
+            """,
+            (session_id, str(_TIMEOUT_PENDIENTE_VOZ_PG)),
+        )
+    except Exception as e:
+        logging.getLogger("ferrebot.ventas_state").debug(f"[pendiente-voz] cargar falló: {e}")
+        return []
+    if not row or not row.get("ventas"):
+        return []
+    ventas = row["ventas"]
+    if isinstance(ventas, str):     # según el driver, jsonb puede venir como texto
+        try:
+            ventas = _json.loads(ventas)
+        except Exception:
+            return []
+    if not ventas:
+        return []
+    # Repoblar la memoria → confirmar_pago la encuentra sin tocar PG de nuevo.
+    with _estado_lock:
+        _guardar_pendiente(chat_id, ventas)
+    return list(ventas)
+
+
+def borrar_pendiente_voz(session_id: str) -> None:
+    """Elimina el respaldo durable tras registrar la venta (best-effort, idempotente)."""
+    if not session_id:
+        return
+    try:
+        import db as _db
+        if not _db.DB_DISPONIBLE:
+            return
+        _db.execute("DELETE FROM ventas_pendientes_voz WHERE session_id = %s", (session_id,))
+    except Exception as e:
+        logging.getLogger("ferrebot.ventas_state").debug(f"[pendiente-voz] borrar falló: {e}")
