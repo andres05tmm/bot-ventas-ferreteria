@@ -139,20 +139,25 @@ _NO_ACLARACION_VOZ = {
 }
 
 
-def _voz_pedido_original_si_aclaracion(mensaje_actual: str, historial_chat: list) -> str | None:
+def _voz_pedido_acumulado_si_aclaracion(mensaje_actual: str, historial_chat: list) -> str | None:
     """
     Voz: si el turno actual es una ACLARACIÓN a una pregunta del asistente
     (mensaje corto + el último turno del asistente fue una pregunta), devuelve el
-    PEDIDO ORIGINAL — el último mensaje del usuario en el historial. Si no aplica,
-    devuelve None.
+    PEDIDO ACUMULADO — la concatenación de TODOS los mensajes del usuario de la
+    cadena de aclaración abierta (pedido original + cada aclaración previa). Si no
+    aplica, devuelve None.
 
-    Por qué existe: la heurística multi-turno general descarta como clarificación
-    cualquier mensaje con coma (pensada para listas multi-producto). Una aclaración
-    hablada como "Blanco, normal." trae coma pero es corta y SÍ es una aclaración.
-    Sin esto, el MATCH del catálogo se arma solo con la aclaración → el prompt no
-    incluye las líneas de los OTROS productos del pedido y Claude concluye que "no
-    están". Devolviendo el pedido original, el caller reconstruye el MATCH completo
-    (misma idea que [PEDIDO ORIGINAL] del bot de Telegram).
+    Por qué acumula y no devuelve solo "el último": encadenando aclaraciones, anclar
+    en el último mensaje del usuario corre el contexto un turno hacia adelante en
+    cada vuelta y se pierde el pedido original (bug de campo: "a medida que aclaro,
+    pierde datos"). Acumulando toda la cadena, thinner/varsol/vinilos sobreviven
+    sin importar cuántas aclaraciones haya. Stateless: usa el historial que la app
+    ya manda, sin estado server-side (robusto a reinicios y réplicas).
+
+    La cadena abierta = los mensajes del usuario desde el último turno del asistente
+    que NO fue pregunta (esa frontera cierra el contexto anterior: una venta
+    registrada, una respuesta concluida, etc.). También descarta por coma NO se hace
+    (a diferencia de la heurística multi-turno general): "Blanco, normal." es válido.
     """
     if not historial_chat:
         return None
@@ -165,8 +170,7 @@ def _voz_pedido_original_si_aclaracion(mensaje_actual: str, historial_chat: list
         bare = bare.split(":", 1)[1]
     bare = bare.strip()
 
-    # Corto = pocas palabras significativas (SIN descartar por coma, a diferencia
-    # de la heurística multi-turno general).
+    # Corto = pocas palabras significativas (SIN descartar por coma).
     palabras = [w for w in bare.lower().split() if len(w) > 2]
     if not palabras or len(palabras) > 6:
         return None
@@ -176,23 +180,30 @@ def _voz_pedido_original_si_aclaracion(mensaje_actual: str, historial_chat: list
     if _msg_norm in _NO_ACLARACION_VOZ:
         return None
 
-    # El último turno del asistente debe haber sido una pregunta.
-    ultimo_assistant = None
+    # Recorrer el historial hacia atrás acumulando los mensajes del usuario de la
+    # cadena abierta. El PRIMER turno del asistente que veamos debe ser una pregunta
+    # (si no, el turno actual no es una aclaración). Frenamos en el primer turno del
+    # asistente SIN "?" (frontera del contexto anterior).
+    pedidos: list[str] = []
+    vio_pregunta = False
     for h in reversed(historial_chat):
-        if isinstance(h, dict) and h.get("role") == "assistant":
-            ultimo_assistant = h.get("content", "") or ""
-            break
-    if not ultimo_assistant or "?" not in ultimo_assistant:
+        if not isinstance(h, dict):
+            continue
+        role = h.get("role")
+        content = h.get("content", "") or ""
+        if role == "assistant":
+            if "?" not in content:
+                break                      # frontera: contexto anterior ya cerrado
+            vio_pregunta = True
+        elif role == "user":
+            c = content.strip() if isinstance(content, str) else ""
+            if c:
+                pedidos.append(c)
+    if not vio_pregunta or not pedidos:
         return None
 
-    # PEDIDO ORIGINAL = último mensaje del usuario en el historial.
-    for h in reversed(historial_chat):
-        if isinstance(h, dict) and h.get("role") == "user":
-            prev = h.get("content", "")
-            if isinstance(prev, str) and prev.strip():
-                return prev.strip()
-            break
-    return None
+    pedidos.reverse()                      # orden cronológico: original → aclaraciones
+    return " | ".join(pedidos)
 
 
 def _norm_cmp_voz(texto: str) -> str:
@@ -680,14 +691,26 @@ async def procesar_con_claude(
     # (misma idea que [PEDIDO ORIGINAL] del bot). Scoped a voz y solo si el
     # multi-turno general no actuó ya.
     if _voz_mode and not _msg_para_match_augmented:
-        _pedido_orig_voz = _voz_pedido_original_si_aclaracion(_msg_bypass, historial_chat)
-        if _pedido_orig_voz:
-            _msg_para_match = f"{_pedido_orig_voz}, {mensaje_usuario}"
+        _pedido_acum = _voz_pedido_acumulado_si_aclaracion(_msg_bypass, historial_chat)
+        if _pedido_acum:
+            # MATCH con TODOS los productos de la cadena + la aclaración actual.
+            _msg_para_match = f"{_pedido_acum} | {mensaje_usuario}"
             _msg_para_match_augmented = True
             _voz_aclaracion = True
+            # Reinyectar el pedido completo acumulado a Claude (misma idea que el bot
+            # de Telegram con [PEDIDO ORIGINAL]) para que no pierda productos al
+            # aplicar la aclaración, aunque la cadena sea larga.
+            _bare_actual = re.sub(r'^[^:]+:\s*', '', mensaje_usuario).strip()
+            _pfx_m = re.match(r'^[^:]+:\s*', mensaje_usuario)
+            _pfx = _pfx_m.group(0) if _pfx_m else ""
+            mensaje_usuario = (
+                f"{_pfx}[PEDIDO ORIGINAL: {_pedido_acum}]\n"
+                f"[RESPUESTA DEL CLIENTE: {_bare_actual}]\n"
+                f"Retoma el pedido original aplicando la respuesta del cliente."
+            )
             logging.getLogger("ferrebot.ai").info(
-                "[VOZ-ACLARACION] reconstruyo MATCH con pedido original: '%s' + '%s'",
-                _pedido_orig_voz[:60], _msg_bypass[:40],
+                "[VOZ-ACLARACION] pedido acumulado='%s' + aclaración='%s'",
+                _pedido_acum[:80], _bare_actual[:40],
             )
 
     # Aplicar override de [PEDIDO ORIGINAL:] si multi-turno no augmentó el mensaje.
