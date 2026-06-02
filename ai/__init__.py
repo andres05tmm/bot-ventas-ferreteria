@@ -894,6 +894,14 @@ async def procesar_con_claude(
         and any(kw in mensaje_usuario.lower() for kw in _kw_thinking)
     )
 
+    # Voz: pedido multi-producto (≥5 ítems) → Sonnet. Haiku tiende a perder ítems
+    # en listas largas. Aproximamos el conteo por separadores (coma / salto de línea)
+    # del mensaje actual. Scoped a voz y solo en pedidos (no consultas/varia/imagen).
+    _voz_multiproducto = (
+        _voz_mode and not _es_consulta and not _es_venta_varia and not _tiene_imagen
+        and (_msg_bypass.count(",") + _msg_bypass.count("\n") + 1) >= 5
+    )
+
     # Elegir modelo según preferencia o auto-selección
     if modelo_preferido == "sonnet":
         _modelo_no_stream = MODELO_SONNET
@@ -903,6 +911,9 @@ async def procesar_con_claude(
         # Voz: turno de aclaración = mensaje corto pero tarea COMPLEJA (reconstruir
         # el pedido completo y registrar todos los productos). Forzar Sonnet para no
         # perder productos por la concisión del mensaje (Haiku tiende a hacerlo).
+        _modelo_no_stream = MODELO_SONNET
+    elif _voz_multiproducto:
+        # Voz: pedido largo (≥5 productos) → Sonnet para no perder ítems.
         _modelo_no_stream = MODELO_SONNET
     else:
         # Voz incluida: auto-router (Sonnet solo si el mensaje es complejo/ambiguo).
