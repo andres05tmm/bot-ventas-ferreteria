@@ -799,6 +799,10 @@ async def procesar_con_claude(
         # confirmación hablada, no forzar Sonnet.
         _modelo_no_stream = _elegir_modelo(mensaje_usuario)
 
+    # Telemetría de voz (P0.1): registra el modelo elegido. No-op fuera de voz.
+    from ai import voz_telemetria as _voz_tel
+    _voz_tel.set_modelo(_modelo_no_stream)
+
     # ── BUDGET CHECK ─────────────────────────────────────────────────────────
     # Antes de gastar una llamada, verificar que el vendedor aún tenga cupo
     # diario para el modelo elegido. Si agotó, devolver un mensaje amistoso
@@ -899,6 +903,7 @@ async def procesar_con_claude(
                 respuesta.content, _existe
             )
             if _desconocidos:
+                _voz_tel.set_riel("R2")
                 logging.getLogger("ferrebot.ai").info(
                     "[R2-VOZ] producto(s) fuera de catálogo, no registro: %s", _desconocidos
                 )
@@ -937,6 +942,7 @@ async def procesar_con_claude(
                 respuesta.content, obtener_precio_para_cantidad
             )
             if _dudosas:
+                _voz_tel.set_riel("R2-precio")
                 logging.getLogger("ferrebot.ai").info(
                     "[R2-PRECIO-VOZ] total no cuadra con catálogo, no registro: %s",
                     _dudosas,
@@ -961,6 +967,7 @@ async def procesar_con_claude(
                 _repite = bool(_prev) and _norm_cmp_voz(_prev) == _norm_cmp_voz(_conf_mut)
                 _confirmado = _afirma or (_repite and not es_negacion_voz(mensaje_usuario))
                 if not _confirmado:
+                    _voz_tel.set_riel("CONFIRM-VOZ")
                     logging.getLogger("ferrebot.ai").info(
                         "[CONFIRM-VOZ] propongo y espero confirmación: %s", _conf_mut
                     )

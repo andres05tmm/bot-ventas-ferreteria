@@ -14,7 +14,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, Depends
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, Form, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union
@@ -872,6 +872,9 @@ class ChatRequest(BaseModel):
     # Canal de origen: "" = dashboard (default), "voz" = asistente de voz Android.
     # En "voz" la respuesta se optimiza para ser leída en voz alta (ver ##VOZ##).
     canal: str = ""
+    # ID único del turno de voz (UUID generado por la app). Correlaciona la fila
+    # de telemetría de /chat/transcribir con la de /chat (P0.1). Vacío fuera de voz.
+    turn_id: str = ""
 
 
 @router.post("/chat")
@@ -914,6 +917,15 @@ async def chat_ia(
             ventas_pend = list(ventas_pendientes.get(_chat_id, []))
 
         if not ventas_pend:
+            # Telemetría de voz (P0.1): turno de confirmación sin venta pendiente.
+            if _es_voz and req.turn_id:
+                from ai.voz_telemetria import registrar_turno_voz
+                await registrar_turno_voz(
+                    turn_id=req.turn_id, chat_id=_chat_id, vendedor=req.nombre,
+                    texto=f"confirmar_pago:{metodo}", session_id=req.session_id,
+                    latencia_claude_ms=int((time.perf_counter() - t0) * 1000),
+                    pendiente=False, resultado="sin_pendiente",
+                )
             return {
                 "ok": True,
                 "respuesta": ("No hay ventas pendientes." if _es_voz
@@ -926,6 +938,16 @@ async def chat_ia(
             ventas_pend, metodo, req.nombre, _chat_id
         )
         log.info(f"[/chat] ✅ {len(ventas_pend)} venta(s) confirmadas | método: {metodo}")
+
+        # Telemetría de voz (P0.1): turno de confirmación que cerró la venta.
+        if _es_voz and req.turn_id:
+            from ai.voz_telemetria import registrar_turno_voz
+            await registrar_turno_voz(
+                turn_id=req.turn_id, chat_id=_chat_id, vendedor=req.nombre,
+                texto=f"confirmar_pago:{metodo}", session_id=req.session_id,
+                latencia_claude_ms=int((time.perf_counter() - t0) * 1000),
+                pendiente=False, resultado="venta_registrada",
+            )
 
         if _es_voz:
             # Confirmación hablada: sin emojis ni símbolos, método en palabras.
@@ -948,11 +970,22 @@ async def chat_ia(
     if not req.mensaje or not req.mensaje.strip():
         raise HTTPException(status_code=400, detail="Mensaje vacío")
 
+    _chat_id = _session_chat_id(req.session_id)
+    _es_voz = (req.canal or "").strip().lower() == "voz"
+
+    # Telemetría de voz (P0.1): se inicializa ANTES del try para que el finally
+    # siempre tenga las variables, aunque el turno falle temprano. iniciar() abre
+    # el turno para capturar modelo/riel desde dentro de procesar_con_claude.
+    _voz_resultado = "respuesta"
+    _voz_pendiente = False
+    _tel = {"modelo": None, "riel": "ninguno"}
+    _vtel = None
+    if _es_voz:
+        from ai import voz_telemetria as _vtel
+        _vtel.iniciar()
+
     try:
         mensaje_formateado = f"{req.nombre}: {req.mensaje.strip()}"
-
-        _chat_id = _session_chat_id(req.session_id)
-        _es_voz = (req.canal or "").strip().lower() == "voz"
 
         if _es_voz:
             # Voz: comportamiento de bot con estilo hablado, sin contexto pesado del dashboard.
@@ -975,6 +1008,10 @@ async def chat_ia(
             contexto_extra=contexto_dash,
             vendedor_id=_vid_chat,
         )
+
+        # Telemetría de voz: leer modelo/riel capturados durante procesar_con_claude.
+        if _es_voz:
+            _tel = _vtel.capturar()
 
         # 2. Parsear acciones
         texto_limpio, acciones, _ = await procesar_acciones_async(
@@ -1009,6 +1046,7 @@ async def chat_ia(
                     ventas_pend, metodo, req.nombre, _chat_id
                 )
                 _n = len(ventas_pend)
+                _voz_resultado = "venta_registrada"
                 if _es_voz:
                     _resp = (f"Listo, venta registrada en {metodo}." if _n == 1
                              else f"Listo, {_n} ventas registradas en {metodo}.")
@@ -1047,6 +1085,8 @@ async def chat_ia(
                     texto_previo = texto_limpio.strip() if texto_limpio and texto_limpio.strip() else ""
                     texto_botones = (f"{texto_previo}\n\n" if texto_previo else "") + \
                                     f"🧾 {resumen}\n\n¿Cómo pagó?"
+                _voz_resultado = "pendiente_pago"
+                _voz_pendiente = True
                 return {
                     "ok": True,
                     "respuesta": texto_botones,
@@ -1061,6 +1101,7 @@ async def chat_ia(
 
         # 3c. Consulta de ventas en lenguaje natural
         if "[CONSULTA_VENTAS]" in respuesta_raw:
+            _voz_resultado = "consulta"
             texto_consulta, url_descarga = await _procesar_consulta_ventas(respuesta_raw)
             result = {
                 "ok":       True,
@@ -1101,8 +1142,29 @@ async def chat_ia(
         return result
 
     except Exception as e:
+        _voz_resultado = "error"
         log.error(f"[{request_id}] /chat ERROR ({int((time.perf_counter()-t0)*1000)}ms): {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        # Telemetría de voz (P0.1): una fila por turno del canal de voz, unida a la
+        # fila de /chat/transcribir por turn_id. Fail-open dentro de registrar_*.
+        if _es_voz and req.turn_id:
+            from ai.voz_telemetria import registrar_turno_voz
+            await registrar_turno_voz(
+                turn_id=req.turn_id,
+                chat_id=_chat_id,
+                vendedor=req.nombre,
+                texto=req.mensaje.strip(),
+                session_id=req.session_id,
+                modelo=_tel.get("modelo"),
+                riel=_tel.get("riel"),
+                latencia_claude_ms=int((time.perf_counter() - t0) * 1000),
+                pendiente=_voz_pendiente,
+                resultado=_voz_resultado,
+            )
+            if _vtel is not None:
+                _vtel.reset()
 
 
 
@@ -1561,103 +1623,152 @@ async def reporte_datos(periodo: str = Query(default="mes", pattern="^(semana|me
 
 
 @router.post("/chat/transcribir")
-async def transcribir_audio(audio: UploadFile = File(...)):
+async def transcribir_audio(
+    audio: UploadFile = File(...),
+    turn_id: str = Form(""),
+    canal: str = Form(""),
+):
     """
-    Recibe un archivo de audio desde el dashboard, lo transcribe con Whisper
-    y devuelve el texto. El frontend luego envía ese texto al /chat/stream.
+    Recibe un archivo de audio (dashboard o voz), lo transcribe con Whisper y
+    devuelve el texto. El frontend luego envía ese texto al /chat o /chat/stream.
+
+    Telemetría de voz (P0.1): cuando canal="voz" y viene turn_id, registra una
+    fila por etapa de STT en audio_logs (transcrito / silencio / error), unida a
+    la fila de /chat por turn_id. Fail-open y solo activo para voz (dashboard
+    intacto).
     """
-    import tempfile, os
+    import tempfile, os, time as _time
 
-    if not config.OPENAI_API_KEY:
-        raise HTTPException(status_code=503, detail="Transcripción no disponible (sin clave OpenAI)")
+    _es_voz = (canal or "").strip().lower() == "voz"
+    _t0 = _time.perf_counter()
+    # Estado de telemetría de STT; el finally externo lo persiste para voz.
+    _tel_texto = ""
+    _tel_dur: float | None = None
+    _tel_nsp: float | None = None
+    _tel_descartado: bool | None = None
+    _tel_resultado = "error"
 
-    # Validar que sea audio
-    content_type = audio.content_type or ""
-    if not (content_type.startswith("audio/") or audio.filename.endswith((".ogg", ".webm", ".mp3", ".wav", ".m4a"))):
-        raise HTTPException(status_code=400, detail="Formato de audio no soportado")
-
-    # Leer y validar tamaño (~90s de audio webm/opus ≈ 1.5-2 MB, margen hasta 3 MB)
-    MAX_AUDIO_BYTES = 3 * 1024 * 1024  # 3 MB
-    audio_bytes = await audio.read()
-    if len(audio_bytes) > MAX_AUDIO_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"Audio demasiado largo (máx ~90 segundos). Tamaño: {len(audio_bytes) / 1024 / 1024:.1f} MB"
+    async def _registrar_stt() -> None:
+        if not (_es_voz and turn_id):
+            return
+        from ai.voz_telemetria import registrar_turno_voz
+        await registrar_turno_voz(
+            turn_id=turn_id, canal="voz", texto=_tel_texto,
+            duracion_seg=_tel_dur, no_speech_prob=_tel_nsp,
+            descartado_silencio=_tel_descartado,
+            latencia_stt_ms=int((_time.perf_counter() - _t0) * 1000),
+            resultado=_tel_resultado,
         )
-    suffix = "." + (audio.filename.rsplit(".", 1)[-1] if "." in audio.filename else "webm")
-
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(audio_bytes)
-        ruta_tmp = tmp.name
 
     try:
-        import asyncio
+        if not config.OPENAI_API_KEY:
+            raise HTTPException(status_code=503, detail="Transcripción no disponible (sin clave OpenAI)")
 
-        # Prompt de vocabulario de ferretería para Whisper (jerga: "drywall",
-        # "thinner", "puntillas", fracciones...). Reusa el builder del bot para
-        # igualar la precisión del canal de Telegram. Fail-open: si falla, se
-        # transcribe sin prompt como antes.
-        _whisper_prompt = ""
+        # Validar que sea audio
+        content_type = audio.content_type or ""
+        if not (content_type.startswith("audio/") or audio.filename.endswith((".ogg", ".webm", ".mp3", ".wav", ".m4a"))):
+            raise HTTPException(status_code=400, detail="Formato de audio no soportado")
+
+        # Leer y validar tamaño (~90s de audio webm/opus ≈ 1.5-2 MB, margen hasta 3 MB)
+        MAX_AUDIO_BYTES = 3 * 1024 * 1024  # 3 MB
+        audio_bytes = await audio.read()
+        if len(audio_bytes) > MAX_AUDIO_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Audio demasiado largo (máx ~90 segundos). Tamaño: {len(audio_bytes) / 1024 / 1024:.1f} MB"
+            )
+        suffix = "." + (audio.filename.rsplit(".", 1)[-1] if "." in audio.filename else "webm")
+
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(audio_bytes)
+            ruta_tmp = tmp.name
+
         try:
-            from handlers.mensajes import _build_whisper_prompt
-            _whisper_prompt = await asyncio.to_thread(_build_whisper_prompt)
-        except Exception as _wp_e:
-            logging.getLogger("ferrebot.api").warning(
-                f"[/chat/transcribir] sin prompt de vocabulario: {_wp_e}"
-            )
+            import asyncio
 
-        def _transcribir():
-            with open(ruta_tmp, "rb") as f:
-                # verbose_json: trae segments con no_speech_prob/avg_logprob, que
-                # usamos para descartar silencio que Whisper alucina como texto.
-                _kwargs = {
-                    "model": "whisper-1", "file": f, "language": "es",
-                    "response_format": "verbose_json",
-                }
-                if _whisper_prompt:
-                    _kwargs["prompt"] = _whisper_prompt
-                return config.openai_client.audio.transcriptions.create(**_kwargs)
-
-        resultado = None
-        for _tr_intento in range(3):
+            # Prompt de vocabulario de ferretería para Whisper (jerga: "drywall",
+            # "thinner", "puntillas", fracciones...). Reusa el builder del bot para
+            # igualar la precisión del canal de Telegram. Fail-open: si falla, se
+            # transcribe sin prompt como antes.
+            _whisper_prompt = ""
             try:
-                resultado = await asyncio.to_thread(_transcribir)
-                break
-            except Exception as _tr_e:
-                if _tr_intento < 2:
-                    logging.getLogger("ferrebot.api").warning(
-                        f"[/chat/transcribir] Whisper reintento {_tr_intento + 1}/2 en 2s: {_tr_e}"
-                    )
-                    await asyncio.sleep(2)
-                else:
-                    logging.getLogger("ferrebot.api").error(
-                        f"[/chat/transcribir] Whisper sin respuesta tras 3 intentos: {_tr_e}"
-                    )
-                    raise HTTPException(
-                        status_code=503,
-                        detail="El asistente IA no está disponible ahora. Intenta de nuevo en unos momentos.",
-                    )
+                from handlers.mensajes import _build_whisper_prompt
+                _whisper_prompt = await asyncio.to_thread(_build_whisper_prompt)
+            except Exception as _wp_e:
+                logging.getLogger("ferrebot.api").warning(
+                    f"[/chat/transcribir] sin prompt de vocabulario: {_wp_e}"
+                )
 
-        texto = (resultado.text or "").strip()
+            def _transcribir():
+                with open(ruta_tmp, "rb") as f:
+                    # verbose_json: trae segments con no_speech_prob/avg_logprob, que
+                    # usamos para descartar silencio que Whisper alucina como texto.
+                    _kwargs = {
+                        "model": "whisper-1", "file": f, "language": "es",
+                        "response_format": "verbose_json",
+                    }
+                    if _whisper_prompt:
+                        _kwargs["prompt"] = _whisper_prompt
+                    return config.openai_client.audio.transcriptions.create(**_kwargs)
 
-        # ── Filtro anti-silencio/alucinación ─────────────────────────────────
-        # Whisper, sobre audio mudo o ruido (y peor con el prompt de vocabulario),
-        # inventa texto de ferretería → "ventas fantasma" cuando el VAD captura
-        # silencio o el eco del TTS. Si los segmentos delatan silencio, se descarta.
-        _segs = []
-        for _s in (getattr(resultado, "segments", None) or []):
-            _segs.append({
-                "no_speech_prob": getattr(_s, "no_speech_prob", None),
-                "avg_logprob":    getattr(_s, "avg_logprob", None),
-            })
-        from ai.voz_filtros import es_transcripcion_silencio
-        if es_transcripcion_silencio(texto, _segs):
-            logging.getLogger("ferrebot.api").info(
-                "[/chat/transcribir] descartado como silencio/alucinación: %r", texto
-            )
-            return {"ok": False, "texto": ""}
+            resultado = None
+            for _tr_intento in range(3):
+                try:
+                    resultado = await asyncio.to_thread(_transcribir)
+                    break
+                except Exception as _tr_e:
+                    if _tr_intento < 2:
+                        logging.getLogger("ferrebot.api").warning(
+                            f"[/chat/transcribir] Whisper reintento {_tr_intento + 1}/2 en 2s: {_tr_e}"
+                        )
+                        await asyncio.sleep(2)
+                    else:
+                        logging.getLogger("ferrebot.api").error(
+                            f"[/chat/transcribir] Whisper sin respuesta tras 3 intentos: {_tr_e}"
+                        )
+                        raise HTTPException(
+                            status_code=503,
+                            detail="El asistente IA no está disponible ahora. Intenta de nuevo en unos momentos.",
+                        )
 
-        return {"ok": True, "texto": texto}
+            texto = (resultado.text or "").strip()
+            # Telemetría: duración del audio (verbose_json) y no_speech_prob promedio.
+            _tel_dur = getattr(resultado, "duration", None)
+
+            # ── Filtro anti-silencio/alucinación ─────────────────────────────────
+            # Whisper, sobre audio mudo o ruido (y peor con el prompt de vocabulario),
+            # inventa texto de ferretería → "ventas fantasma" cuando el VAD captura
+            # silencio o el eco del TTS. Si los segmentos delatan silencio, se descarta.
+            _segs = []
+            for _s in (getattr(resultado, "segments", None) or []):
+                _segs.append({
+                    "no_speech_prob": getattr(_s, "no_speech_prob", None),
+                    "avg_logprob":    getattr(_s, "avg_logprob", None),
+                })
+            _probs = [s["no_speech_prob"] for s in _segs
+                      if isinstance(s.get("no_speech_prob"), (int, float))]
+            _tel_nsp = (sum(_probs) / len(_probs)) if _probs else None
+
+            from ai.voz_filtros import es_transcripcion_silencio
+            if es_transcripcion_silencio(texto, _segs):
+                logging.getLogger("ferrebot.api").info(
+                    "[/chat/transcribir] descartado como silencio/alucinación: %r", texto
+                )
+                _tel_texto = texto
+                _tel_descartado = True
+                _tel_resultado = "silencio"
+                return {"ok": False, "texto": ""}
+
+            _tel_texto = texto
+            _tel_descartado = False
+            _tel_resultado = "transcrito"
+            return {"ok": True, "texto": texto}
+
+        finally:
+            try:
+                os.unlink(ruta_tmp)
+            except Exception:
+                pass
 
     except HTTPException:
         raise
@@ -1665,7 +1776,5 @@ async def transcribir_audio(audio: UploadFile = File(...)):
         logging.getLogger("ferrebot.api").error(f"[/chat/transcribir] {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        try:
-            os.unlink(ruta_tmp)
-        except Exception:
-            pass
+        # Persistir la telemetría de STT pase lo que pase (transcrito/silencio/error).
+        await _registrar_stt()
