@@ -921,3 +921,20 @@ def test_voz_aclaracion_mensaje_largo_no_aplica():
 
 def test_voz_aclaracion_sin_historial_devuelve_none():
     assert _voz_pedido_acumulado_si_aclaracion("Blanco, normal.", []) is None
+
+
+# ─────────────────────────────────────────────
+# Alias — "bar sol" (Whisper parte "varsol" en dos palabras)
+# ─────────────────────────────────────────────
+
+def test_alias_bar_sol_a_varsol():
+    from alias_manager import aplicar_aliases_dinamicos
+    out = aplicar_aliases_dinamicos("dame un litro de bar sol")
+    assert "varsol" in out.lower()
+    assert "bar sol" not in out.lower()
+
+
+def test_alias_barsol_una_palabra_sigue_funcionando():
+    # No romper la variante de una sola palabra que ya existía.
+    from alias_manager import aplicar_aliases_dinamicos
+    assert "varsol" in aplicar_aliases_dinamicos("un barsol").lower()

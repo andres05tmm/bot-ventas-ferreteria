@@ -29,6 +29,7 @@ _ALIASES_DEFAULT: dict[str, str] = {
     "tinner":       "thinner",
     "barsol":       "varsol",
     "barso":        "varsol",
+    "bar sol":      "varsol",   # Whisper a veces parte "varsol" en dos palabras
     # ── Sellantes / impermeabilizantes ────────────────────────
     "sellador":     "sellante",
     "pagaternit":   "pegaternit",
