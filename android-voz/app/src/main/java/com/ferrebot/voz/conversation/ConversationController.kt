@@ -311,7 +311,11 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
     private fun recordarTurno(usuario: String, asistente: String) {
         historial.add("user" to usuario)
         historial.add("assistant" to asistente)
-        while (historial.size > 12) historial.removeAt(0)
+        // Cap alto (12 turnos): el backend reconstruye el pedido acumulando los
+        // mensajes del usuario de la cadena de aclaración. Si el cap evicta el
+        // pedido original a mitad de una cadena larga, el backend ya no lo ve y
+        // pierde productos. 24 entradas dan margen para pedido + varias aclaraciones.
+        while (historial.size > 24) historial.removeAt(0)
     }
 
     /** Interpreta el método de pago dicho por voz. Null si no lo reconoce. */
