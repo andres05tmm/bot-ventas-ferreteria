@@ -67,6 +67,12 @@ fun VozScreen(
         ui.error?.let { snackbar.showSnackbar(it) }
     }
 
+    // P0.3: al abrir la app, recuperar una venta que quedó esperando pago
+    // (perdida al cerrar/reabrir o por reinicio del server).
+    LaunchedEffect(Unit) {
+        vm.verificarPendiente()
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {

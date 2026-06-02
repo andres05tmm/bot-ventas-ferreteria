@@ -81,6 +81,39 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
         _ui.value = _ui.value.copy(manosLibres = !_ui.value.manosLibres)
     }
 
+    /**
+     * P0.3: al iniciar/reanudar, preguntar al server si quedó una venta esperando
+     * pago para este sessionId (estable entre reinicios, P0.2). Si la hay, restaura
+     * el estado "esperando pago" y lo avisa por voz, de modo que el próximo turno
+     * (en manos libres, tras hablar) sea el método de pago. Recupera ventas que se
+     * perdían al cerrar/reabrir la app o si el server de Railway se reinició.
+     *
+     * Best-effort: si no hay red, server caído o no hay pendiente, no hace nada.
+     * No interrumpe un turno en curso (solo actúa desde IDLE).
+     */
+    fun verificarPendiente() {
+        if (!settings.configurado) return
+        if (_ui.value.estado != Estado.IDLE) return
+        viewModelScope.launch {
+            val pend = try {
+                withContext(Dispatchers.IO) {
+                    ApiClient(settings.serverUrl).consultarPendiente(sessionId)
+                }
+            } catch (e: Exception) {
+                null
+            }
+            if (pend == null || !pend.pendiente) return@launch
+            // Re-chequear tras el await: si el usuario ya arrancó un turno, no pisar.
+            if (_ui.value.estado != Estado.IDLE) return@launch
+            esperandoPago = true
+            loopActivo = _ui.value.manosLibres
+            intentosVacios = 0
+            val aviso = "Tenés una venta pendiente: ${pend.resumen}. ¿Cómo pagás?"
+            _ui.value = _ui.value.copy(estado = Estado.HABLANDO, respuesta = aviso, error = null)
+            tts.speak(aviso)
+        }
+    }
+
     /** Tap del micrófono. */
     fun onMicTap() {
         when (_ui.value.estado) {

@@ -26,6 +26,13 @@ data class ChatResult(
     val pendiente: Boolean,
 )
 
+/** Venta que quedó esperando método de pago para una sesión (P0.3). */
+data class PendienteResult(
+    val pendiente: Boolean,
+    val resumen: String,   // listo para leer en voz: "X por Y pesos"
+    val total: Int,
+)
+
 /**
  * Cliente HTTP del cerebro de FerreBot. NO reimplementa IA: solo llama a los
  * endpoints que ya usa el dashboard.
@@ -144,6 +151,43 @@ class ApiClient(baseUrl: String) {
                         ventas = acc?.optInt("ventas", 0) ?: 0,
                         gastos = acc?.optInt("gastos", 0) ?: 0,
                         pendiente = json.optBoolean("pendiente", false),
+                    )
+                    if (cont.isActive) cont.resume(res)
+                }
+            }
+        })
+    }
+
+    /**
+     * Consulta si quedó una venta esperando método de pago para `sessionId` (P0.3).
+     * Con el sessionId persistente (P0.2) recupera una venta perdida por reinicio
+     * de la app o del server (Railway free). El session_id es un UUID (URL-safe),
+     * por eso se concatena directo sin encoder extra.
+     */
+    suspend fun consultarPendiente(sessionId: String): PendienteResult = suspendCancellableCoroutine { cont ->
+        val req = Request.Builder()
+            .url(url("/chat/pendiente?session_id=$sessionId"))
+            .get()
+            .build()
+        val call = client.newCall(req)
+        cont.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val txt = it.body?.string().orEmpty()
+                    if (!it.isSuccessful) {
+                        if (cont.isActive) cont.resumeWithException(RuntimeException("HTTP ${it.code}"))
+                        return
+                    }
+                    val json = runCatching { JSONObject(txt) }.getOrNull()
+                    val res = PendienteResult(
+                        pendiente = json?.optBoolean("pendiente", false) ?: false,
+                        resumen = json?.optString("resumen", "").orEmpty(),
+                        total = json?.optInt("total", 0) ?: 0,
                     )
                     if (cont.isActive) cont.resume(res)
                 }
