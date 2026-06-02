@@ -131,6 +131,70 @@ def es_negacion_voz(mensaje: str) -> bool:
     return any(w in _NEGACIONES_VOZ for w in t.split())
 
 
+# Términos cortos que NO son aclaraciones de producto (se manejan en otros flujos).
+_NO_ACLARACION_VOZ = {
+    "hola", "buenas", "gracias", "ok", "vale", "listo", "dale", "perfecto",
+    "si", "no", "ya", "claro", "chao", "adios", "bye",
+    "efectivo", "transferencia", "datafono",
+}
+
+
+def _voz_pedido_original_si_aclaracion(mensaje_actual: str, historial_chat: list) -> str | None:
+    """
+    Voz: si el turno actual es una ACLARACIÓN a una pregunta del asistente
+    (mensaje corto + el último turno del asistente fue una pregunta), devuelve el
+    PEDIDO ORIGINAL — el último mensaje del usuario en el historial. Si no aplica,
+    devuelve None.
+
+    Por qué existe: la heurística multi-turno general descarta como clarificación
+    cualquier mensaje con coma (pensada para listas multi-producto). Una aclaración
+    hablada como "Blanco, normal." trae coma pero es corta y SÍ es una aclaración.
+    Sin esto, el MATCH del catálogo se arma solo con la aclaración → el prompt no
+    incluye las líneas de los OTROS productos del pedido y Claude concluye que "no
+    están". Devolviendo el pedido original, el caller reconstruye el MATCH completo
+    (misma idea que [PEDIDO ORIGINAL] del bot de Telegram).
+    """
+    if not historial_chat:
+        return None
+
+    # Mensaje actual sin flags ni prefijo "Nombre:".
+    bare = mensaje_actual or ""
+    for flag in ("##VOZ##", "##DASHBOARD##", "##BOT##"):
+        bare = bare.replace(flag, "")
+    if ":" in bare:
+        bare = bare.split(":", 1)[1]
+    bare = bare.strip()
+
+    # Corto = pocas palabras significativas (SIN descartar por coma, a diferencia
+    # de la heurística multi-turno general).
+    palabras = [w for w in bare.lower().split() if len(w) > 2]
+    if not palabras or len(palabras) > 6:
+        return None
+
+    # Excluir saludos/afirmaciones/negaciones/métodos de pago.
+    _msg_norm = re.sub(r"[^a-z0-9 ]", " ", _normalizar(bare)).strip()
+    if _msg_norm in _NO_ACLARACION_VOZ:
+        return None
+
+    # El último turno del asistente debe haber sido una pregunta.
+    ultimo_assistant = None
+    for h in reversed(historial_chat):
+        if isinstance(h, dict) and h.get("role") == "assistant":
+            ultimo_assistant = h.get("content", "") or ""
+            break
+    if not ultimo_assistant or "?" not in ultimo_assistant:
+        return None
+
+    # PEDIDO ORIGINAL = último mensaje del usuario en el historial.
+    for h in reversed(historial_chat):
+        if isinstance(h, dict) and h.get("role") == "user":
+            prev = h.get("content", "")
+            if isinstance(prev, str) and prev.strip():
+                return prev.strip()
+            break
+    return None
+
+
 def _norm_cmp_voz(texto: str) -> str:
     """Normaliza un texto para comparar dos respuestas habladas (propuestas)."""
     return re.sub(r"[^a-z0-9]+", " ", _normalizar(texto or "")).strip()
@@ -541,6 +605,7 @@ async def procesar_con_claude(
     # ese turno fuera de horas atrás o de otro vendedor en el mismo grupo.
     _msg_para_match = mensaje_usuario
     _msg_para_match_augmented = False
+    _voz_aclaracion = False   # turno de aclaración en voz → reconstruir MATCH + Sonnet
     if historial_chat:
         _palabras_match = [w for w in _msg_bypass.lower().split() if len(w) > 2]
         _es_clarificacion = len(_palabras_match) <= 6 and "," not in _msg_bypass
@@ -606,6 +671,24 @@ async def procesar_con_claude(
                             "'%s' → '%s'", _msg_para_match[:80], mensaje_usuario[:80]
                         )
                     break
+
+    # ── FIX VOZ — aclaración con coma ("Blanco, normal.") ─────────────────────
+    # La heurística multi-turno de arriba descarta como clarificación cualquier
+    # mensaje con coma (pensada para listas multi-producto), así que en voz el MATCH
+    # quedaba SOLO con la respuesta corta y Claude decía que los OTROS productos del
+    # pedido "no están". Reconstruimos el MATCH con el pedido original + la respuesta
+    # (misma idea que [PEDIDO ORIGINAL] del bot). Scoped a voz y solo si el
+    # multi-turno general no actuó ya.
+    if _voz_mode and not _msg_para_match_augmented:
+        _pedido_orig_voz = _voz_pedido_original_si_aclaracion(_msg_bypass, historial_chat)
+        if _pedido_orig_voz:
+            _msg_para_match = f"{_pedido_orig_voz}, {mensaje_usuario}"
+            _msg_para_match_augmented = True
+            _voz_aclaracion = True
+            logging.getLogger("ferrebot.ai").info(
+                "[VOZ-ACLARACION] reconstruyo MATCH con pedido original: '%s' + '%s'",
+                _pedido_orig_voz[:60], _msg_bypass[:40],
+            )
 
     # Aplicar override de [PEDIDO ORIGINAL:] si multi-turno no augmentó el mensaje.
     if not _msg_para_match_augmented and _override_msg_para_match is not None:
@@ -793,6 +876,11 @@ async def procesar_con_claude(
         _modelo_no_stream = MODELO_SONNET
     elif modelo_preferido == "haiku":
         _modelo_no_stream = MODELO_HAIKU
+    elif _voz_aclaracion:
+        # Voz: turno de aclaración = mensaje corto pero tarea COMPLEJA (reconstruir
+        # el pedido completo y registrar todos los productos). Forzar Sonnet para no
+        # perder productos por la concisión del mensaje (Haiku tiende a hacerlo).
+        _modelo_no_stream = MODELO_SONNET
     else:
         # Voz incluida: auto-router (Sonnet solo si el mensaje es complejo/ambiguo).
         # El costo por turno de voz es ínfimo igual; la precisión la da la

@@ -37,7 +37,7 @@ from ai.tools import (
     TOOLS, TOOLS_VOZ, TOOL_REGISTRAR_VENTA, TOOL_REGISTRAR_GASTO,
     TOOL_REGISTRAR_FIADO, TOOL_ABONAR_FIADO, TOOL_CREAR_CLIENTE,
 )
-from ai import es_afirmacion_voz, es_negacion_voz
+from ai import es_afirmacion_voz, es_negacion_voz, _voz_pedido_original_si_aclaracion
 
 _RE_CLIENTE = re.compile(r"\[CLIENTE_NUEVO\](.*?)\[/CLIENTE_NUEVO\]", re.DOTALL)
 
@@ -835,3 +835,56 @@ def test_no_ambiguo_en_mensaje_augmentado_multiturno():
     # El "80" en el mensaje debe desactivar la ambigüedad aunque el prefijo "Test:" esté presente.
     cands = _cands("Lija N°60", "Lija N°80", "Lija N°100", "Lija N°120")
     assert _detectar_ambiguedad_variante(cands, "Test: 1 lija, Test: 80") == ""
+
+
+# ─────────────────────────────────────────────
+# Voz — turno de aclaración: reconstruir MATCH con el pedido original
+# ─────────────────────────────────────────────
+# Bug de campo: pedido con thinner+varsol+vinilo ambiguo; al aclarar el vinilo
+# con "Blanco, normal." (¡tiene coma!), la heurística multi-turno general lo
+# descartaba (descarta por coma) y el MATCH quedaba solo con la aclaración →
+# Claude decía que thinner/varsol "no están". El helper debe devolver el pedido
+# original para que el caller reconstruya el MATCH completo.
+
+_PEDIDO_VINILO = (
+    "Andrés: 1 galón de thinner, 1 galón de varsol, "
+    "medio galón de vinilo tipo 1 blanco, 1 galón de esmalte blanco"
+)
+_HIST_ACLARACION = [
+    {"role": "user", "content": _PEDIDO_VINILO},
+    {"role": "assistant", "content": "¿El vinilo de qué tipo? Tengo tipo 1 y tipo 2."},
+]
+
+
+def test_voz_aclaracion_con_coma_devuelve_pedido_original():
+    # "Blanco, normal." es corto pero trae coma: igual es aclaración.
+    pedido = _voz_pedido_original_si_aclaracion("Blanco, normal.", _HIST_ACLARACION)
+    assert pedido is not None
+    # thinner y varsol DEBEN sobrevivir en el pedido reconstruido para el MATCH.
+    assert "thinner" in pedido.lower()
+    assert "varsol" in pedido.lower()
+
+
+def test_voz_aclaracion_sin_pregunta_previa_devuelve_none():
+    # Si el último turno del asistente no fue una pregunta, no es aclaración.
+    hist = [
+        {"role": "user", "content": _PEDIDO_VINILO},
+        {"role": "assistant", "content": "Listo, registrado."},
+    ]
+    assert _voz_pedido_original_si_aclaracion("Blanco, normal.", hist) is None
+
+
+def test_voz_aclaracion_saludo_y_pago_no_aplican():
+    # Saludos y métodos de pago no son aclaraciones de producto.
+    assert _voz_pedido_original_si_aclaracion("Hola", _HIST_ACLARACION) is None
+    assert _voz_pedido_original_si_aclaracion("Efectivo", _HIST_ACLARACION) is None
+
+
+def test_voz_aclaracion_mensaje_largo_no_aplica():
+    # Un pedido nuevo y largo no es una aclaración corta.
+    largo = "1 galón de thinner, 2 brochas, 3 rodillos, 5 metros de manguera y diez tornillos"
+    assert _voz_pedido_original_si_aclaracion(largo, _HIST_ACLARACION) is None
+
+
+def test_voz_aclaracion_sin_historial_devuelve_none():
+    assert _voz_pedido_original_si_aclaracion("Blanco, normal.", []) is None
