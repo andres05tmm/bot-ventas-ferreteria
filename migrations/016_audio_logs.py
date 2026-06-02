@@ -83,4 +83,7 @@ def run():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    if not _db.init_db():
+        log.error("❌ No se pudo conectar a la DB. Verifica DATABASE_URL.")
+        raise SystemExit(1)
     run()

@@ -45,8 +45,12 @@ class ApiClient(baseUrl: String) {
 
     private fun url(path: String) = base + path
 
-    /** Sube el audio a /chat/transcribir y devuelve el texto transcrito. */
-    suspend fun transcribir(audio: File): String = suspendCancellableCoroutine { cont ->
+    /**
+     * Sube el audio a /chat/transcribir y devuelve el texto transcrito.
+     * `turnId` + canal="voz" permiten correlacionar la telemetría de STT (P0.1)
+     * con la fila de /chat del mismo turno.
+     */
+    suspend fun transcribir(audio: File, turnId: String): String = suspendCancellableCoroutine { cont ->
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart(
@@ -54,6 +58,8 @@ class ApiClient(baseUrl: String) {
                 audio.name,
                 audio.asRequestBody("audio/mp4".toMediaType()),
             )
+            .addFormDataPart("turn_id", turnId)
+            .addFormDataPart("canal", "voz")
             .build()
         val req = Request.Builder().url(url("/chat/transcribir")).post(body).build()
         val call = client.newCall(req)
@@ -90,6 +96,7 @@ class ApiClient(baseUrl: String) {
         mensaje: String,
         nombre: String,
         sessionId: String,
+        turnId: String,
         historial: List<Pair<String, String>>,
         @Suppress("UNUSED_PARAMETER") onChunk: (String) -> Unit,
     ): ChatResult = suspendCancellableCoroutine { cont ->
@@ -102,6 +109,7 @@ class ApiClient(baseUrl: String) {
             .put("nombre", nombre.ifBlank { "Vendedor" })
             .put("session_id", sessionId)
             .put("canal", "voz")
+            .put("turn_id", turnId)        // correlación de telemetría por turno (P0.1)
             .put("historial", histArray)
 
         // Voz usa el endpoint NO-streaming /chat: la app habla la respuesta completa
@@ -152,12 +160,14 @@ class ApiClient(baseUrl: String) {
         metodo: String,
         nombre: String,
         sessionId: String,
+        turnId: String,
     ): ChatResult = suspendCancellableCoroutine { cont ->
         val payload = JSONObject()
             .put("mensaje", "")               // requerido por el modelo; no se usa en esta rama
             .put("nombre", nombre.ifBlank { "Vendedor" })
             .put("session_id", sessionId)
             .put("canal", "voz")
+            .put("turn_id", turnId)           // correlación de telemetría por turno (P0.1)
             .put("confirmar_pago", metodo)
         val req = Request.Builder()
             .url(url("/chat"))

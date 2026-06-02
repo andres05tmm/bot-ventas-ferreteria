@@ -46,6 +46,10 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
     private val tts = TtsManager(app)
 
     private val sessionId = UUID.randomUUID().toString()
+    // turn_id: UUID por utterance (telemetría P0.1). Se regenera en cada
+    // empezarEscucha() — incluso en los reintentos por silencio — y se reusa para
+    // TODAS las llamadas de esa utterance (transcribir, chatVoz, confirmarPago).
+    private var turnId: String = ""
     private val historial = mutableListOf<Pair<String, String>>()  // (role, content)
     private var esperandoPago = false   // Fase 4: el próximo turno es el método de pago
     private var intentosVacios = 0      // blancos seguidos (silencio) en manos libres
@@ -106,6 +110,9 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
     }
 
     private fun empezarEscucha() {
+        // Nuevo turn_id por utterance: correlaciona la fila de /chat/transcribir
+        // con la de /chat de este mismo turno (P0.1).
+        turnId = UUID.randomUUID().toString()
         try {
             recorder.start()
             _ui.value = _ui.value.copy(
@@ -187,7 +194,10 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
         turnoJob = viewModelScope.launch {
             try {
                 val api = ApiClient(settings.serverUrl)
-                val texto = withContext(Dispatchers.IO) { api.transcribir(audio) }
+                // turn_id de esta utterance: el mismo para transcribir y para la
+                // llamada de /chat que dispare (chatVoz o confirmarPago).
+                val turnoId = turnId
+                val texto = withContext(Dispatchers.IO) { api.transcribir(audio, turnoId) }
                 audio.delete()
 
                 if (texto.isBlank()) {
@@ -219,7 +229,7 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
                     }
                     _ui.value = _ui.value.copy(estado = Estado.PENSANDO, transcripcion = texto)
                     val result = withContext(Dispatchers.IO) {
-                        api.confirmarPago(metodo, settings.vendedor, sessionId)
+                        api.confirmarPago(metodo, settings.vendedor, sessionId, turnoId)
                     }
                     esperandoPago = false
                     recordarTurno(texto, result.respuesta)
@@ -235,6 +245,7 @@ class ConversationController(app: Application) : AndroidViewModel(app) {
                         mensaje = texto,
                         nombre = settings.vendedor,
                         sessionId = sessionId,
+                        turnId = turnoId,
                         historial = historial.toList(),
                         onChunk = { /* feedback incremental opcional */ },
                     )

@@ -918,7 +918,7 @@ async def chat_ia(
 
         if not ventas_pend:
             # Telemetría de voz (P0.1): turno de confirmación sin venta pendiente.
-            if _es_voz and req.turn_id:
+            if _es_voz:
                 from ai.voz_telemetria import registrar_turno_voz
                 await registrar_turno_voz(
                     turn_id=req.turn_id, chat_id=_chat_id, vendedor=req.nombre,
@@ -940,7 +940,7 @@ async def chat_ia(
         log.info(f"[/chat] ✅ {len(ventas_pend)} venta(s) confirmadas | método: {metodo}")
 
         # Telemetría de voz (P0.1): turno de confirmación que cerró la venta.
-        if _es_voz and req.turn_id:
+        if _es_voz:
             from ai.voz_telemetria import registrar_turno_voz
             await registrar_turno_voz(
                 turn_id=req.turn_id, chat_id=_chat_id, vendedor=req.nombre,
@@ -1149,7 +1149,7 @@ async def chat_ia(
     finally:
         # Telemetría de voz (P0.1): una fila por turno del canal de voz, unida a la
         # fila de /chat/transcribir por turn_id. Fail-open dentro de registrar_*.
-        if _es_voz and req.turn_id:
+        if _es_voz:
             from ai.voz_telemetria import registrar_turno_voz
             await registrar_turno_voz(
                 turn_id=req.turn_id,
@@ -1649,7 +1649,9 @@ async def transcribir_audio(
     _tel_resultado = "error"
 
     async def _registrar_stt() -> None:
-        if not (_es_voz and turn_id):
+        # turn_id es solo para correlación: no gatea el logging (el id puede venir
+        # vacío). Solo se exige canal="voz" para no loguear el dashboard.
+        if not _es_voz:
             return
         from ai.voz_telemetria import registrar_turno_voz
         await registrar_turno_voz(
