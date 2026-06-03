@@ -837,6 +837,58 @@ def test_no_ambiguo_en_mensaje_augmentado_multiturno():
     assert _detectar_ambiguedad_variante(cands, "Test: 1 lija, Test: 80") == ""
 
 
+# ── Variante DEFAULT — base sin calificador ──────────────────────────────────
+# Bug de campo: "vinilo tipo 2 blanco" preguntaba "¿blanco hueso, manzana…?" aunque
+# "blanco" ya es la base. El base en catálogo es "…T2 Blanco" (sin calificador) y las
+# variantes añaden Almendra/Hueso/Manzana.
+
+def test_default_base_sin_calificador_no_pregunta():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    cands = _cands(
+        "Vinilo Davinci T2 Blanco",
+        "Vinilo Davinci T2 Blanco Almendra",
+        "Vinilo Davinci T2 Blanco Hueso",
+        "Vinilo Davinci T2 Blanco Manzana",
+    )
+    # "blanco" es la base → resuelve a "…T2 Blanco" sin preguntar.
+    assert _detectar_ambiguedad_variante(cands, "vinilo tipo 2 blanco") == ""
+
+
+def test_default_palabra_normal_no_pregunta():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    # Variante "Normal" como marcador default: el base lleva la palabra default.
+    cands = _cands(
+        "Vinilo Tipo 2 Blanco Normal",
+        "Vinilo Tipo 2 Blanco Hueso",
+        "Vinilo Tipo 2 Blanco Manzana",
+    )
+    assert _detectar_ambiguedad_variante(cands, "vinilo tipo 2 blanco") == ""
+
+
+def test_sin_color_base_sigue_preguntando():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    # Sin color: "blanco" pasa a ser distintivo (hay otros colores) → NO hay base → pregunta.
+    cands = _cands(
+        "Vinilo Davinci T2 Blanco",
+        "Vinilo Davinci T2 Blanco Hueso",
+        "Vinilo Davinci T2 Lila",
+        "Vinilo Davinci T2 Ocre",
+    )
+    assert _detectar_ambiguedad_variante(cands, "vinilo tipo 2") != ""
+
+
+def test_calificador_alternativo_resuelve_a_hueso():
+    from ai.prompt_products import _detectar_ambiguedad_variante
+    cands = _cands(
+        "Vinilo Davinci T2 Blanco",
+        "Vinilo Davinci T2 Blanco Almendra",
+        "Vinilo Davinci T2 Blanco Hueso",
+        "Vinilo Davinci T2 Blanco Manzana",
+    )
+    # Nombra un calificador alternativo → especificó → no pregunta (resuelve hueso).
+    assert _detectar_ambiguedad_variante(cands, "vinilo tipo 2 hueso") == ""
+
+
 # ─────────────────────────────────────────────
 # Voz — turno de aclaración: reconstruir MATCH con el pedido ACUMULADO
 # ─────────────────────────────────────────────

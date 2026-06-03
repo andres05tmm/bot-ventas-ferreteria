@@ -90,6 +90,17 @@ _UNIDADES_MEDIDA = {
     "litro", "litros", "lt", "metro", "metros", "cm", "ml", "mililitros",
 }
 
+# Palabras "default" de variante: marcan la versión base de un producto cuando el
+# catálogo nombra la base con un calificador explícito ("Vinilo … Blanco Normal"
+# frente a "Blanco Hueso"). Si el vendedor da el término base SIN un calificador
+# alternativo (hueso, manzana…), la default resuelve sola y NO se pregunta. La base
+# también puede no llevar palabra ("Vinilo Davinci T2 Blanco" es la base frente a
+# "… Blanco Hueso"); ese caso lo cubre el conjunto vacío ⊆ _PALABRAS_DEFAULT.
+_PALABRAS_DEFAULT = {
+    "normal", "corriente", "comun", "común", "estandar", "estándar",
+    "base", "liso", "standard",
+}
+
 
 def _etiquetas_ambiguedad(opciones: list[str]) -> tuple[str, list[str], bool]:
     """
@@ -208,6 +219,13 @@ def _detectar_ambiguedad_variante(candidatos: list, mensaje_usuario: str) -> str
             continue
         # Si el mensaje YA contiene una palabra distintiva (un color) → especificó.
         if distintivas & msg_palabras:
+            continue
+        # VARIANTE DEFAULT — el vendedor dio el término base sin calificador.
+        # Si existe un candidato "base" cuyo único distintivo respecto al prefijo
+        # común es nada ("…Blanco") o una palabra default ("…Blanco Normal"), el
+        # vendedor pidió la versión base → se resuelve a ella, NO se pregunta.
+        # Ej: "vinilo tipo 2 blanco" con base "…T2 Blanco" + variantes Hueso/Manzana.
+        if any((s - comunes) <= _PALABRAS_DEFAULT for s in listas):
             continue
         return _nudge_ambiguo(miembros)
 
