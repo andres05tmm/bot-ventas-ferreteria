@@ -64,12 +64,12 @@ def run():
                     venta_id       INTEGER REFERENCES ventas(id) ON DELETE SET NULL,
                     numero         VARCHAR(30) NOT NULL,
                     cufe           VARCHAR(200),
-                    fecha_emision  TIMESTAMP DEFAULT NOW(),
+                    fecha_emision  TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'America/Bogota'),
                     estado         VARCHAR(20) DEFAULT 'emitida',
                     cliente_nombre VARCHAR(300),
                     total          INTEGER,
                     error_msg      TEXT,
-                    created_at     TIMESTAMP DEFAULT NOW()
+                    created_at     TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'America/Bogota')
                 );
             """)
             cur.execute(
