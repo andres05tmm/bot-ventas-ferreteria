@@ -311,11 +311,16 @@ def _get_token() -> str:
             follow_redirects=True,
         )
 
-        logger.info(
-            "Auth Matias API → HTTP %s | body: %s",
-            resp.status_code,
-            resp.text[:500] if resp.text else "(vacío)",
-        )
+        # El body del login trae el access_token: solo se loguea cuando el login
+        # falla (esa respuesta es un mensaje de error, no lleva credenciales).
+        if resp.status_code >= 400:
+            logger.error(
+                "Auth Matias API → HTTP %s | body: %s",
+                resp.status_code,
+                resp.text[:500] if resp.text else "(vacío)",
+            )
+        else:
+            logger.info("Auth Matias API → HTTP %s", resp.status_code)
 
         resp.raise_for_status()
 
@@ -336,7 +341,9 @@ def _get_token() -> str:
             (data.get("data") or {}).get("access_token")
         )
         if not token:
-            raise ValueError(f"No se encontró token en respuesta de auth: {data}")
+            # Se listan solo las claves: el body puede traer el token bajo un
+            # nombre inesperado y este error termina en los logs.
+            raise ValueError(f"No se encontró token en respuesta de auth (claves: {list(data)})")
 
         expires_at_str = data.get("expires_at")
         if expires_at_str:
