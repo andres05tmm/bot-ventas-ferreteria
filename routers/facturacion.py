@@ -178,7 +178,8 @@ async def estado_dian(numero: str, prefix: str = Query(default=None)):
     """
     from services.facturacion_service import consultar_estado_dian
     try:
-        data = await consultar_estado_dian(numero, prefix)
+        # Por nombre: el primer parámetro posicional de la función es el CUFE
+        data = await consultar_estado_dian(numero=numero, prefix=prefix)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     return data

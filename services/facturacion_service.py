@@ -1021,28 +1021,41 @@ async def consultar_estado_dian(cufe: str | None = None, numero: str | None = No
     """
     Consulta el estado de validación DIAN de un documento.
 
-    MATIAS API v3 tiene dos endpoints de estado:
-    - GET /status/document/{trackId} → PRODUCCIÓN — valida directamente contra DIAN
-    - GET /status?number=...         → consulta general por número/prefijo
+    MATIAS API v3 tiene dos endpoints de estado. El contrato real (verificado en
+    producción, julio 2026) NO coincide con la documentación:
+
+    - POST /status/document/{trackId} → valida contra DIAN. Responde 405 al GET,
+      igual que /documents/pdf.
+    - GET  /status?number=FPR290      → consulta por número. 'number' DEBE llevar
+      el prefijo: con "290" pelado responde 404.
+
+    Cuidado con GET /status: si el parámetro de número no le sirve (o falta),
+    devuelve el ÚLTIMO documento emitido con HTTP 200 en vez de fallar. Por eso
+    se verifica que el número devuelto sea el que se pidió.
     """
     import asyncio
     token = await asyncio.to_thread(_get_token)
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    esperado: str | None = None
 
     async with httpx.AsyncClient(timeout=20) as client:
-        # Si tenemos CUFE → /status/document/{trackId}
+        # Si tenemos CUFE → POST /status/document/{trackId}
         if cufe:
-            resp = await client.get(f"{MATIAS_API_URL}/status/document/{cufe}", headers=headers)
+            resp = await client.post(
+                f"{MATIAS_API_URL}/status/document/{cufe}", json={}, headers=headers
+            )
 
-        # Fallback por número → /status?number=...
+        # Fallback por número → GET /status?number=PREFIJO+NUMERO
         else:
-            params: dict = {}
-            if numero:
-                params["number"] = numero
-            if prefix:
-                params["prefix"] = prefix
-            elif MATIAS_PREFIX:
-                params["prefix"] = MATIAS_PREFIX
+            pre = prefix or MATIAS_PREFIX or ""
+            num = str(numero or "").strip()
+            if not num:
+                raise ValueError("consultar_estado_dian requiere cufe o numero")
+            esperado = num if num.upper().startswith(pre.upper()) else f"{pre}{num}"
+
+            params = {"number": esperado}
+            if pre:
+                params["prefix"] = pre
             resp = await client.get(f"{MATIAS_API_URL}/status", params=params, headers=headers)
 
     try:
@@ -1054,7 +1067,20 @@ async def consultar_estado_dian(cufe: str | None = None, numero: str | None = No
         msg = data.get("message") or str(data)
         raise RuntimeError(f"MATIAS API /status ({resp.status_code}): {msg}")
 
-    logger.info("Estado DIAN: %s", data.get("status") or data.get("StatusDescription") or "OK")
+    if esperado:
+        devuelto = (data.get("document") or {}).get("document_number")
+        if devuelto and devuelto != esperado:
+            raise RuntimeError(
+                f"MATIAS API /status devolvió {devuelto} en vez de {esperado} "
+                "— el filtro por número no se aplicó"
+            )
+
+    r = data.get("response") or {}
+    logger.info(
+        "Estado DIAN %s: %s",
+        esperado or (cufe or "")[:20],
+        r.get("StatusDescription") or data.get("status") or "OK",
+    )
     return data
 
 

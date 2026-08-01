@@ -248,15 +248,13 @@ async def comando_estado_factura(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     await update.message.reply_text(f"🔍 Consultando estado DIAN para *{numero}*...", parse_mode="Markdown")
 
-    from services.facturacion_service import consultar_estado_dian, MATIAS_PREFIX
+    from services.facturacion_service import consultar_estado_dian
 
     try:
-        # Si el número no incluye prefijo, lo agrega automáticamente
-        if not any(c.isalpha() for c in numero):
-            data = await consultar_estado_dian(numero, MATIAS_PREFIX)
-        else:
-            data = await consultar_estado_dian(numero)
-    except RuntimeError as e:
+        # Por nombre: el primer parámetro posicional de la función es el CUFE.
+        # El prefijo lo agrega la propia función si el número viene pelado.
+        data = await consultar_estado_dian(numero=numero)
+    except (RuntimeError, ValueError) as e:
         await update.message.reply_text(f"❌ Error consultando DIAN:\n{e}")
         return
 
@@ -267,7 +265,14 @@ async def comando_estado_factura(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         or data.get("status")
         or "Sin descripción"
     )
-    is_valid = data.get("is_valid") or data.get("IsValid") or data.get("success")
+    # 'success' solo dice que la consulta respondió; la validación DIAN viene en
+    # document.is_valid (consulta por número) o en response.IsValid (por CUFE).
+    is_valid = (
+        (data.get("document") or {}).get("is_valid")
+        or (data.get("response") or {}).get("IsValid") == "true"
+        or data.get("is_valid")
+        or data.get("IsValid")
+    )
     emoji    = "✅" if is_valid else "⚠️"
 
     await update.message.reply_text(
