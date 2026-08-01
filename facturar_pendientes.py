@@ -79,11 +79,60 @@ def _pendientes(desde: str, hasta: str) -> list[dict]:
     return [dict(r) for r in (rows or [])]
 
 
-async def run(desde: str, hasta: str, dry_run: bool, limite: int | None) -> int:
+def _ya_emitido(desde: str, hasta: str) -> int:
+    """Monto del rango que ya tiene FE emitida."""
+    row = _db.query_one(
+        """
+        SELECT COALESCE(SUM(total), 0) AS t
+        FROM ventas
+        WHERE fecha BETWEEN %s AND %s AND factura_estado = 'emitida'
+        """,
+        (desde, hasta),
+    )
+    return int((row or {}).get("t") or 0)
+
+
+def _seleccionar_hasta(ventas: list[dict], falta: int) -> list[dict]:
+    """
+    Elige ventas en orden cronológico sin pasarse del monto objetivo.
+    Salta la venta que se pasaría y sigue con la siguiente, así los tickets
+    pequeños del final rellenan el resto.
+
+    ponytail: greedy, no subset-sum exacto. Con cientos de tickets pequeños
+    queda a unos pocos miles de pesos; si algún día hace falta el ajuste
+    perfecto, ahí sí toca DP.
+    """
+    elegidas, acum = [], 0
+    for v in ventas:
+        t = int(v["total"] or 0)
+        if acum + t <= falta:
+            elegidas.append(v)
+            acum += t
+            if acum == falta:
+                break
+    return elegidas
+
+
+async def run(desde: str, hasta: str, dry_run: bool, limite: int | None,
+              objetivo: int | None) -> int:
     from services.facturacion_service import emitir_factura
 
     hoy       = datetime.now(COLOMBIA_TZ).strftime("%Y-%m-%d")
     ventas    = _pendientes(desde, hasta)
+
+    if objetivo:
+        emitido = _ya_emitido(desde, hasta)
+        falta   = objetivo - emitido
+        log.info("Objetivo del rango: $%s | ya emitido: $%s | falta: $%s",
+                 f"{objetivo:,}", f"{emitido:,}", f"{falta:,}")
+        if falta <= 0:
+            log.info("El objetivo ya está cubierto — nada que emitir.")
+            return 0
+        ventas = _seleccionar_hasta(ventas, falta)
+        sel    = sum(int(v["total"] or 0) for v in ventas)
+        log.info("Seleccionadas %s ventas por $%s → quedaría en $%s (dif: $%s)",
+                 len(ventas), f"{sel:,}", f"{emitido + sel:,}", f"{objetivo - emitido - sel:,}")
+
     if limite:
         ventas = ventas[:limite]
 
@@ -134,10 +183,13 @@ if __name__ == "__main__":
     ap.add_argument("--hasta",   required=True, help="Fecha final YYYY-MM-DD (fecha de la venta)")
     ap.add_argument("--dry-run", action="store_true", help="Solo lista, no emite nada")
     ap.add_argument("--limite",  type=int, default=None, help="Emitir solo las primeras N (prueba)")
+    ap.add_argument("--objetivo", type=int, default=None,
+                    help="Monto total facturado al que debe llegar el rango (COP). "
+                         "Descuenta lo ya emitido y elige ventas sin pasarse.")
     args = ap.parse_args()
 
     if not _db.init_db():
         log.error("❌ No se pudo conectar a la DB. Verifica DATABASE_URL.")
         sys.exit(1)
 
-    sys.exit(asyncio.run(run(args.desde, args.hasta, args.dry_run, args.limite)))
+    sys.exit(asyncio.run(run(args.desde, args.hasta, args.dry_run, args.limite, args.objetivo)))
