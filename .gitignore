@@ -32,3 +32,4 @@ legacy/
 
 # ── Documentos binarios sueltos (no versionar) ──
 *.docx
+*.log

@@ -478,9 +478,16 @@ def _validar_bases_antes_envio(payload: dict) -> None:
 
 # ── Armado del payload ────────────────────────────────────────────────────────
 
-def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
+def _armar_payload(
+    venta: dict, detalle: list[dict], num_dian: int,
+    fecha_emision: str | None = None,
+) -> dict:
     """
     Construye el JSON de factura para MATIAS API v3.
+
+    fecha_emision: fecha DIAN del documento (YYYY-MM-DD). Por defecto se usa la
+    fecha de la venta. Se pasa explícita al facturar ventas atrasadas, donde el
+    documento debe salir con la fecha del día en que realmente se emite.
 
     Cambios vs versión anterior:
     - currency_id: 272 (COP) agregado — recomendado en habilitación DIAN
@@ -727,7 +734,7 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
         "resolution_number":      MATIAS_RESOLUTION,
         "prefix":                 MATIAS_PREFIX,
         "document_number":        str(num_dian),
-        "date":                   str(venta["fecha"])[:10],
+        "date":                   (fecha_emision or str(venta["fecha"]))[:10],
         "time":                   ahora.strftime("%H:%M:%S"),
         "type_document_id":       7,    # Factura electrónica (según documentación oficial)
         "operation_type_id":      1,    # FIX: Siempre 1 (Factura Normal) — identity_document_id define CF/Normal
@@ -759,9 +766,14 @@ def _armar_payload(venta: dict, detalle: list[dict], num_dian: int) -> dict:
 
 # ── Función principal ─────────────────────────────────────────────────────────
 
-async def emitir_factura(venta_id: int) -> dict:
+async def emitir_factura(venta_id: int, fecha_emision: str | None = None) -> dict:
     """
     Emite la factura electrónica DIAN para una venta ya registrada en PostgreSQL.
+
+    fecha_emision: fecha DIAN del documento (YYYY-MM-DD). Por defecto, la fecha
+    de la venta. Se pasa explícita al facturar ventas atrasadas (ver
+    facturar_pendientes.py), donde la DIAN debe recibir la fecha real de emisión.
+
     Retorna: { "ok": True,  "cufe": "...", "numero": "FPR1" }
           o  { "ok": False, "error": "mensaje legible" }
     """
@@ -806,7 +818,7 @@ async def emitir_factura(venta_id: int) -> dict:
             detalle  = cur.fetchall()
             num_dian = _siguiente_num_dian(cur)
 
-    payload = _armar_payload(dict(venta), [dict(d) for d in detalle], num_dian)
+    payload = _armar_payload(dict(venta), [dict(d) for d in detalle], num_dian, fecha_emision)
     numero  = f"{MATIAS_PREFIX}{num_dian}"
 
     import asyncio
