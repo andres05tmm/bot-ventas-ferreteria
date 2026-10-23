@@ -19,6 +19,10 @@ config = context.config
 _db_url = os.getenv("DATABASE_URL", "").strip()
 if _db_url.startswith("postgres://"):
     _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+# Driver explícito: la app usa psycopg2 (requirements.txt). SQLAlchemy 2.1 cambió
+# el driver por defecto de "postgresql://" a psycopg (v3), que no está instalado.
+if _db_url.startswith("postgresql://"):
+    _db_url = _db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 if _db_url:
     config.set_main_option("sqlalchemy.url", _db_url)
 
