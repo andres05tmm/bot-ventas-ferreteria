@@ -230,14 +230,17 @@ def generar_ticket(catalogo: list[dict], objetivo: int,
     for i in respaldo:
         usos[i["producto_id"]] = usos.get(i["producto_id"], 0) + 1
     if respaldo:
-        # Un producto sale en UNA sola factura del día, y ningún monto se repite.
+        # Un producto sale en hasta MAX_USOS_DIA facturas del día, y ningún monto se repite.
         _TOTALES_VISTOS.add(sum(i["total"] for i in respaldo))
-        gastados = {i["producto_id"] for i in respaldo}
-        catalogo[:] = [p for p in catalogo if p["id"] not in gastados]
+        for i in respaldo:
+            _USOS_DIA[i["producto_id"]] = _USOS_DIA.get(i["producto_id"], 0) + 1
+        catalogo[:] = [p for p in catalogo if _USOS_DIA.get(p["id"], 0) < MAX_USOS_DIA]
     return respaldo
 
 
 _TOTALES_VISTOS: set[int] = set()
+_USOS_DIA: dict[int, int] = {}  # producto_id → facturas del día en que ya salió
+MAX_USOS_DIA = 1                # --max-usos-dia; 1 = cada producto en UNA sola factura
 
 
 def _descontar_lo_ya_emitido(catalogo: list[dict], fecha_v: date) -> None:
@@ -246,15 +249,16 @@ def _descontar_lo_ya_emitido(catalogo: list[dict], fecha_v: date) -> None:
 
     rows = _db.query_all(
         """
-        SELECT v.total, d.producto_id
+        SELECT v.id, v.total, d.producto_id
         FROM ventas v JOIN ventas_detalle d ON d.venta_id = v.id
         WHERE v.fecha = %s AND v.vendedor = %s
         """,
         (str(fecha_v), VENDEDOR),
     ) or []
     _TOTALES_VISTOS.update(int(r["total"]) for r in rows)
-    gastados = {r["producto_id"] for r in rows}
-    catalogo[:] = [p for p in catalogo if p["id"] not in gastados]
+    for _venta_id, pid in {(r["id"], r["producto_id"]) for r in rows}:
+        _USOS_DIA[pid] = _USOS_DIA.get(pid, 0) + 1
+    catalogo[:] = [p for p in catalogo if _USOS_DIA.get(p["id"], 0) < MAX_USOS_DIA]
 
 
 # ── Inserción en PostgreSQL ───────────────────────────────────────────────────
@@ -385,6 +389,8 @@ async def _main(args) -> None:
         log.error("La DIAN rechaza documentos con fecha futura (%s > %s).", fecha_v, hoy)
         sys.exit(1)
 
+    global MAX_USOS_DIA
+    MAX_USOS_DIA = args.max_usos_dia
     _descontar_lo_ya_emitido(catalogo, fecha_v)
 
     log.info("=" * 64)
@@ -487,4 +493,6 @@ if __name__ == "__main__":
     ap.add_argument("--limite", type=int, default=0)
     ap.add_argument("--target", type=int, default=TARGET_TOTAL)
     ap.add_argument("--fecha", type=str, default=None)
+    ap.add_argument("--max-usos-dia", type=int, default=1,
+                    help="en cuántas facturas del día puede salir un mismo producto")
     asyncio.run(_main(ap.parse_args()))
